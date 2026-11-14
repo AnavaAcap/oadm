@@ -35,8 +35,13 @@ public sealed partial class PkiService
     private ServerChoiceCache? _serverChoices; // one reference: never a torn read of its fields across threads
     private int _revocations; // counts the changes of the revocation list (the cache of the choices follows it)
 
-    /// <summary>"The 802.1X server" or "The EST server".</summary>
-    private static string ServerText(string kind) => kind == PolicyKinds.Dot1xServer ? "The 802.1X server" : "The EST server";
+    /// <summary>"The 802.1X server", "The EST server" or "The MCP server".</summary>
+    private static string ServerText(string kind) => kind switch
+    {
+        PolicyKinds.Dot1xServer => "The 802.1X server",
+        PolicyKinds.McpServer => "The MCP server",
+        _ => "The EST server",
+    };
 
     /// <summary>
     /// The certificates of the list with a key OADM holds, each with what it names; ended ones and ones that are no server
@@ -379,6 +384,63 @@ public sealed partial class PkiService
 
     private void OnRevocationChanged(object? sender, EventArgs e) => Interlocked.Increment(ref _revocations);
 
+    /// <summary>The Certificates list changed (a server loads its certificate again).</summary>
+    internal event EventHandler? LocalCertificatesChanged
+    {
+        add => _local.Changed += value;
+        remove => _local.Changed -= value;
+    }
+
     /// <summary><see cref="ServerCertificateChoices"/> of one list, day and revocation list.</summary>
     private sealed record ServerChoiceCache(IReadOnlyList<LocalCertificate> List, DateTime Day, int Revocations, IReadOnlyList<PolicyCertificateChoice> Choices);
+}
+
+/// <summary>
+/// PKI's <see cref="IServerCertificates"/>, offered through the plugin services while PKI runs: the certificate the MCP server
+/// policy picks, for the host's MCP server (docs/spec/mcp.md "Transport and certificate").
+/// </summary>
+internal sealed class PkiServerCertificates : IServerCertificates
+{
+    private readonly PkiService _service;
+
+    public PkiServerCertificates(PkiService service)
+    {
+        _service = service;
+        service.Policies.Changed += (_, _) => Changed?.Invoke(this, EventArgs.Empty);
+        service.LocalCertificatesChanged += (_, _) => Changed?.Invoke(this, EventArgs.Empty);
+        service.RevocationChanged += (_, _) => Changed?.Invoke(this, EventArgs.Empty);
+    }
+
+    public event EventHandler? Changed;
+
+    public Task<HostServerCertificate> LoadAsync(string server, CancellationToken ct)
+    {
+        if (!string.Equals(server, HostServers.Mcp, StringComparison.Ordinal))
+        {
+            return Task.FromResult(new HostServerCertificate([], "PKI has no policy for this server."));
+        }
+
+        var load = _service.ServerCertificateOf(PolicyKinds.McpServer);
+        if (load.Material is not { } material)
+        {
+            return Task.FromResult(new HostServerCertificate([], load.Problem));
+        }
+
+        var chain = new List<X509Certificate2>();
+        try
+        {
+            chain.Add(LocalCertificates.WithKey(material.Leaf, material.Pkcs8));
+            chain.AddRange(material.IssuerChain.Select(X509CertificateLoader.LoadCertificate));
+            return Task.FromResult(new HostServerCertificate(chain, null));
+        }
+        catch (CryptographicException)
+        {
+            chain.ForEach(c => c.Dispose());
+            return Task.FromResult(new HostServerCertificate([], PolicyTexts.ServerCertificateUnusable("The MCP server", "it cannot be read.")));
+        }
+        finally
+        {
+            CryptographicOperations.ZeroMemory(material.Pkcs8);
+        }
+    }
 }

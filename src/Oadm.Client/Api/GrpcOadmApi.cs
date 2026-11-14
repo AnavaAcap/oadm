@@ -708,6 +708,21 @@ public sealed class GrpcOadmApi : IOadmApi, IDisposable
 
     public async Task<ProLicenseState> GetLicenseAsync(CancellationToken ct) => await C.License.GetLicenseAsync(new Empty(), cancellationToken: ct);
 
+    public async Task<McpState> GetMcpAsync(CancellationToken ct) => await C.Mcp.GetAsync(new Empty(), cancellationToken: ct);
+
+    public async Task<McpState> SetMcpAsync(McpSettings settings, CancellationToken ct) => await C.Mcp.SetAsync(settings, cancellationToken: ct);
+
+    public async Task<McpCaCertificate> GetMcpCaCertificateAsync(CancellationToken ct) => await C.Mcp.GetCaCertificateAsync(new Empty(), cancellationToken: ct);
+
+    public async Task<IReadOnlyList<AccessKey>> ListAccessKeysAsync(bool everyUser, CancellationToken ct) =>
+        (everyUser ? await C.AccessKeys.ListAllAsync(new Empty(), cancellationToken: ct) : await C.AccessKeys.ListMineAsync(new Empty(), cancellationToken: ct)).Keys;
+
+    public async Task<CreatedAccessKey> CreateAccessKeyAsync(string name, int days, bool readsOnly, CancellationToken ct) =>
+        await C.AccessKeys.CreateAsync(new CreateAccessKeyRequest { Name = name, Days = days, ReadOnly = readsOnly }, cancellationToken: ct);
+
+    public async Task<IReadOnlyList<AccessKey>> DeleteAccessKeyAsync(string id, bool anyUser, CancellationToken ct) =>
+        (anyUser ? await C.AccessKeys.DeleteAnyAsync(new AccessKeyIdRequest { Id = id }, cancellationToken: ct) : await C.AccessKeys.DeleteAsync(new AccessKeyIdRequest { Id = id }, cancellationToken: ct)).Keys;
+
     public Task<Oadm.Sdk.Plugins.PluginDownload> CreateSupportReportAsync(CancellationToken ct) =>
         OpenDownloadAsync(C.Support.CreateReport(new Empty(), cancellationToken: CancellationToken.None), ct);
 
@@ -867,5 +882,7 @@ public sealed class GrpcOadmApi : IOadmApi, IDisposable
         public SupportService.SupportServiceClient Support { get; } = new(channel);
         public SiteService.SiteServiceClient Sites { get; } = new(channel);
         public UpdateService.UpdateServiceClient Update { get; } = new(channel);
+        public McpService.McpServiceClient Mcp { get; } = new(channel);
+        public AccessKeyService.AccessKeyServiceClient AccessKeys { get; } = new(channel);
     }
 }

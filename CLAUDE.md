@@ -187,9 +187,12 @@ must never break.
   Turn on on its tab of the PKI page, runs only with OADM PRO): RADIUS on UDP 1812 with EAP-TLS for the switch ports,
   only devices OADM manages with a certificate of a CA of an 802.1X trusted CA policy pass; its rules (its certificate,
   TLS, trusted CAs, VLAN, Block) are PKI's policies (docs/spec/pki.md), never settings of its own.
-- **[MCP server](docs/spec/mcp.md)** (spec, not built): AI agents do what a user can in the client, through the server's
-  gRPC services with an access key (the user's role and device group); off by default, own port with a PKI certificate;
-  every change is preview then run; never all devices in a result; no secrets over MCP; rights and settings GUI only.
+- **[MCP server](docs/spec/mcp.md)** (stage 1 built: the endpoint, access keys and the read tools; stages 2 to 4 not built):
+  AI agents do what a user can in the client, through the server's gRPC services in process with an access key (the
+  user's role and device group, `InProcessCalls`); off by default, own port (TCP 5082) with the certificate of the PKI
+  policy MCP server; access keys stored only as SHA-256, never a session; every change is preview then run; never all
+  devices in a result (pages with the total and a cursor, answers at most 32 KB); no secrets over MCP; rights and settings
+  GUI only.
 - **[Load test](docs/spec/load-test.md)** (core plugin `oadm.load-test`, off by default): a load test of the chosen
   cameras and the network to the server, at most 1,000 camera streams per check in batches of at most 200; the exposure
   is the only write and always goes back.

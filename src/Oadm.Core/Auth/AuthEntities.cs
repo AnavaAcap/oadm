@@ -111,7 +111,17 @@ public sealed class RoleEntity
     public override string ToString() => $"Role {Name} ({Kind})";
 }
 
-/// <summary>A login session (table AuthTokens): only the SHA-256 of the token is stored.</summary>
+/// <summary>What a row of AuthTokens is (migration <c>AccessKeys</c>).</summary>
+public enum AuthTokenKind
+{
+    /// <summary>A login session of the client (gRPC).</summary>
+    Session = 0,
+
+    /// <summary>An access key of an AI agent (the MCP server only, docs/spec/mcp.md "Access keys").</summary>
+    AccessKey = 1,
+}
+
+/// <summary>A login session or an access key (table AuthTokens): only the SHA-256 of the token is stored.</summary>
 public sealed class AuthTokenEntity
 {
     /// <summary>Lower-case hex SHA-256 of the token.</summary>
@@ -125,8 +135,20 @@ public sealed class AuthTokenEntity
 
     public DateTime CreatedUtc { get; set; }
 
-    /// <summary>Sliding: moved forward on use (written at most once per minute).</summary>
+    /// <summary>Sliding for sessions: moved forward on use (written at most once per minute). Fixed for access keys.</summary>
     public DateTime ExpiresUtc { get; set; }
+
+    /// <summary>A session or an access key; a session token never works as an access key and the other way round.</summary>
+    public AuthTokenKind Kind { get; set; }
+
+    /// <summary>The name of an access key (1..64, unique per user); empty for sessions.</summary>
+    public string Name { get; set; } = string.Empty;
+
+    /// <summary>An access key for reading only: no tool that changes something is listed or runs.</summary>
+    public bool ReadOnly { get; set; }
+
+    /// <summary>The last call with an access key (written at most once per minute); null: never used.</summary>
+    public DateTime? LastUsedUtc { get; set; }
 }
 
 /// <summary>One audit log entry (table AuditEntries).</summary>

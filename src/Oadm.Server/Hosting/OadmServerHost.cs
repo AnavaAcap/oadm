@@ -96,6 +96,7 @@ public static partial class OadmServerHost
                 .MinimumLevel.Override("Microsoft.EntityFrameworkCore", LogEventLevel.Warning)
                 .MinimumLevel.Override("System.Net.Http", LogEventLevel.Warning) // never log auth headers
                 .MinimumLevel.Override("Grpc", LogEventLevel.Warning)
+                .MinimumLevel.Override("ModelContextProtocol", LogEventLevel.Warning) // the MCP SDK: never request contents
                 .ReadFrom.Configuration(sp.GetRequiredService<IConfiguration>())
                 .Enrich.FromLogContext()
                 // Capped (never fills the disk): a new file per day or at 20 MB, files of the last 14 days, at most 30
@@ -146,6 +147,8 @@ public static partial class OadmServerHost
         app.MapGrpcService<Logging.ServerLogGrpcService>();
         app.MapGrpcService<Sites.SiteGrpcService>();
         app.MapGrpcService<Updates.UpdateGrpcService>();
+        app.MapGrpcService<AccessKeyGrpcService>();
+        app.MapGrpcService<Mcp.McpGrpcService>();
         if (app.Environment.IsDevelopment())
         {
             app.MapGrpcReflectionService();
@@ -187,6 +190,28 @@ public static partial class OadmServerHost
         services.AddSingleton<CallerStreams>();
         services.AddSingleton<LoginAddressLimit>();
         services.AddHostedService<AuthMaintenanceHostedService>();
+
+        // AI agents (docs/spec/mcp.md): access keys, the MCP server on its own port (off by default) and its tools, which call the
+        // gRPC services in process as the key's user.
+        services.AddSingleton<InProcessCalls>();
+        services.AddSingleton<Mcp.McpCursors>();
+        services.AddSingleton<Mcp.McpAccess>();
+        services.AddSingleton(sp =>
+        {
+            var roles = sp.GetRequiredService<Core.Auth.RoleStore>();
+            var cursors = sp.GetRequiredService<Mcp.McpCursors>();
+            var feed = sp.GetRequiredService<IDeviceChangeFeed>();
+            return new Mcp.McpTools(
+                [
+                    Mcp.ServerInfoTool.Create(() => roles.Catalog),
+                    .. Mcp.DeviceTools.Create(cursors, () => feed is DeviceChangeFeed changes ? changes.MembershipVersion : 0),
+                    .. Mcp.TaskTools.Create(cursors),
+                    .. Mcp.LogTools.Create(cursors),
+                ],
+                sp.GetRequiredService<InProcessCalls>(), roles);
+        });
+        services.AddSingleton(sp => new Mcp.McpListener(sp, sp.GetRequiredService<ServerSettingsStore>(), sp.GetRequiredService<PluginServiceRegistry>(),
+            sp.GetRequiredService<TimeProvider>(), sp.GetRequiredService<ILogger<Mcp.McpListener>>(), firewall: sp.GetService<Sdk.Network.IFirewallRules>()));
 
         // Installed service (SYSTEM / root): admin-only folders, firewall rules of the NTP and DHCP plugins (Windows).
         var serviceMode = options.ServiceMode ?? ServiceHosting.IsRunningAsService();
@@ -801,6 +826,11 @@ public static partial class OadmServerHost
         sp.GetRequiredService<PluginActivation>().FollowAddedPackages();
         registry.MarkStarted();
 
+        // 4e. AI agents: the MCP server's port opens when it is on and PKI gives it a certificate (it follows PKI from here).
+        var mcp = sp.GetRequiredService<Mcp.McpListener>();
+        registry.EnabledChanged += (_, _) => _ = mcp.ApplyInBackgroundAsync();
+        await mcp.StartAsync(ct).ConfigureAwait(false);
+
         // 5. Background services and Kestrel.
         var listenUrl = options.ListenUrl
             ?? app.Configuration["Oadm:ListenUrl"]
@@ -832,6 +862,7 @@ public static partial class OadmServerHost
     {
         ArgumentNullException.ThrowIfNull(app);
         var sp = app.Services;
+        await sp.GetRequiredService<Mcp.McpListener>().DisposeAsync().ConfigureAwait(false); // no agent call after this
         await app.StopAsync(ct).ConfigureAwait(false);
         await sp.GetRequiredService<Core.Compliance.ComplianceEngine>().DisposeAsync().ConfigureAwait(false);
         await sp.GetRequiredService<Core.Sites.SiteStatusPublisher>().DisposeAsync().ConfigureAwait(false);

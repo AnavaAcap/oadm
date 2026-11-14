@@ -538,6 +538,12 @@ public sealed partial class PolicyStore : IDisposable
     /// <summary>A server is turned on (its own start makes the server certificate).</summary>
     public bool AnyServerTurnedOn => _serverSwitches.Values.Any(on => on());
 
+    /// <summary>
+    /// The names of this computer (its addresses and host name), set by PKI: the MCP server policy refuses a certificate that
+    /// names none of them (docs/spec/mcp.md "Transport and certificate"). Null: not checked.
+    /// </summary>
+    public Func<IReadOnlyList<string>>? McpServerNames { get; set; }
+
     /// <summary>Why a server policy cannot show the certificate it picks; null when it can.</summary>
     private string? CertificateRefusal(PkiPolicy policy)
     {
@@ -545,7 +551,19 @@ public sealed partial class PolicyStore : IDisposable
         return choice is null ? PolicyTexts.CertificateGone
             : choice.Problem is { } problem ? problem
             : !choice.UsableFor(policy.Kind) ? PolicyTexts.Dot1xServerNeedsEccCertificate
+            : policy.Kind == PolicyKinds.McpServer && !NamesThisServer(choice.Names) ? PolicyTexts.McpServerNamesNotInCertificate
             : null;
+    }
+
+    /// <summary>
+    /// The certificate names one of this computer's addresses or its host name, also as a full name ("server01.example.com"
+    /// for the host SERVER01); true when PKI gives no names.
+    /// </summary>
+    private bool NamesThisServer(IReadOnlyList<string> names)
+    {
+        var own = McpServerNames?.Invoke();
+        return own is null || own.Count == 0 || names.Any(n => own.Any(o => string.Equals(n, o, StringComparison.OrdinalIgnoreCase)
+            || (!System.Net.IPAddress.TryParse(o, out _) && n.StartsWith(o + ".", StringComparison.OrdinalIgnoreCase))));
     }
 
     /// <summary>The server policy that shows the certificate <paramref name="certificateId"/>; null when none does (it can then be deleted).</summary>
@@ -760,6 +778,7 @@ public sealed partial class PolicyStore : IDisposable
             PolicyKinds.Dot1xCertificate => $"Enable IEEE 802.1X issues certificates from {ca}, {Issued(policy)}. {SignsInAs(policy)}"
                 + (policy.RadiusCaId is { } radius ? $" Cameras check the RADIUS server with {CaName(radius, caNames)}." : string.Empty),
             PolicyKinds.EstServer => $"The EST server {shows}.",
+            PolicyKinds.McpServer => $"The MCP server for AI agents {shows}.",
             PolicyKinds.Dot1xServer => string.Create(CultureInfo.CurrentCulture,
                 $"The 802.1X server {shows}. It accepts TLS {policy.MinimumTls} or later with secure cipher suites, sends EAP packets of up to {policy.LargestEapPacket ?? 0:N0} bytes and ")
                 + (policy.ReauthMinutes is { } minutes

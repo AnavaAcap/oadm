@@ -210,13 +210,13 @@ public sealed class IssuingPolicyTests
         await using (var pki = await PkiHarness.StartAsync(settings))
         {
             Assert.Equal(
-                ["All devices", "802.1X server", "OADM CA", "HTTPS", "IEEE 802.1X", "EST server"],
+                ["All devices", "802.1X server", "OADM CA", "HTTPS", "IEEE 802.1X", "EST server", "MCP server"],
                 pki.Policies.All.Select(p => p.Name));
             Assert.Equal(45, pki.Policies.FirstOf(PolicyKinds.ExpiryWarning)!.Days); // nothing of stage 3 converted again
-            Assert.Equal(["oadm.pki", "oadm.radius", PkiService.IssuingOwner, PkiService.RadiusCaOwner, PolicyStore.PreviousCasOwner], pki.Policies.Converted);
+            Assert.Equal(["oadm.pki", "oadm.radius", PkiService.IssuingOwner, PkiService.McpServerOwner, PkiService.RadiusCaOwner, PolicyStore.PreviousCasOwner], pki.Policies.Converted);
         }
 
         await using var again = await PkiHarness.StartAsync(settings);
-        Assert.Equal(6, again.Policies.All.Count); // idempotent
+        Assert.Equal(7, again.Policies.All.Count); // idempotent
     }
 }

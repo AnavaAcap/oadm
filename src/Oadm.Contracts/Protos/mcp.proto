@@ -1,0 +1,87 @@
+syntax = "proto3";
+package oadm.v1;
+option csharp_namespace = "Oadm.Contracts.V1";
+import "Protos/common.proto";
+import "google/protobuf/timestamp.proto";
+
+// The MCP server for AI agents (docs/spec/mcp.md), the Settings card AI agents. Off by default; its certificate is the one
+// PKI's policy MCP server picks. Every signed-in user reads the state and the CA certificate; changing it is Administrator
+// only (users with all devices), audited like the other server settings.
+service McpService {
+  rpc Get (Empty) returns (McpState);
+  // Turn on or off, the port and Listen on. INVALID_ARGUMENT for a port outside 1025..65535 or an unknown interface,
+  // FAILED_PRECONDITION "Turn on PKI to choose the certificate." for Turn on while PKI does not run.
+  rpc Set (McpSettings) returns (McpState);
+  // The CA certificates of the MCP server's certificate (PEM) for the agent's computer; NOT_FOUND without a certificate.
+  rpc GetCaCertificate (Empty) returns (McpCaCertificate);
+}
+
+message McpSettings {
+  bool enabled = 1;
+  int32 port = 2;          // 1025..65535, default 5082
+  string listen_on = 3;    // an interface id; empty or "all" = every interface
+}
+
+message McpInterface {
+  string id = 1;
+  string label = 2;        // "Ethernet - 10.0.0.17 (Intel I219)"
+  string name = 3;
+  repeated string addresses = 4;
+}
+
+message McpState {
+  McpSettings settings = 1;
+  bool running = 2;                       // the port is open
+  // "Running on port 5082", "Off", "Turn on PKI to choose the certificate.", "The MCP server has no certificate. Choose
+  // one in its policy.", "Port 5082 cannot be opened: ..."
+  string status = 3;
+  bool pki_available = 4;                 // PKI runs: the policy MCP server can pick a certificate
+  string certificate = 5;                 // "MCP server (OADM Root CA SERVER01), until 2036-11-14"; empty without one
+  repeated string certificate_names = 6;  // the addresses and names the certificate holds
+  repeated McpInterface interfaces = 7;   // the choices of Listen on (administrators only)
+  bool has_ca_certificate = 8;            // GetCaCertificate has something to give
+}
+
+message McpCaCertificate {
+  string file_name = 1;   // oadm-ca.pem
+  string pem = 2;
+}
+
+// Access keys of AI agents (docs/spec/mcp.md "Access keys"): every user lists and deletes their own; creating one needs
+// "Use AI agents" (mcp.use); administrators list and delete the keys of every user (Permissions page). A key is shown once,
+// in the reply of Create; the server keeps only its SHA-256.
+service AccessKeyService {
+  rpc ListMine (Empty) returns (AccessKeyList);
+  // INVALID_ARGUMENT with the field's text (name, days), RESOURCE_EXHAUSTED at 20 keys of the user.
+  rpc Create (CreateAccessKeyRequest) returns (CreatedAccessKey);
+  // One of the caller's own keys; NOT_FOUND for an unknown id (also another user's key). Returns the caller's keys.
+  rpc Delete (AccessKeyIdRequest) returns (AccessKeyList);
+  rpc ListAll (Empty) returns (AccessKeyList);
+  // Any user's key; returns every key.
+  rpc DeleteAny (AccessKeyIdRequest) returns (AccessKeyList);
+}
+
+message AccessKey {
+  string id = 1;                              // opaque, never the key or its hash
+  string user_name = 2;
+  string name = 3;
+  bool read_only = 4;
+  google.protobuf.Timestamp created = 5;
+  google.protobuf.Timestamp expires = 6;
+  google.protobuf.Timestamp last_used = 7;    // unset: never used
+}
+
+message AccessKeyList { repeated AccessKey keys = 1; }
+
+message CreateAccessKeyRequest {
+  string name = 1;        // 1..64, unique per user
+  int32 days = 2;         // 30, 90 or 365
+  bool read_only = 3;
+}
+
+message CreatedAccessKey {
+  AccessKey key = 1;
+  string secret = 2;      // the key itself, only in this reply ("oadm_" + 32 random bytes, base64url)
+}
+
+message AccessKeyIdRequest { string id = 1; }

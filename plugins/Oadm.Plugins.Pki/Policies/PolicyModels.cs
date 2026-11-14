@@ -47,6 +47,9 @@ public static class PolicyKinds
     /// <summary>The EST server's certificate: CA, valid days, key (one only).</summary>
     public const string EstServer = "estServer";
 
+    /// <summary>The certificate of the host's MCP server for AI agents (one only, not PRO; docs/spec/mcp.md).</summary>
+    public const string McpServer = "mcpServer";
+
     /// <summary>"802.1X trusted CA": certificates of a CA may pass the 802.1X server.</summary>
     public const string AllowCa = "allowCa";
 
@@ -68,7 +71,7 @@ public static class PolicyKinds
     public const string SignInCa = "signInCa";
 
     /// <summary>Every kind in the order of the editor's choice and the card (by group).</summary>
-    public static IReadOnlyList<string> All { get; } = [HttpsCertificate, Dot1xCertificate, ExpiryWarning, Dot1xServer, AllowCa, Vlan, Block, EstServer, Enrollment, SignInCa];
+    public static IReadOnlyList<string> All { get; } = [HttpsCertificate, Dot1xCertificate, ExpiryWarning, Dot1xServer, AllowCa, Vlan, Block, EstServer, Enrollment, SignInCa, McpServer];
 
     public static bool IsKnown(string? kind) => kind is not null && All.Contains(kind, StringComparer.Ordinal);
 
@@ -79,6 +82,7 @@ public static class PolicyKinds
         Dot1xCertificate => "IEEE 802.1X certificate",
         Dot1xServer => "802.1X server",
         EstServer => "EST server",
+        McpServer => "MCP server",
         AllowCa => "802.1X trusted CA",
         Vlan => "VLAN",
         Block => "Block",
@@ -102,10 +106,10 @@ public static class PolicyKinds
     public static bool IsIssuing(string? kind) => kind is HttpsCertificate or Dot1xCertificate;
 
     /// <summary>
-    /// A server kind (802.1X server, EST server): the policy picks the certificate the server shows from PKI's Certificates
-    /// list (<see cref="PkiPolicy.CertificateId"/>; decision 2026-10-25), no CA, days or key of its own.
+    /// A server kind (802.1X server, EST server, MCP server): the policy picks the certificate the server shows from PKI's
+    /// Certificates list (<see cref="PkiPolicy.CertificateId"/>; decision 2026-10-25), no CA, days or key of its own.
     /// </summary>
-    public static bool IsServer(string? kind) => kind is Dot1xServer or EstServer;
+    public static bool IsServer(string? kind) => kind is Dot1xServer or EstServer or McpServer;
 
     /// <summary>
     /// A kind only the OADM PRO servers read (the two server policies, 802.1X access, EST enrollment): the Policies tab hides
@@ -126,13 +130,13 @@ public static class PolicyKinds
     public static bool AllowsAllDevices(string kind) => HasDevices(kind);
 
     /// <summary>At most one policy of the kind.</summary>
-    public static bool OneOnly(string kind) => kind is Dot1xServer or EstServer;
+    public static bool OneOnly(string kind) => kind is Dot1xServer or EstServer or McpServer;
 
     /// <summary>
     /// The kind has system policies (decision 2026-10-25): OADM needs them, they cannot be deleted, their values stay
     /// editable. The first (oldest) of the kind.
     /// </summary>
-    public static bool HasSystemPolicy(string kind) => kind is HttpsCertificate or Dot1xCertificate or Dot1xServer or EstServer or ExpiryWarning or Enrollment;
+    public static bool HasSystemPolicy(string kind) => kind is HttpsCertificate or Dot1xCertificate or Dot1xServer or EstServer or McpServer or ExpiryWarning or Enrollment;
 
     /// <summary>A kind of the 802.1X server (its page counts them: "6 policies apply").</summary>
     public static bool IsDot1x(string kind) => GroupOf(kind) == PolicyGroups.Dot1x;
@@ -153,6 +157,7 @@ public static class PolicyKinds
         Dot1xCertificate => "Certificates for IEEE 802.1X from Enable IEEE 802.1X and the EST server.",
         Dot1xServer => "The certificate and the TLS settings of the 802.1X server.",
         EstServer => "The certificate of the EST server.",
+        McpServer => "The certificate of the server AI agents connect to.",
         AllowCa => "Certificates of this CA may pass the 802.1X server.",
         Vlan => "The 802.1X server puts these devices in this VLAN.",
         Block => "The 802.1X server refuses these devices, also with a valid certificate.",
@@ -193,6 +198,7 @@ public static class PolicyLimits
     public const string Dot1xName = "IEEE 802.1X";
     public const string Dot1xServerCertificateName = "802.1X server";
     public const string EstServerCertificateName = "EST server";
+    public const string McpServerName = "MCP server";
 }
 
 /// <summary>The key of an issuing policy.</summary>
@@ -588,6 +594,9 @@ public static class PolicyTexts
     public const string ChooseCertificate = "Choose a certificate.";
     public const string CertificateGone = "This certificate is no longer in the Certificates list. Choose another one.";
     public const string Dot1xServerNeedsEccCertificate = "The 802.1X server needs a certificate with an ECC key.";
+
+    /// <summary>The MCP server's certificate names none of this computer's addresses and not its host name (agents could not check it).</summary>
+    public const string McpServerNamesNotInCertificate = "This certificate names none of this server's addresses and not its host name. Choose another one.";
 
     /// <summary>A server certificate is valid for 10 years (Create of a server policy, Turn on).</summary>
     public const int ServerCertificateDays = 3650;

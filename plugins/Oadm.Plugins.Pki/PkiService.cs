@@ -124,6 +124,7 @@ public sealed partial class PkiService : IAsyncDisposable
             ServerCertificates = ServerCertificateChoices,
             DefaultCaPending = () => _defaultCaExpected && _ca is null,
             CreatedCas = CreatedAuthorityIds,
+            McpServerNames = () => [.. Est.Serving.ServerCertificates.LocalAddresses(), Environment.MachineName],
         };
     }
 

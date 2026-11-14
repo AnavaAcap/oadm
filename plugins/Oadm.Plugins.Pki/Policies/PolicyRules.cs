@@ -54,7 +54,7 @@ public static class PolicyRules
                 return new(PolicyFields.Days, PolicyTexts.DaysRange);
             case PolicyKinds.AllowCa when string.IsNullOrWhiteSpace(policy.CaId):
                 return new(PolicyFields.Ca, PolicyTexts.ChooseCa);
-            case PolicyKinds.Dot1xServer or PolicyKinds.EstServer when string.IsNullOrWhiteSpace(policy.CertificateId):
+            case PolicyKinds.Dot1xServer or PolicyKinds.EstServer or PolicyKinds.McpServer when string.IsNullOrWhiteSpace(policy.CertificateId):
                 return new(PolicyFields.Certificate, PolicyTexts.ChooseCertificate);
             case PolicyKinds.Dot1xServer when ValidateServer(policy, suites) is { } server:
                 return server;

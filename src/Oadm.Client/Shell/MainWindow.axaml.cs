@@ -59,6 +59,7 @@ public partial class MainWindow : Window
             vm.PluginWindowRequested += OnPluginWindowRequested;
             vm.ClosePluginWindowsRequested += OnClosePluginWindowsRequested;
             vm.MyRoleRequested += OnMyRoleRequested;
+            vm.AccessKeysRequested += OnAccessKeysRequested;
             vm.HelpWindowRequested += OnHelpWindowRequested;
             vm.CloseHelpRequested += OnCloseHelpRequested;
             if (vm.MyAxis is { } myAxis)
@@ -72,6 +73,9 @@ public partial class MainWindow : Window
 
     /// <summary>"Your role": a modal dialog over the main window.</summary>
     private void OnMyRoleRequested(object? sender, MyRoleViewModel role) => _ = new MyRoleWindow { DataContext = role }.ShowDialog(this);
+
+    /// <summary>"Access keys": a modal dialog over the main window.</summary>
+    private void OnAccessKeysRequested(object? sender, AccessKeysViewModel keys) => _ = new AccessKeysWindow { DataContext = keys }.ShowDialog(this);
 
     /// <summary>The MyAxis button while signed out: the sign-in window over this window.</summary>
     private void OnMyAxisSignInRequested(object? sender, EventArgs e) => _ = ((MyAxis.MyAxisAccount)sender!).SignInAsync(this);

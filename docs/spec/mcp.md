@@ -1,6 +1,8 @@
 # MCP server (AI agents)
 
-Status: **spec, not built**.
+Status: **stage 1 built** (the endpoint, the Settings card AI agents, the PKI policy MCP server, access keys and the tools
+`oadm_server_info`, `oadm_devices_summary`, `oadm_devices_search`, `oadm_devices_get`, `oadm_tasks_list`, `oadm_tasks_get`,
+`oadm_logs_search`, `oadm_logs_audit`; see "Stage 1 as built"). Stages 2 to 4 are not built: no tool changes anything yet.
 
 Part of the OADM spec (`CLAUDE.md` "Feature specs"): read it before you change this area, update it in the same change.
 
@@ -42,7 +44,9 @@ host change.
   agent's computer trusts its CA once (**Download CA certificate** on the card; Claude Code: `NODE_EXTRA_CA_CERTS`, else
   the OS store). Without PKI on, the card says "Turn on PKI to choose the certificate." and MCP cannot be turned on.
 - Origin check (403 for a browser origin that is not the server), `MCP-Protocol-Version` / `Mcp-Method` / `Mcp-Name`
-  checked against the body (-32020), request body at most 1 MB (files go through upload links), gzip answers.
+  checked against the body (-32020), request body at most 1 MB (files go through upload links). Answers are not compressed:
+  the SDK sends every answer as a short event stream marked `Content-Encoding: identity` (open point below); they are at
+  most 32 KB.
 - Windows service: the firewall rule for the port exists only while MCP is on (`FirewallRuleKeeper`,
   `docs/spec/security.md` "Service: firewall and folders"). Site nodes do not relay MCP.
 
@@ -195,6 +199,71 @@ The website gets a user page (Tools > AI agents) and a developer page (plugin MC
 3. Tags, sites, compliance, event rules, the bundled core plugins' tools.
 4. Skill, Connect an agent, website pages.
 
+## Stage 1 as built
+
+- **Code**: server `src/Oadm.Server/Mcp/` (`McpListener` opens and closes the port, `McpEndpoint` the web host and its
+  checks, `McpAccess` the key's caller, the per-key limit and the audit of refused keys, `McpTools` the list and the calls,
+  `McpSchema` the schemas and their check, `McpCursors`, `ServerInfoTool`, `DeviceTools`, `TaskTools`, `LogTools`,
+  `McpGrpcService` the card), `Auth/InProcessAccess.cs` (`InProcessCalls`: a gRPC method called in process with the rule of
+  `AccessPolicy`, the caller in the call's user state and in `CallerContext`, the interceptor's answers),
+  `Auth/AccessKeyGrpcService`; core `AuthTokenStore` (access keys), `HostPermissions.McpUse`, migration `AccessKeys`; PKI
+  `PolicyKinds.McpServer`, `PkiServerCertificates`; SDK 0.13.0 `IServerCertificates`, `HostServers.Mcp`,
+  `HostPermissionKeys.McpUse`; client `Settings/AiAgentsCardView`, `Shell/AccessKeysWindow` (account menu),
+  `Settings/AccessKeysCardView` (Permissions page), both lists one `Controls/AccessKeyGrid`. Contracts `mcp.proto`
+  (`McpService`, `AccessKeyService`) and `Mcp/McpTexts` (the card's texts, server and client).
+- **Origin**: a request with an `Origin` passes only when it is the request's own scheme, host and port and the host is a
+  name or address of the certificate (with DNS rebinding the browser sends the page's name as Origin and Host).
+- **SDK**: `ModelContextProtocol.AspNetCore` 2.3.1 (its runtime packages are the host's 10.0.13), `Stateless = true`,
+  `McpServerOptions.ProtocolVersion` "2026-07-28" (an `initialize` is refused with -32022), the SDK's own handlers for
+  `tools/list` and `tools/call`. The SDK checks `Mcp-Method` and `Mcp-Name` (-32020); OADM refuses a request without
+  `MCP-Protocol-Version` (400, -32020), which the SDK would serve as an older revision. GET is 405, other paths 404.
+- **Who calls**: the key's user with the role and devices of now, client machine "MCP <key name>" (task owner
+  "<user>@MCP <key name>"). A tool is listed when the role has "Use AI agents" and `AccessPolicy` allows every gRPC method
+  the tool calls (so the logs need "See the server log" and all devices, the audit log the Administrator role); otherwise a
+  call answers `isError` with the refusal. Calls per key: 20 a second (429, Retry-After 1); `RunsPerMinute` (10) waits for
+  the task runs of stage 2. A refused key is audited once per address and key a minute, the count in the detail; an ended
+  key keeps its row until the hourly cleanup, so its refusal names "<user> via access key <name>" ("The key has ended. 2
+  refused calls"); after 50 refused keys from an address (IPv6 per /64) in 5 minutes it waits until they end (429,
+  Retry-After 300), like logins.
+- **Answers**: structured content and the same JSON as text, at most 32 KB (rows are cut to fit, `next_cursor` goes on);
+  errors are `{"error": ..., "errors": [{"field": ..., "error": ...}]}`. Every argument is checked against the published
+  input schema (unknown fields, types, lengths, ranges, `enum`, `uuid`, `date-time`). Device rows: `id`, `name` (the UPnP
+  name, else the host name), `address`, `model`, `firmware` (the AXIS OS version), `status` (`Ok`, `Unreachable`,
+  `CredentialsRequired`, `PasswordNotSet`, `CertificateChanged`, `SiteOffline`, `Unknown`) and the asked `fields`; a list of
+  the filter matches any of its values; `firmware` takes `below` and `at_least`; sites are matched by name, "This server"
+  for the server's own network; a search sorts by address unless `sort` says otherwise; the summary's `group_by` defaults to
+  status. A device or task outside the caller's group answers like an unknown one.
+- **Cursors**: signed with a key of the server process (a restart ends them), bound to the access key and the query (the
+  arguments without `cursor` and `limit`); a device cursor also to `DeviceChangeFeed.MembershipVersion` (a device added or
+  removed, or a change of what device groups decide on), "The device list changed. Search again."; the task and log cursors
+  are offsets of the newest-first lists.
+- **Card**: setting `Mcp` (on, port 1025 to 65535, Listen on), audited "Changed AI agents"; every user sees the state and
+  downloads the CA certificate (`oadm-ca.pem`, the issuers of the server's certificate). On, the port opens when PKI runs
+  and its policy picks a usable certificate; otherwise the status says why ("Turn on PKI to choose the certificate.", the
+  certificate's problem, "Interface ... is not available", "Port 5082 cannot be opened: ..."), tried again every 30 s, on a
+  change of the policy or the Certificates list and when a plugin is turned on or off. Windows service: the rule
+  "OADM Server (AI agents, TCP 5082)" while it listens.
+- **Keys**: at most 20 per user (the credential list's limit); a restore ends them like the sessions (backups hold no
+  tokens).
+- **Measured** at 100,000 devices with 100 APIs each and 50,000 tasks (`McpScaleTests`): about 3 s for each device tool
+  (`DeviceService.List` of every device of the view, as the client's snapshot), 1.4 s for the task list, milliseconds for the
+  logs; every answer under 32 KB.
+- **Tests**: `tests/Oadm.Server.Tests/Mcp` (`McpServerTests`: off by default, PKI, origin and DNS rebinding, methods, body,
+  headers, the official client, 401 and its audit, an ended key in the audit log, 429; `McpToolTests`: schemas and
+  annotations, Read only keys, roles, no tool reaches what stays GUI only (rule 5), device texts only as JSON values (rule
+  6), keys ending, field errors, paging and cursors, the summary, the same devices over MCP and gRPC, tasks, the audit log;
+  `McpSecretTests`: no password, token or key in any answer, audit entry or log line), `Perf/McpScaleTests`, PKI
+  `McpServerPolicyTests` (also the host's full name), client `AiAgentsTests` (headless, screenshots).
+
 ## Open points
 
 - Client support for the MCP tasks extension: if it spreads, `oadm_task_run` may answer a task handle instead of polling.
+- gzip: the SDK marks its event-stream answers `Content-Encoding: identity`; compressing them would mean working around it.
+- An empty filter in `oadm_devices_search` is served page by page (rule 3, every page with the total and a cursor); refusing
+  it without a cursor is the other reading of "never for lists without a cursor".
+- The device tools read every device of the view per call (about 3 s at 100,000 devices with 100 APIs each); a list
+  without the API lists, or the filter inside `DeviceService`, would make them faster.
+- The log tools answer a cursor but no total (rule 3 says "always with the total"): `ServerLogService.List` gives only
+  `has_more`, and a text or time filter would need a full count.
+- Offset cursors: a new task or log line, or a device whose status changes under a status sort, moves the rows between
+  pages; a cursor of the last row's sort key and id would not.

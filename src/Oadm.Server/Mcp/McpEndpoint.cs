@@ -1,0 +1,236 @@
+using System.Net;
+using System.Security.Authentication;
+using System.Security.Cryptography.X509Certificates;
+using System.Text.Json;
+using System.Text.Json.Nodes;
+
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Http.Features;
+using Microsoft.AspNetCore.Server.Kestrel.Core;
+using Microsoft.AspNetCore.Server.Kestrel.Https;
+
+using ModelContextProtocol.Protocol;
+
+namespace Oadm.Server.Mcp;
+
+/// <summary>Where and with which certificate the MCP server listens.</summary>
+/// <param name="Port">The TCP port.</param>
+/// <param name="Addresses">The addresses of the chosen interface; null for every interface.</param>
+/// <param name="Certificate">The certificate with its key (PKI's policy MCP server).</param>
+/// <param name="Issuers">Its issuers, sent with it so agents can build the chain to the CA they trust.</param>
+public sealed record McpListenOptions(int Port, IReadOnlyList<IPAddress>? Addresses, X509Certificate2 Certificate, IReadOnlyList<X509Certificate2> Issuers);
+
+/// <summary>
+/// The MCP server's own web host (docs/spec/mcp.md "Transport and certificate"): Kestrel in the server process on its own port
+/// with the PKI certificate (TLS 1.2 or later), one endpoint <c>POST /mcp</c>, the official C# SDK with Streamable HTTP,
+/// stateless (no session id, no stream on GET) and pinned to the protocol revision <see cref="ProtocolVersion"/> (no
+/// <c>initialize</c>; the SDK checks <c>MCP-Protocol-Version</c>, <c>Mcp-Method</c> and <c>Mcp-Name</c> against the body,
+/// -32020). In front of it: a browser origin other than the server (a name of its certificate) is refused (403), bodies are at most
+/// <see cref="MaxBodyBytes"/> (413), every request needs a valid access key (401) and each key at most
+/// <see cref="McpAccess.CallsPerSecond"/> calls a second (429). The SDK answers every request as a short event stream marked
+/// <c>Content-Encoding: identity</c>, so answers are not compressed (they are at most <see cref="McpAnswers.MaxBytes"/>).
+/// </summary>
+public static class McpEndpoint
+{
+    public const string Path = "/mcp";
+
+    /// <summary>The MCP revision the server speaks.</summary>
+    public const string ProtocolVersion = "2026-07-28";
+
+    /// <summary>The largest request body (files go through upload links, stage 2).</summary>
+    public const long MaxBodyBytes = 1024 * 1024;
+
+    internal const string CallerKey = "oadm.mcp.caller";
+
+    public const string BrowserRefused = "Requests from web pages are not accepted.";
+    public const string TooLarge = "The request is larger than 1 MB.";
+    public const string TooManyCalls = "Too many calls with this access key. Wait a second.";
+    public const string NoProtocolVersion = "The MCP-Protocol-Version header is missing.";
+    public const string TooManyRefused = "Too many refused access keys from your address. Try again in a few minutes.";
+
+    /// <summary>The JSON-RPC error of headers that are missing or do not match the body (MCP "HeaderMismatch").</summary>
+    public const int HeaderMismatch = -32020;
+
+    /// <summary>
+    /// The web host of the MCP server. <paramref name="configure"/> replaces Kestrel in tests (an in-memory test server: no
+    /// network in unit tests). <paramref name="serverNames"/> are the names and addresses of the certificate: a browser origin
+    /// must be one of them (null: not checked).
+    /// </summary>
+    internal static WebApplication Build(IServiceProvider server, McpListenOptions? listen, Action<WebApplicationBuilder>? configure = null, IReadOnlyCollection<string>? serverNames = null)
+    {
+        ArgumentNullException.ThrowIfNull(server);
+        var tools = server.GetRequiredService<McpTools>();
+        var access = server.GetRequiredService<McpAccess>();
+        var builder = WebApplication.CreateEmptyBuilder(new WebApplicationOptions { EnvironmentName = "Production" });
+        builder.Services.AddSingleton(server.GetRequiredService<ILoggerFactory>());
+        builder.Services.AddSingleton(typeof(ILogger<>), typeof(Logger<>));
+        builder.Services.AddRouting();
+        builder.Services.AddHttpContextAccessor();
+        builder.Services
+            .AddMcpServer(o =>
+            {
+                o.ProtocolVersion = ProtocolVersion;
+                o.ServerInfo = new Implementation { Name = "OADM", Version = Mapping.Mappers.ServerVersion };
+                o.Capabilities = new ServerCapabilities { Tools = new ToolsCapability { ListChanged = false } };
+            })
+            .WithHttpTransport(o => o.Stateless = true)
+            .WithListToolsHandler((request, ct) => ValueTask.FromResult(tools.List(CallerOf(request.Services))))
+            .WithCallToolHandler(async (request, ct) =>
+            {
+                var http = request.Services?.GetService<IHttpContextAccessor>()?.HttpContext;
+                var arguments = request.Params?.Arguments is { } given ? JsonSerializer.SerializeToElement(given) : (JsonElement?)null;
+                return await tools.CallAsync(CallerOf(request.Services), request.Params?.Name ?? string.Empty, arguments, http, ct).ConfigureAwait(false);
+            });
+
+        if (listen is not null)
+        {
+            builder.WebHost.UseKestrelCore().ConfigureKestrel(k =>
+            {
+                k.AddServerHeader = false;
+                k.Limits.MaxRequestBodySize = MaxBodyBytes;
+                void Https(ListenOptions l)
+                {
+                    l.Protocols = HttpProtocols.Http1AndHttp2;
+                    l.UseHttps(new HttpsConnectionAdapterOptions
+                    {
+                        ServerCertificate = listen.Certificate,
+                        ServerCertificateChain = [.. listen.Issuers],
+                        SslProtocols = SslProtocols.Tls12 | SslProtocols.Tls13,
+                        ClientCertificateMode = ClientCertificateMode.NoCertificate,
+                    });
+                }
+
+                if (listen.Addresses is null)
+                {
+                    k.ListenAnyIP(listen.Port, Https);
+                }
+                else
+                {
+                    foreach (var address in listen.Addresses)
+                    {
+                        k.Listen(address, listen.Port, Https);
+                    }
+                }
+            });
+        }
+
+        configure?.Invoke(builder);
+        var app = builder.Build();
+        app.Use((http, next) => GuardAsync(http, next, access, serverNames));
+        app.MapMcp(Path);
+        return app;
+    }
+
+    /// <summary>The caller the guard put into the request.</summary>
+    private static McpCaller CallerOf(IServiceProvider? services) =>
+        services?.GetService<IHttpContextAccessor>()?.HttpContext?.Items[CallerKey] as McpCaller
+        ?? throw new InvalidOperationException("An MCP request without its caller."); // the guard runs first: never reached
+
+    /// <summary>The checks before the SDK sees a request.</summary>
+    private static async Task GuardAsync(HttpContext http, RequestDelegate next, McpAccess access, IReadOnlyCollection<string>? serverNames)
+    {
+        if (!string.Equals(http.Request.Path.Value, Path, StringComparison.Ordinal))
+        {
+            http.Response.StatusCode = StatusCodes.Status404NotFound;
+            return;
+        }
+
+        if (!SameOrigin(http, serverNames))
+        {
+            await RefuseAsync(http, StatusCodes.Status403Forbidden, BrowserRefused).ConfigureAwait(false);
+            return;
+        }
+
+        if (!HttpMethods.IsPost(http.Request.Method))
+        {
+            http.Response.Headers.Allow = "POST";
+            http.Response.StatusCode = StatusCodes.Status405MethodNotAllowed; // no stream on GET, no session to DELETE
+            return;
+        }
+
+        if (http.Request.ContentLength > MaxBodyBytes)
+        {
+            await RefuseAsync(http, StatusCodes.Status413PayloadTooLarge, TooLarge).ConfigureAwait(false);
+            return;
+        }
+
+        if (http.Features.Get<IHttpMaxRequestBodySizeFeature>() is { IsReadOnly: false } limit)
+        {
+            limit.MaxRequestBodySize = MaxBodyBytes; // also a body without a length
+        }
+
+        var header = http.Request.Headers.Authorization.ToString();
+        var key = header.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase) ? header["Bearer ".Length..].Trim() : null;
+        var address = AddressOf(http);
+        if (access.IsAddressLimited(address))
+        {
+            http.Response.Headers.RetryAfter = "300";
+            await RefuseAsync(http, StatusCodes.Status429TooManyRequests, TooManyRefused).ConfigureAwait(false);
+            return;
+        }
+
+        var caller = await access.AuthenticateAsync(key, address, http.RequestAborted).ConfigureAwait(false);
+        if (caller is null)
+        {
+            http.Response.Headers.WWWAuthenticate = "Bearer";
+            await RefuseAsync(http, StatusCodes.Status401Unauthorized, Core.Auth.AccessKeyTexts.NotValid).ConfigureAwait(false);
+            return;
+        }
+
+        if (!access.TryCall(caller))
+        {
+            http.Response.Headers.RetryAfter = "1";
+            await RefuseAsync(http, StatusCodes.Status429TooManyRequests, TooManyCalls).ConfigureAwait(false);
+            return;
+        }
+
+        if (http.Request.Headers["MCP-Protocol-Version"].Count == 0)
+        {
+            // The SDK would serve it as an older revision; this server speaks only ProtocolVersion (Streamable HTTP "Server Validation").
+            await RefuseAsync(http, StatusCodes.Status400BadRequest, NoProtocolVersion, HeaderMismatch).ConfigureAwait(false);
+            return;
+        }
+
+        http.Items[CallerKey] = caller;
+        await next(http).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// No Origin (an agent, not a browser), or the server itself: the scheme, host and port of the request, and a host that
+    /// is one of <paramref name="serverNames"/> (the certificate's names and addresses). The Host header alone is not enough:
+    /// with DNS rebinding the browser sends the page's own name as both Origin and Host.
+    /// </summary>
+    internal static bool SameOrigin(HttpContext http, IReadOnlyCollection<string>? serverNames = null)
+    {
+        var origin = http.Request.Headers.Origin.ToString();
+        if (origin.Length == 0)
+        {
+            return true;
+        }
+
+        return Uri.TryCreate(origin, UriKind.Absolute, out var uri)
+            && string.Equals(uri.Scheme, http.Request.Scheme, StringComparison.OrdinalIgnoreCase)
+            && string.Equals(uri.Authority, http.Request.Host.Value, StringComparison.OrdinalIgnoreCase)
+            && (serverNames is null || serverNames.Contains(uri.IdnHost, StringComparer.OrdinalIgnoreCase));
+    }
+
+    private static string AddressOf(HttpContext http)
+    {
+        var ip = http.Connection.RemoteIpAddress;
+        return ip is null ? "local" : (ip.IsIPv4MappedToIPv6 ? ip.MapToIPv4() : ip).ToString();
+    }
+
+    /// <summary>An HTTP refusal with a JSON-RPC error without id as its body (Streamable HTTP "Security").</summary>
+    private static Task RefuseAsync(HttpContext http, int status, string message, int code = -32600)
+    {
+        http.Response.StatusCode = status;
+        http.Response.ContentType = "application/json";
+        var body = new JsonObject
+        {
+            ["jsonrpc"] = "2.0",
+            ["error"] = new JsonObject { ["code"] = code, ["message"] = message },
+        };
+        return http.Response.WriteAsync(body.ToJsonString(), http.RequestAborted);
+    }
+}

@@ -96,8 +96,9 @@ public sealed partial class UsersViewModel : ValidatingViewModel
     private readonly ILogger<UsersViewModel> _logger;
 
     public UsersViewModel(IOadmApi api, IDialogService dialogs, UserSession session, ILogger<UsersViewModel> logger,
-        ServerConnection? connection = null, RolesViewModel? roles = null, DeviceGroupsViewModel? groups = null)
+        ServerConnection? connection = null, RolesViewModel? roles = null, DeviceGroupsViewModel? groups = null, AllAccessKeysViewModel? accessKeys = null)
     {
+        AccessKeys = accessKeys;
         if (connection is not null)
         {
             connection.Connected += (_, _) => _ = LoadAsync();
@@ -126,6 +127,11 @@ public sealed partial class UsersViewModel : ValidatingViewModel
 
     /// <summary>The device groups card below the users.</summary>
     public DeviceGroupsViewModel DeviceGroups { get; }
+
+    /// <summary>The card Access keys: every user's keys for AI agents; null in tests without it.</summary>
+    public AllAccessKeysViewModel? AccessKeys { get; }
+
+    public bool ShowAccessKeys => AccessKeys is not null;
 
     /// <summary>The choices of the Devices field: All devices, then the groups by name.</summary>
     [ObservableProperty]
@@ -275,6 +281,10 @@ public sealed partial class UsersViewModel : ValidatingViewModel
             IReadOnlyList<UserInfo> users = await _api.ListUsersAsync(CancellationToken.None).ConfigureAwait(true);
             ShowUsers(users);
             await DeviceGroups.LoadAsync().ConfigureAwait(true); // the users of each group
+            if (AccessKeys is not null)
+            {
+                await AccessKeys.LoadAsync().ConfigureAwait(true);
+            }
         }
         catch (Exception ex)
         {

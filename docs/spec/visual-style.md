@@ -342,4 +342,5 @@ Every shared control (Coding Rules: "reuse UI components") and what it is for.
 (every card that folds: the Settings page; closed by default, opens by itself when an input inside shows a validation
 error), `TagChipList` (the tags of a device as chips), `TagColorPicker` (the color of a tag, the tags dialog), `LiveViewPanel` (the live view beside the device grid),
 `SplashLogo` (the animated logo of the start splash), `GridSelection` (a grid's multi-item selection to its view model in
-one step).
+one step), `AccessKeyGrid` (the access keys of AI agents with Delete: the account menu's Access keys, and every user's with
+the User column on the Permissions page; `IAccessKeyList`).

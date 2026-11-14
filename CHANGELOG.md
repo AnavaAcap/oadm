@@ -5,6 +5,15 @@ Notable changes to OADM, newest first. Format: [Keep a Changelog](https://keepac
 version and date, and the release workflow copies it into the GitHub release (the client's new version notice shows it).
 Each entry is one short line in plain words (what the user gets, not how); no nested lists, no bold, no code.
 
+## [Unreleased]
+
+### Added
+
+- AI agents: turn on the server AI agents connect to on the Settings page, with the certificate of the PKI policy MCP server.
+- AI agents: create access keys in the account menu; an agent reads your devices, tasks and logs with the rights of your role.
+- Permissions: the role right Use AI agents, and every user's access keys with Delete.
+- Plugin SDK 0.13.0: the certificates of the servers OADM runs, and the permission Use AI agents.
+
 ## [5.0.0] - 2026-11-13
 
 ### Added

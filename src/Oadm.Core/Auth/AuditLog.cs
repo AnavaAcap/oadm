@@ -91,6 +91,13 @@ public static class AuditActions
     public const string ServerUpdateStarted = "Started server update";
     public const string ServerUpdated = "Updated server";
     public const string ServerUpdateFailed = "Server update failed";
+    public const string AccessKeyCreated = "Created access key";
+    public const string AccessKeyDeleted = "Deleted access key";
+    public const string AccessKeyRefused = "Access key refused";
+    public const string AiAgentsChanged = "Changed AI agents";
+
+    /// <summary>The user of an entry an AI agent caused: "&lt;user&gt; via access key &lt;name&gt;" (docs/spec/mcp.md "Access keys").</summary>
+    public static string ViaAccessKey(string userName, string keyName) => userName + " via access key " + keyName;
 }
 
 /// <summary>

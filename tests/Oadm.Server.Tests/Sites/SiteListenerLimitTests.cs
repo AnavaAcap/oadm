@@ -217,21 +217,21 @@ public sealed class SiteListenerLimitTests
         var firewall = new RecordingFirewall();
         await using (var server = await SiteServer.StartAsync(accept: false, configure: s => s.AddSingleton<IFirewallRules>(firewall)))
         {
-            Assert.Empty(firewall.CallList); // the port the OS chooses is not known while nothing listens
+            Assert.Empty(SiteRules(firewall)); // the port the OS chooses is not known while nothing listens
 
             await server.Client.SetAcceptAsync(new Proto.SetAcceptRequest { Accept = true });
             var rule = $"OADM Server (Site nodes, TCP {server.Manager.ListenPort})";
-            Assert.Equal(["open " + rule], firewall.CallList);
+            Assert.Equal(["open " + rule], SiteRules(firewall));
 
             await server.Client.SetAcceptAsync(new Proto.SetAcceptRequest { Accept = false });
-            Assert.Equal(["open " + rule, "close " + rule], firewall.CallList);
+            Assert.Equal(["open " + rule, "close " + rule], SiteRules(firewall));
 
             await server.Client.SetAcceptAsync(new Proto.SetAcceptRequest { Accept = true });
-            Assert.Equal($"open OADM Server (Site nodes, TCP {server.Manager.ListenPort})", firewall.CallList[^1]); // the OS chose another port
+            Assert.Equal($"open OADM Server (Site nodes, TCP {server.Manager.ListenPort})", SiteRules(firewall)[^1]); // the OS chose another port
         }
 
         // The server stopped: the port is closed, so is its rule.
-        Assert.StartsWith("close OADM Server (Site nodes, TCP ", firewall.CallList[^1], StringComparison.Ordinal);
+        Assert.StartsWith("close OADM Server (Site nodes, TCP ", SiteRules(firewall)[^1], StringComparison.Ordinal);
     }
 
     [Fact]
@@ -242,9 +242,12 @@ public sealed class SiteListenerLimitTests
         await using var server = await SiteServer.StartAsync(accept: false, configure: s => s.AddSingleton<IFirewallRules>(firewall),
             options: new SiteOptions { ListenUrl = "127.0.0.1:5081", WorkerWait = TimeSpan.FromSeconds(30), CallTimeout = TimeSpan.FromSeconds(30) });
 
-        Assert.Equal(["close OADM Server (Site nodes, TCP 5081)"], firewall.CallList);
+        Assert.Equal(["close OADM Server (Site nodes, TCP 5081)"], SiteRules(firewall));
         Assert.False(server.Manager.Accept);
     }
+
+    /// <summary>The calls of the site port's rule (the server keeps other rules too, e.g. the AI agents port's).</summary>
+    private static List<string> SiteRules(RecordingFirewall firewall) => [.. firewall.CallList.Where(c => c.Contains("(Site nodes,", StringComparison.Ordinal))];
 
     // The site nodes of other tests keep dialing the 127.0.0.1 port their server had; the OS may hand that port to this
     // listener, and such a node would take a place of this address or even be handed over. IPv6 loopback is a port space

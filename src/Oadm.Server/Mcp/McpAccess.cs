@@ -1,0 +1,148 @@
+using System.Globalization;
+
+using Oadm.Core.Auth;
+using Oadm.Core.DeviceGroups;
+using Oadm.Sites.Transport;
+
+namespace Oadm.Server.Mcp;
+
+/// <summary>The access key's user for one MCP request: the caller every tool calls the gRPC services as.</summary>
+/// <param name="Caller">The user with the role and devices of now; its client machine is "MCP &lt;key name&gt;" (task owner "&lt;user&gt;@MCP &lt;key name&gt;").</param>
+/// <param name="KeyName">The name of the access key.</param>
+/// <param name="ReadOnly">A Read only key: no tool that changes something.</param>
+/// <param name="KeyExpiresUtc">When the key ends.</param>
+public sealed record McpCaller(AuthenticatedCaller Caller, string KeyName, bool ReadOnly, DateTime KeyExpiresUtc)
+{
+    /// <summary>The user of the audit entries the agent causes: "&lt;user&gt; via access key &lt;name&gt;".</summary>
+    public string AuditUser => AuditActions.ViaAccessKey(Caller.UserName, KeyName);
+
+    /// <summary>The SHA-256 of the key (limits and cursors are bound to it; never sent anywhere).</summary>
+    public string KeyHash => Caller.TokenHash;
+}
+
+/// <summary>
+/// Who calls the MCP server (docs/spec/mcp.md "Access keys"): the access key of <c>Authorization: Bearer</c> resolved to its
+/// user with the role and device group of now (a new role or group applies to the next call; a disabled or deleted user, a
+/// new password or a deleted key end it at once), at most <see cref="CallsPerSecond"/> calls per second and key, and every
+/// refused key in the audit log (one entry per address and key a minute, its count in the detail, so a client that retries
+/// never pushes the history out).
+/// </summary>
+public sealed class McpAccess(AuthTokenStore tokens, RoleStore roles, DeviceViewFactory views, AccessEpochs epochs, AuditLog audit, TimeProvider time) : IDisposable
+{
+    /// <summary>Calls per second and key (HTTP 429 with Retry-After beyond).</summary>
+    public const int CallsPerSecond = 20;
+
+    /// <summary>Task runs per minute and key (stage 2: the task tools).</summary>
+    public const int RunsPerMinute = 10;
+
+    /// <summary>One audit entry per address and refused key within this time; later refusals count into its detail.</summary>
+    public static readonly TimeSpan RefusalEntry = TimeSpan.FromMinutes(1);
+
+    /// <summary>Addresses and keys the refusal entries remember (a flood from many addresses starts new entries).</summary>
+    private const int MaxRefusalEntries = 1_000;
+
+    /// <summary>Refused keys per address (IPv6 per /64) within <see cref="RefusedWindow"/>; then every request of it waits (like logins).</summary>
+    public const int MaxRefusedPerAddress = 50;
+
+    public static readonly TimeSpan RefusedWindow = TimeSpan.FromMinutes(5);
+
+    private readonly AddressRateLimiter _calls = new(CallsPerSecond, total: 0, TimeSpan.FromSeconds(1), time);
+    private readonly AddressRateLimiter _refused = new(MaxRefusedPerAddress, total: 0, RefusedWindow, time);
+    private readonly SemaphoreSlim _refusalGate = new(1, 1);
+    private readonly Dictionary<string, Refusals> _refusals = new(StringComparer.Ordinal);
+
+    /// <summary>The caller of <paramref name="key"/>; null when the key is missing, unknown, ended or its user is disabled (audited).</summary>
+    public async Task<McpCaller?> AuthenticateAsync(string? key, string clientAddress, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(clientAddress);
+        var epoch = epochs.Capture(); // before the key is read: a change after it refuses the call's jobs
+        var session = await tokens.ValidateAccessKeyAsync(key, ct).ConfigureAwait(false);
+        if (session?.AccessKeyName is not { } keyName)
+        {
+            _refused.TryAcquire(AddressKey(clientAddress));
+            await AuditRefusedAsync(key, clientAddress, ct).ConfigureAwait(false);
+            return null;
+        }
+
+        var permissions = await roles.PermissionsOfAsync(session.RoleId, ct).ConfigureAwait(false);
+        var devices = await views.CallerDevicesAsync(session.DeviceAccess, ct).ConfigureAwait(false);
+        var caller = new AuthenticatedCaller(session.UserId, session.UserName, session.RoleId, permissions, clientAddress, "MCP " + keyName, session.TokenHash)
+        {
+            Devices = devices,
+            AccessEpoch = epoch,
+        };
+        return new McpCaller(caller, keyName, session.ReadOnly, session.ExpiresUtc);
+    }
+
+    /// <summary>
+    /// True while <paramref name="clientAddress"/> is refused before any lookup: <see cref="MaxRefusedPerAddress"/> refused keys
+    /// within <see cref="RefusedWindow"/> (the login's limit per address; nothing kept beyond the window).
+    /// </summary>
+    public bool IsAddressLimited(string clientAddress) => _refused.IsLimited(AddressKey(clientAddress));
+
+    private static string AddressKey(string clientAddress) =>
+        System.Net.IPAddress.TryParse(clientAddress, out var address) ? AddressRateLimiter.KeyOf(address) : clientAddress;
+
+    /// <summary>Counts a call of the key; false beyond <see cref="CallsPerSecond"/> (nothing counted).</summary>
+    public bool TryCall(McpCaller caller)
+    {
+        ArgumentNullException.ThrowIfNull(caller);
+        return _calls.TryAcquire(caller.KeyHash);
+    }
+
+    private async Task AuditRefusedAsync(string? key, string clientAddress, CancellationToken ct)
+    {
+        var owner = await tokens.OwnerOfRefusedKeyAsync(key, ct).ConfigureAwait(false);
+        var userName = owner is null ? string.Empty : AuditActions.ViaAccessKey(owner.UserName, owner.Name);
+        var target = owner?.Name ?? (string.IsNullOrEmpty(key) ? "No access key" : "Unknown access key");
+        var slot = clientAddress + "|" + userName + "|" + target;
+        await _refusalGate.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            if (_refusals.TryGetValue(slot, out var entry) && time.GetElapsedTime(entry.Start) < RefusalEntry)
+            {
+                entry.Count++;
+                await audit.SetDetailAsync(entry.Id, Detail(owner is not null, entry.Count), ct).ConfigureAwait(false);
+                return;
+            }
+
+            if (_refusals.Count >= MaxRefusalEntries)
+            {
+                foreach (var ended in _refusals.Where(p => time.GetElapsedTime(p.Value.Start) >= RefusalEntry).Select(p => p.Key).ToList())
+                {
+                    _refusals.Remove(ended);
+                }
+
+                if (_refusals.Count >= MaxRefusalEntries)
+                {
+                    _refusals.Clear();
+                }
+            }
+
+            _refusals.Remove(slot);
+            if (await audit.AddAsync(userName, clientAddress, AuditActions.AccessKeyRefused, target, Detail(owner is not null, 1), ct).ConfigureAwait(false) is { } id)
+            {
+                _refusals[slot] = new Refusals(id, time.GetTimestamp());
+            }
+        }
+        finally
+        {
+            _refusalGate.Release();
+        }
+    }
+
+    /// <summary>"3 refused calls"; for a key OADM still knows (it ended) "The key has ended. 3 refused calls".</summary>
+    private static string Detail(bool ended, int count) =>
+        (ended ? "The key has ended. " : string.Empty) + (count == 1 ? "1 refused call" : string.Create(CultureInfo.InvariantCulture, $"{count:N0} refused calls"));
+
+    public void Dispose() => _refusalGate.Dispose();
+
+    private sealed class Refusals(long id, long start)
+    {
+        public long Id { get; } = id;
+
+        public long Start { get; } = start;
+
+        public int Count { get; set; } = 1;
+    }
+}

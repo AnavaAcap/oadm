@@ -43,7 +43,8 @@ for `zero_conf_seconds`). Settings page labels in quotes.
   Discovery, Tasks, Security, Server, saved together by **Save** and **Reload** in a row of their own below them ("Saves
   Polling, Discovery, Tasks, Security and Server"); operators see the values as plain text without Save and Reload
   ("Only administrators can change server settings."). Right: **Backup and restore** (administrators), **License** (every
-  user, `docs/spec/licensing.md`), **Support** (administrators). Narrower than 1,100 px (`SettingsView.TwoColumnWidth`) the
+  user, `docs/spec/licensing.md`), **AI agents** (every user, administrators change it with its own Turn on, Turn off and
+  Save; setting `Mcp`, `docs/spec/mcp.md`), **Support** (administrators). Narrower than 1,100 px (`SettingsView.TwoColumnWidth`) the
   right column moves below the server settings.
 - Every card folds and starts closed (`Controls/CollapsibleCard`, `docs/spec/visual-style.md`); a card opens by itself
   when an input in it shows a validation error.

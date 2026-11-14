@@ -1,0 +1,61 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:ui="using:Oadm.Sdk.Client.Controls"
+        xmlns:c="using:Oadm.Client.Controls"
+        xmlns:shell="using:Oadm.Client.Shell"
+        x:Class="Oadm.Client.Shell.AccessKeysWindow"
+        x:DataType="shell:AccessKeysViewModel"
+        Title="Access keys"
+        Width="720" Height="640" CanResize="False"
+        WindowStartupLocation="CenterOwner"
+        ShowInTaskbar="False"
+        WindowDecorations="BorderOnly">
+  <!-- Account menu, Access keys (docs/spec/mcp.md "Access keys"): a new key on top (shown once, with Copy), the user's keys
+       below with Delete. Two sections: cards. -->
+  <Grid RowDefinitions="Auto,Auto,*,Auto" RowSpacing="12">
+    <ui:DialogTitleBar Grid.Row="0" Text="{x:Static shell:AccessKeyWords.Title}" />
+
+    <Border Grid.Row="1" Classes="card" Margin="16,0">
+      <StackPanel Classes="form">
+        <TextBlock Classes="cardTitle" Text="New access key" />
+        <TextBlock Classes="secondary" TextWrapping="Wrap" Text="{x:Static shell:AccessKeyWords.Intro}" />
+        <ui:FormField Label="Name">
+          <TextBox x:Name="KeyName" Text="{Binding Name}" PlaceholderText="e.g. Laptop" MaxLength="64" />
+        </ui:FormField>
+        <ui:FormField Label="Expires">
+          <ComboBox ItemsSource="{x:Static shell:AccessKeysViewModel.Lifetimes}" SelectedItem="{Binding Lifetime}" HorizontalAlignment="Left" Width="160" />
+        </ui:FormField>
+        <ui:FormField Classes="wide">
+          <CheckBox IsChecked="{Binding ReadOnly}" Content="Read only" ToolTip.Tip="The agent reads but changes nothing" />
+        </ui:FormField>
+        <ui:FormField Classes="wide">
+          <Button x:Name="CreateKey" Classes="primary" Content="Create" Command="{Binding CreateCommand}" HorizontalAlignment="Left"
+                  ToolTip.Tip="{Binding CreateTip}" ToolTip.ShowOnDisabled="True" />
+        </ui:FormField>
+        <!-- The new key, once: OADM keeps only its hash. Like the Server ID of the License card: the value and Copy. -->
+        <ui:FormField x:Name="NewKeyBox" Label="{Binding NewKeyTitle}" IsVisible="{Binding HasNewKey}">
+          <StackPanel Spacing="4">
+            <StackPanel Orientation="Horizontal" Spacing="4">
+              <SelectableTextBlock x:Name="NewKeyText" Classes="mono" Text="{Binding NewKey}" VerticalAlignment="Center" TextWrapping="Wrap" MaxWidth="400" />
+              <Button Classes="toolbar iconOnly" ToolTip.Tip="Copy access key" Command="{Binding CopyKeyCommand}" VerticalAlignment="Center">
+                <ui:OadmIcon Data="{StaticResource Icon.copy}" />
+              </Button>
+            </StackPanel>
+            <TextBlock Classes="warning" Text="{x:Static shell:AccessKeyWords.CopyNow}" TextWrapping="Wrap" />
+          </StackPanel>
+        </ui:FormField>
+      </StackPanel>
+    </Border>
+
+    <Border Grid.Row="2" Classes="card" Margin="16,0">
+      <Grid RowDefinitions="Auto,*,Auto" RowSpacing="8">
+        <TextBlock Grid.Row="0" Classes="cardTitle" Text="Your access keys" />
+        <c:AccessKeyGrid Grid.Row="1" x:Name="KeysGrid" />
+        <TextBlock Grid.Row="2" Text="{Binding Message}" Classes.error="{Binding MessageIsError}" Classes.secondary="{Binding !MessageIsError}" TextWrapping="Wrap"
+                   IsVisible="{Binding Message, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+      </Grid>
+    </Border>
+
+    <ui:DialogFooter Grid.Row="3" CancelText="Close" CancelCommand="{Binding $parent[shell:AccessKeysWindow].CloseCommand}" />
+  </Grid>
+</Window>

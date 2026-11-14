@@ -233,6 +233,16 @@ public static class AccessPolicy
         ["/oadm.v1.SiteService/RenameSite"] = AccessRule.Admin,
         ["/oadm.v1.SiteService/ReplaceSite"] = AccessRule.Admin,
         ["/oadm.v1.SiteService/RemoveSite"] = AccessRule.Admin,
+        // AI agents (docs/spec/mcp.md): the Settings card reads for every role, changes like the server settings; access keys of
+        // the caller's own (creating one needs "Use AI agents"), every user's for administrators (Permissions page).
+        ["/oadm.v1.McpService/Get"] = AccessRule.SignedIn,
+        ["/oadm.v1.McpService/GetCaCertificate"] = AccessRule.SignedIn,
+        ["/oadm.v1.McpService/Set"] = AccessRule.Admin.ForAllDevices(),
+        ["/oadm.v1.AccessKeyService/ListMine"] = AccessRule.SignedIn,
+        ["/oadm.v1.AccessKeyService/Create"] = AccessRule.Needs(HostPermissions.McpUse),
+        ["/oadm.v1.AccessKeyService/Delete"] = AccessRule.SignedIn,
+        ["/oadm.v1.AccessKeyService/ListAll"] = AccessRule.Admin,
+        ["/oadm.v1.AccessKeyService/DeleteAny"] = AccessRule.Admin,
         // Self update (docs/spec/self-update.md): the Administrator role only (never grantable);
         // the steps reach every signed-in client ("Updating the server to 4.9.0").
         ["/oadm.v1.UpdateService/Get"] = AccessRule.Admin,

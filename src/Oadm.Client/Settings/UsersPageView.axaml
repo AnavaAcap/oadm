@@ -12,9 +12,12 @@
       <!-- Side by side on a wide page; on a narrower one (small or scaled screens) the device groups move below the users
            (UsersPageView.axaml.cs), so no column of the users is cut off; then the two cards share the height with the roles
        card (the splitter moves the line between them). -->
-      <Grid x:Name="Columns" ColumnDefinitions="*,16,*" RowDefinitions="Auto,Auto" VerticalAlignment="Top">
+      <Grid x:Name="Columns" ColumnDefinitions="*,16,*" RowDefinitions="Auto,Auto,Auto" VerticalAlignment="Top">
         <settings:UsersCardView Grid.Column="0" VerticalAlignment="Top" />
         <settings:DeviceGroupsCardView x:Name="GroupsCard" Grid.Column="2" VerticalAlignment="Top" DataContext="{Binding DeviceGroups}" />
+        <!-- Every user's access keys for AI agents (docs/spec/mcp.md), below both cards. -->
+        <settings:AccessKeysCardView x:Name="AccessKeysCard" Grid.Row="2" Grid.ColumnSpan="3" Margin="0,16,0,0" VerticalAlignment="Top"
+                                     DataContext="{Binding AccessKeys}" IsVisible="{Binding $parent[UserControl].((settings:UsersViewModel)DataContext).ShowAccessKeys}" />
       </Grid>
     </ScrollViewer>
     <GridSplitter Grid.Row="2" Classes="paneSplitter" />

@@ -29,7 +29,7 @@ public static class PolicyTableGroups
     public static string Of(string kind) => kind switch
     {
         PolicyKinds.HttpsCertificate or PolicyKinds.Dot1xCertificate => Issuing,
-        PolicyKinds.Dot1xServer or PolicyKinds.EstServer => Servers,
+        PolicyKinds.Dot1xServer or PolicyKinds.EstServer or PolicyKinds.McpServer => Servers,
         PolicyKinds.AllowCa or PolicyKinds.Vlan or PolicyKinds.Block => Access,
         PolicyKinds.Enrollment or PolicyKinds.SignInCa => Enrollment,
         _ => Expiry,
@@ -1388,6 +1388,7 @@ public sealed partial class PolicyEditorViewModel : ValidatingViewModel
     {
         PolicyKinds.AllowCa => "e.g. OADM CA",
         PolicyKinds.EstServer => "e.g. EST server",
+        PolicyKinds.McpServer => "e.g. MCP server",
         PolicyKinds.Block => "e.g. Storage room",
         PolicyKinds.ExpiryWarning => "e.g. All devices",
         PolicyKinds.Dot1xServer => "e.g. 802.1X server",

@@ -89,6 +89,7 @@ public sealed class PkiPlugin : ICorePlugin, ICorePluginDownloads, IEventSource,
         ctx.Services?.Offer(service.Policies); // the policies for the 802.1X server inside PKI (in process, no SDK contract)
         service.RecipientCertificateUse = () => ctx.Services?.Find<IRecipientCertificateUse>();
         ctx.Services?.Offer<IRecipientCertificates>(new PkiRecipientCertificates(service)); // the certificates of recipients, for the host
+        ctx.Services?.Offer<IServerCertificates>(new PkiServerCertificates(service)); // the MCP server's certificate, for the host
         if (ctx.EventPublisher is { } publisher)
         {
             var expiry = new ExpiryEvents(service.Policies, service.SystemDevicesAsync, publisher, _options.Time, ctx.Logger);

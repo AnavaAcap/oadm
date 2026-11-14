@@ -297,6 +297,15 @@ used again.
   "Signed in to MyAxis"; FAILED_PRECONDITION "MyAxis did not accept the sign-in. Try again."; UNAVAILABLE "MyAxis could
   not be reached. Check the server's internet access."), `SignOut` (deletes it, audited "Signed out of MyAxis" when there
   was one; always succeeds). The session never comes back in an answer.
+- **`McpService`** (`mcp.proto`, `docs/spec/mcp.md`, the Settings card AI agents): `Get` (signed in: on, port, Listen on,
+  running, the status text, PKI there, the certificate and its names; the interfaces for the Administrator role only),
+  `Set` (Admin, all devices; audited "Changed AI agents" with what changed; INVALID_ARGUMENT for a port outside 1025 to
+  65535 or an unknown interface, FAILED_PRECONDITION "Turn on PKI to choose the certificate."), `GetCaCertificate` (signed
+  in: the issuers of the MCP server's certificate as PEM, `oadm-ca.pem`; NOT_FOUND without one).
+- **`AccessKeyService`** (`mcp.proto`, `docs/spec/mcp.md` "Access keys"): `ListMine`, `Delete` (signed in, the caller's own
+  keys; NOT_FOUND "The access key no longer exists." also for another user's), `Create` ("Use AI agents"; INVALID_ARGUMENT
+  with the field's text, RESOURCE_EXHAUSTED at 20 keys; the reply holds the key once), `ListAll`, `DeleteAny` (Admin). No
+  answer holds a key or its hash, only an opaque id.
 - **`SupportService`** (`support.proto`, `docs/spec/settings-backup.md` "Support report"): `CreateReport` (Admin, audited
   "Created support report"; stream of `DownloadChunk`: name and length first, 256 KB chunks, uncompressed).
 - **`BackupService`** (`backup.proto`, Admin): `GetState`, `SetSchedule`, `Create`, `Download`, `Delete`, `Inspect`,
