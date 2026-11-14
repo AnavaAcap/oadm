@@ -46,11 +46,15 @@ preview/run handles and caller rules.
 - **The caller is a parameter.** A tool gets a `ToolCaller`: the user with the role and devices of now, the key cursors and
   handles are bound to, Read only, and what the channel tells of itself (its access key and its own limits, for
   `oadm_server_info`). Nothing comes from the HTTP request; an in-process gRPC call carries only the caller's address.
+  A channel may name one permission of its own (`ToolCaller.ChannelPermission`): MCP names "Use AI agents" for its access
+  keys; the registry only checks it and requires none itself.
 - **MCP is a thin adapter** (`src/Oadm.Server/Mcp/`): the transport and its checks, access keys (which make the
-  `ToolCaller`), its own limits (calls per second, calls at once, runs per minute), and the mapping to `tools/list` and
-  `tools/call` (`McpToolAdapter`).
-- **Preview and run stay two tools.** A change is always a preview tool (it writes nothing and answers the plan and a
-  handle) and a run tool that takes only the handle: the assistant shows the preview as a card with a Run button.
+  `ToolCaller`), its own limits (calls per second, calls at once, runs per minute), the mapping to `tools/list` and
+  `tools/call` (`McpToolAdapter`, also an image result as MCP image content), the file links and the skill resources.
+- **Preview and run stay two tools.** A change is always a preview tool `<name>_preview` (it writes nothing and answers the
+  plan and a handle) and a run tool `<name>_run` that takes only the handle: the assistant shows the preview as a card with
+  a Run button. A handle is taken only by its own run tool. `ToolRegistryTests` checks all three lines: the tool layer's
+  source and types name no MCP or ASP.NET, two tools run in process with a caller object, and every change is such a pair.
 
 ## Transport and certificate
 
@@ -178,9 +182,10 @@ New default interface members (SDK minor version up, `docs/spec/plugins.md`):
 - `ITaskPlugin.PlanAsync(payload, devices, ct)` → per device run or skip with a reason, from cached data only (no device
   request). The server-side twin of `ITaskPluginDialog.ShowForDevicesAsync` (Upgrade AXIS OS: `FirmwareCompatibility.Choose`).
   Default: `CanRun` / `NotSupportedReason`.
-- `ICorePlugin.McpTools`: tool descriptors (name, title, description, input and output type, read only or change,
-  permission, the `InvokeAsync` method). Changes get the preview/run pair from the host; the plugin implements a
-  `<method>.preview` that never writes.
+- `ICorePlugin.Tools` and `ICorePlugin.ToolArea`: tool descriptors (`PluginTool`: name, title, description, input and
+  output schema, read only or change, permission), called through the plugin's own `InvokeAsync` with the caller
+  (`tool.<name>`). Changes get the preview/run pair from the host; the plugin implements `tool.<name>.preview`, which never
+  writes. Nothing in the SDK names MCP: a later built-in assistant uses the same tools.
 - `[Secret]` (`SecretAttribute`) on a payload property: a task whose payload has one, anywhere, is not offered over MCP.
 
 ## Skill
@@ -201,7 +206,7 @@ claude mcp add --transport http oadm https://oadm.example:5082/mcp --header "Aut
 ```
 
 and the `.mcp.json`, Claude Desktop and VS Code (`servers`, `inputs` with `password: true`) forms, plus the CA download.
-The website gets a user page (Tools > AI agents) and a developer page (plugin MCP tools).
+The website gets a user page (Tools > AI agents, `tools/ai-agents`) and a developer page (`dev/plugin-tools`).
 
 ## Tests
 
@@ -333,11 +338,68 @@ The website gets a user page (Tools > AI agents) and a developer page (plugin MC
   keys and every write tool, upload links, 10 runs a minute), `McpToolTests` and `McpSecretTests` over every tool, the canary
   case of `TaskService.Plan`.
 
+## Stage 3 as built
+
+- **Devices** (`Tools/DeviceChangeTools`, `Tools/SettingsTools`): `oadm_devices_snapshot(device_id)` (one JPEG as an image
+  result, Live view permission, at most 1280 px wide; over 1 MB it is taken again smaller, then at 640 px);
+  `oadm_devices_refresh_preview`/`_run`; `oadm_devices_remove_preview`/`_run` (a filter is required, an empty one is
+  refused); `oadm_devices_credentials_preview`/`_run` (an entry of the credential list by its name, never a password; the
+  credential list is the Administrator's, a name two entries share is refused); `oadm_devices_add_preview`/`_run` (exactly
+  one of a range (at most 65,536 addresses, as the client), up to 100 addresses or `try_waiting`; `keep_waiting` puts
+  addresses that do not answer on the waiting list; the preview scans and logs in with the credential list, waits at most
+  90 s and then says the scan is incomplete; the run adds only the devices that logged in, never one with factory default
+  settings or a failed login); `oadm_settings_get` (what the Settings page shows, without secrets). A preview is listed
+  only for a caller who may run its change. Refresh is not destructive; Remove and Set credentials are.
+- **Tags, sites, compliance, event rules** (`Tools/TagTools`, `SiteTools`, `ComplianceTools`, `RuleTools`):
+  `oadm_tags_list` (device counts in the caller's group), `oadm_tags_assign_preview`/`_run` (add and remove tags on a
+  filter's devices, the first 20 devices shown; destructive because it can remove tags); `oadm_sites_list` (no node id,
+  address or fingerprint; waiting nodes only counted); `oadm_compliance_summary` (per check: pass, fail, unknown of the
+  filter's devices, worst first, counts only) and `oadm_compliance_checks`; `oadm_rules_catalog` (the events and actions a
+  rule can use, with their fields), `oadm_rules_list`, `oadm_rules_get`, `oadm_rules_save_preview`/`_run` (create or
+  change; the rule editor's checks and texts through `EventService.CheckRule`, nothing saved by the preview; a new rule is
+  saved off unless `enabled`; the preview names actions that change devices and warns about one on every device),
+  `oadm_rules_delete_preview`/`_run`, `oadm_events_log` (`more` and a cursor, no total). Passwords, secret headers, code
+  and file fields of actions are never shown, a change keeps them, and a rule that needs a new one answers "Set this in
+  OADM.". A rule naming more than 200 devices is changed in OADM.
+- **Plugin tools** (`Tools/PluginTools`, a tool source of the registry that follows the plugins that are on): core plugins
+  bring tools through `ICorePlugin.Tools` (SDK 0.13.0: `PluginTool`, `PluginToolPage`, `PluginToolErrors`, `ToolArea`, which
+  defaults to the plugin id without `oadm.`). The host names them `oadm_<area>_<name>`, refuses a name that a host tool
+  has, leaves out a tool without a strict schema, lists them only while the plugin is on and the caller has the tool's
+  permission and the plugin's method rules, calls `PluginService.Invoke` in process with the caller, refuses an answer over
+  32 KB and never shows a plugin's exception text. Bundled: `oadm_pki_certificates`, `oadm_pki_policies`,
+  `oadm_pki_certificate_create_preview`/`_run` (the PKI page's own create check, no key material in any answer),
+  `oadm_ntp_status`, `oadm_dhcp_status`, `oadm_dhcp_leases`, `oadm_hardening_results`.
+- **gRPC** (docs/spec/grpc.md): `DeviceService.Resolve`, `DeviceService.SetStoredCredentials`, `LiveViewService.GetSnapshot`,
+  `TagService.PlanDeviceTags`, `ComplianceService.Summarize`, `EventService.CheckRule`, `ListEventLogRequest.before_id` and
+  `skip_total`; each with its `AccessPolicy` rule and, when it takes device ids, its device group canary case.
+- **Tests**: `McpDeviceChangeTests`, `McpAreaToolTests`, `McpRuleToolTests`, `McpPluginToolTests`, the plugins' `ToolTests`,
+  and `McpToolTests` / `McpSecretTests` over every tool; Perf at 100,000 devices (`McpDeviceChangeScaleTests`: previews 1.2
+  to 2.3 s, a removal 4.8 s; `McpAreaScaleTests`: tag preview 2.9 s, tag run 15 s, tag list 1 s, compliance summary 2.9 s;
+  Hardening results 43 ms a page; every answer a few KB).
+
+## Stage 4 as built
+
+- **Skill** (`src/Oadm.Server/Mcp/Skill/`: `SKILL.md`, `rollout-axis-os.md`, `network-change.md`, `certificates.md`,
+  `health-check.md`, embedded): `Mcp/McpSkill` serves them as the resources `oadm://skill/<file>` to any valid key and
+  declares the extension `io.modelcontextprotocol/skills` in the server capabilities; `McpService.GetSkill` answers them
+  as `oadm-skill.zip` (every signed-in user) for **Download skill**.
+- **Card**: **Connect an agent** shows the Claude Code, `.mcp.json`, Claude Desktop and VS Code configurations with this
+  server's address (the certificate's first name, a DNS name before an address) and port, each with Copy, while the server
+  runs; **Download skill** next to **Download CA certificate**.
+- **Website**: `tools/ai-agents` (turn it on, access keys, connect an agent, the skill, what agents can and cannot do) and
+  `dev/plugin-tools` (how a plugin adds tools).
+- **Tests**: `McpSkillTests` (resources, the ZIP, the tool names the skill uses exist, the Wording rules), client
+  `AiAgentsTests` (the configurations, headless screenshots).
+
 ## Open points
 
 - Client support for the MCP tasks extension: if it spreads, `oadm_task_run` may answer a task handle instead of polling.
+- VAPIX Commander: its library rollout is a page task (`TaskService.Run` refuses it, the catalog lists only menu tasks), so
+  it is not offered. Offering it needs a tools-only task kind with a payload of a library command id and its declared
+  values, never a free-form VAPIX request.
+- Not offered yet: recipients, changing compliance checks, turning a rule on or off by itself; the waiting list keeps no
+  tags or site for a device an agent puts there.
+- The skills extension is declared without fields; when its schema settles, `McpSkill` may list the skill there too.
 - Download links (backups, reports, exports) are not built; nor are the schemas of Upgrade AXIS OS (its `PlanAsync` with
   `FirmwareCompatibility.Choose`, the files of upload links), Network, Applications and the PKI tasks, nor
   `oadm_tasks_cancel`.
-- `ICorePlugin.McpTools` (stage 3) would name MCP in the SDK although the tools no longer depend on it: `ICorePlugin.Tools`
-  fits the registry.

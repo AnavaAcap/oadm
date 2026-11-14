@@ -13,9 +13,15 @@ Each entry is one short line in plain words (what the user gets, not how); no ne
 - AI agents: create access keys in the account menu; an agent reads your devices, tasks and logs with the rights of your role.
 - AI agents: an agent previews a task on the devices of a filter and runs it with your rights; Restart, Use OADM NTP server and Date and time are offered.
 - AI agents: an agent sends a file for a task through a one-time upload link, never through the model.
+- AI agents: an agent takes a camera picture, refreshes, removes and adds devices, and sets their login from the credential list.
+- AI agents: an agent lists and changes device tags, lists sites, reads compliance results and checks, works with event rules and reads the event log.
+- AI agents: an agent reads PKI certificates and policies, creates a certificate, and reads the NTP server, DHCP server and Hardening scan status.
+- AI agents: plugins bring their own tools, shown only while the plugin is on.
+- AI agents: the Settings card shows how to connect Claude Code, Claude Desktop and VS Code, each with Copy.
+- AI agents: a skill tells agents how to work with OADM, served to agents and as Download skill.
 - Tasks: a run with settings the task does not accept starts no task and says why.
 - Permissions: the role right Use AI agents, and every user's access keys with Delete.
-- Plugin SDK 0.13.0: the certificates of the servers OADM runs, the permission Use AI agents, and tasks for AI agents (payload schema, payload check, plan).
+- Plugin SDK 0.13.0: the certificates of the servers OADM runs, the permission Use AI agents, tasks for AI agents (payload schema, payload check, plan) and plugin tools.
 
 ## [5.0.0] - 2026-11-13
 

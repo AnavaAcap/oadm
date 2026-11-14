@@ -77,6 +77,10 @@ used again.
     "Measured"); no filter, rows or counts answers the view's cached count. Ids in the filter read only those devices: any
     one that is unknown or outside the view refuses the request (NOT_FOUND, like every method); INVALID_ARGUMENT for a sort,
     count field, limit or id it does not know.
+  - `Resolve(filter, shown)` (signed in, like `Search`; the AI agents' device previews): the ids of the filter's devices in
+    the caller's view in address order and the first `shown` rows, so a run takes a fixed list.
+  - `SetStoredCredentials(device_ids, credential_id)` (`devices.login`, users with all devices; audited "Set device
+    credentials"): the login of an entry of the credential list, so no password is sent or answered.
   - `LogIn(device_ids, user_name, password, save_to_credential_list)` (context menu "Log in", `docs/spec/main-window.md`;
     Operator): per device (`Oadm.Core.Devices.DeviceLoginService`, 8 at a time, 15 s each) the stored address, scheme
     and pinned certificate with the new credential, authenticated `basicdeviceinfo`, the serial must be the record's;
@@ -267,6 +271,8 @@ used again.
   FAILED_PRECONDITION "The camera refused: <camera text>"). Only for devices of the caller's view (NOT_FOUND "1 device
   is no longer available.", the camera is never asked; the RTSP port methods refuse the whole selection); `Watch` ends
   with that NOT_FOUND when its device leaves the view.
+  - `GetSnapshot(device_id, camera, max_width, compression)` (Live view permission, device group): one JPEG of the largest
+    size at most `max_width` (the AI agents' `oadm_devices_snapshot`).
 - **`EventService`** (`events.proto`, `docs/spec/event-rules.md`; every method `AccessRule.AllDevices`, rules have no
   owner): `GetCatalog`, `ListRules`, `WatchRules`, `GetRule` (password values never included), `SaveRule`, `DeleteRule`,
   `SetRuleEnabled`, `DuplicateRule`, `ListActionChoices`, `ListLog` (newest first, limit 0 = 10,000), `WatchLog`,
@@ -276,6 +282,8 @@ used again.
   connection of every persistent recipient that has one, the whole list first, then after each change, at most every 500 ms; missing means not
   used, `docs/spec/recipient-sessions.md`), `ListRecipientCertificates` (like `SaveRule`: the certificates of PKI for the recipient dialog, both
   lists empty while PKI is not running; ids and texts only, never a key). `GetCatalog` also gives `recipient_types` (`persistent`: one shared connection).
+  - `CheckRule(SaveRuleRequest)` (like `SaveRule`): the rule editor's checks, answers the rule's summary or INVALID_ARGUMENT
+    with the first problem; nothing is saved. `ListLog` takes `before_id` (the page before that entry) and `skip_total`.
 - **`ServerLogService`** (`logs.proto`, permission `logs.server`, users with all devices): `List` (the server's log
   files, a page newest first; `not_after = 5`: only lines at or before that ISO 8601 time, the page after a line, which new
   lines never move; INVALID_ARGUMENT for another text), see `docs/spec/main-window.md` "Logs page".
@@ -295,6 +303,8 @@ used again.
   on or off, off by default, `ComplianceCheckList.enabled`; users with all devices only). Users of a group see and change
   only their group's checks and results (others NOT_FOUND); `CheckNow` and `ListChoices` take only devices of the view,
   empty lists = the view.
+  - `Summarize(filter)` (like `ListChecks`): every check with the pass, fail and unknown counts of the filter's devices in
+    the caller's view.
 - **`TagService`** (`tags.proto`, `docs/spec/tags.md`): `List` (every definition sorted by name with its `device_count`
   in the caller's view and, for users with all devices, the `group_names` that use it; then names used on devices of the
   view without a definition, `defined = false`), `Watch` (the whole `TagList` on subscribe and after every change of the
@@ -308,6 +318,8 @@ used again.
   PERMISSION_DENIED for a user with a device group who adds or removes a tag a device group uses; RESOURCE_EXHAUSTED when
   a device would get more than 20 tags; reply `devices_changed`, `created`). Every write publishes one Updated device
   change per changed device; moves into or out of device groups are audited per group.
+  - `PlanDeviceTags(filter, add, remove)` (like `SetDeviceTags`): the counts and the ids of the devices that would change;
+    writes nothing.
 - **`LicenseService`** (`license.proto`, `docs/spec/licensing.md`): `GetLicense` (every signed-in user), `ImportLicense`
   and `RemoveLicense` (Admin, audited; INVALID_ARGUMENT with the reason), `StartTrial` (Admin, audited, once per server;
   FAILED_PRECONDITION with the reason).
@@ -327,6 +339,7 @@ used again.
   `Set` (Admin, all devices; audited "Changed AI agents" with what changed; INVALID_ARGUMENT for a port outside 1025 to
   65535 or an unknown interface, FAILED_PRECONDITION "Turn on PKI to choose the certificate."), `GetCaCertificate` (signed
   in: the issuers of the MCP server's certificate as PEM, `oadm-ca.pem`; NOT_FOUND without one).
+  - `GetSkill` (signed in): the skill `oadm` as `oadm-skill.zip` (**Download skill**).
 - **`AccessKeyService`** (`mcp.proto`, `docs/spec/mcp.md` "Access keys"): `ListMine`, `Delete` (signed in, the caller's own
   keys; NOT_FOUND "The access key no longer exists." also for another user's), `Create` ("Use AI agents"; INVALID_ARGUMENT
   with the field's text, RESOURCE_EXHAUSTED at 20 keys; the reply holds the key once), `ListAll`, `DeleteAny` (Admin). No

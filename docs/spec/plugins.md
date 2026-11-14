@@ -641,6 +641,13 @@ box back with the error below the list (`PluginsViewModel.SwitchAsync`).
   `TaskPlan.ByCanRun`). A task without a payload type, with a `[Secret]` property anywhere in it, or with a value of any
   type is not offered to the tools. Bundled: Restart and Use OADM NTP server (empty records), Date and time
   (`DateTimePayload`, `PayloadValidator`), Users (its password is `[Secret]`: not offered).
+- **Plugin tools** (SDK 0.13.0, `docs/spec/mcp.md` "Stage 3 as built", `website/src/content/docs/dev/plugin-tools.md`):
+  `ICorePlugin.Tools` (`PluginTool`: name, title, description, input and output schema, read only or change, permission)
+  and `ICorePlugin.ToolArea` (default: the plugin id without `oadm.`); the host calls `InvokeAsync` with the caller as
+  `tool.<name>` and, for a change, `tool.<name>.preview` first (it never writes); `PluginToolPage` cuts a list to its limit
+  and about 24 KB, `PluginToolErrors` answers field errors. Nothing names MCP: the same tools serve any channel. Bundled:
+  PKI (`certificates`, `policies`, `certificate_create`), NTP server (`status`), DHCP server (`status`, `leases`), Hardening
+  scan (`results`).
 - **Protected tags** (`ICorePluginContext.ProtectedTags`, `Oadm.Sdk.Devices.IProtectedTags.Protect(names, refusal)`;
   server `ProtectedTagRegistry`): a core plugin whose settings act on devices by tag names those tags; only users with all
   devices then add them to or remove them from devices (`docs/spec/tags.md` "Protected tags"). Each call replaces the
