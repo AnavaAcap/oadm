@@ -195,6 +195,26 @@ public sealed class AiAgentsTests
     public void TheAgentConnectsToANameOfTheCertificate(string names, string? host) =>
         Assert.Equal(host, AgentConnections.HostOf(names.Split('|', StringSplitOptions.RemoveEmptyEntries)));
 
+    [Theory]
+    [InlineData("a$(x)", false)]
+    [InlineData("quote\"d", false)]
+    [InlineData("back`tick", false)]
+    [InlineData("semi;colon", false)]
+    [InlineData("Laptop 2.0_a-b", true)]
+    public async Task AKeyNameAllowsOnlyLettersDigitsSpaceDashUnderscoreAndDotWithTheErrorBelowTheField(string name, bool fine)
+    {
+        var done = await HeadlessSession.Shared.Dispatch(() =>
+        {
+            using var api = new FakeOadmApi(TimeSpan.FromMilliseconds(5));
+            var keys = new AccessKeysViewModel(api, Substitute.For<IDialogService>());
+            keys.Name = name;
+            Assert.Equal(fine ? null : AccessKeyWords.NameCharacters, keys.ErrorOf(nameof(AccessKeysViewModel.Name)));
+            Assert.Equal(fine, keys.CreateCommand.CanExecute(null));
+            return Task.FromResult(true);
+        }, CancellationToken.None);
+        Assert.True(done);
+    }
+
     [Fact]
     public async Task ANewKeyIsShownOnceWithCopyAndTheListDeletesKeys()
     {

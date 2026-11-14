@@ -21,7 +21,8 @@ public sealed class McpSecretTests
     [Fact]
     public async Task NoAnswerAuditEntryOrLogLineHoldsAPasswordATokenOrTheKey()
     {
-        await using var server = await McpTestServer.StartAsync();
+        var clock = new Microsoft.Extensions.Time.Testing.FakeTimeProvider(DateTimeOffset.UtcNow);
+        await using var server = await McpTestServer.StartAsync(accessClock: clock);
         var device = await DeviceServiceTests.AddDeviceAsync(server.Host, "10.4.0.1", 4001, password: DevicePassword);
         await server.Host.Settings.AddCredentialAsync(new Proto.AddCredentialRequest { UserName = "root", Password = ListPassword });
         var key = await server.CreateKeyAsync(name: "canary");
@@ -70,11 +71,13 @@ public sealed class McpSecretTests
                 keys.Add(await server.CreateKeyAsync(name: "canary" + keys.Count));
             }
 
+            clock.Advance(TimeSpan.FromMinutes(2)); // the limits count per second and minute, per key and per user
             answers.Append((await server.CallToolAsync(keys[^1], tool, arguments)).ToJsonString());
         }
 
         foreach (var (tool, arguments) in areaCalls)
         {
+            clock.Advance(TimeSpan.FromMinutes(2));
             answers.Append((await server.CallToolAsync(areaKey, tool, arguments)).ToJsonString());
         }
 

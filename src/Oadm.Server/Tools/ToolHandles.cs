@@ -28,7 +28,9 @@ internal sealed record PlannedChange(string RunTool, object Plan);
 /// <summary>
 /// The handles of previews and the upload links (docs/spec/mcp.md "Tasks", "Files"): each one random, bound to the caller's
 /// binding key, good for <see cref="Lifetime"/> and taken once. Kept in server memory only (a restart ends them), at most
-/// <see cref="MaxPerCaller"/> of a kind per caller (the oldest goes first).
+/// <see cref="MaxPerCaller"/> of a kind per caller, at most <see cref="MaxPerUser"/> and <see cref="MaxBytesPerUser"/> held per
+/// user over all the user's keys (the oldest goes first). A binding key is "&lt;user id&gt;/&lt;key hash&gt;" (<see cref="BindingKeyOf"/>); a
+/// binding key without a "/" is its own user.
 /// </summary>
 internal sealed class ToolHandles(TimeProvider time)
 {
@@ -38,10 +40,52 @@ internal sealed class ToolHandles(TimeProvider time)
     /// <summary>Open handles of one kind per caller at most.</summary>
     public const int MaxPerCaller = 20;
 
+    /// <summary>Open handles and links of all kinds per user (all the user's keys together).</summary>
+    public const int MaxPerUser = 60;
+
+    /// <summary>
+    /// What the plans of one user's open handles may hold together (the size of their JSON: the device ids and the payload; an id
+    /// is about 40 bytes, so 100,000 devices are about 4 MB). When a new one does not fit, the oldest of the user go first.
+    /// </summary>
+    public const long MaxBytesPerUser = 16 * 1024 * 1024;
+
+    /// <summary>The binding key of an access key or session: its user first, so the limits per user see it.</summary>
+    public static string BindingKeyOf(Guid userId, string tokenHash) => userId.ToString("N") + "/" + tokenHash;
+
+    private static string UserOf(string bindingKey)
+    {
+        var slash = bindingKey.IndexOf('/', StringComparison.Ordinal);
+        return slash > 0 ? bindingKey[..slash] : bindingKey;
+    }
+
+    private static readonly System.Text.Json.JsonSerializerOptions SizeOptions = new() { MaxDepth = 64 };
+
+    /// <summary>The bytes a plan holds: its JSON size (a plan is records of text, numbers and lists); a download holds only a closure.</summary>
+    private static long SizeOf(object value)
+    {
+        try
+        {
+            return value switch
+            {
+                PlannedDownload => 256,
+                PlannedUpload => 256,
+                PlannedChange c => 256 + System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(c.Plan, c.Plan.GetType(), SizeOptions).LongLength,
+                _ => 256 + System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(value, value.GetType(), SizeOptions).LongLength,
+            };
+        }
+#pragma warning disable CA1031 // A plan that cannot be measured counts as a large one; a handle is never refused for it.
+        catch (Exception ex) when (ex is not OperationCanceledException)
+#pragma warning restore CA1031
+        {
+            return 1024 * 1024;
+        }
+    }
+
     public const string Ended = "This preview has ended or already ran. Call oadm_task_preview again.";
     public const string LinkEnded = "This upload link has ended or was used. Ask for a new one.";
 
     private readonly Lock _gate = new();
+    private long _seq;
     private readonly Dictionary<string, Entry> _entries = new(StringComparer.Ordinal);
 
     /// <summary>A new handle of <paramref name="run"/> for <paramref name="bindingKey"/>.</summary>
@@ -81,6 +125,8 @@ internal sealed class ToolHandles(TimeProvider time)
         ArgumentNullException.ThrowIfNull(bindingKey);
         var token = Convert.ToBase64String(RandomNumberGenerator.GetBytes(24)).TrimEnd('=').Replace('+', '-').Replace('/', '_');
         var now = time.GetUtcNow();
+        var size = SizeOf(value);
+        var user = UserOf(bindingKey);
         lock (_gate)
         {
             foreach (var ended in _entries.Where(e => e.Value.Ends <= now).Select(e => e.Key).ToList())
@@ -88,13 +134,29 @@ internal sealed class ToolHandles(TimeProvider time)
                 _entries.Remove(ended);
             }
 
-            var mine = _entries.Where(e => e.Value.BindingKey == bindingKey && e.Value.Value.GetType() == value.GetType()).OrderBy(e => e.Value.Ends).ToList();
+            var mine = _entries.Where(e => e.Value.BindingKey == bindingKey && e.Value.Value.GetType() == value.GetType()).OrderBy(e => e.Value.Seq).ToList();
             foreach (var oldest in mine.Take(Math.Max(0, mine.Count - MaxPerCaller + 1)))
             {
                 _entries.Remove(oldest.Key);
             }
 
-            _entries[token] = new Entry(bindingKey, value, now + Lifetime);
+            // The user's whole share, oldest first: the count and the held bytes both include the new one.
+            var theirs = _entries.Where(e => e.Value.User == user).OrderBy(e => e.Value.Seq).ToList();
+            var count = theirs.Count + 1;
+            var bytes = theirs.Sum(e => e.Value.Size) + size;
+            foreach (var oldest in theirs)
+            {
+                if (count <= MaxPerUser && bytes <= MaxBytesPerUser)
+                {
+                    break;
+                }
+
+                _entries.Remove(oldest.Key);
+                count--;
+                bytes -= oldest.Value.Size;
+            }
+
+            _entries[token] = new Entry(bindingKey, user, value, now + Lifetime, size, ++_seq);
         }
 
         return token;
@@ -120,5 +182,5 @@ internal sealed class ToolHandles(TimeProvider time)
         }
     }
 
-    private sealed record Entry(string BindingKey, object Value, DateTimeOffset Ends);
+    private sealed record Entry(string BindingKey, string User, object Value, DateTimeOffset Ends, long Size, long Seq);
 }

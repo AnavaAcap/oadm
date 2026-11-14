@@ -54,6 +54,13 @@ internal sealed class ToolCursors
         }
     }
 
+    /// <summary>The query of a call of a list tool: the tool's name and its arguments (a cursor of another tool is refused).</summary>
+    public static string QueryOf(ToolCall call)
+    {
+        ArgumentNullException.ThrowIfNull(call);
+        return call.Tool + "|" + QueryOf(call.Arguments);
+    }
+
     /// <summary>The query of a call: its arguments without the cursor and the page size, with sorted keys.</summary>
     public static string QueryOf(JsonElement arguments)
     {

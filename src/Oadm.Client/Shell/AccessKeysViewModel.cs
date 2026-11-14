@@ -71,6 +71,7 @@ public static class AccessKeyWords
     public const string NeverUsed = "Never";
     public const string EnterName = "Enter a name.";
     public const string NameTooLong = "Use at most 64 characters.";
+    public const string NameCharacters = "Use only letters, digits, spaces, - _ and . in the name.";
     public const string Empty = "No access keys yet. Create one for each AI agent.";
     public const string EmptyAll = "No user has an access key.";
 
@@ -83,7 +84,7 @@ public static class AccessKeyWords
 
 /// <summary>
 /// The window Access keys of the account menu (docs/spec/mcp.md "Access keys"): the user's own keys with Delete, and a new key
-/// with a name (1 to 64 characters, unique per user), 30, 90 or 365 days and Read only. OADM shows the new key once, here,
+/// with a name (1 to 64 letters, digits, spaces, - _ and ., unique per user), 30, 90 or 365 days and Read only. OADM shows the new key once, here,
 /// with Copy; the server keeps only its SHA-256. Errors below their fields; the server's refusals below the field they name.
 /// </summary>
 public sealed partial class AccessKeysViewModel : ValidatingViewModel, IAccessKeyList
@@ -97,7 +98,7 @@ public sealed partial class AccessKeysViewModel : ValidatingViewModel, IAccessKe
         _api = api;
         _dialogs = dialogs;
         _clipboard = clipboard;
-        Validation.Rule(nameof(Name), () => Name.Trim().Length == 0 ? AccessKeyWords.EnterName : Name.Trim().Length > 64 ? AccessKeyWords.NameTooLong : null);
+        Validation.Rule(nameof(Name), () => Name.Trim().Length == 0 ? AccessKeyWords.EnterName : Name.Trim().Length > 64 ? AccessKeyWords.NameTooLong : Name.Trim().Any(c => !(char.IsLetterOrDigit(c) || c is ' ' or '-' or '_' or '.')) ? AccessKeyWords.NameCharacters : null);
         Validation.Validate();
         Validation.Reset();
     }

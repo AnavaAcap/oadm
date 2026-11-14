@@ -1151,7 +1151,7 @@ internal static partial class RuleTools
     /// </summary>
     private static async Task<JsonObject> LogAsync(ToolCall call, ToolCursors cursors)
     {
-        var query = ToolCursors.QueryOf(call.Arguments);
+        var query = ToolCursors.QueryOf(call);
         var after = cursors.Read(call.Caller, call.Text("cursor"), query);
         var beforeId = after is { } a && long.TryParse(a.Id, NumberStyles.None, CultureInfo.InvariantCulture, out var id) ? id : 0;
         var limit = call.Number("limit") ?? ToolAnswers.DefaultRows;

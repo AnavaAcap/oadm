@@ -94,9 +94,10 @@ internal static class LogTools
     /// </summary>
     private static async Task<JsonObject> ServerLogAsync(ToolCall call, ToolCursors cursors)
     {
-        var query = ToolCursors.QueryOf(call.Arguments);
+        var query = ToolCursors.QueryOf(call);
         var after = cursors.Read(call.Caller, call.Text("cursor"), query);
         var skip = after is { } a && int.TryParse(a.Id, NumberStyles.None, CultureInfo.InvariantCulture, out var shown) ? shown : 0;
+        var shownBefore = skip; // skip counts down below
         var limit = call.Number("limit") ?? ToolAnswers.DefaultRows;
         var since = Since(call);
         var lines = new JsonArray();
@@ -158,7 +159,7 @@ internal static class LogTools
         }
 
         var next = more.Value && lastTime is not null
-            ? cursors.Make(call.Caller, query, lastTime, (sameTime + (string.Equals(after?.Key, lastTime, StringComparison.Ordinal) ? int.Parse(after!.Value.Id, CultureInfo.InvariantCulture) : 0)).ToString(CultureInfo.InvariantCulture))
+            ? cursors.Make(call.Caller, query, lastTime, (sameTime + (string.Equals(after?.Key, lastTime, StringComparison.Ordinal) ? shownBefore : 0)).ToString(CultureInfo.InvariantCulture))
             : null;
         return new JsonObject { ["lines"] = lines, ["more"] = next is not null, ["next_cursor"] = next };
     }
@@ -166,7 +167,7 @@ internal static class LogTools
     /// <summary>The audit log by its ids (<c>before_id</c>): the cursor is the last entry looked at, its time and id.</summary>
     private static async Task<JsonObject> AuditAsync(ToolCall call, ToolCursors cursors)
     {
-        var query = ToolCursors.QueryOf(call.Arguments);
+        var query = ToolCursors.QueryOf(call);
         var after = cursors.Read(call.Caller, call.Text("cursor"), query);
         var beforeId = after is { } a && long.TryParse(a.Id, NumberStyles.None, CultureInfo.InvariantCulture, out var id) ? id : 0;
         var limit = call.Number("limit") ?? ToolAnswers.DefaultRows;

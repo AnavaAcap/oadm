@@ -173,7 +173,7 @@ internal static class TaskRunTools
             "A one-time link to send a file for a task (an AXIS OS file, an application) from your shell; the file never passes the model. Use the answer's file id in the task's input.",
             Object(null,
             [
-                P("name", Text("The file name, without a folder.", 255, minLength: 1)),
+                P("name", Text("The file name: letters, digits, spaces and . - _ ( ), no folder.", 255, minLength: 1)),
                 P("size", Number("The exact size in bytes.", 1, int.MaxValue)),
             ], "name", "size"),
             OutObject(null,
@@ -321,13 +321,18 @@ internal static class TaskRunTools
         return new JsonObject { ["batch"] = reply.BatchId, ["tasks"] = reply.TaskIds.Count, ["task_name"] = run.TaskName };
     }
 
+    /// <summary>The refusal of a file name that holds anything but the characters below (the name ends up in a shell command).</summary>
+    public const string FileNameRule = "Use only letters, digits, spaces, . - _ ( ) in the file name, without a folder.";
+
+    private static bool IsFileNameCharacter(char c) => char.IsLetterOrDigit(c) || c is ' ' or '.' or '-' or '_' or '(' or ')';
+
     private static Task<JsonObject> UploadLinkAsync(ToolCall call, ToolHandles handles)
     {
         var files = call.Caller.Channel.FilesUrl ?? throw new ToolException("This channel takes no files.");
-        var name = Path.GetFileName(call.Text("name")!);
-        if (name.Length == 0 || name != call.Text("name"))
+        var name = call.Text("name")!;
+        if (name.Length == 0 || name.All(c => c == '.') || name.Any(c => !IsFileNameCharacter(c)))
         {
-            throw new ToolException(ToolAnswers.FieldsMessage, [new ToolFieldError("name", "Enter the file name without a folder.")]);
+            throw new ToolException(ToolAnswers.FieldsMessage, [new ToolFieldError("name", FileNameRule)]);
         }
 
         var token = handles.AddUpload(call.Caller.BindingKey, new PlannedUpload(name, call.Number("size")!.Value));

@@ -27,9 +27,9 @@ namespace Oadm.Server.Tests.Mcp;
 /// </summary>
 public sealed class McpTaskToolTests
 {
-    private static async Task<McpTestServer> StartAsync()
+    private static async Task<McpTestServer> StartAsync(TimeProvider? accessClock = null)
     {
-        var server = await McpTestServer.StartAsync();
+        var server = await McpTestServer.StartAsync(accessClock: accessClock);
         var plugins = server.Host.Get<PluginRegistry>();
         Assert.True(plugins.RegisterTaskPlugin(new RestartTaskPlugin(TimeSpan.FromMilliseconds(20), TimeSpan.FromSeconds(20), TimeSpan.FromSeconds(2), TimeProvider.System), new PluginOrigin("oadm.restart", "1.0.0", null)));
         Assert.True(plugins.RegisterTaskPlugin(new DateTimeTaskPlugin(), new PluginOrigin("oadm.datetime", "1.0.0", null)));
@@ -160,7 +160,8 @@ public sealed class McpTaskToolTests
     [Fact]
     public async Task AReadOnlyKeyListsNoWriteToolAndCanNeitherRunNorUpload()
     {
-        await using var server = await StartAsync();
+        var clock = new Microsoft.Extensions.Time.Testing.FakeTimeProvider(DateTimeOffset.UtcNow);
+        await using var server = await StartAsync(clock);
         await DeviceServiceTests.AddDeviceAsync(server.Host, "10.15.0.1", 4601);
         var key = await server.CreateKeyAsync(readOnly: true);
         var writer = await server.CreateKeyAsync(name: "writer");
@@ -173,6 +174,7 @@ public sealed class McpTaskToolTests
         Assert.All(writes, w => Assert.DoesNotContain(w, names));
         foreach (var tool in writes)
         {
+            clock.Advance(TimeSpan.FromMinutes(2)); // each refused change is still counted: a minute apart
             var refused = await server.CallToolAsync(key, tool, tool == "oadm_task_run" ? new JsonObject { ["handle"] = "x" } : new JsonObject { ["name"] = "a.bin", ["size"] = 1 });
             Assert.True(refused["isError"]!.GetValue<bool>());
             Assert.Contains(McpAccess.ReadOnlyKey, refused["content"]![0]!["text"]!.GetValue<string>(), StringComparison.Ordinal);
@@ -231,17 +233,17 @@ public sealed class McpTaskToolTests
     }
 
     [Fact]
-    public async Task EachKeyRunsAtMostTenTimesAMinuteThen429()
+    public async Task EachKeyChangesAtMostTenTimesAMinuteThen429()
     {
         await using var server = await StartAsync();
         var device = await DeviceServiceTests.AddDeviceAsync(server.Host, "10.16.0.1", 4701);
         var key = await server.CreateKeyAsync();
-        var other = await server.CreateKeyAsync(name: "other");
+        var other = await server.CreateKeyAsync(await server.Host.InvokerForUserAsync("second", Oadm.Sdk.Plugins.UserRole.Admin), name: "other"); // another user's budget
         var access = server.Host.Get<McpAccess>();
         var caller = (await access.AuthenticateAsync(key, "local", CancellationToken.None))!;
-        for (var i = 0; i < McpAccess.RunsPerMinute; i++)
+        for (var i = 0; i < McpAccess.ChangesPerMinute; i++)
         {
-            Assert.True(access.TryRun(caller)); // the key's runs of this minute (counted as the endpoint does)
+            Assert.True(access.TryChange(caller)); // the key's runs of this minute (counted as the endpoint does)
         }
 
         JsonObject Preview() => new() { ["task"] = RestartTaskPlugin.PluginId, ["filter"] = new JsonObject { ["ids"] = new JsonArray(device.Id.ToString()) }, ["input"] = new JsonObject() };
@@ -249,7 +251,7 @@ public sealed class McpTaskToolTests
         var refused = await server.PostAsync(key, McpTestServer.Request("tools/call", new JsonObject { ["name"] = "oadm_task_run", ["arguments"] = new JsonObject { ["handle"] = preview["handle"]!.GetValue<string>() } }));
         Assert.Equal(429, refused.Status);
         Assert.Equal("60", refused.RetryAfter);
-        Assert.Equal(McpEndpoint.TooManyRuns, refused.ErrorMessage);
+        Assert.Equal(McpEndpoint.TooManyChanges, refused.ErrorMessage);
 
         var otherPreview = await server.ToolAsync(other, "oadm_task_preview", Preview());
         Assert.Equal(1, (await server.ToolAsync(other, "oadm_task_run", new JsonObject { ["handle"] = otherPreview["handle"]!.GetValue<string>() }))["tasks"]!.GetValue<int>());

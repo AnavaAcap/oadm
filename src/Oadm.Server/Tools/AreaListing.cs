@@ -33,7 +33,7 @@ internal static class AreaListing
         ArgumentNullException.ThrowIfNull(call);
         ArgumentNullException.ThrowIfNull(cursors);
         ArgumentNullException.ThrowIfNull(sorted);
-        var query = ToolCursors.QueryOf(call.Arguments);
+        var query = ToolCursors.QueryOf(call);
         var after = cursors.Read(call.Caller, call.Text("cursor"), query);
         var limit = call.Number("limit") ?? ToolAnswers.DefaultRows;
         var rows = new JsonArray();

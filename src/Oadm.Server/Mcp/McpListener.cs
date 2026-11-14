@@ -193,7 +193,7 @@ public sealed partial class McpListener : IAsyncDisposable
 
     private async Task<string?> OpenAsync(McpListenOptions listen, CancellationToken ct)
     {
-        var app = McpEndpoint.Build(_services, ConfigureHost is null ? listen : null, ConfigureHost, NamesOf(listen.Certificate));
+        var app = McpEndpoint.Build(_services, ConfigureHost is null ? listen : null, ConfigureHost, NamesOf(listen.Certificate), listen.Port);
         try
         {
             await app.StartAsync(ct).ConfigureAwait(false);

@@ -105,6 +105,9 @@ internal sealed record ToolImage(byte[] Bytes, string MediaType);
 /// <summary>One call of a tool: the caller, the checked arguments and the way to the gRPC services.</summary>
 internal sealed record ToolCall(ToolCaller Caller, JsonElement Arguments, InProcessCalls Calls, CancellationToken Ct)
 {
+    /// <summary>The name of the tool being called (cursors are bound to it).</summary>
+    public string Tool { get; init; } = string.Empty;
+
     /// <summary>A tool that answers a picture sets it here; it goes with the answer (<see cref="ToolResult.Image"/>).</summary>
     public ToolImage? Image { get; set; }
 
@@ -221,7 +224,7 @@ internal sealed class ToolRegistry
 
         try
         {
-            var call = new ToolCall(caller, args, _calls, ct);
+            var call = new ToolCall(caller, args, _calls, ct) { Tool = tool.Name };
             var answer = await tool.Run(call).ConfigureAwait(false);
             return ToolResult.Ok(answer) with { Image = call.Image };
         }

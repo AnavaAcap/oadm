@@ -48,7 +48,7 @@ internal sealed class McpTestServer : IAsyncDisposable
     public McpListener Listener => Host.Get<McpListener>();
 
     public static async Task<McpTestServer> StartAsync(FakeAxisNetwork? network = null, bool turnOn = true, bool withPki = true, Action<IServiceCollection>? configureServices = null,
-        Oadm.Sdk.Network.IFirewallRules? firewall = null)
+        Oadm.Sdk.Network.IFirewallRules? firewall = null, TimeProvider? accessClock = null)
     {
         var host = await TestServerHost.StartAsync(network, configureServices: services =>
         {
@@ -58,6 +58,14 @@ internal sealed class McpTestServer : IAsyncDisposable
             {
                 ConfigureHost = b => b.WebHost.UseTestServer(),
             });
+            if (accessClock is not null)
+            {
+                // The limits per second and minute count on this clock: a test that makes many calls moves it on.
+                services.RemoveAll<McpAccess>();
+                services.AddSingleton(sp => new McpAccess(sp.GetRequiredService<Oadm.Core.Auth.AuthTokenStore>(), sp.GetRequiredService<Oadm.Core.Auth.RoleStore>(),
+                    sp.GetRequiredService<Oadm.Core.DeviceGroups.DeviceViewFactory>(), sp.GetRequiredService<Oadm.Core.Auth.AccessEpochs>(), sp.GetRequiredService<Oadm.Core.Auth.AuditLog>(), accessClock));
+            }
+
             configureServices?.Invoke(services);
         });
         var certificates = new FakeServerCertificates();
@@ -155,7 +163,7 @@ internal sealed class McpTestServer : IAsyncDisposable
     public async Task<JsonObject> CallToolAsync(string key, string tool, JsonObject? arguments = null)
     {
         var reply = await PostAsync(key, Request("tools/call", new JsonObject { ["name"] = tool, ["arguments"] = arguments ?? [] }));
-        Assert.Equal(200, reply.Status);
+        Assert.True(reply.Status == 200, LastRaw);
         return reply.Body?["result"] as JsonObject ?? throw new InvalidOperationException("No result: " + reply.Body);
     }
 

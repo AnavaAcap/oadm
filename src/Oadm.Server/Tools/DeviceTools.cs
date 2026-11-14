@@ -172,7 +172,7 @@ internal static class DeviceTools
 
     private static async Task<JsonObject> SearchAsync(ToolCall call, ToolCursors cursors)
     {
-        var query = ToolCursors.QueryOf(call.Arguments);
+        var query = ToolCursors.QueryOf(call);
         var after = cursors.Read(call.Caller, call.Text("cursor"), query);
         var limit = call.Number("limit") ?? ToolAnswers.DefaultRows;
         var fields = call.Texts("fields").ToHashSet(StringComparer.Ordinal);

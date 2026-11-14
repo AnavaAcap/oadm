@@ -73,7 +73,7 @@ public sealed class McpServerTests
             services.AddSingleton(sp => new ToolRegistry([held], sp.GetRequiredService<Oadm.Server.Auth.InProcessCalls>(), sp.GetRequiredService<RoleStore>()));
         });
         var key = await server.CreateKeyAsync();
-        var other = await server.CreateKeyAsync(name: "other");
+        var other = await server.CreateKeyAsync(await server.Host.InvokerForUserAsync("second", Oadm.Sdk.Plugins.UserRole.Admin), name: "other"); // the user's keys share the places
         var calls = Enumerable.Range(0, McpAccess.CallsAtOnce).Select(_ => server.CallToolAsync(key, "oadm_test_hold")).ToList();
         await Oadm.Sdk.Testing.Eventually.TrueAsync(() => Volatile.Read(ref entered) == McpAccess.CallsAtOnce, "every allowed call waits in the tool");
 
@@ -81,7 +81,7 @@ public sealed class McpServerTests
         Assert.Equal(429, refused.Status);
         Assert.Equal("1", refused.RetryAfter);
         Assert.Equal(McpEndpoint.TooManyAtOnce, refused.ErrorMessage);
-        Assert.Equal(200, (await server.PostAsync(other, McpTestServer.Request("tools/list"))).Status); // another key has its own
+        Assert.Equal(200, (await server.PostAsync(other, McpTestServer.Request("tools/list"))).Status); // another user has its own
 
         gate.SetResult();
         foreach (var call in calls)
@@ -356,7 +356,7 @@ public sealed class McpServerTests
                 sp.GetRequiredService<DeviceViewFactory>(), sp.GetRequiredService<AccessEpochs>(), sp.GetRequiredService<AuditLog>(), time));
         });
         var key = await server.CreateKeyAsync();
-        var other = await server.CreateKeyAsync(name: "second");
+        var other = await server.CreateKeyAsync(await server.Host.InvokerForUserAsync("second", Oadm.Sdk.Plugins.UserRole.Admin), name: "second");
         for (var i = 0; i < McpAccess.CallsPerSecond; i++)
         {
             Assert.Equal(200, (await server.PostAsync(key, McpTestServer.Request("tools/list"))).Status);
@@ -365,7 +365,7 @@ public sealed class McpServerTests
         var limited = await server.PostAsync(key, McpTestServer.Request("tools/list"));
         Assert.Equal(429, limited.Status);
         Assert.Equal("1", limited.RetryAfter);
-        Assert.Equal(200, (await server.PostAsync(other, McpTestServer.Request("tools/list"))).Status); // per key
+        Assert.Equal(200, (await server.PostAsync(other, McpTestServer.Request("tools/list"))).Status); // per user
 
         time.Advance(TimeSpan.FromSeconds(1));
         Assert.Equal(200, (await server.PostAsync(key, McpTestServer.Request("tools/list"))).Status);

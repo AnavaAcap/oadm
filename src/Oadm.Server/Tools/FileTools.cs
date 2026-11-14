@@ -121,7 +121,7 @@ internal static class FileTools
 
     private static async Task<JsonObject> ListAsync(ToolCall call, ToolCursors cursors)
     {
-        var query = ToolCursors.QueryOf(call.Arguments);
+        var query = ToolCursors.QueryOf(call);
         var after = cursors.Read(call.Caller, call.Text("cursor"), query);
         var limit = call.Number("limit") ?? ToolAnswers.DefaultRows;
         var files = (await FilesAsync(call).ConfigureAwait(false)).Select(f => (File: f, Key: SortKey(f))).ToList();

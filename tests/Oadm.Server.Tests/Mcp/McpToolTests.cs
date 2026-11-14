@@ -551,7 +551,8 @@ public sealed partial class McpToolTests
     [Fact]
     public async Task TheServerLogPagesByTheLastLineAndANewLineNeverMovesThePages()
     {
-        await using var server = await McpTestServer.StartAsync();
+        var clock = new Microsoft.Extensions.Time.Testing.FakeTimeProvider(DateTimeOffset.UtcNow);
+        await using var server = await McpTestServer.StartAsync(accessClock: clock);
         var logs = server.Host.Get<OadmPaths>().LogsDirectory;
         Directory.CreateDirectory(logs);
         var file = Path.Combine(logs, "oadm-server-29991231.log"); // sorts first: today's file belongs to the test server's own logger
@@ -575,6 +576,7 @@ public sealed partial class McpToolTests
                 break;
             }
 
+            clock.Advance(TimeSpan.FromSeconds(2)); // a page a second at most
             await File.AppendAllTextAsync(file, "2026-10-17 08:00:03.000 +02:00 [INF] Oadm.Server.Tests: pager new\n"); // newer than every page already read
             page = await server.ToolAsync(key, "oadm_logs_search", new JsonObject { ["text"] = "pager", ["limit"] = 1, ["cursor"] = page["next_cursor"]!.GetValue<string>() });
         }

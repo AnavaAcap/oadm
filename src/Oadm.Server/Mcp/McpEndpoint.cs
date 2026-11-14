@@ -30,7 +30,9 @@ public sealed record McpListenOptions(int Port, IReadOnlyList<IPAddress>? Addres
 /// <c>initialize</c>; the SDK checks <c>MCP-Protocol-Version</c>, <c>Mcp-Method</c> and <c>Mcp-Name</c> against the body,
 /// -32020). In front of it: a browser origin other than the server (a name of its certificate) is refused (403), bodies are at most
 /// <see cref="MaxBodyBytes"/> (413), every request needs a valid access key (401) and each key at most
-/// <see cref="McpAccess.CallsPerSecond"/> calls a second and <see cref="McpAccess.CallsAtOnce"/> at once (429). Answers are not
+/// <see cref="McpAccess.CallsPerSecond"/> calls a second, <see cref="McpAccess.CallsAtOnce"/> at once and
+/// <see cref="McpAccess.ChangesPerMinute"/> changes a minute (and its user's keys together the same, the whole port at most
+/// <see cref="McpAccess.CallsInPort"/> at once; 429), and "Use AI agents" for the files and the skill too (403). Answers are not
 /// compressed (no gzip: the SDK's event stream stays as it is; they are at most <see cref="ToolAnswers.MaxBytes"/>).
 /// </summary>
 public static class McpEndpoint
@@ -48,8 +50,8 @@ public static class McpEndpoint
     public const string BrowserRefused = "Requests from web pages are not accepted.";
     public const string TooLarge = "The request is larger than 1 MB.";
     public const string TooManyCalls = "Too many calls with this access key. Wait a second.";
-    public const string TooManyAtOnce = "Too many calls with this access key at once. Wait for an answer.";
-    public const string TooManyRuns = "Too many task runs with this access key. Wait a minute.";
+    public const string TooManyAtOnce = "Too many calls at once. Wait for an answer.";
+    public const string TooManyChanges = "Too many changes with this access key. Wait a minute.";
 
     /// <summary>Where upload links point: <c>PUT /files/&lt;token&gt;</c> with the same key (docs/spec/mcp.md "Files").</summary>
     public const string FilesPath = "/files/";
@@ -64,7 +66,7 @@ public static class McpEndpoint
     /// network in unit tests). <paramref name="serverNames"/> are the names and addresses of the certificate: a browser origin
     /// must be one of them (null: not checked).
     /// </summary>
-    internal static WebApplication Build(IServiceProvider server, McpListenOptions? listen, Action<WebApplicationBuilder>? configure = null, IReadOnlyCollection<string>? serverNames = null)
+    internal static WebApplication Build(IServiceProvider server, McpListenOptions? listen, Action<WebApplicationBuilder>? configure = null, IReadOnlyCollection<string>? serverNames = null, int? port = null)
     {
         ArgumentNullException.ThrowIfNull(server);
         var tools = server.GetRequiredService<McpToolAdapter>();
@@ -87,8 +89,12 @@ public static class McpEndpoint
                 };
             })
             .WithHttpTransport(o => o.Stateless = true)
-            .WithListResourcesHandler((request, ct) => ValueTask.FromResult(McpSkill.List()))
-            .WithReadResourceHandler((request, ct) => ValueTask.FromResult(McpSkill.Read(request.Params?.Uri)))
+            .WithListResourcesHandler((request, ct) => ValueTask.FromResult(Allowed(access, request.Services) ? McpSkill.List() : new ListResourcesResult()))
+            .WithReadResourceHandler((request, ct) =>
+            {
+                Allowed(access, request.Services, refuse: true);
+                return ValueTask.FromResult(McpSkill.Read(request.Params?.Uri));
+            })
             .WithListToolsHandler((request, ct) => ValueTask.FromResult(tools.List(CallerOf(request.Services))))
             .WithCallToolHandler(async (request, ct) =>
             {
@@ -132,9 +138,40 @@ public static class McpEndpoint
         var app = builder.Build();
         var files = server.GetRequiredService<McpFiles>();
         var registry = server.GetRequiredService<ToolRegistry>();
-        app.Use((http, next) => GuardAsync(http, next, access, serverNames, files, registry));
+        var filesUrl = FilesUrlOf(serverNames, port);
+        app.Use((http, next) => GuardAsync(http, next, access, serverNames, files, registry, filesUrl));
         app.MapMcp(Path);
         return app;
+    }
+
+    /// <summary>
+    /// Where upload links point: the server's own name (the first DNS name of its certificate, else its first address, as Connect
+    /// an agent shows it) and the configured port, never the request's <c>Host</c> header; null while either is not known (no
+    /// link is made).
+    /// </summary>
+    internal static string? FilesUrlOf(IReadOnlyCollection<string>? names, int? port)
+    {
+        var all = (names ?? []).Where(n => !string.IsNullOrWhiteSpace(n)).Select(n => n.Trim()).ToList();
+        var chosen = all.FirstOrDefault(n => !IPAddress.TryParse(n, out _)) ?? all.FirstOrDefault();
+        if (chosen is null || port is null)
+        {
+            return null;
+        }
+
+        var host = IPAddress.TryParse(chosen, out var ip) && ip.AddressFamily == System.Net.Sockets.AddressFamily.InterNetworkV6 ? "[" + chosen + "]" : chosen;
+        return string.Create(System.Globalization.CultureInfo.InvariantCulture, $"https://{host}:{port}{FilesPath}");
+    }
+
+    /// <summary>The skill and its resources need "Use AI agents" like the tools do (the list is empty, a read is refused).</summary>
+    private static bool Allowed(McpAccess access, IServiceProvider? services, bool refuse = false)
+    {
+        var caller = CallerOf(services);
+        if (access.ChannelRefusal(caller) is not { } text)
+        {
+            return true;
+        }
+
+        return refuse ? throw new ModelContextProtocol.McpProtocolException(text, ModelContextProtocol.McpErrorCode.InvalidRequest) : false;
     }
 
     /// <summary>The tool caller the guard made from the access key (the only thing of the request the tools get).</summary>
@@ -143,7 +180,7 @@ public static class McpEndpoint
         ?? throw new InvalidOperationException("An MCP request without its caller."); // the guard runs first: never reached
 
     /// <summary>The checks before the SDK sees a request.</summary>
-    private static async Task GuardAsync(HttpContext http, RequestDelegate next, McpAccess access, IReadOnlyCollection<string>? serverNames, McpFiles files, ToolRegistry tools)
+    private static async Task GuardAsync(HttpContext http, RequestDelegate next, McpAccess access, IReadOnlyCollection<string>? serverNames, McpFiles files, ToolRegistry tools, string? filesUrl)
     {
         var path = http.Request.Path.Value ?? string.Empty;
         var upload = path.StartsWith(FilesPath, StringComparison.Ordinal) ? path[FilesPath.Length..] : null;
@@ -190,18 +227,26 @@ public static class McpEndpoint
             return;
         }
 
-        var caller = await access.AuthenticateAsync(key, address, http.RequestAborted).ConfigureAwait(false);
-        if (caller is null)
+        // Counted as soon as the key validates, before its role and device view are read (a flood costs no more than a refusal).
+        var signIn = await access.SignInAsync(key, address, http.RequestAborted).ConfigureAwait(false);
+        if (signIn.Throttled)
+        {
+            http.Response.Headers.RetryAfter = "1";
+            await RefuseAsync(http, StatusCodes.Status429TooManyRequests, TooManyCalls).ConfigureAwait(false);
+            return;
+        }
+
+        if (signIn.Caller is not { } caller)
         {
             http.Response.Headers.WWWAuthenticate = "Bearer";
             await RefuseAsync(http, StatusCodes.Status401Unauthorized, Core.Auth.AccessKeyTexts.NotValid).ConfigureAwait(false);
             return;
         }
 
-        if (!access.TryCall(caller))
+        // "Use AI agents" for the file routes (the tools and the skill check it themselves): a key whose role lost it neither sends nor fetches a file.
+        if (upload is not null && access.ChannelRefusal(caller) is { } denied)
         {
-            http.Response.Headers.RetryAfter = "1";
-            await RefuseAsync(http, StatusCodes.Status429TooManyRequests, TooManyCalls).ConfigureAwait(false);
+            await RefuseAsync(http, StatusCodes.Status403Forbidden, denied).ConfigureAwait(false);
             return;
         }
 
@@ -242,17 +287,17 @@ public static class McpEndpoint
             return;
         }
 
-        // Task runs per key a minute (MCP's own limit): the SDK checks that Mcp-Name is the body's tool.
+        // Changes per key and user a minute (MCP's own limit; every tool that is no plain read, OadmTool.CountsAsChange): the SDK checks that Mcp-Name is the body's tool.
         if (string.Equals(http.Request.Headers["Mcp-Method"].ToString(), "tools/call", StringComparison.Ordinal)
-            && tools.TryGet(http.Request.Headers["Mcp-Name"].ToString(), out var tool) && tool.StartsTasks && !access.TryRun(caller))
+            && tools.TryGet(http.Request.Headers["Mcp-Name"].ToString(), out var tool) && tool.CountsAsChange && !access.TryChange(caller))
         {
             http.Response.Headers.RetryAfter = "60";
-            await RefuseAsync(http, StatusCodes.Status429TooManyRequests, TooManyRuns).ConfigureAwait(false);
+            await RefuseAsync(http, StatusCodes.Status429TooManyRequests, TooManyChanges).ConfigureAwait(false);
             return;
         }
 
-        // The tools get the caller and where this channel takes files, nothing else of the request.
-        http.Items[CallerKey] = caller with { Channel = caller.Channel with { FilesUrl = http.Request.Scheme + "://" + http.Request.Host.Value + FilesPath } };
+        // The tools get the caller and where this channel takes files (from the server's own name), nothing else of the request.
+        http.Items[CallerKey] = caller with { Channel = caller.Channel with { FilesUrl = filesUrl } };
         await next(http).ConfigureAwait(false);
     }
 

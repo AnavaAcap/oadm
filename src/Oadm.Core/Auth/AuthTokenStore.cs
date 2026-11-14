@@ -257,8 +257,19 @@ public sealed class AuthTokenStore(IDbContextFactory<OadmDbContext> dbFactory, T
         return clean.Length == 0 ? AccessKeyTexts.EnterName
             : clean.Length > MaxAccessKeyNameLength ? AccessKeyTexts.NameTooLong
             : clean.Any(char.IsControl) ? AccessKeyTexts.NameControl
+            : clean.Any(c => !IsNameCharacter(c)) ? AccessKeyTexts.NameCharacters
             : null;
     }
+
+    /// <summary>Letters, digits, space, '-', '_' and '.': the characters a key name may hold (it ends up in the audit log and the task owner).</summary>
+    public static bool IsNameCharacter(char c) => char.IsLetterOrDigit(c) || c is ' ' or '-' or '_' or '.';
+
+    /// <summary>
+    /// <paramref name="name"/> with every other character replaced by '_' (keys made before the rule kept their names), for texts
+    /// that name the key in the audit log and in task owners.
+    /// </summary>
+    public static string CleanAccessKeyName(string? name) =>
+        new string([.. (name ?? string.Empty).Trim().Take(MaxAccessKeyNameLength).Select(c => IsNameCharacter(c) ? c : '_')]);
 
     private static bool IsAccessKeyShaped([System.Diagnostics.CodeAnalysis.NotNullWhen(true)] string? key) =>
         key is { Length: > 5 and <= 256 } && key.StartsWith(AccessKeyPrefix, StringComparison.Ordinal);
@@ -583,6 +594,7 @@ public static class AccessKeyTexts
     public const string EnterName = "Enter a name.";
     public const string NameTooLong = "Use at most 64 characters.";
     public const string NameControl = "The name cannot contain line breaks or tabs.";
+    public const string NameCharacters = "Use only letters, digits, spaces, - _ and . in the name.";
     public const string NameTaken = "You already have an access key with this name.";
     public const string ChooseDays = "Choose 30, 90 or 365 days.";
     public const string TooMany = "Use at most 20 access keys. Delete one first.";
