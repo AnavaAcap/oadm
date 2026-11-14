@@ -26,8 +26,14 @@ public sealed partial class McpToolTests
         "oadm_server_info", "oadm_task_preview", "oadm_task_run", "oadm_tasks_catalog", "oadm_tasks_get", "oadm_tasks_list",
     ];
 
+    /// <summary>The tools of the areas stage 3 (tags, sites, compliance, event rules, the event log): <see cref="McpAreaToolTests"/>.</summary>
+    private static readonly string[] AreaTools = McpAreaToolTests.ToolNames;
+
     /// <summary>The tools that change something (rule 2: each with its preview; a Read only key lists none).</summary>
-    private static readonly string[] WriteTools = ["oadm_files_upload_link", "oadm_task_run"];
+    private static readonly string[] WriteTools = [.. new[] { "oadm_files_upload_link", "oadm_task_run" }, .. McpAreaToolTests.RunTools];
+
+    /// <summary>The tools whose annotation says they may destroy something (a task run, tag removal, a replaced or deleted rule).</summary>
+    private static readonly string[] DestructiveTools = [.. new[] { "oadm_task_run" }, .. McpAreaToolTests.RunTools];
 
     [GeneratedRegex("^oadm_[a-z0-9_]+$")]
     private static partial Regex ToolName();
@@ -39,7 +45,7 @@ public sealed partial class McpToolTests
         var key = await server.CreateKeyAsync();
         var reply = await server.PostAsync(key, McpTestServer.Request("tools/list"));
         var tools = reply.Body!["result"]!["tools"]!.AsArray().Select(t => t!.AsObject()).ToList();
-        Assert.Equal(Stage1Tools, tools.Select(t => t["name"]!.GetValue<string>()).Order(StringComparer.Ordinal));
+        Assert.Equal(Stage1Tools.Concat(AreaTools).Order(StringComparer.Ordinal), tools.Select(t => t["name"]!.GetValue<string>()).Order(StringComparer.Ordinal));
         foreach (var tool in tools)
         {
             var name = tool["name"]!.GetValue<string>();
@@ -52,7 +58,7 @@ public sealed partial class McpToolTests
             Assert.Equal("object", tool["outputSchema"]?["type"]?.GetValue<string>());
             var annotations = tool["annotations"]!.AsObject();
             Assert.Equal(!WriteTools.Contains(name), annotations["readOnlyHint"]!.GetValue<bool>());
-            Assert.Equal(name == "oadm_task_run", annotations["destructiveHint"]!.GetValue<bool>());
+            Assert.Equal(DestructiveTools.Contains(name), annotations["destructiveHint"]!.GetValue<bool>());
             Assert.False(annotations["openWorldHint"]!.GetValue<bool>(), name);
         }
     }
@@ -62,8 +68,9 @@ public sealed partial class McpToolTests
     {
         switch (schema["type"]?.GetValue<string>())
         {
-            case "object" when where == "oadm_task_preview.input":
-                // The task's input: its own strict schema comes with oadm_tasks_catalog, and the preview checks the input against it.
+            case "object" when where is "oadm_task_preview.input" or "oadm_rules_save_preview.rule.actions[].settings":
+                // The task's input and an action's settings: their own strict schema comes with oadm_tasks_catalog and oadm_rules_catalog
+                // (the action's fields), and the preview checks the input against it.
                 Assert.True(schema["additionalProperties"]!.GetValue<bool>());
                 break;
             case "object":
@@ -101,16 +108,19 @@ public sealed partial class McpToolTests
         "/oadm.v1.TaskService/ListTaskPlugins", "/oadm.v1.TaskService/Plan", "/oadm.v1.TaskService/Run",
     ];
 
+    /// <summary>The gRPC methods the tools of the areas call (<see cref="McpAreaToolTests.Methods"/>).</summary>
+    private static readonly string[] AreaMethods = McpAreaToolTests.Methods;
+
     [Fact]
     public async Task NoToolReachesUsersRolesDeviceGroupsAccessKeysLicensePluginsSettingsChangesBackupsOrResets()
     {
         // Rule 5: an agent can never raise rights; these stay GUI only (docs/spec/mcp.md "Not over MCP").
         await using var server = await McpTestServer.StartAsync(turnOn: false);
         var tools = server.Host.Get<ToolRegistry>().All;
-        Assert.Equal(Stage1Tools.Length, tools.Count);
-        Assert.Equal(WriteTools, tools.Where(t => !t.ReadsOnly).Select(t => t.Name).Order(StringComparer.Ordinal));
+        Assert.Equal(Stage1Tools.Length + AreaTools.Length, tools.Count);
+        Assert.Equal(WriteTools.Order(StringComparer.Ordinal), tools.Where(t => !t.ReadsOnly).Select(t => t.Name).Order(StringComparer.Ordinal));
         var methods = tools.SelectMany(t => t.Methods).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToList();
-        Assert.Equal(Stage1Methods, methods);
+        Assert.Equal(Stage1Methods.Union(AreaMethods).Order(StringComparer.Ordinal), methods);
 
         string[] guiOnly =
         [

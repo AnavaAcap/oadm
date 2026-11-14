@@ -208,6 +208,10 @@ public static partial class OadmServerHost
                     .. Tools.TaskTools.Create(cursors),
                     .. Tools.LogTools.Create(cursors),
                     .. Tools.TaskRunTools.Create(sp.GetRequiredService<Tools.ToolHandles>()),
+                    .. Tools.TagTools.Create(cursors, sp.GetRequiredService<Tools.ToolHandles>()),
+                    .. Tools.SiteTools.Create(cursors),
+                    .. Tools.ComplianceTools.Create(),
+                    .. Tools.RuleTools.Create(cursors, sp.GetRequiredService<Tools.ToolHandles>()),
                 ],
                 sp.GetRequiredService<InProcessCalls>(), roles,
                 [sp.GetRequiredService<Tools.PluginTools>()]); // the tools of the plugins that are on

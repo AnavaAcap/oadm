@@ -42,10 +42,17 @@ public sealed class McpSecretTests
             ["oadm_task_run"] = new() { ["handle"] = "ended" },
             ["oadm_files_upload_link"] = new() { ["name"] = "a.bin", ["size"] = 1 },
         };
-        Assert.Equal(calls.Keys.Order(StringComparer.Ordinal), await server.ToolNamesAsync(key));
+        var areaKey = await server.CreateKeyAsync(name: "canary-areas"); // a key allows 20 calls a second: the areas' tools use their own
+        var areaCalls = McpAreaToolTests.SecretScanCalls();
+        Assert.Equal(calls.Keys.Concat(areaCalls.Keys).Order(StringComparer.Ordinal), await server.ToolNamesAsync(key));
         foreach (var (tool, arguments) in calls)
         {
             answers.Append((await server.CallToolAsync(key, tool, arguments)).ToJsonString());
+        }
+
+        foreach (var (tool, arguments) in areaCalls)
+        {
+            answers.Append((await server.CallToolAsync(areaKey, tool, arguments)).ToJsonString());
         }
 
         answers.Append((await server.PostAsync(key, McpTestServer.Request("tools/list"))).Body?.ToJsonString());
@@ -56,7 +63,7 @@ public sealed class McpSecretTests
             .Select(e => string.Join('|', e.UserName, e.Action, e.Target, e.Detail, e.ClientAddress));
         var logs = ReadLogs(server.Host.Get<OadmPaths>().LogsDirectory);
 
-        string[] secrets = [DevicePassword, ListPassword, key, server.Host.AdminToken, AuthTokenStore.HashOf(key), key["oadm_".Length..]];
+        string[] secrets = [DevicePassword, ListPassword, key, areaKey, server.Host.AdminToken, AuthTokenStore.HashOf(key), key["oadm_".Length..]];
         foreach (var secret in secrets)
         {
             Assert.DoesNotContain(secret, answers.ToString(), StringComparison.Ordinal);

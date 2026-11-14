@@ -34,6 +34,10 @@ public sealed partial class CanaryTests
         // tags and compliance
         ["/oadm.v1.TagService/SetDeviceTags"] = async (c, id) =>
             await new Proto.TagService.TagServiceClient(c.Invoker).SetDeviceTagsAsync(new Proto.SetDeviceTagsRequest { DeviceIds = { c.Inside.ToString(), id.ToString() }, Add = { "Free" } }),
+        ["/oadm.v1.TagService/PlanDeviceTags"] = async (c, id) =>
+            await new Proto.TagService.TagServiceClient(c.Invoker).PlanDeviceTagsAsync(new Proto.PlanDeviceTagsRequest { Filter = new Proto.DeviceFilter { Ids = { c.Inside.ToString(), id.ToString() } }, Add = { "Free" } }),
+        ["/oadm.v1.ComplianceService/Summarize"] = async (c, id) =>
+            await new Proto.ComplianceService.ComplianceServiceClient(c.Invoker).SummarizeAsync(new Proto.SummarizeComplianceRequest { Filter = new Proto.DeviceFilter { Ids = { c.Inside.ToString(), id.ToString() } } }),
         ["/oadm.v1.ComplianceService/SaveCheck"] = async (c, id) =>
             await new Proto.ComplianceService.ComplianceServiceClient(c.Invoker).SaveCheckAsync(new Proto.ComplianceCheckDetail
             {

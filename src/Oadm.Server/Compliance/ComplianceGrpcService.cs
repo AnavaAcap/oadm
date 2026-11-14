@@ -90,6 +90,27 @@ public sealed class ComplianceGrpcService(ComplianceService compliance, DeviceVi
         return ToProto(compliance.ListChecks(view), await VisibleAsync(view, context.CancellationToken).ConfigureAwait(false));
     }
 
+    /// <summary>The checks with the counts of the devices of a filter (every device of the view without one).</summary>
+    public override async Task<Proto.ComplianceCheckList> Summarize(Proto.SummarizeComplianceRequest request, ServerCallContext context)
+    {
+        var ct = context.CancellationToken;
+        var view = await views.ForAsync(context).ConfigureAwait(false);
+        IReadOnlySet<Guid>? only = null;
+        if (request.Filter is { } filter && !filter.Equals(new Proto.DeviceFilter()))
+        {
+            try
+            {
+                only = (await Devices.DeviceSearch.MatchesAsync(view, filter, withApis: false, ct).ConfigureAwait(false)).Select(d => d.Id).ToHashSet();
+            }
+            catch (ArgumentException ex)
+            {
+                throw GrpcGuard.InvalidArgument(ex.Message);
+            }
+        }
+
+        return ToProto(compliance.ListChecks(view, only), await VisibleAsync(view, ct).ConfigureAwait(false));
+    }
+
     /// <summary>The list now and after every change; a burst sends the newest list once (at most every 500 ms).</summary>
     public override async Task WatchChecks(Proto.Empty request, IServerStreamWriter<Proto.ComplianceCheckList> responseStream, ServerCallContext context)
     {

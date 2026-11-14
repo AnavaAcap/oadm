@@ -102,6 +102,27 @@ public sealed class EventRulesService(EventCatalog catalog, RuleStore store, Rec
         return (result.Definition, result.Summary, previous is null);
     }
 
+    /// <summary>
+    /// Checks a rule exactly like <see cref="SaveAsync"/> and answers what it would show in the Rules tab; nothing is saved
+    /// and the engine is not told. Throws <see cref="RuleValidationException"/> or <see cref="KeyNotFoundException"/>.
+    /// </summary>
+    public async Task<RuleSummaryModel> CheckAsync(RuleDefinition rule, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(rule);
+        StoredRule? existing = null;
+        if (rule.Id != Guid.Empty)
+        {
+            existing = await store.GetAsync(rule.Id, ct).ConfigureAwait(false) ?? throw new KeyNotFoundException("The rule no longer exists.");
+        }
+
+        var linked = await RecipientsByIdAsync(ct).ConfigureAwait(false);
+        var clean = WithoutOldTargets(rule);
+        RuleValidator.Validate(clean, Catalog, key => StoredSecretsOf(existing, clean, key), linked);
+        var now = DateTime.UtcNow;
+        var names = await DeviceNamesAsync([clean], ct).ConfigureAwait(false);
+        return Summary(new StoredRule(clean, existing?.CreatedUtc ?? now, now, existing?.LastFiredUtc), names, linked);
+    }
+
     public async Task<RuleSummaryModel?> SetEnabledAsync(Guid id, bool enabled, CancellationToken ct)
     {
         var change = await store.SetEnabledAsync(id, enabled, ct).ConfigureAwait(false);

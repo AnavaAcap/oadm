@@ -127,6 +127,7 @@ public static class AccessPolicy
         ["/oadm.v1.TagService/Watch"] = AccessRule.SignedIn,
         ["/oadm.v1.TagService/Create"] = AccessRule.Needs(HostPermissions.TagsAssign),
         ["/oadm.v1.TagService/SetDeviceTags"] = AccessRule.Needs(HostPermissions.TagsAssign),
+        ["/oadm.v1.TagService/PlanDeviceTags"] = AccessRule.Needs(HostPermissions.TagsAssign),
         ["/oadm.v1.TagService/Update"] = AccessRule.Needs(HostPermissions.TagsManage).ForAllDevices(),
         ["/oadm.v1.TagService/Delete"] = AccessRule.Needs(HostPermissions.TagsManage).ForAllDevices(),
 
@@ -153,6 +154,7 @@ public static class AccessPolicy
         ["/oadm.v1.ComplianceService/WatchChecks"] = AccessRule.Needs(HostPermissions.ComplianceView),
         ["/oadm.v1.ComplianceService/GetCheck"] = AccessRule.Needs(HostPermissions.ComplianceView),
         ["/oadm.v1.ComplianceService/WatchResults"] = AccessRule.Needs(HostPermissions.ComplianceView),
+        ["/oadm.v1.ComplianceService/Summarize"] = AccessRule.Needs(HostPermissions.ComplianceView),
         ["/oadm.v1.ComplianceService/CheckNow"] = AccessRule.Needs(HostPermissions.ComplianceView),
         ["/oadm.v1.ComplianceService/SaveCheck"] = AccessRule.Needs(HostPermissions.ComplianceManage),
         ["/oadm.v1.ComplianceService/DeleteCheck"] = AccessRule.Needs(HostPermissions.ComplianceManage),
@@ -168,6 +170,7 @@ public static class AccessPolicy
         ["/oadm.v1.EventService/ListLog"] = AccessRule.Needs(HostPermissions.EventsView).ForAllDevices(),
         ["/oadm.v1.EventService/WatchLog"] = AccessRule.Needs(HostPermissions.EventsView).ForAllDevices(),
         ["/oadm.v1.EventService/SaveRule"] = AccessRule.Needs(HostPermissions.EventsManage).ForAllDevices(),
+        ["/oadm.v1.EventService/CheckRule"] = AccessRule.Needs(HostPermissions.EventsManage).ForAllDevices(),
         ["/oadm.v1.EventService/DeleteRule"] = AccessRule.Needs(HostPermissions.EventsManage).ForAllDevices(),
         ["/oadm.v1.EventService/SetRuleEnabled"] = AccessRule.Needs(HostPermissions.EventsManage).ForAllDevices(),
         ["/oadm.v1.EventService/DuplicateRule"] = AccessRule.Needs(HostPermissions.EventsManage).ForAllDevices(),

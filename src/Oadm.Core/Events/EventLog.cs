@@ -119,7 +119,9 @@ public sealed partial class EventLog : IAsyncDisposable
     }
 
     /// <summary>Newest first. <paramref name="limit"/> 0 or above <see cref="ListLimit"/> = <see cref="ListLimit"/>.</summary>
-    public async Task<(IReadOnlyList<EventLogLine> Lines, int Total)> ListAsync(int limit, int offset, Guid? ruleId, CancellationToken ct)
+    /// <param name="beforeId">Only lines with a smaller id (the place after the last line of a page); 0 = all.</param>
+    /// <param name="withTotal">False: the lines are not counted, the total is 0.</param>
+    public async Task<(IReadOnlyList<EventLogLine> Lines, int Total)> ListAsync(int limit, int offset, Guid? ruleId, CancellationToken ct, long beforeId = 0, bool withTotal = true)
     {
         limit = limit <= 0 || limit > ListLimit ? ListLimit : limit;
         offset = Math.Max(0, offset);
@@ -130,7 +132,12 @@ public sealed partial class EventLog : IAsyncDisposable
             query = query.Where(e => e.RuleId == id);
         }
 
-        var total = await query.CountAsync(ct).ConfigureAwait(false);
+        if (beforeId > 0)
+        {
+            query = query.Where(e => e.Id < beforeId);
+        }
+
+        var total = withTotal ? await query.CountAsync(ct).ConfigureAwait(false) : 0;
         var rows = await query.OrderByDescending(e => e.Id).Skip(offset).Take(limit).ToListAsync(ct).ConfigureAwait(false);
         return ([.. rows.Select(ToLine)], total);
     }

@@ -128,6 +128,65 @@ public sealed class TagGrpcService(
         return reply;
     }
 
+    /// <summary>
+    /// What <see cref="SetDeviceTags"/> would do on the devices of a filter (in the view), nothing written: the counts and
+    /// the devices that change. The same name checks as the change; the rules of a device group (a tag a group uses) are
+    /// checked by the change itself.
+    /// </summary>
+    public override async Task<Proto.PlanDeviceTagsReply> PlanDeviceTags(Proto.PlanDeviceTagsRequest request, ServerCallContext context)
+    {
+        var ct = context.CancellationToken;
+        List<string> toAdd;
+        List<string> toRemove;
+        try
+        {
+            toAdd = TagNames.Canonical(request.Add.Select(TagNames.Clean));
+            toRemove = TagNames.Canonical(request.Remove.Where(r => !string.IsNullOrWhiteSpace(r)));
+        }
+        catch (TagNameException ex)
+        {
+            throw GrpcGuard.InvalidArgument(ex.Message);
+        }
+
+        if (toAdd.FirstOrDefault(a => toRemove.Contains(a, TagNames.Comparer)) is { } both)
+        {
+            throw GrpcGuard.InvalidArgument($"The tag \"{both}\" cannot be added and removed at the same time.");
+        }
+
+        var view = await views.ForAsync(context).ConfigureAwait(false);
+        IReadOnlyList<Core.Devices.Device> devices;
+        try
+        {
+            devices = await DeviceSearch.MatchesAsync(view, request.Filter ?? new Proto.DeviceFilter(), withApis: false, ct).ConfigureAwait(false);
+        }
+        catch (ArgumentException ex)
+        {
+            throw GrpcGuard.InvalidArgument(ex.Message);
+        }
+
+        var reply = new Proto.PlanDeviceTagsReply { Devices = devices.Count };
+        foreach (var device in devices)
+        {
+            var has = device.Tags ?? [];
+            var gains = toAdd.Any(a => !has.Contains(a, TagNames.Comparer));
+            var loses = toRemove.Any(r => has.Contains(r, TagNames.Comparer));
+            if (!gains && !loses)
+            {
+                continue;
+            }
+
+            reply.Gain += gains ? 1 : 0;
+            reply.Lose += loses ? 1 : 0;
+            var next = has.Where(t => !toRemove.Contains(t, TagNames.Comparer)).Concat(toAdd).Distinct(TagNames.Comparer).Count();
+            reply.OverLimit += next > TagNames.MaxTagsPerDevice ? 1 : 0;
+            reply.ChangeDeviceIds.Add(device.Id.ToString());
+        }
+
+        var defined = (await tags.ListAsync(view, ct).ConfigureAwait(false)).Where(t => t.Defined).Select(t => t.Name).ToHashSet(TagNames.Comparer);
+        reply.NewTags.AddRange(toAdd.Where(a => !defined.Contains(a)));
+        return reply;
+    }
+
     /// <summary>"Entered device group" / "Left device group" for the devices a tag change moved (one entry per group).</summary>
     private async Task AuditMembershipAsync(ServerCallContext context, DeviceGroupFilters before,
         IReadOnlyList<(Sdk.Devices.IDeviceInfo? Before, Sdk.Devices.IDeviceInfo? After)> changes, string reason)
