@@ -354,14 +354,18 @@ The website gets a user page (Tools > AI agents, `tools/ai-agents`) and a develo
 ## Stage 3 as built
 
 - **Devices** (`Tools/DeviceChangeTools`, `Tools/SettingsTools`): `oadm_devices_snapshot(device_id)` (one JPEG as an image
-  result, Live view permission, at most 1280 px wide; over 1 MB it is taken again smaller, then at 640 px);
+  result, Live view permission, at most 1280 px wide; over 1 MB it is taken again smaller, then at 640 px; the camera's
+  answer is read up to 4 MB; every snapshot is audited "Took a snapshot");
   `oadm_devices_refresh_preview`/`_run`; `oadm_devices_remove_preview`/`_run` (a filter is required, an empty one is
   refused); `oadm_devices_credentials_preview`/`_run` (an entry of the credential list by its name, never a password; the
   credential list is the Administrator's, a name two entries share is refused); `oadm_devices_add_preview`/`_run` (exactly
   one of a range (at most 65,536 addresses, as the client), up to 100 addresses or `try_waiting`; `keep_waiting` puts
-  addresses that do not answer on the waiting list; the preview scans and logs in with the credential list, waits at most
-  90 s and then says the scan is incomplete; the run adds only the devices that logged in, never one with factory default
-  settings or a failed login); `oadm_settings_get` (what the Settings page shows, without secrets). A preview is listed
+  addresses that do not answer on the waiting list; IP addresses only, no names, schemes or ports, and only inside a
+  network of the server's own interfaces or of a connected site, otherwise a field error names the allowed networks; the
+  preview only looks (it sends no login and stores nothing), waits at most 90 s and then says the scan is incomplete; it
+  acts outside OADM, so a Read only key does not get it and it counts as a change; the run logs in with the credential
+  list and adds only the devices that logged in, at most 200 a run, never one with factory default settings or a failed
+  login); `oadm_settings_get` (what the Settings page shows, without secrets). A preview is listed
   only for a caller who may run its change. Refresh is not destructive; Remove and Set credentials are.
 - **Tags, sites, compliance, event rules** (`Tools/TagTools`, `SiteTools`, `ComplianceTools`, `RuleTools`):
   `oadm_tags_list` (device counts in the caller's group), `oadm_tags_assign_preview`/`_run` (add and remove tags on a

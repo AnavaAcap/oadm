@@ -79,8 +79,8 @@ used again.
     count field, limit or id it does not know.
   - `Resolve(filter, shown)` (signed in, like `Search`; the AI agents' device previews): the ids of the filter's devices in
     the caller's view in address order and the first `shown` rows, so a run takes a fixed list.
-  - `SetStoredCredentials(device_ids, credential_id)` (`devices.login`, users with all devices; audited "Set device
-    credentials"): the login of an entry of the credential list, so no password is sent or answered.
+  - `SetStoredCredentials(device_ids, credential_id)` (Administrator, the rule of `SettingsService.ListCredentials`;
+    audited "Set device credentials"): the login of an entry of the credential list, so no password is sent or answered.
   - `LogIn(device_ids, user_name, password, save_to_credential_list)` (context menu "Log in", `docs/spec/main-window.md`;
     Operator): per device (`Oadm.Core.Devices.DeviceLoginService`, 8 at a time, 15 s each) the stored address, scheme
     and pinned certificate with the new credential, authenticated `basicdeviceinfo`, the serial must be the record's;
@@ -138,6 +138,9 @@ used again.
   tags or single devices only gets PERMISSION_DENIED "Your device group has no site, so you cannot add devices."
   (`AddDeviceTexts.CannotAdd`); a managed device outside the caller's devices is sent with only its id, entered address
   and ALREADY_ADDED. Details: `docs/spec/add-devices.md`.
+  - `StartRangeScan` and `ProbeAddress` take `own_networks_only` (bare IP addresses inside a network of the server's
+    interfaces or of an online site node, else INVALID_ARGUMENT naming the allowed networks) and `no_logins` (the devices
+    are only looked at; a user name and password are refused): the AI agents' add preview.
 - **`AddDevicesService`** (`adddevices.proto`): `RetryAuth(session_id, discovered_id, user_name, password,
   save_to_credential_list, related_session_ids = 6)` (returns the updated DiscoveredDevice, also pushed to the stream; on
   success the credential is tried on the failed devices of the session and of the related sessions; NOT_FOUND,
