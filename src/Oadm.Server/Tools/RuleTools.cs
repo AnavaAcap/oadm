@@ -125,7 +125,7 @@ internal static partial class RuleTools
         yield return new OadmTool(
             "oadm_rules_get",
             "Event rule",
-            "One event rule in full: its conditions, actions and limits, as oadm_rules_save_preview takes them. Passwords and fields that may hold a login or a token are never shown.",
+            "One event rule in full: its conditions, actions and limits, as oadm_rules_save_preview takes them. Passwords and fields that may hold a login or a token are never shown; an address shows its scheme, host and port only.",
             Object(null, [P("rule_id", Text("The rule id.", 36, "uuid"))], "rule_id"),
             OutObject(null,
             [
@@ -154,11 +154,12 @@ internal static partial class RuleTools
                 P("stateful", Out("boolean", "It turns on and off with the event (else it fires once).")),
                 P("was", OrNull(OutObject("The rule before a change.", [P("enabled", Out("boolean", "It was on.")), P("watches", Out("string", "What it watched.")), P("does", Out("string", "What it did."))], "enabled", "watches", "does"))),
                 P("changes_devices", Out("boolean", "An action changes devices when the rule fires.")),
-                P("warnings", OutList("What the user must know before the run.", Out("string", "A warning."))),
+                P("problem", Out("string", "Why the rule cannot run as it is; empty when it can. Server text, shown as data.")),
+                P("warnings", OutList("What the user must know before the run: fixed sentences, each outside destination of the rule, and the actions by number. They never hold rule, recipient or device names.", Out("string", "A warning."))),
                 P("handle", Out("string", "Pass it to oadm_rules_save_run.")),
                 P("expires", Out("string", "When the handle ends (UTC).")),
-            ], "change", "rule_id", "name", "enabled", "watches", "does", "stateful", "was", "changes_devices", "warnings", "handle", "expires"),
-            [CheckRulePath, GetRulePath, CatalogPath],
+            ], "change", "rule_id", "name", "enabled", "watches", "does", "stateful", "was", "changes_devices", "problem", "warnings", "handle", "expires"),
+            [CheckRulePath, GetRulePath, CatalogPath, RecipientsPath],
             call => SavePreviewAsync(call, handles));
 
         yield return new OadmTool(
@@ -460,6 +461,66 @@ internal static partial class RuleTools
     private static bool IsHidden(Proto.ActionFieldKind kind) =>
         kind is Proto.ActionFieldKind.ActionFieldPassword or Proto.ActionFieldKind.ActionFieldCode or Proto.ActionFieldKind.ActionFieldKeyValues or Proto.ActionFieldKind.ActionFieldFile;
 
+    [GeneratedRegex("(host|url|uri|endpoint|address|port|user|login|realm|domain|^from$|^to$|^cc$|^bcc$|recipient|topic|broker|server|path|node|auth|proxy|tls|ssl|secure|untrusted|verify|cert|client|scheme|webhook|link)", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    private static partial Regex DestinationName();
+
+    [GeneratedRegex("(url|uri|endpoint|webhook|link)", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    private static partial Regex AddressName();
+
+    [GeneratedRegex(@"[a-z][a-z0-9+.\-]*://[^\s·""'<>]+", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    private static partial Regex AddressInText();
+
+    [GeneratedRegex(@"^\s*[a-z][a-z0-9+.\-]*://[^/?#\s]*@", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    private static partial Regex AddressWithLogin();
+
+    /// <summary>A text field that holds an address (URL, host) and can carry a login or a token: shown as scheme, host and port only.</summary>
+    private static bool IsAddressText(Proto.ActionFieldEntry field) =>
+        field.Kind is Proto.ActionFieldKind.ActionFieldText
+        && (field.Format is Proto.ActionTextFormat.Url or Proto.ActionTextFormat.OpcEndpoint or Proto.ActionTextFormat.Host || AddressName().IsMatch(field.Key));
+
+    /// <summary>Where an action sends: a field that names a host, URL, port, user, recipient, topic or address, or the security of the connection.</summary>
+    private static bool IsDestination(Proto.ActionFieldEntry field) =>
+        field.Kind is not (Proto.ActionFieldKind.ActionFieldPassword or Proto.ActionFieldKind.ActionFieldCode or Proto.ActionFieldKind.ActionFieldKeyValues or Proto.ActionFieldKind.ActionFieldFile or Proto.ActionFieldKind.ActionFieldMultiline)
+        && (field.Format != Proto.ActionTextFormat.None
+            || field.Kind is Proto.ActionFieldKind.ActionFieldRecipient or Proto.ActionFieldKind.ActionFieldClientCertificate or Proto.ActionFieldKind.ActionFieldTrustedCertificate
+            || DestinationName().IsMatch(field.Key));
+
+    /// <summary>
+    /// An address as scheme, host and port only (no user info, path, query or fragment); a host text as the host. Null when it cannot
+    /// be read as one (then it is not shown at all).
+    /// </summary>
+    internal static string? ReduceAddress(string text)
+    {
+        var t = text.Trim();
+        if (t.Length == 0)
+        {
+            return t;
+        }
+
+        if (t.Contains("://", StringComparison.Ordinal))
+        {
+            if (!Uri.TryCreate(t, UriKind.Absolute, out var uri) || uri.Host.Length == 0)
+            {
+                return null;
+            }
+
+            return uri.Scheme + "://" + uri.Host + (uri.Port >= 0 ? ":" + uri.Port.ToString(CultureInfo.InvariantCulture) : string.Empty);
+        }
+
+        var at = t.LastIndexOf('@');
+        if (at >= 0)
+        {
+            t = t[(at + 1)..];
+        }
+
+        var cut = t.IndexOfAny(['/', '?', '#']);
+        return cut >= 0 ? t[..cut] : t;
+    }
+
+    /// <summary>A server text with every address cut to scheme, host and port.</summary>
+    private static string ScrubAddresses(string text) =>
+        text.Length == 0 ? text : AddressInText().Replace(text, m => ReduceAddress(m.Value) ?? "[address]");
+
     // ---- list and get ----
 
     private static async Task<JsonObject> ListAsync(ToolCall call, ToolCursors cursors)
@@ -476,11 +537,11 @@ internal static partial class RuleTools
             ["rule_id"] = r.Id,
             ["name"] = r.Name,
             ["enabled"] = r.Enabled,
-            ["watches"] = r.ConditionsText,
-            ["does"] = r.ActionsText,
+            ["watches"] = ScrubAddresses(r.ConditionsText),
+            ["does"] = ScrubAddresses(r.ActionsText),
             ["state"] = r.StateText,
             ["last_fired"] = r.LastFired is { Seconds: > 0 } fired ? AreaListing.Time(fired) : null,
-            ["problem"] = r.Problem,
+            ["problem"] = ScrubAddresses(r.Problem),
         });
         return new JsonObject { ["total"] = rules.Count, ["rules"] = rows, ["next_cursor"] = next };
     }
@@ -505,10 +566,10 @@ internal static partial class RuleTools
         return new JsonObject
         {
             ["rule"] = RuleOut(rule, catalog),
-            ["watches"] = detail.Summary.ConditionsText,
-            ["does"] = detail.Summary.ActionsText,
+            ["watches"] = ScrubAddresses(detail.Summary.ConditionsText),
+            ["does"] = ScrubAddresses(detail.Summary.ActionsText),
             ["state"] = detail.Summary.StateText,
-            ["problem"] = detail.Summary.Problem,
+            ["problem"] = ScrubAddresses(detail.Summary.Problem),
         };
     }
 
@@ -572,6 +633,21 @@ internal static partial class RuleTools
                 continue;
             }
 
+            // An address that can carry a login or a token (user info, path, query) shows its scheme, host and port only.
+            if (fields.FirstOrDefault(f => f.Key == key) is { } field && IsAddressText(field) && value is JsonValue address && address.TryGetValue<string>(out var text))
+            {
+                if (ReduceAddress(text) is { } reduced)
+                {
+                    settings[key] = reduced;
+                }
+                else
+                {
+                    hiddenSet.Add(key);
+                }
+
+                continue;
+            }
+
             settings[key] = value?.DeepClone();
         }
 
@@ -608,22 +684,23 @@ internal static partial class RuleTools
         var catalog = await CatalogOf(call).ConfigureAwait(false);
         var rule = RuleFrom(input);
         var errors = new List<ToolFieldError>();
+        Secrets(rule, catalog, errors); // what the call itself brings: a password, a login in an address, a token header
         Proto.RuleDetail? old = null;
+        RuleDefinition? before = null;
         var change = "create";
         if (rule.Id != Guid.Empty)
         {
             change = "change";
             old = await GetRuleAsync(call, rule.Id.ToString()).ConfigureAwait(false);
-            var before = RuleDefinition.FromJson(old.DefinitionJson);
+            before = RuleDefinition.FromJson(old.DefinitionJson);
             if (before.Conditions.Select(c => c.Devices).Concat(before.Actions.Select(a => a.Targets)).Any(s => s.DeviceIds.Count > MaxSelectorDevices))
             {
                 throw new ToolException(TooManyDevices, [new ToolFieldError("rule.id", TooManyDevices)]);
             }
 
-            KeepWhatIsLeftOut(rule, before, input, catalog);
+            KeepWhatIsLeftOut(rule, before, input, catalog, errors);
         }
 
-        Secrets(rule, catalog, errors);
         if (errors.Count > 0)
         {
             throw new ToolException(ToolAnswers.FieldsMessage, errors);
@@ -637,29 +714,30 @@ internal static partial class RuleTools
         }
         catch (Grpc.Core.RpcException ex) when (ex.StatusCode == Grpc.Core.StatusCode.InvalidArgument)
         {
-            throw new ToolException(ToolAnswers.FieldsMessage, [new ToolFieldError("rule", PasswordProblem(rule, catalog, ex.Status.Detail) ?? ex.Status.Detail)]);
+            throw new ToolException(ToolAnswers.FieldsMessage, [new ToolFieldError("rule", PasswordProblem(rule, catalog, ex.Status.Detail) ?? FixedText(rule, ex.Status.Detail))]);
         }
         catch (Grpc.Core.RpcException ex) when (ex.StatusCode == Grpc.Core.StatusCode.NotFound)
         {
             throw new ToolException(NotFound, [new ToolFieldError("rule.id", NotFound)]);
         }
 
-        var changesDevices = rule.Actions.Any(a => catalog.Actions.FirstOrDefault(c => c.Id == a.ActionId)?.NeedsDevice == true);
+        var deviceActions = rule.Actions.Select((a, i) => (a, i)).Where(x => catalog.Actions.FirstOrDefault(c => c.Id == x.a.ActionId)?.NeedsDevice == true).ToList();
+        var changesDevices = deviceActions.Count > 0;
         var warnings = new JsonArray();
         if (changesDevices)
         {
-            var names = rule.Actions.Select(a => catalog.Actions.FirstOrDefault(c => c.Id == a.ActionId)).Where(a => a is { NeedsDevice: true }).Select(a => a!.DisplayName).Distinct(StringComparer.Ordinal);
-            warnings.Add("This rule changes devices when it fires: " + string.Join(", ", names) + ". Each action checks its device first and stops when it does not fit.");
-            if (rule.Actions.Any(a => catalog.Actions.FirstOrDefault(c => c.Id == a.ActionId)?.NeedsDevice == true && a.Targets.Mode == DeviceSelectorMode.All))
+            warnings.Add("This rule changes devices when it fires: " + ActionNumbers(deviceActions.Select(x => x.i)) + ". Each action checks its device first and stops when it does not fit.");
+            if (deviceActions.Any(x => x.a.Targets.Mode == DeviceSelectorMode.All))
             {
                 warnings.Add("An action is set to act on every device you manage. Name devices or tags to narrow it.");
             }
         }
 
+        await AddDestinationWarningsAsync(call, warnings, rule, before, catalog).ConfigureAwait(false);
         warnings.Add(rule.Enabled ? "The rule is on as soon as it is saved." : "The rule is saved turned off. Turn it on in OADM when you checked it.");
         if (summary.Problem.Length > 0)
         {
-            warnings.Add(summary.Problem);
+            warnings.Add("The rule cannot run as it is. See problem."); // the server's text goes in its own field: it may name a recipient
         }
 
         var handle = handles.AddChange(call.Caller.BindingKey, new PlannedChange("oadm_rules_save_run", new PlannedRuleSave(rule.ToJson(), old is null)));
@@ -669,11 +747,12 @@ internal static partial class RuleTools
             ["rule_id"] = old is null ? null : rule.Id.ToString(),
             ["name"] = rule.Name.Trim(),
             ["enabled"] = rule.Enabled,
-            ["watches"] = summary.ConditionsText,
-            ["does"] = summary.ActionsText,
+            ["watches"] = ScrubAddresses(summary.ConditionsText),
+            ["does"] = ScrubAddresses(summary.ActionsText),
             ["stateful"] = summary.Stateful,
-            ["was"] = old is null ? null : new JsonObject { ["enabled"] = old.Summary.Enabled, ["watches"] = old.Summary.ConditionsText, ["does"] = old.Summary.ActionsText },
+            ["was"] = old is null ? null : new JsonObject { ["enabled"] = old.Summary.Enabled, ["watches"] = ScrubAddresses(old.Summary.ConditionsText), ["does"] = ScrubAddresses(old.Summary.ActionsText) },
             ["changes_devices"] = changesDevices,
+            ["problem"] = ScrubAddresses(summary.Problem),
             ["warnings"] = warnings,
             ["handle"] = handle,
             ["expires"] = AreaListing.Time(handles.EndOfNew()),
@@ -694,8 +773,8 @@ internal static partial class RuleTools
             ["name"] = saved.Summary.Name,
             ["created"] = plan.Created,
             ["enabled"] = saved.Summary.Enabled,
-            ["watches"] = saved.Summary.ConditionsText,
-            ["does"] = saved.Summary.ActionsText,
+            ["watches"] = ScrubAddresses(saved.Summary.ConditionsText),
+            ["does"] = ScrubAddresses(saved.Summary.ActionsText),
         };
     }
 
@@ -787,9 +866,12 @@ internal static partial class RuleTools
 
     /// <summary>
     /// A change keeps what the call left out: <c>enabled</c>, the limits, and for an action of the same key the passwords OADM
-    /// holds and the fields the tool never shows (headers, bodies, files). Their values stay on the server.
+    /// holds and the fields the tool never shows (headers, bodies, files). Their values stay on the server. They stay only when every
+    /// destination field of the action (host, URL, port, user, recipient, topic, address) is unchanged: a stored secret never goes
+    /// to a destination the call chose, so a changed destination of an action that holds one is set in OADM. An address the tool showed
+    /// as scheme, host and port comes back as it was stored.
     /// </summary>
-    private static void KeepWhatIsLeftOut(RuleDefinition rule, RuleDefinition before, JsonElement input, Proto.EventCatalog catalog)
+    private static void KeepWhatIsLeftOut(RuleDefinition rule, RuleDefinition before, JsonElement input, Proto.EventCatalog catalog, List<ToolFieldError> errors)
     {
         if (!input.TryGetProperty("enabled", out _))
         {
@@ -806,16 +888,36 @@ internal static partial class RuleTools
             rule.MaxRunsPerMinute = before.MaxRunsPerMinute;
         }
 
-        foreach (var action in rule.Actions)
+        for (var i = 0; i < rule.Actions.Count; i++)
         {
+            var action = rule.Actions[i];
             if (before.Actions.FirstOrDefault(a => a.Key == action.Key) is not { } was || was.ActionId != action.ActionId)
             {
                 continue;
             }
 
+            var entry = catalog.Actions.FirstOrDefault(a => a.Id == action.ActionId);
+            var fields = entry?.Fields ?? [];
+            foreach (var field in fields.Where(IsAddressText))
+            {
+                if (action.Settings[field.Key] is JsonValue now && now.TryGetValue<string>(out var shown)
+                    && was.Settings[field.Key] is JsonValue stored && stored.TryGetValue<string>(out var full)
+                    && !string.Equals(shown, full, StringComparison.Ordinal) && string.Equals(shown.Trim(), ReduceAddress(full), StringComparison.Ordinal))
+                {
+                    action.Settings[field.Key] = full;
+                }
+            }
+
+            var hiddenFields = fields.Where(f => IsHidden(f.Kind) && f.Kind != Proto.ActionFieldKind.ActionFieldPassword).ToList();
+            var carries = was.StoredSecretFields.Count > 0 || hiddenFields.Any(f => !action.Settings.ContainsKey(f.Key) && was.Settings[f.Key] is not null) || entry is null;
+            if (carries && DestinationChanged(action, was, entry))
+            {
+                errors.Add(new ToolFieldError(string.Create(CultureInfo.InvariantCulture, $"rule.actions[{i}]"), SetInOadm));
+                continue;
+            }
+
             action.StoredSecretFields = [.. was.StoredSecretFields];
-            var fields = catalog.Actions.FirstOrDefault(a => a.Id == action.ActionId)?.Fields ?? [];
-            foreach (var field in fields.Where(f => IsHidden(f.Kind) && f.Kind != Proto.ActionFieldKind.ActionFieldPassword))
+            foreach (var field in hiddenFields)
             {
                 if (!action.Settings.ContainsKey(field.Key) && was.Settings[field.Key] is { } value)
                 {
@@ -823,6 +925,115 @@ internal static partial class RuleTools
                 }
             }
         }
+    }
+
+    /// <summary>An action the catalog does not know compares every setting, since nothing says which one names the destination.</summary>
+    private static bool DestinationChanged(RuleAction action, RuleAction was, Proto.ActionEntry? entry)
+    {
+        var keys = entry is null
+            ? action.Settings.Select(p => p.Key).Concat(was.Settings.Select(p => p.Key)).ToHashSet(StringComparer.Ordinal)
+            : entry.Fields.Where(IsDestination).Select(f => f.Key).ToHashSet(StringComparer.Ordinal);
+        foreach (var key in keys)
+        {
+            if (!SameSetting(action.Settings[key], was.Settings[key]))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static bool SameSetting(JsonNode? a, JsonNode? b)
+    {
+        static bool Empty(JsonNode? n) => n is null || (n is JsonValue v && v.TryGetValue<string>(out var text) && text.Length == 0);
+        return (Empty(a) && Empty(b)) || JsonNode.DeepEquals(a, b);
+    }
+
+    private static string ActionNumbers(IEnumerable<int> indexes)
+    {
+        var numbers = indexes.Select(i => (i + 1).ToString(CultureInfo.InvariantCulture)).ToList();
+        return (numbers.Count == 1 ? "action " : "actions ") + string.Join(", ", numbers);
+    }
+
+    /// <summary>The server's text for a rule problem, unless it holds a text the caller or the rule brought (a name, a value): then a fixed sentence.</summary>
+    private static string FixedText(RuleDefinition rule, string detail)
+    {
+        var texts = new List<string> { rule.Name.Trim() };
+        texts.AddRange(rule.Actions.SelectMany(a => a.Settings.Select(p => p.Value is JsonValue v && v.TryGetValue<string>(out var s) ? s.Trim() : string.Empty)));
+        return texts.Any(t => t.Length >= 3 && detail.Contains(t, StringComparison.OrdinalIgnoreCase)) ? "The rule is not valid. Check it in OADM." : detail;
+    }
+
+    /// <summary>
+    /// Every outside destination of the rule as a warning (new or kept), and a second one for a destination the rule did not have
+    /// and that is not a saved recipient. The sentences are fixed; they hold the address and no name.
+    /// </summary>
+    private static async Task AddDestinationWarningsAsync(ToolCall call, JsonArray warnings, RuleDefinition rule, RuleDefinition? before, Proto.EventCatalog catalog)
+    {
+        Dictionary<string, Proto.RecipientEntry>? recipients = null;
+        if (rule.Actions.Concat(before?.Actions ?? []).Any(a => catalog.Actions.FirstOrDefault(c => c.Id == a.ActionId)?.Fields.Any(f => f.Kind == Proto.ActionFieldKind.ActionFieldRecipient) == true))
+        {
+            var saved = await call.CallAsync<EventGrpcService, Proto.Empty, Proto.RecipientList>(RecipientsPath, new Proto.Empty(), (s, r, c) => s.ListRecipients(r, c)).ConfigureAwait(false);
+            recipients = saved.Recipients.ToDictionary(r => r.Id, StringComparer.OrdinalIgnoreCase);
+        }
+
+        var had = before is null ? [] : DestinationsOf(before, catalog, recipients).Select(d => d.Text).ToHashSet(StringComparer.Ordinal);
+        var shown = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var destination in DestinationsOf(rule, catalog, recipients))
+        {
+            if (!shown.Add(destination.Text))
+            {
+                continue;
+            }
+
+            warnings.Add($"Sends event data to {destination.Text}.");
+            if (!destination.Saved && !had.Contains(destination.Text))
+            {
+                warnings.Add($"{destination.Text} is a new destination. Check that it is yours.");
+            }
+        }
+    }
+
+    private sealed record Destination(string Text, bool Saved);
+
+    private static List<Destination> DestinationsOf(RuleDefinition rule, Proto.EventCatalog catalog, Dictionary<string, Proto.RecipientEntry>? recipients)
+    {
+        var found = new List<Destination>();
+        foreach (var action in rule.Actions)
+        {
+            var fields = catalog.Actions.FirstOrDefault(a => a.Id == action.ActionId)?.Fields ?? [];
+            foreach (var field in fields)
+            {
+                var text = action.Settings[field.Key] is JsonValue v && v.TryGetValue<string>(out var s) ? s.Trim() : string.Empty;
+                if (text.Length == 0)
+                {
+                    continue;
+                }
+
+                if (field.Kind == Proto.ActionFieldKind.ActionFieldRecipient)
+                {
+                    if (recipients is not null && recipients.TryGetValue(text, out var saved))
+                    {
+                        found.Add(new Destination(saved.Target.Length == 0 ? "a saved recipient" : ScrubAddresses(saved.Target), true));
+                    }
+                }
+                else if (field.Format is Proto.ActionTextFormat.Url or Proto.ActionTextFormat.OpcEndpoint)
+                {
+                    found.Add(new Destination(ReduceAddress(text) ?? "an address OADM cannot read", false));
+                }
+                else if (field.Format == Proto.ActionTextFormat.Host)
+                {
+                    var port = action.Settings["port"] is JsonValue p && p.TryGetValue<int>(out var number) ? ":" + number.ToString(CultureInfo.InvariantCulture) : string.Empty;
+                    found.Add(new Destination((ReduceAddress(text) ?? text) + port, false));
+                }
+                else if (field.Format is Proto.ActionTextFormat.Email or Proto.ActionTextFormat.EmailList && !text.Contains('{', StringComparison.Ordinal))
+                {
+                    found.Add(new Destination(text.Length > 200 ? text[..200] : text, false));
+                }
+            }
+        }
+
+        return found;
     }
 
     /// <summary>Refuses a password and a header or key that looks like a token: nothing secret passes the model (rule 4).</summary>
@@ -840,6 +1051,12 @@ internal static partial class RuleTools
                 }
 
                 var text = value is JsonValue v && v.TryGetValue<string>(out var s) ? s : value.ToJsonString();
+                if (IsAddressText(field) && AddressWithLogin().IsMatch(text))
+                {
+                    errors.Add(new ToolFieldError(path + field.Key, SetInOadm)); // a login in an address
+                    continue;
+                }
+
                 switch (field.Kind)
                 {
                     case Proto.ActionFieldKind.ActionFieldPassword when text.Length > 0:
@@ -901,8 +1118,8 @@ internal static partial class RuleTools
             ["rule_id"] = id,
             ["name"] = detail.Summary.Name,
             ["enabled"] = detail.Summary.Enabled,
-            ["watches"] = detail.Summary.ConditionsText,
-            ["does"] = detail.Summary.ActionsText,
+            ["watches"] = ScrubAddresses(detail.Summary.ConditionsText),
+            ["does"] = ScrubAddresses(detail.Summary.ActionsText),
             ["state"] = detail.Summary.StateText,
             ["warnings"] = warnings,
             ["handle"] = handle,
