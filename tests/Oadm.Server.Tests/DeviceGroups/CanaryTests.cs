@@ -93,6 +93,8 @@ public sealed partial class CanaryTests
             {
                 Filter = new Proto.DeviceFilter { Ids = { c.Inside.ToString(), id.ToString() } }, Limit = 10, WithApis = true, GroupBy = "status",
             }),
+        ["/oadm.v1.DeviceService/Resolve"] = async (c, id) =>
+            await Devices(c).ResolveAsync(new Proto.ResolveDevicesRequest { Filter = new Proto.DeviceFilter { Ids = { c.Inside.ToString(), id.ToString() } }, Shown = 5 }),
         ["/oadm.v1.DeviceWebService/Open"] = async (c, id) =>
             await new Proto.DeviceWebService.DeviceWebServiceClient(c.Invoker).OpenAsync(new Proto.OpenDeviceWebRequest { DeviceId = id.ToString() }),
         ["/oadm.v1.DeviceWebService/Exchange"] = (c, id) => Inside(c, id, async () =>
@@ -111,6 +113,8 @@ public sealed partial class CanaryTests
         }),
         ["/oadm.v1.LiveViewService/ListSources"] = (c, id) => Inside(c, id, async () =>
             await Live(c).ListSourcesAsync(new Proto.LiveViewSourcesRequest { DeviceId = id.ToString() })),
+        ["/oadm.v1.LiveViewService/GetSnapshot"] = (c, id) => Inside(c, id, async () =>
+            await Live(c).GetSnapshotAsync(new Proto.SnapshotRequest { DeviceId = id.ToString() })),
         ["/oadm.v1.LiveViewService/GetOptics"] = async (c, id) =>
             await Live(c).GetOpticsAsync(new Proto.OpticsRequest { DeviceId = id.ToString() }),
         ["/oadm.v1.LiveViewService/SetOptics"] = (c, id) => Inside(c, id, async () =>

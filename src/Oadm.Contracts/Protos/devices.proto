@@ -35,6 +35,13 @@ service DeviceService {
   // (its sort key and id), with the number of matches and, when asked, the counts of a field. Only the page is mapped:
   // the MCP device tools (docs/spec/mcp.md) use it instead of List.
   rpc Search (SearchDevicesRequest) returns (SearchDevicesReply);
+  // Every device of the caller's view that matches a filter, as the ids in address order (the fixed list of a preview), and the
+  // first `shown` of them as rows. Unknown ids and ids outside the view refuse the request (NOT_FOUND), like Search.
+  rpc Resolve (ResolveDevicesRequest) returns (ResolveDevicesReply);
+  // Stores one entry of the credential list as the login of the devices, without the password ever leaving the server:
+  // the entry is chosen by its id. Only users with all devices (the credential list is never used for a device group).
+  // NOT_FOUND for an unknown entry or device, INVALID_ARGUMENT for no devices.
+  rpc SetStoredCredentials (SetStoredCredentialsRequest) returns (Empty);
 }
 
 // Which devices: every field optional, the fields combined with AND, a list matches any of its values; empty = every device
@@ -74,6 +81,21 @@ message SearchDevicesReply {
   repeated string sort_keys = 3;        // the sort key of each row of the page
   repeated DeviceFieldCount counts = 4; // with group_by: every value, the most devices first
   int32 after_cursor = 5;               // the matches after the cursor (the page and the rest); total without a cursor
+}
+
+message ResolveDevicesRequest {
+  DeviceFilter filter = 1;
+  int32 shown = 2;                      // rows of `first`, 0 to 100
+}
+
+message ResolveDevicesReply {
+  repeated string ids = 1;              // every match, in address order (without the API lists)
+  repeated Device first = 2;            // the first `shown` matches
+}
+
+message SetStoredCredentialsRequest {
+  repeated string device_ids = 1;
+  string credential_id = 2;             // an entry of SettingsService.ListCredentials
 }
 
 message DeviceId { string id = 1; }

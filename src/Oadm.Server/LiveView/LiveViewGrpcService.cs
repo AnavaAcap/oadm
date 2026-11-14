@@ -301,6 +301,57 @@ public sealed class LiveViewGrpcService(
         return reply;
     }
 
+    /// <summary>The widest snapshot asked for when the request names none.</summary>
+    public const int DefaultSnapshotWidth = 1280;
+
+    /// <summary>
+    /// One JPEG of a source now (read only on the camera): the largest resolution of the source that is at most
+    /// <c>max_width</c> wide, over the device's route with the stored login.
+    /// </summary>
+    public override async Task<Proto.SnapshotReply> GetSnapshot(Proto.SnapshotRequest request, ServerCallContext context)
+    {
+        if (request.MaxWidth is < 0 or > 8192 || request.Compression is < 0 or > 100 || request.Camera < 0)
+        {
+            throw GrpcGuard.InvalidArgument("The picture size or compression is not valid.");
+        }
+
+        var viewed = await RequireDeviceAsync(request.DeviceId, context).ConfigureAwait(false);
+        var device = viewed[0];
+        if (device.Status == DeviceStatus.SiteOffline)
+        {
+            throw GrpcGuard.FailedPrecondition(Sdk.Sites.SiteTexts.SiteOffline(device.SiteName));
+        }
+
+        if (TaskSupportReasons.ForStatus(device) is { } refused)
+        {
+            throw GrpcGuard.FailedPrecondition(refused + ".");
+        }
+
+        var widest = request.MaxWidth == 0 ? DefaultSnapshotWidth : request.MaxWidth;
+        try
+        {
+            var capabilities = await live.GetCapabilitiesAsync(viewed, context.CancellationToken).ConfigureAwait(false);
+            var source = capabilities.FindSource(request.Camera) ?? throw GrpcGuard.InvalidArgument("The device has no such video source.");
+            var fitting = source.Resolutions.Where(r => r.Width <= widest).ToList();
+            if (fitting.Count == 0)
+            {
+                throw GrpcGuard.FailedPrecondition($"The camera has no picture of at most {widest} pixels wide.");
+            }
+
+            var size = fitting.MaxBy(r => (long)r.Width * r.Height);
+            var jpeg = await live.GetSnapshotAsync(viewed, source.Camera, size, request.Compression, context.CancellationToken).ConfigureAwait(false);
+            return new Proto.SnapshotReply { Jpeg = ByteString.CopyFrom(jpeg), Width = size.Width, Height = size.Height };
+        }
+        catch (OperationCanceledException) when (!context.CancellationToken.IsCancellationRequested)
+        {
+            throw new RpcException(new Status(StatusCode.DeadlineExceeded, "The camera did not answer."));
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            throw ToRpc(ex);
+        }
+    }
+
     public override async Task Watch(Proto.LiveViewRequest request, IServerStreamWriter<Proto.LiveViewFrame> responseStream, ServerCallContext context)
     {
         var id = GrpcGuard.ParseId(request.DeviceId, "device id");

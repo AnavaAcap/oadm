@@ -24,6 +24,7 @@ public static class AuditActions
     public const string CredentialAdded = "Added credential";
     public const string CredentialRemoved = "Removed credential";
     public const string CredentialRevealed = "Showed credential password";
+    public const string DeviceCredentialsSet = "Set device credentials";
     public const string TaskRun = "Started task";
     public const string TasksDeletedAll = "Deleted all tasks";
     public const string DevicesRemoved = "Removed devices";

@@ -27,6 +27,10 @@ public sealed class LiveViewAccess(
     public Task<LiveViewSubscription> SubscribeAsync(ViewedDevices one, int maxWidth, int maxHeight, int fps, IReadOnlyCollection<VideoCodecKind> clientCodecs, int camera, CancellationToken ct) =>
         hub.SubscribeAsync(DeviceActions.Single(one).Id, maxWidth, maxHeight, fps, clientCodecs, ct, camera);
 
+    /// <inheritdoc cref="ILiveVideoSourceFactory.GetSnapshotAsync"/>
+    public Task<byte[]> GetSnapshotAsync(ViewedDevices one, int camera, ImageSize size, int compression, CancellationToken ct) =>
+        sources.GetSnapshotAsync(DeviceActions.Single(one).Id, camera, size, compression, ct);
+
     /// <inheritdoc cref="IDeviceOptics.GetAsync"/>
     public Task<OpticsState> GetOpticsAsync(ViewedDevices one, int sensor, CancellationToken ct) =>
         optics.GetAsync(DeviceActions.Single(one).Id, sensor, ct);

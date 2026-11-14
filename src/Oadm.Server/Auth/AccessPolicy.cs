@@ -88,6 +88,8 @@ public static class AccessPolicy
         ["/oadm.v1.DeviceService/Remove"] = AccessRule.Needs(HostPermissions.DevicesAddRemove),
         ["/oadm.v1.DeviceService/Refresh"] = AccessRule.Needs(HostPermissions.DevicesRefresh),
         ["/oadm.v1.DeviceService/SetCredentials"] = AccessRule.Needs(HostPermissions.DevicesLogin),
+        ["/oadm.v1.DeviceService/Resolve"] = AccessRule.SignedIn, // like Search: the caller's view, filtered (the MCP device tools)
+        ["/oadm.v1.DeviceService/SetStoredCredentials"] = AccessRule.Needs(HostPermissions.DevicesLogin).ForAllDevices(), // the credential list is never used for a device group
         ["/oadm.v1.DeviceService/LogIn"] = AccessRule.Needs(HostPermissions.DevicesLogin),
         ["/oadm.v1.DeviceService/GetCredentialUserName"] = AccessRule.Needs(HostPermissions.DevicesLogin),
         ["/oadm.v1.DeviceService/SetFirstPassword"] = AccessRule.Needs(HostPermissions.DevicesLogin),
@@ -99,6 +101,7 @@ public static class AccessPolicy
         ["/oadm.v1.DeviceWebService/Exchange"] = AccessRule.Needs(WebViewOpen),
         ["/oadm.v1.LiveViewService/Watch"] = AccessRule.Needs(HostPermissions.DevicesLiveView),
         ["/oadm.v1.LiveViewService/ListSources"] = AccessRule.Needs(HostPermissions.DevicesLiveView),
+        ["/oadm.v1.LiveViewService/GetSnapshot"] = AccessRule.Needs(HostPermissions.DevicesLiveView),
         ["/oadm.v1.LiveViewService/GetOptics"] = AccessRule.Needs(HostPermissions.DevicesLiveView),
         ["/oadm.v1.LiveViewService/SetOptics"] = AccessRule.Needs(HostPermissions.DevicesOpticsControl),
         ["/oadm.v1.LiveViewService/GetRtspPort"] = AccessRule.SignedIn,

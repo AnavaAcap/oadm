@@ -154,6 +154,40 @@ public sealed class DeviceGrpcService(
     }
 
     /// <summary>
+    /// Every device of the caller's view that matches the filter, as ids in address order (a preview's fixed list), and the
+    /// first <c>shown</c> rows. Ids of the filter that are unknown or outside the view refuse the request (NOT_FOUND).
+    /// </summary>
+    public override async Task<Proto.ResolveDevicesReply> Resolve(Proto.ResolveDevicesRequest request, ServerCallContext context)
+    {
+        var ct = context.CancellationToken;
+        if (request.Shown is < 0 or > 100)
+        {
+            throw GrpcGuard.InvalidArgument("Show 0 to 100 devices.");
+        }
+
+        var view = await views.ForAsync(context).ConfigureAwait(false);
+        IReadOnlyList<Device> matches;
+        try
+        {
+            matches = await DeviceSearch.MatchesAsync(view, request.Filter ?? new Proto.DeviceFilter(), withApis: false, ct).ConfigureAwait(false);
+        }
+        catch (ArgumentException ex)
+        {
+            throw GrpcGuard.InvalidArgument(ex.Message);
+        }
+
+        var reply = new Proto.ResolveDevicesReply();
+        reply.Ids.AddRange(matches.Select(d => d.Id.ToString()));
+        if (request.Shown > 0)
+        {
+            var withCredentials = await actions.DeviceIdsWithCredentialsAsync(ct).ConfigureAwait(false);
+            reply.First.AddRange(matches.Take(request.Shown).Select(d => ToProto(d, withCredentials.Contains(d.Id))));
+        }
+
+        return reply;
+    }
+
+    /// <summary>
     /// Snapshot (one ADDED per device of the caller's view), SNAPSHOT_END when asked for, then live changes until the client
     /// or the server stops. A slow client gets the changes coalesced per device, never dropped. A device that leaves the
     /// view becomes REMOVED, one that enters it ADDED (<see cref="DeviceViewFeed"/>); a change of the caller's group ends the
@@ -257,6 +291,41 @@ public sealed class DeviceGrpcService(
             throw GrpcGuard.NotFound(DeviceMessages.NoLongerAvailable(1));
         }
 
+        return new Proto.Empty();
+    }
+
+    /// <summary>
+    /// Stores an entry of the credential list as the login of the devices; the password never leaves the server. Like the
+    /// automatic login of the add page, the list is used only for users with all devices (AccessPolicy).
+    /// </summary>
+    public override async Task<Proto.Empty> SetStoredCredentials(Proto.SetStoredCredentialsRequest request, ServerCallContext context)
+    {
+        var ct = context.CancellationToken;
+        var ids = GrpcGuard.ParseIds(request.DeviceIds, "device id");
+        if (ids.Length == 0)
+        {
+            throw GrpcGuard.InvalidArgument("Select at least one device.");
+        }
+
+        var entry = Guid.TryParse(request.CredentialId, out var credentialId)
+            ? await credentialList.RevealAsync(credentialId, ct).ConfigureAwait(false)
+            : null;
+        if (entry is null)
+        {
+            throw GrpcGuard.NotFound($"Credential '{request.CredentialId}' not found.");
+        }
+
+        var viewed = await (await views.ForAsync(context).ConfigureAwait(false)).GetAsync(ids, ct).ConfigureAwait(false);
+        try
+        {
+            await actions.SetCredentialsAsync(viewed, entry.UserName, entry.Password, ct).ConfigureAwait(false);
+        }
+        catch (KeyNotFoundException)
+        {
+            throw GrpcGuard.NotFound(DeviceMessages.NoLongerAvailable(1));
+        }
+
+        await audit.WriteAsync(AuditActions.DeviceCredentialsSet, viewed.Count == 1 ? viewed[0].Address : $"{viewed.Count} devices", "From the credential list: " + entry.UserName, ct).ConfigureAwait(false);
         return new Proto.Empty();
     }
 
