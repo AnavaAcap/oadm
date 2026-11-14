@@ -402,6 +402,7 @@ public sealed partial class CanaryTests
         ["/oadm.v1.RoleService/Mine"] = "the own role and group summary (sites, tags, counts of the own view; never excepted devices)",
         ["/oadm.v1.FileService/Upload"] = "an upload of the caller; tasks check their devices",
         ["/oadm.v1.FileService/Delete"] = "an upload by id; no device data",
+        ["/oadm.v1.FileService/List"] = "the caller's own uploads; no device data",
         ["/oadm.v1.PluginService/ListCorePlugins"] = "the plugin pages the role may show",
         ["/oadm.v1.PluginService/ListPackages"] = "the plugin packages",
         ["/oadm.v1.PluginService/ListAddOns"] = "the add-ons of this version, no device data",

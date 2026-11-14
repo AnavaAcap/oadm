@@ -157,11 +157,34 @@ internal static class ToolSchema
                 }
 
                 var properties = schema["properties"] as JsonObject ?? [];
+                var maxProperties = Bound(schema, "maxProperties");
+                var count = 0;
                 foreach (var property in value.EnumerateObject())
                 {
                     if (properties[property.Name] is JsonObject inner)
                     {
                         Check(inner, property.Value, Join(path, property.Name), errors);
+                    }
+                    else if (schema["additionalProperties"] is JsonObject entries)
+                    {
+                        // A map (a payload's devices by id): the names by propertyNames, the values by their schema.
+                        if (++count > maxProperties)
+                        {
+                            errors.Add(new(field, string.Create(CultureInfo.InvariantCulture, $"Use at most {maxProperties:N0} entries.")));
+                            return;
+                        }
+
+                        if (schema["propertyNames"] is JsonObject names)
+                        {
+                            var before = errors.Count;
+                            CheckText(names, JsonSerializer.SerializeToElement(property.Name), Join(path, property.Name), errors);
+                            if (errors.Count > before)
+                            {
+                                continue;
+                            }
+                        }
+
+                        Check(entries, property.Value, Join(path, property.Name), errors);
                     }
                     else if (schema["additionalProperties"] is not JsonValue open || !open.GetValue<bool>())
                     {

@@ -2,6 +2,7 @@ using Oadm.Plugins.DeviceClocks;
 using Oadm.Plugins.Pki.Device;
 using Oadm.Sdk.Devices;
 using Oadm.Sdk.Plugins;
+using Oadm.Sdk.Tasks;
 using Oadm.Sdk.Vapix;
 
 namespace Oadm.Plugins.Pki.Tasks;
@@ -28,6 +29,16 @@ public sealed class Dot1xEnableTask(Func<PkiService?> service) : PkiTaskBase(ser
     public override bool RequiresDialog => true;
 
     public override string GetTaskName(string? payloadJson) => "Enable IEEE 802.1X";
+
+    /// <summary>The issuing policy for AI agents (SDK 0.13.0).</summary>
+    public override Type? PayloadType => typeof(PkiIssueMcpPayload);
+
+    /// <summary>The dialog's confirmation text.</summary>
+    protected override string? Warning => PkiTaskIds.Dot1xWarning;
+
+    /// <summary>The chosen policy must still exist; with none chosen the first one is used.</summary>
+    public override IReadOnlyList<PayloadError> ValidatePayload(string? payloadJson, ICallContext caller) =>
+        PolicyErrors(Policies.PolicyKinds.Dot1xCertificate, PkiJson.TryDeserialize<IssuePayload>(payloadJson)?.PolicyId, "policyId", firstIfNone: true);
 
     public override async Task ExecuteAsync(ITaskExecutionContext ctx, IDeviceInfo device, string? payloadJson, CancellationToken ct)
     {
@@ -225,6 +236,9 @@ internal enum Dot1xCheck
 public sealed class Dot1xDisableTask(Func<PkiService?> service) : PkiTaskBase(service)
 {
     public override string Id => PkiTaskIds.Dot1xDisable;
+
+    /// <summary>The task takes no settings (SDK 0.13.0).</summary>
+    public override Type? PayloadType => typeof(PkiNoSettingsPayload);
 
     public override string DisplayName => PkiTaskIds.Dot1xDisableName;
 

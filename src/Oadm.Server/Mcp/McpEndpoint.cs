@@ -159,11 +159,13 @@ public static class McpEndpoint
             return;
         }
 
-        var method = upload is null ? HttpMethods.Post : HttpMethods.Put;
+        // /mcp takes POST only (no stream on GET, no session to DELETE); a link of /files/ takes PUT (an upload) or GET (a download).
+        var download = upload is not null && HttpMethods.IsGet(http.Request.Method);
+        var method = upload is null ? HttpMethods.Post : download ? HttpMethods.Get : HttpMethods.Put;
         if (!string.Equals(http.Request.Method, method, StringComparison.OrdinalIgnoreCase))
         {
-            http.Response.Headers.Allow = method;
-            http.Response.StatusCode = StatusCodes.Status405MethodNotAllowed; // no stream on GET, no session to DELETE
+            http.Response.Headers.Allow = upload is null ? HttpMethods.Post : HttpMethods.Put + ", " + HttpMethods.Get;
+            http.Response.StatusCode = StatusCodes.Status405MethodNotAllowed;
             return;
         }
 
@@ -213,7 +215,15 @@ public static class McpEndpoint
                 return;
             }
 
-            await files.ReceiveAsync(http, caller, upload).ConfigureAwait(false);
+            if (download)
+            {
+                await files.SendAsync(http, caller, upload).ConfigureAwait(false);
+            }
+            else
+            {
+                await files.ReceiveAsync(http, caller, upload).ConfigureAwait(false);
+            }
+
             return;
         }
 

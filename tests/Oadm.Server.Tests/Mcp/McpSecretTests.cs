@@ -51,6 +51,11 @@ public sealed class McpSecretTests
             ["oadm_devices_add_preview"] = new() { ["addresses"] = new JsonArray("10.4.0.1"), ["keep_waiting"] = true },
             ["oadm_devices_add_run"] = new() { ["handle"] = "ended" },
             ["oadm_settings_get"] = [],
+            ["oadm_files_list"] = [],
+            ["oadm_files_delete_preview"] = new() { ["file_ids"] = new JsonArray("0123456789abcdef0123456789abcdef") },
+            ["oadm_files_delete_run"] = new() { ["handle"] = "ended" },
+            ["oadm_tasks_cancel_preview"] = new() { ["batch"] = Guid.NewGuid().ToString() },
+            ["oadm_tasks_cancel_run"] = new() { ["handle"] = "ended" },
         };
         var areaKey = await server.CreateKeyAsync(name: "canary-areas"); // a key allows 20 calls a second: the areas' tools use their own
         var areaCalls = McpAreaToolTests.SecretScanCalls();

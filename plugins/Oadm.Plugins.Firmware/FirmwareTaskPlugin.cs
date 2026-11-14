@@ -162,6 +162,82 @@ public sealed partial class FirmwareTaskPlugin : ITaskPlugin, ITaskPluginQuery
         return TaskSupportReasons.ForStatus(device, requireOk: true) ?? TaskSupportReasons.NeedsApi("the firmware management API", device);
     }
 
+    /// <summary>
+    /// The input for AI agents (SDK 0.13.0): AXIS OS files of upload links, a factory default, allow downgrade. A version from
+    /// axis.com is not offered over MCP (it needs the user's MyAxis sign-in); the dialog's payload reads the same text.
+    /// </summary>
+    public Type? PayloadType => typeof(FirmwareMcpPayload);
+
+    /// <summary>The names and enum texts the task reads.</summary>
+    public JsonSerializerOptions? PayloadJsonOptions => FirmwarePayload.JsonOptions;
+
+    /// <summary>
+    /// The dialog's rules before any task starts: some file, a valid choice, and every file a .bin file, each at its JSON field.
+    /// The size of a file is checked when the task reads it.
+    /// </summary>
+    public IReadOnlyList<Oadm.Sdk.Tasks.PayloadError> ValidatePayload(string? payloadJson, ICallContext caller)
+    {
+        FirmwarePayload payload;
+        try
+        {
+            payload = FirmwarePayload.Parse(payloadJson);
+        }
+        catch (ArgumentException ex)
+        {
+            return [new(string.Empty, PlainMessage(ex))];
+        }
+
+        var errors = new List<Oadm.Sdk.Tasks.PayloadError>();
+        var files = payload.AllFiles();
+        for (var i = 0; i < files.Count; i++)
+        {
+            if (files[i].FileName is { Length: > 0 } name && FirmwareImageInspector.Inspect(name, FirmwareImageInspector.MinimumSize).RejectReason is { } reason)
+            {
+                errors.Add(new(Invariant($"files[{i}].fileName"), reason));
+            }
+        }
+
+        return errors;
+    }
+
+    /// <summary>
+    /// The server-side twin of the dialog's choice (<see cref="FirmwareCompatibility.ChooseFor"/>) from the cached model and
+    /// AXIS OS version of each device: it installs, or it is skipped with the dialog's reason ("No file for this model.",
+    /// "Already up to date", a downgrade that is not allowed). The size of a file and the installed applications are checked by
+    /// the task, which reads them.
+    /// </summary>
+    public Task<Oadm.Sdk.Tasks.TaskPlan> PlanAsync(string? payloadJson, IReadOnlyList<IDeviceInfo> devices, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(devices);
+        var run = _runs.For(payloadJson);
+        var payload = run.Payload;
+        var images = run.Files.Select(f => FirmwareImageInspector.Inspect(f.FileName ?? string.Empty, FirmwareImageInspector.MinimumSize)).ToList();
+        var planned = new List<Oadm.Sdk.Tasks.TaskPlanDevice>(devices.Count);
+        foreach (var device in devices)
+        {
+            ct.ThrowIfCancellationRequested();
+            if (!CanRun(device))
+            {
+                planned.Add(new(device.Id, NotSupportedReason(device) ?? TaskSupportReasons.Default));
+                continue;
+            }
+
+            var (online, file, check) = FirmwareCompatibility.ChooseFor(device.Id, device.Model, device.FirmwareVersion, run.Online, run.OnlineImages,
+                run.Files, images, payload.FactoryDefaultMode, payload.AllowDowngrade, runIndex: run.Index);
+            planned.Add(new(device.Id, online < 0 && file < 0 ? FirmwareCompatibility.NoFileForModel : check.WillInstall ? null : check.Message));
+        }
+
+        var warning = FirmwareWarnings.Of(payload.FactoryDefaultMode);
+        return Task.FromResult(new Oadm.Sdk.Tasks.TaskPlan(planned) { Warnings = warning is null ? [] : [warning] });
+    }
+
+    /// <summary>The text of an <see cref="ArgumentException"/> without the " (Parameter 'json')" .NET adds.</summary>
+    internal static string PlainMessage(ArgumentException ex)
+    {
+        var cut = ex.Message.IndexOf(" (Parameter '", StringComparison.Ordinal);
+        return cut < 0 ? ex.Message : ex.Message[..cut];
+    }
+
     /// <summary>Step names, in order (see README.md).</summary>
     public static class Steps
     {

@@ -133,6 +133,14 @@ public static class TaskPayloadSchemas
         }
 
         var types = TypesOf(schema);
+        if (types.Contains("string") && (types.Contains("integer") || types.Contains("number")))
+        {
+            // Numbers a plugin also reads from text (JsonSerializerDefaults.Web): the tools take the number only.
+            schema["type"] = new JsonArray([.. types.Where(t => t != "string").Select(t => (JsonNode)JsonValue.Create(t)!)]);
+            schema.Remove("pattern");
+            types = TypesOf(schema);
+        }
+
         foreach (var attribute in attributes)
         {
             switch (attribute)
@@ -167,7 +175,19 @@ public static class TaskPayloadSchemas
 
         if (types.Contains("object"))
         {
-            schema["additionalProperties"] = false;
+            if (schema["additionalProperties"] is JsonObject)
+            {
+                // A map (devices by id): its values have their schema already; it has a size like a list, its names an id format.
+                schema["maxProperties"] = DeviceLimits.MaxDevices;
+                if (KeyTypeOf(context.TypeInfo.Type) == typeof(Guid))
+                {
+                    schema["propertyNames"] = new JsonObject { ["type"] = "string", ["format"] = "uuid" };
+                }
+            }
+            else
+            {
+                schema["additionalProperties"] = false;
+            }
         }
 
         if (types.Contains("string") && schema["enum"] is null && schema["maxLength"] is null)
@@ -189,13 +209,21 @@ public static class TaskPayloadSchemas
         return schema;
     }
 
+    /// <summary>The key type of a dictionary type; null for any other type.</summary>
+    private static Type? KeyTypeOf(Type type) =>
+        type.GetInterfaces().Prepend(type)
+            .FirstOrDefault(i => i.IsGenericType && i.GetGenericTypeDefinition() is var definition
+                && (definition == typeof(IReadOnlyDictionary<,>) || definition == typeof(IDictionary<,>)))
+            ?.GetGenericArguments()[0];
+
     /// <summary>Every node says what it takes: a type or a list of choices, no value of any type, no reference.</summary>
     private static bool Describable(JsonNode? node) => node switch
     {
         JsonObject schema when schema["$ref"] is not null => false,
         JsonObject schema => (TypesOf(schema).Count > 0 || schema["enum"] is JsonArray)
             && (schema["properties"] is not JsonObject properties || properties.All(p => Describable(p.Value)))
-            && (schema["items"] is null || Describable(schema["items"])),
+            && (schema["items"] is null || Describable(schema["items"]))
+            && (schema["additionalProperties"] is not JsonObject entries || Describable(entries)),
         _ => false,
     };
 

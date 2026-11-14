@@ -214,6 +214,7 @@ public static partial class OadmServerHost
                     .. Tools.RuleTools.Create(cursors, sp.GetRequiredService<Tools.ToolHandles>()),
                     .. Tools.DeviceChangeTools.Create(sp.GetRequiredService<Tools.ToolHandles>(), sp.GetRequiredService<TimeProvider>()),
                     .. Tools.SettingsTools.Create(),
+                    .. Tools.FileTools.Create(cursors, sp.GetRequiredService<Tools.ToolHandles>()),
                 ],
                 sp.GetRequiredService<InProcessCalls>(), roles,
                 [sp.GetRequiredService<Tools.PluginTools>()]); // the tools of the plugins that are on

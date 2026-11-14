@@ -159,6 +159,28 @@ public sealed partial class UploadStore : IUploadedFiles
         return OpenContent(fileId);
     }
 
+    /// <summary>The finished uploads of <paramref name="owner"/> (a user's session), newest first; never another owner's.</summary>
+    public async Task<IReadOnlyList<UploadListing>> ListAsync(UploadOwner owner, CancellationToken ct)
+    {
+        var found = new List<UploadListing>();
+        if (!System.IO.Directory.Exists(Directory))
+        {
+            return found;
+        }
+
+        foreach (var path in System.IO.Directory.EnumerateFiles(Directory, "*" + MetadataExtension))
+        {
+            ct.ThrowIfCancellationRequested();
+            var id = Path.GetFileNameWithoutExtension(path);
+            if (IsValidId(id) && await ReadMetadataAsync(id, ct).ConfigureAwait(false) is { } meta && meta.IsOwnedBy(owner) && File.Exists(ContentPath(id)))
+            {
+                found.Add(new UploadListing(meta.ToUploadedFile(), DateTime.SpecifyKind(meta.CreatedUtc, DateTimeKind.Utc)));
+            }
+        }
+
+        return [.. found.OrderByDescending(f => f.CreatedUtc).ThenBy(f => f.File.Id, StringComparer.Ordinal)];
+    }
+
     /// <summary>Deletes an upload of <paramref name="owner"/>. Returns false when it does not exist or another owner has it.</summary>
     public async Task<bool> DeleteAsync(string fileId, UploadOwner owner, CancellationToken ct) =>
         await ReadMetadataAsync(fileId, ct).ConfigureAwait(false) is { } meta && meta.IsOwnedBy(owner)
@@ -438,6 +460,9 @@ public sealed partial class UploadStore : IUploadedFiles
         public Task<Stream> OpenReadAsync(string fileId, CancellationToken ct) => store.OpenReadAsync(fileId, owner, ct);
     }
 }
+
+/// <summary>A finished upload and when it was made (UTC).</summary>
+public sealed record UploadListing(UploadedFile File, DateTime CreatedUtc);
 
 /// <summary>Who uploaded a file: the user and the login session (<see cref="Auth.AuthenticatedCaller.SessionId"/>).</summary>
 /// <param name="UserId">The user's id.</param>

@@ -4,6 +4,7 @@ using Oadm.Plugins.Shared;
 using Oadm.Sdk.Devices;
 using Oadm.Sdk.Formatting;
 using Oadm.Sdk.Plugins;
+using Oadm.Sdk.Tasks;
 using Oadm.Sdk.Vapix;
 
 namespace Oadm.Plugins.Acap;
@@ -107,6 +108,45 @@ public sealed class AcapTaskPlugin : ITaskPlugin, ITaskPluginQuery
     {
         ArgumentNullException.ThrowIfNull(device);
         return TaskSupportReasons.ForStatus(device) ?? TaskSupportReasons.NeedsApi("the application API", device);
+    }
+
+    /// <summary>
+    /// The input for AI agents (SDK 0.13.0): install, remove, start and stop. License keys and settings can hold secrets, so
+    /// they are done in OADM.
+    /// </summary>
+    public Type? PayloadType => typeof(AcapMcpPayload);
+
+    /// <summary>The names and enum texts the task reads.</summary>
+    public System.Text.Json.JsonSerializerOptions? PayloadJsonOptions => AcapPlugin.Json;
+
+    /// <summary>The dialog's payload rules before any task starts: the action, the package or the application name.</summary>
+    public IReadOnlyList<PayloadError> ValidatePayload(string? payloadJson, ICallContext caller)
+    {
+        try
+        {
+            AcapPayload.Parse(payloadJson);
+            return [];
+        }
+        catch (ArgumentException ex)
+        {
+            var cut = ex.Message.IndexOf(" (Parameter '", StringComparison.Ordinal);
+            var message = cut < 0 ? ex.Message : ex.Message[..cut];
+            return [new(message.StartsWith("Install needs", StringComparison.Ordinal) || message.StartsWith("The packages", StringComparison.Ordinal) ? "files"
+                : message.StartsWith("The application name", StringComparison.Ordinal) ? "application" : string.Empty, message)];
+        }
+    }
+
+    /// <summary>
+    /// The devices the task can run on; what a package or an application needs is checked per device when its task runs (the
+    /// package and the installed applications are not in the cached data). Removing says that the settings are lost.
+    /// </summary>
+    public Task<TaskPlan> PlanAsync(string? payloadJson, IReadOnlyList<IDeviceInfo> devices, CancellationToken ct)
+    {
+        var payload = AcapPayload.Parse(payloadJson);
+        var plan = TaskPlan.ByCanRun(this, devices);
+        return Task.FromResult(payload.Action == AcapAction.Remove
+            ? plan with { Warnings = ["The application's settings are lost with it."] }
+            : plan);
     }
 
     /// <summary>The user's query (SDK 0.4.0): reads only the queried device, which the host checked against the user's view.</summary>

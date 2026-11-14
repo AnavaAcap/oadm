@@ -5,6 +5,9 @@ namespace Oadm.Server.Tools;
 /// <summary>What a preview fixed for its run: the task, the devices and the payload (in memory only, like every payload).</summary>
 internal sealed record PlannedRun(string PluginId, IReadOnlyList<string> DeviceIds, string? PayloadJson, string TaskName);
 
+/// <summary>The tasks a cancel preview fixed (the ones that were waiting or running); the run asks exactly these to stop.</summary>
+internal sealed record PlannedCancel(IReadOnlyList<string> TaskIds);
+
 /// <summary>A file the caller may send once through an upload link: its name and exact size.</summary>
 internal sealed record PlannedUpload(string Name, long Size);
 

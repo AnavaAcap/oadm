@@ -2,6 +2,7 @@ using Oadm.Plugins.DeviceClocks;
 using Oadm.Plugins.Pki.Device;
 using Oadm.Sdk.Devices;
 using Oadm.Sdk.Plugins;
+using Oadm.Sdk.Tasks;
 using Oadm.Sdk.Vapix;
 
 namespace Oadm.Plugins.Pki.Tasks;
@@ -29,6 +30,13 @@ public sealed class RenewTask(Func<PkiService?> service) : PkiTaskBase(service),
     public override bool RequiresDialog => true;
 
     public override string GetTaskName(string? payloadJson) => "Renew certificates";
+
+    /// <summary>The IEEE 802.1X policy for AI agents (SDK 0.13.0).</summary>
+    public override Type? PayloadType => typeof(PkiRenewMcpPayload);
+
+    /// <summary>A chosen IEEE 802.1X policy must still exist (the task checks it before its first write too).</summary>
+    public override IReadOnlyList<PayloadError> ValidatePayload(string? payloadJson, ICallContext caller) =>
+        PolicyErrors(Policies.PolicyKinds.Dot1xCertificate, PkiJson.TryDeserialize<RenewPayload>(payloadJson)?.Dot1xPolicyId, "dot1xPolicyId", firstIfNone: false);
 
     /// <summary>The dialog's IEEE 802.1X certificate policies and its clock check (<see cref="CameraClock.QueryMethod"/>), read only.</summary>
     public Task<string?> QueryAsync(ITaskQueryContext ctx, IDeviceInfo device, string method, string? payloadJson, CancellationToken ct) =>

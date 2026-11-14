@@ -150,6 +150,7 @@ public static class AccessPolicy
         // Uploads feed task dialogs (firmware, applications, configuration files); size and quota limit them.
         ["/oadm.v1.FileService/Upload"] = AccessRule.SignedIn,
         ["/oadm.v1.FileService/Delete"] = AccessRule.SignedIn,
+        ["/oadm.v1.FileService/List"] = AccessRule.SignedIn, // the caller's own uploads only
 
         // Compliance.
         ["/oadm.v1.ComplianceService/GetCatalog"] = AccessRule.Needs(HostPermissions.ComplianceView),

@@ -2,6 +2,7 @@ using Oadm.Plugins.DeviceClocks;
 using Oadm.Plugins.Pki.Device;
 using Oadm.Sdk.Devices;
 using Oadm.Sdk.Plugins;
+using Oadm.Sdk.Tasks;
 using Oadm.Sdk.Vapix;
 
 namespace Oadm.Plugins.Pki.Tasks;
@@ -27,6 +28,13 @@ public sealed class HttpsEnableTask(Func<PkiService?> service) : PkiTaskBase(ser
         IssuingChoice.QueryAsync(ctx, device, method, Service, Policies.PolicyKinds.HttpsCertificate, Time, ct);
 
     public override string GetTaskName(string? payloadJson) => "Enable HTTPS";
+
+    /// <summary>The issuing policy for AI agents (SDK 0.13.0).</summary>
+    public override Type? PayloadType => typeof(PkiIssueMcpPayload);
+
+    /// <summary>The chosen policy must still exist; with none chosen the first one is used.</summary>
+    public override IReadOnlyList<PayloadError> ValidatePayload(string? payloadJson, ICallContext caller) =>
+        PolicyErrors(Policies.PolicyKinds.HttpsCertificate, PkiJson.TryDeserialize<IssuePayload>(payloadJson)?.PolicyId, "policyId", firstIfNone: true);
 
     public override async Task ExecuteAsync(ITaskExecutionContext ctx, IDeviceInfo device, string? payloadJson, CancellationToken ct)
     {
@@ -118,6 +126,12 @@ public sealed class HttpsDisableTask(Func<PkiService?> service) : PkiTaskBase(se
         "The device accepts only Basic login over HTTP. To disable HTTPS on it, turn on Allow Basic login over HTTP in Settings > Security. Nothing was changed.";
 
     public override string Id => PkiTaskIds.HttpsDisable;
+
+    /// <summary>The task takes no settings (SDK 0.13.0).</summary>
+    public override Type? PayloadType => typeof(PkiNoSettingsPayload);
+
+    /// <summary>The dialog's confirmation text.</summary>
+    protected override string? Warning => PkiTaskIds.HttpsDisableWarning;
 
     public override string DisplayName => PkiTaskIds.HttpsDisableName;
 

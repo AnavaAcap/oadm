@@ -69,6 +69,31 @@ public sealed class AssignIpTaskPlugin : ITaskPlugin, ITaskPluginQuery
         return TaskSupportReasons.ForStatus(device) ?? TaskSupportReasons.NeedsApi("the network settings API", device);
     }
 
+    /// <summary>The settings for AI agents (SDK 0.13.0): IPv4, the DNS servers and the devices.</summary>
+    public Type? PayloadType => typeof(AssignIpPayload);
+
+    /// <summary>The names and enum texts the task reads.</summary>
+    public System.Text.Json.JsonSerializerOptions? PayloadJsonOptions => PayloadJson.Options;
+
+    /// <summary>The dialog's rules (<see cref="Validate"/>) before any task starts, each at its JSON field.</summary>
+    public IReadOnlyList<Oadm.Sdk.Tasks.PayloadError> ValidatePayload(string? payloadJson, ICallContext caller) =>
+        NetworkMcp.Errors(payloadJson, payload =>
+        {
+            try
+            {
+                Validate(payload);
+                return [];
+            }
+            catch (NetworkValidationException ex)
+            {
+                return ex.Errors;
+            }
+        });
+
+    /// <summary>The devices the payload lists and the task can run on, with the dialog's reachability warnings; cached data only.</summary>
+    public Task<Oadm.Sdk.Tasks.TaskPlan> PlanAsync(string? payloadJson, IReadOnlyList<IDeviceInfo> devices, CancellationToken ct) =>
+        Task.FromResult(NetworkMcp.Plan(this, NetworkPayload.Parse(payloadJson), devices));
+
     public async Task ExecuteAsync(ITaskExecutionContext ctx, IDeviceInfo device, string? payloadJson, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(ctx);

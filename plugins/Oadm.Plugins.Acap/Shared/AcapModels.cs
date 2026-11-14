@@ -1,3 +1,5 @@
+using System.ComponentModel;
+using System.ComponentModel.DataAnnotations;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
@@ -36,7 +38,33 @@ public enum AcapAction
 }
 
 /// <summary>One uploaded package of an install with several packages: one per architecture.</summary>
-public sealed record AcapPackageFile(string FileId, string? Sha256 = null, string? Architecture = null);
+[Description("One uploaded package.")]
+public sealed record AcapPackageFile(
+    [property: Description("The file id the upload answered."), MinLength(1), MaxLength(64)] string FileId,
+    [property: Description("The SHA-256 the upload answered."), MaxLength(64)] string? Sha256 = null,
+    [property: Description("Several packages: the architecture of this one (aarch64, armv7hf, ...)."), MaxLength(32)] string? Architecture = null);
+
+/// <summary>What the Applications task may do for AI agents: not license keys and not settings (they can carry secrets).</summary>
+public enum AcapMcpAction
+{
+    Install = 0,
+    Remove = 1,
+    Start = 2,
+    Stop = 3,
+}
+
+/// <summary>
+/// The input of "Applications (ACAP)" for AI agents (docs/spec/mcp.md): install or upgrade from uploaded packages, remove,
+/// start and stop. License keys and application settings are done in OADM. The payload of the dialog without those fields;
+/// the task reads the same text as an <see cref="AcapPayload"/>.
+/// </summary>
+[Description("Install, upgrade, remove, start or stop an application.")]
+public sealed record AcapMcpPayload(
+    [property: Description("Install also upgrades.")] AcapMcpAction Action,
+    [property: Description("Remove, Start and Stop: the package name of the application (as oadm_devices_get lists it). Install: leave it out."), MaxLength(64)] string? Application = null,
+    [property: Description("Install: the uploaded .eap package, or one per architecture."), MaxLength(AcapPayload.MaxFiles)] IReadOnlyList<AcapPackageFile>? Files = null,
+    [property: Description("Install: allow an older version than the installed one.")] bool AllowDowngrade = false,
+    [property: Description("Install: start the application afterwards.")] bool StartAfterInstall = false);
 
 /// <summary>Task payload produced by the dialog. Contains no passwords; license keys are kept in memory like every payload.</summary>
 public sealed record AcapPayload
