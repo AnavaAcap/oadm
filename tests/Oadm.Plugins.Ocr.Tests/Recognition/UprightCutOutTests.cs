@@ -1,6 +1,7 @@
 using Oadm.Plugins.Ocr.Matching;
 using Oadm.Plugins.Ocr.Model;
 using Oadm.Plugins.Ocr.Recognition;
+using Oadm.Tests.Shared;
 using SkiaSharp;
 
 namespace Oadm.Plugins.Ocr.Tests.Recognition;
@@ -28,7 +29,8 @@ public sealed class UprightCutOutTests(RecognizerFixture fixture)
             using var paper = new SKPaint { IsAntialias = true, Color = new SKColor(248, 248, 244) };
             canvas.DrawRect(-230, -60, 460, 120, paper);
             using var ink = new SKPaint { IsAntialias = true, Color = new SKColor(24, 24, 28) };
-            using var typeface = SKTypeface.FromFamilyName("Arial", SKFontStyle.Bold);
+            // A font of the repository, not one of the system: a Linux without Arial falls back to a wider font.
+            using var typeface = SKTypeface.FromFile(TestRepository.Path("plugins", "Oadm.Plugins.SnapshotReport", "Fonts", "Roboto-Bold.ttf"));
             using var font = new SKFont(typeface, 54);
             canvas.DrawText(Value, -font.MeasureText(Value) / 2, 19, font, ink);
         }
@@ -68,12 +70,35 @@ public sealed class UprightCutOutTests(RecognizerFixture fixture)
         return sum / a.Length;
     }
 
-    /// <summary>The brightness of a picture brought to one size.</summary>
+    /// <summary>
+    /// The brightness of the text of a picture brought to one size: only the box around the ink counts, so a wider margin or
+    /// a strip of the background next to the label never decides which way round the text is.
+    /// </summary>
     private static byte[] Levels(byte[] jpeg, int width, int height)
     {
         using var bitmap = SKBitmap.Decode(jpeg);
-        using var small = bitmap.Resize(new SKImageInfo(width, height), new SKSamplingOptions(SKFilterMode.Linear));
+        using var ink = new SKBitmap();
+        Assert.True(bitmap.ExtractSubset(ink, InkBounds(bitmap)), "the cut-out holds ink");
+        using var small = ink.Resize(new SKImageInfo(width, height), new SKSamplingOptions(SKFilterMode.Linear));
         return [.. small.Pixels.Select(p => p.Green)];
+    }
+
+    /// <summary>The box around the dark pixels of the ink (the paper and the background are much brighter).</summary>
+    private static SKRectI InkBounds(SKBitmap bitmap)
+    {
+        var (left, top, right, bottom) = (bitmap.Width, bitmap.Height, -1, -1);
+        for (var y = 0; y < bitmap.Height; y++)
+        {
+            for (var x = 0; x < bitmap.Width; x++)
+            {
+                if (bitmap.GetPixel(x, y).Green < 80)
+                {
+                    (left, top, right, bottom) = (Math.Min(left, x), Math.Min(top, y), Math.Max(right, x), Math.Max(bottom, y));
+                }
+            }
+        }
+
+        return right < 0 ? new SKRectI(0, 0, bitmap.Width, bitmap.Height) : new SKRectI(left, top, right + 1, bottom + 1);
     }
 
     [Theory]
