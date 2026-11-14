@@ -140,7 +140,7 @@ public sealed class AuthTests
         // Event rules: every EventService method (rules, the event log, the catalog, Test) only for users with all devices.
         Assert.All(Proto.EventService.Descriptor.Methods, m => Assert.True(AccessPolicy.For($"/oadm.v1.EventService/{m.Name}").AllDevices, m.Name));
         Assert.Equal(
-            ["/oadm.v1.ComplianceService/SetEnabled", "/oadm.v1.McpService/Set", "/oadm.v1.ServerLogService/List", "/oadm.v1.SettingsService/AddCredential",
+            ["/oadm.v1.ComplianceService/SetEnabled", "/oadm.v1.DeviceService/SetStoredCredentials", "/oadm.v1.McpService/Set", "/oadm.v1.ServerLogService/List", "/oadm.v1.SettingsService/AddCredential",
                 "/oadm.v1.SettingsService/ListCredentials", "/oadm.v1.SettingsService/RemoveCredential", "/oadm.v1.SettingsService/RevealCredential", "/oadm.v1.SettingsService/Set",
                 "/oadm.v1.TagService/Delete", "/oadm.v1.TagService/Update", "/oadm.v1.TaskService/DeleteAll"],
             methods.Where(m => AccessPolicy.For(m).AllDevices && !m.StartsWith("/oadm.v1.EventService/", StringComparison.Ordinal)).Order(StringComparer.Ordinal).ToArray());

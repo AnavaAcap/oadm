@@ -26,7 +26,7 @@ public sealed class McpDeviceChangeScaleTests(ITestOutputHelper output)
         await ServerScale.SeedDevicesAsync(server.Host);
         await server.Host.Settings.AddCredentialAsync(new Proto.AddCredentialRequest { UserName = "installer", Password = "Install-pw-1" });
         var key = await server.CreateKeyAsync();
-        var everything = new JsonObject { ["models"] = new JsonArray("P3265-V") };
+        static JsonObject Everything() => new() { ["models"] = new JsonArray("P3265-V") };
 
         JsonObject answer = [];
         async Task<JsonObject> MeasureAsync(string what, TimeSpan budget, string tool, JsonObject arguments)
@@ -44,15 +44,15 @@ public sealed class McpDeviceChangeScaleTests(ITestOutputHelper output)
             return answer;
         }
 
-        var refresh = await MeasureAsync("oadm_devices_refresh_preview of 100,000 devices", TimeSpan.FromSeconds(60), "oadm_devices_refresh_preview", new JsonObject { ["filter"] = everything });
+        var refresh = await MeasureAsync("oadm_devices_refresh_preview of 100,000 devices", TimeSpan.FromSeconds(60), "oadm_devices_refresh_preview", new JsonObject { ["filter"] = Everything() });
         Assert.Equal(ServerScale.Devices, refresh["devices"]!.GetValue<int>());
         Assert.Equal(DeviceChangeTools.ShownRows, refresh["first"]!.AsArray().Count);
 
         var credentials = await MeasureAsync("oadm_devices_credentials_preview of 100,000 devices", TimeSpan.FromSeconds(60), "oadm_devices_credentials_preview",
-            new JsonObject { ["filter"] = everything, ["credential"] = "installer" });
+            new JsonObject { ["filter"] = Everything(), ["credential"] = "installer" });
         Assert.Equal(ServerScale.Devices, credentials["devices"]!.GetValue<int>());
 
-        var remove = await MeasureAsync("oadm_devices_remove_preview of 100,000 devices", TimeSpan.FromSeconds(60), "oadm_devices_remove_preview", new JsonObject { ["filter"] = everything });
+        var remove = await MeasureAsync("oadm_devices_remove_preview of 100,000 devices", TimeSpan.FromSeconds(60), "oadm_devices_remove_preview", new JsonObject { ["filter"] = Everything() });
         Assert.Equal(ServerScale.Devices, remove["devices"]!.GetValue<int>());
 
         var run = await MeasureAsync("oadm_devices_remove_run of 100,000 devices", TimeSpan.FromSeconds(180), "oadm_devices_remove_run", new JsonObject { ["handle"] = remove["handle"]!.GetValue<string>() });

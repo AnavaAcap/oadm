@@ -41,13 +41,31 @@ public sealed class McpSecretTests
             ["oadm_task_preview"] = new() { ["task"] = "oadm.restart", ["filter"] = new JsonObject(), ["input"] = new JsonObject() },
             ["oadm_task_run"] = new() { ["handle"] = "ended" },
             ["oadm_files_upload_link"] = new() { ["name"] = "a.bin", ["size"] = 1 },
+            ["oadm_devices_snapshot"] = new() { ["device_id"] = device.Id.ToString() },
+            ["oadm_devices_refresh_preview"] = new() { ["filter"] = new JsonObject() },
+            ["oadm_devices_refresh_run"] = new() { ["handle"] = "ended" },
+            ["oadm_devices_remove_preview"] = new() { ["filter"] = new JsonObject { ["ids"] = new JsonArray(device.Id.ToString()) } },
+            ["oadm_devices_remove_run"] = new() { ["handle"] = "ended" },
+            ["oadm_devices_credentials_preview"] = new() { ["filter"] = new JsonObject(), ["credential"] = "root" },
+            ["oadm_devices_credentials_run"] = new() { ["handle"] = "ended" },
+            ["oadm_devices_add_preview"] = new() { ["addresses"] = new JsonArray("10.4.0.1"), ["keep_waiting"] = true },
+            ["oadm_devices_add_run"] = new() { ["handle"] = "ended" },
+            ["oadm_settings_get"] = [],
         };
         var areaKey = await server.CreateKeyAsync(name: "canary-areas"); // a key allows 20 calls a second: the areas' tools use their own
         var areaCalls = McpAreaToolTests.SecretScanCalls();
         Assert.Equal(calls.Keys.Concat(areaCalls.Keys).Order(StringComparer.Ordinal), await server.ToolNamesAsync(key));
+        // 20 calls a second per key: ten calls with each key.
+        var keys = new List<string> { key };
+        var n = 0;
         foreach (var (tool, arguments) in calls)
         {
-            answers.Append((await server.CallToolAsync(key, tool, arguments)).ToJsonString());
+            if (n++ % 10 == 0 && n > 1)
+            {
+                keys.Add(await server.CreateKeyAsync(name: "canary" + keys.Count));
+            }
+
+            answers.Append((await server.CallToolAsync(keys[^1], tool, arguments)).ToJsonString());
         }
 
         foreach (var (tool, arguments) in areaCalls)
@@ -63,7 +81,7 @@ public sealed class McpSecretTests
             .Select(e => string.Join('|', e.UserName, e.Action, e.Target, e.Detail, e.ClientAddress));
         var logs = ReadLogs(server.Host.Get<OadmPaths>().LogsDirectory);
 
-        string[] secrets = [DevicePassword, ListPassword, key, areaKey, server.Host.AdminToken, AuthTokenStore.HashOf(key), key["oadm_".Length..]];
+        string[] secrets = [DevicePassword, ListPassword, server.Host.AdminToken, areaKey, AuthTokenStore.HashOf(areaKey), areaKey["oadm_".Length..], .. keys, .. keys.Select(AuthTokenStore.HashOf), .. keys.Select(k => k["oadm_".Length..])];
         foreach (var secret in secrets)
         {
             Assert.DoesNotContain(secret, answers.ToString(), StringComparison.Ordinal);
