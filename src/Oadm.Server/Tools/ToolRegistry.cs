@@ -72,6 +72,15 @@ internal sealed record OadmTool(
     public bool StartsTasks { get; init; }
 
     /// <summary>
+    /// The call reaches devices or the network although it writes nothing to OADM (a scan that logs in with the credential
+    /// list): a Read only caller does not get it, and a channel counts it like a change.
+    /// </summary>
+    public bool ActsOutside { get; init; }
+
+    /// <summary>A channel counts this call against its limit of changes (a run, a task start, a call that acts outside).</summary>
+    public bool CountsAsChange => !ReadsOnly || StartsTasks || ActsOutside;
+
+    /// <summary>
     /// A rule of the tool beyond the gRPC methods it calls (a plugin tool: the plugin is on, the method's permission): the reason
     /// the caller may not use it now, null when it may. Asked when the list is made and before every call.
     /// </summary>
@@ -237,7 +246,7 @@ internal sealed class ToolRegistry
             return _roles.Catalog.DeniedMessage(channel);
         }
 
-        if (caller.ReadOnly && !tool.ReadsOnly)
+        if (caller.ReadOnly && (!tool.ReadsOnly || tool.ActsOutside))
         {
             return caller.ReadOnlyRefusal;
         }
