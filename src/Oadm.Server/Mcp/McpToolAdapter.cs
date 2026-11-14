@@ -40,7 +40,13 @@ internal sealed class McpToolAdapter(ToolRegistry tools)
             };
         }
 
-        return Ok(result.Answer!);
+        var answer = Ok(result.Answer!);
+        if (result.Image is { } image)
+        {
+            answer.Content.Add(ImageContentBlock.FromBytes(image.Bytes, image.MediaType));
+        }
+
+        return answer;
     }
 
     /// <summary>Structured content and the same JSON as text.</summary>

@@ -22,18 +22,25 @@ public sealed partial class McpToolTests
 {
     private static readonly string[] Stage1Tools =
     [
-        "oadm_devices_get", "oadm_devices_search", "oadm_devices_summary", "oadm_files_upload_link", "oadm_logs_audit", "oadm_logs_search",
-        "oadm_server_info", "oadm_task_preview", "oadm_task_run", "oadm_tasks_catalog", "oadm_tasks_get", "oadm_tasks_list",
+        "oadm_devices_add_preview", "oadm_devices_add_run", "oadm_devices_credentials_preview", "oadm_devices_credentials_run",
+        "oadm_devices_get", "oadm_devices_refresh_preview", "oadm_devices_refresh_run", "oadm_devices_remove_preview",
+        "oadm_devices_remove_run", "oadm_devices_search", "oadm_devices_snapshot", "oadm_devices_summary",
+        "oadm_files_upload_link", "oadm_logs_audit", "oadm_logs_search", "oadm_server_info", "oadm_settings_get",
+        "oadm_task_preview", "oadm_task_run", "oadm_tasks_catalog", "oadm_tasks_get", "oadm_tasks_list",
     ];
 
     /// <summary>The tools of the areas stage 3 (tags, sites, compliance, event rules, the event log): <see cref="McpAreaToolTests"/>.</summary>
     private static readonly string[] AreaTools = McpAreaToolTests.ToolNames;
 
     /// <summary>The tools that change something (rule 2: each with its preview; a Read only key lists none).</summary>
-    private static readonly string[] WriteTools = [.. new[] { "oadm_files_upload_link", "oadm_task_run" }, .. McpAreaToolTests.RunTools];
+    private static readonly string[] WriteTools =
+    [
+        "oadm_devices_add_run", "oadm_devices_credentials_run", "oadm_devices_refresh_run", "oadm_devices_remove_run", "oadm_files_upload_link", "oadm_task_run",
+        .. McpAreaToolTests.RunTools,
+    ];
 
-    /// <summary>The tools whose annotation says they may destroy something (a task run, tag removal, a replaced or deleted rule).</summary>
-    private static readonly string[] DestructiveTools = [.. new[] { "oadm_task_run" }, .. McpAreaToolTests.RunTools];
+    /// <summary>The runs that replace or remove something (<c>destructiveHint</c>): a task run, credentials, a removal, tag removal, a replaced or deleted rule. Add only adds, Refresh only reads again.</summary>
+    private static readonly string[] DestructiveTools = ["oadm_devices_credentials_run", "oadm_devices_remove_run", "oadm_task_run", .. McpAreaToolTests.RunTools];
 
     [GeneratedRegex("^oadm_[a-z0-9_]+$")]
     private static partial Regex ToolName();
@@ -100,12 +107,18 @@ public sealed partial class McpToolTests
         }
     }
 
-    /// <summary>The gRPC methods the tools of stage 1 call: reads only. A new tool that calls another method extends this list on purpose.</summary>
+    /// <summary>The gRPC methods the tools call (the changes by their previews and runs). A new tool that calls another method extends this list on purpose.</summary>
     private static readonly string[] Stage1Methods =
     [
-        "/oadm.v1.AuditService/List", "/oadm.v1.AuthService/Me", "/oadm.v1.DeviceService/Search", "/oadm.v1.FileService/Upload",
-        "/oadm.v1.ServerLogService/List", "/oadm.v1.SettingsService/Get", "/oadm.v1.TaskService/GetLog", "/oadm.v1.TaskService/List",
-        "/oadm.v1.TaskService/ListTaskPlugins", "/oadm.v1.TaskService/Plan", "/oadm.v1.TaskService/Run",
+        "/oadm.v1.AddDevicesService/Commit", "/oadm.v1.AuditService/List", "/oadm.v1.AuthService/Me",
+        "/oadm.v1.DeviceService/Refresh", "/oadm.v1.DeviceService/Remove", "/oadm.v1.DeviceService/Resolve",
+        "/oadm.v1.DeviceService/Search", "/oadm.v1.DeviceService/SetStoredCredentials", "/oadm.v1.DiscoveryService/ProbeAddress",
+        "/oadm.v1.DiscoveryService/StartRangeScan", "/oadm.v1.DiscoveryService/StopScan",
+        "/oadm.v1.DiscoveryService/WatchDiscovered", "/oadm.v1.FileService/Upload", "/oadm.v1.LiveViewService/GetSnapshot",
+        "/oadm.v1.ServerLogService/List", "/oadm.v1.SettingsService/Get", "/oadm.v1.SettingsService/ListCredentials",
+        "/oadm.v1.TaskService/GetLog", "/oadm.v1.TaskService/List", "/oadm.v1.TaskService/ListTaskPlugins",
+        "/oadm.v1.TaskService/Plan", "/oadm.v1.TaskService/Run", "/oadm.v1.WaitingDeviceService/Add",
+        "/oadm.v1.WaitingDeviceService/List", "/oadm.v1.WaitingDeviceService/TryNow",
     ];
 
     /// <summary>The gRPC methods the tools of the areas call (<see cref="McpAreaToolTests.Methods"/>).</summary>

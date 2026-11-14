@@ -88,9 +88,17 @@ internal interface IToolSource
     IReadOnlyList<OadmTool> Current();
 }
 
+/// <summary>A picture a tool answers besides its JSON (a camera snapshot): the bytes and their media type, whatever channel shows it.</summary>
+/// <param name="Bytes">The encoded picture.</param>
+/// <param name="MediaType">Its media type, e.g. <c>image/jpeg</c>.</param>
+internal sealed record ToolImage(byte[] Bytes, string MediaType);
+
 /// <summary>One call of a tool: the caller, the checked arguments and the way to the gRPC services.</summary>
 internal sealed record ToolCall(ToolCaller Caller, JsonElement Arguments, InProcessCalls Calls, CancellationToken Ct)
 {
+    /// <summary>A tool that answers a picture sets it here; it goes with the answer (<see cref="ToolResult.Image"/>).</summary>
+    public ToolImage? Image { get; set; }
+
     /// <summary>A gRPC method of the server as the caller's user.</summary>
     public Task<TResponse> CallAsync<TService, TRequest, TResponse>(string path, TRequest request, Func<TService, TRequest, ServerCallContext, Task<TResponse>> call)
         where TService : class =>
@@ -120,6 +128,9 @@ internal sealed class ToolException(string message, IReadOnlyList<ToolFieldError
 internal sealed record ToolResult(JsonObject? Answer, string? Error, IReadOnlyList<ToolFieldError> Fields)
 {
     public bool IsError => Error is not null;
+
+    /// <summary>A picture that goes with <see cref="Answer"/> (at most <see cref="ToolAnswers.MaxImageBytes"/>); null for most tools.</summary>
+    public ToolImage? Image { get; init; }
 
     public static ToolResult Ok(JsonObject answer) => new(answer, null, []);
 
@@ -201,7 +212,9 @@ internal sealed class ToolRegistry
 
         try
         {
-            return ToolResult.Ok(await tool.Run(new ToolCall(caller, args, _calls, ct)).ConfigureAwait(false));
+            var call = new ToolCall(caller, args, _calls, ct);
+            var answer = await tool.Run(call).ConfigureAwait(false);
+            return ToolResult.Ok(answer) with { Image = call.Image };
         }
         catch (ToolException ex)
         {
@@ -242,6 +255,9 @@ internal static class ToolAnswers
 {
     /// <summary>The largest answer (about 8,000 tokens; docs/spec/mcp.md "Tests").</summary>
     public const int MaxBytes = 32 * 1024;
+
+    /// <summary>The largest picture a tool answers besides its JSON (a camera snapshot).</summary>
+    public const int MaxImageBytes = 1024 * 1024;
 
     /// <summary>Rows of a list by default and at most (rule 3).</summary>
     public const int DefaultRows = 50;
