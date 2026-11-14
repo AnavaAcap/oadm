@@ -342,10 +342,11 @@ The website gets a user page (Tools > AI agents, `tools/ai-agents`) and a develo
   `[Secret]` password and is not offered. Also offered: Upgrade AXIS OS (uploaded files only, factory default, allow
   downgrade; `PlanAsync` is `FirmwareCompatibility.ChooseFor` from the cached model and version; no online download, which
   needs the user's MyAxis sign-in), Network settings, Assign IP address, Applications (install, remove, start, stop),
-  Enable and Disable HTTPS, Enable and Disable IEEE 802.1X, Renew certificates, Install CA certificates. The dialogs and
+  Enable and Disable HTTPS, Enable and Disable IEEE 802.1X, Renew certificates. The dialogs and
   the previews share their warning texts (`FirmwareWarnings`, `NetworkWarningTexts`, `PkiTaskIds`). Not offered (fail
-  closed): application license keys and settings, Install certificates (secrets), Delete and View certificates (choices
-  only the dialog makes), EST setup, Users. The PKI enable tasks have no clock question over MCP: a device with a late clock
+  closed): application license keys and settings, Install certificates (secrets), Install CA certificates (a new trust
+  anchor on the devices: the dialog shows each certificate to the person), Delete and View certificates (choices only the
+  dialog makes), EST setup, Users. The PKI enable tasks have no clock question over MCP: a device with a late clock
   refuses. The schema export also describes maps (Network's devices by id: `propertyNames` uuid, at most 100,000).
 - **Tasks and files**: `oadm_tasks_cancel_preview`/`_run` (a batch or up to 200 task ids; counts what stops and what
   cannot; only the caller's devices); `oadm_files_list` (the files this key's user sent, newest first, 50 a page;
