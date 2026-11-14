@@ -89,7 +89,7 @@ public static class AccessPolicy
         ["/oadm.v1.DeviceService/Refresh"] = AccessRule.Needs(HostPermissions.DevicesRefresh),
         ["/oadm.v1.DeviceService/SetCredentials"] = AccessRule.Needs(HostPermissions.DevicesLogin),
         ["/oadm.v1.DeviceService/Resolve"] = AccessRule.SignedIn, // like Search: the caller's view, filtered (the MCP device tools)
-        ["/oadm.v1.DeviceService/SetStoredCredentials"] = AccessRule.Needs(HostPermissions.DevicesLogin).ForAllDevices(), // the credential list is never used for a device group
+        ["/oadm.v1.DeviceService/SetStoredCredentials"] = AccessRule.Admin.ForAllDevices(), // applies an entry of the credential list: the rule of ListCredentials (Administrator, never a device group)
         ["/oadm.v1.DeviceService/LogIn"] = AccessRule.Needs(HostPermissions.DevicesLogin),
         ["/oadm.v1.DeviceService/GetCredentialUserName"] = AccessRule.Needs(HostPermissions.DevicesLogin),
         ["/oadm.v1.DeviceService/SetFirstPassword"] = AccessRule.Needs(HostPermissions.DevicesLogin),

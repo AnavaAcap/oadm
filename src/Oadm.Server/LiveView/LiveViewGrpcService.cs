@@ -340,6 +340,9 @@ public sealed class LiveViewGrpcService(
 
             var size = fitting.MaxBy(r => (long)r.Width * r.Height);
             var jpeg = await live.GetSnapshotAsync(viewed, source.Camera, size, request.Compression, context.CancellationToken).ConfigureAwait(false);
+            // The picture leaves OADM: every one is in the audit log (the user is "<user> via access key <name>" for an agent).
+            // The client's own live view does not call this method; it streams, which is not audited.
+            await audit.WriteAsync(AuditActions.SnapshotTaken, $"{device.Address} ({device.Serial})", $"{size.Width}x{size.Height}", context.CancellationToken).ConfigureAwait(false);
             return new Proto.SnapshotReply { Jpeg = ByteString.CopyFrom(jpeg), Width = size.Width, Height = size.Height };
         }
         catch (OperationCanceledException) when (!context.CancellationToken.IsCancellationRequested)

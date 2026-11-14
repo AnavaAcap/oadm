@@ -1,3 +1,4 @@
+using System.Net;
 using System.Text.Json.Nodes;
 
 using Microsoft.Extensions.DependencyInjection;
@@ -10,6 +11,7 @@ using Oadm.Core.LiveView.Rtsp;
 using Oadm.Core.Security;
 using Oadm.Core.Vapix;
 using Oadm.Sdk.Devices;
+using Oadm.Sdk.Network;
 using Oadm.Server.Mcp;
 using Oadm.Server.Tests.Support;
 using Oadm.Server.Tools;
@@ -48,6 +50,9 @@ public sealed class McpDeviceChangeTests
     {
         var server = await McpTestServer.StartAsync(network, configureServices: services =>
         {
+            // The server's own network of these tests: 10.9.0.0/24 (the fake devices live there).
+            services.RemoveAll<IServerNetworkInterfaces>();
+            services.AddSingleton<IServerNetworkInterfaces>(new OwnCards("10.9.0.254", 24));
             if (camera is not null)
             {
                 services.RemoveAll<ILiveVideoSourceFactory>();
@@ -55,6 +60,16 @@ public sealed class McpDeviceChangeTests
             }
         });
         return server;
+    }
+
+    /// <summary>One network card of the server.</summary>
+    private sealed class OwnCards(string address, int prefix) : IServerNetworkInterfaces
+    {
+        public IReadOnlyList<ServerNetworkInterface> List()
+        {
+            var ip = IPAddress.Parse(address);
+            return [new ServerNetworkInterface("eth0", "eth0", "eth0", [ip], true, false) { PrefixLengths = new Dictionary<IPAddress, int> { [ip] = prefix } }];
+        }
     }
 
     /// <summary>A camera that answers pictures and records what was asked.</summary>
@@ -112,6 +127,28 @@ public sealed class McpDeviceChangeTests
         (await host.Devices.ListAsync(new Proto.Empty())).Devices.ToDictionary(d => d.Address, d => d.Id);
 
     // ---- snapshot ------------------------------------------------------------------------------------------------------
+
+    [Fact]
+    public async Task ASnapshotAnAgentTakesIsInTheAuditLogWithTheUserAndTheAccessKey()
+    {
+        await using var server = await StartAsync(camera: new FakeCamera());
+        var device = await DeviceServiceTests.AddDeviceAsync(server.Host, "10.30.0.9", 5009);
+        var key = await server.CreateKeyAsync(name: "snapper");
+        Assert.DoesNotContain(AuditActions.SnapshotTaken, (await server.Host.Audit.ListAsync(new Proto.ListAuditRequest())).Entries.Select(e => e.Action));
+
+        await server.ToolAsync(key, "oadm_devices_snapshot", new JsonObject { ["device_id"] = device.Id.ToString() });
+
+        var entry = Assert.Single((await server.Host.Audit.ListAsync(new Proto.ListAuditRequest())).Entries, e => e.Action == AuditActions.SnapshotTaken);
+        Assert.Equal("Took a snapshot", entry.Action);
+        Assert.EndsWith(" via access key snapper", entry.UserName, StringComparison.Ordinal);
+        Assert.Contains("10.30.0.9", entry.Target, StringComparison.Ordinal);
+        Assert.DoesNotContain(key, entry.ToString(), StringComparison.Ordinal); // never the key
+
+        // A call for an unknown device took no picture: no second entry.
+        var refused = await server.CallToolAsync(key, "oadm_devices_snapshot", new JsonObject { ["device_id"] = Guid.NewGuid().ToString() });
+        Assert.True(refused["isError"]!.GetValue<bool>());
+        Assert.Single((await server.Host.Audit.ListAsync(new Proto.ListAuditRequest())).Entries, e => e.Action == AuditActions.SnapshotTaken);
+    }
 
     [Fact]
     public async Task ASnapshotIsOneJpegAsImageContentAtMost1280WideAndTheTextHasItsSize()
@@ -366,10 +403,17 @@ public sealed class McpDeviceChangeTests
 
         var readOnly = await server.CreateKeyAsync(name: "reader", readOnly: true);
         var readNames = await server.ToolNamesAsync(readOnly);
-        foreach (var preview in new[] { "oadm_devices_refresh_preview", "oadm_devices_remove_preview", "oadm_devices_credentials_preview", "oadm_devices_add_preview", "oadm_devices_snapshot", "oadm_settings_get" })
+        foreach (var preview in new[] { "oadm_devices_refresh_preview", "oadm_devices_remove_preview", "oadm_devices_credentials_preview", "oadm_devices_snapshot", "oadm_settings_get" })
         {
             Assert.Contains(preview, readNames);
         }
+
+        // The add preview sends packets to the network: a change for a Read only key (hidden and refused).
+        Assert.DoesNotContain("oadm_devices_add_preview", readNames);
+        Assert.True(server.Host.Get<ToolRegistry>().All.Single(t => t.Name == "oadm_devices_add_preview").ActsOutside);
+        var refusedAdd = await server.CallToolAsync(readOnly, "oadm_devices_add_preview", new JsonObject { ["addresses"] = new JsonArray("10.9.0.1") });
+        Assert.True(refusedAdd["isError"]!.GetValue<bool>());
+        Assert.Contains(McpAccess.ReadOnlyKey, TextOf(refusedAdd), StringComparison.Ordinal);
 
         Assert.All(RunTools, run => Assert.DoesNotContain(run, readNames));
         var tools = server.Host.Get<ToolRegistry>().All.ToDictionary(t => t.Name, StringComparer.Ordinal);
@@ -387,9 +431,10 @@ public sealed class McpDeviceChangeTests
     // ---- add devices ------------------------------------------------------------------------------------------------------
 
     [Fact]
-    public async Task AnAddPreviewScansAndLogsInWithTheCredentialListWritesNothingAndTheRunAddsOnlyTheLoggedInDevices()
+    public async Task AnAddPreviewOnlyLooksSendsNoLoginAndWritesNothingAndTheRunLogsInWithTheCredentialListAndAddsOnlyTheLoggedInDevices()
     {
-        await using var server = await StartAsync(Network());
+        var network = Network();
+        await using var server = await StartAsync(network);
         await server.Host.Settings.AddCredentialAsync(new Proto.AddCredentialRequest { UserName = "root", Password = Password });
         var key = await server.CreateKeyAsync();
         var other = await server.CreateKeyAsync(name: "other");
@@ -398,16 +443,22 @@ public sealed class McpDeviceChangeTests
         Assert.Equal("range", preview["source"]!.GetValue<string>());
         Assert.True(preview["complete"]!.GetValue<bool>());
         Assert.Equal(3, preview["found"]!.GetValue<int>());
-        Assert.Equal(1, preview["will_add"]!.GetValue<int>());
+        Assert.Equal(2, preview["will_try"]!.GetValue<int>());
         var states = preview["states"]!.AsArray().ToDictionary(s => s!["state"]!.GetValue<string>(), s => s!["count"]!.GetValue<int>());
-        Assert.Equal(new Dictionary<string, int> { ["Authenticated"] = 1, ["LoginFailed"] = 1, ["PasswordNotSet"] = 1 }, states);
+        Assert.Equal(new Dictionary<string, int> { ["Answers"] = 2, ["PasswordNotSet"] = 1 }, states);
         var first = preview["first"]!.AsArray();
-        Assert.Equal(("10.9.0.1", "Authenticated"), (first[0]!["address"]!.GetValue<string>(), first[0]!["state"]!.GetValue<string>()));
+        Assert.Equal(("10.9.0.1", "Answers"), (first[0]!["address"]!.GetValue<string>(), first[0]!["state"]!.GetValue<string>()));
+        Assert.Equal(FakeSerials.Make(1), first[0]!["serial"]!.GetValue<string>());
         Assert.DoesNotContain(Password, preview.ToJsonString(), StringComparison.Ordinal);
-        Assert.DoesNotContain("other-password", preview.ToJsonString(), StringComparison.Ordinal);
         Assert.Contains(preview["warnings"]!.AsArray(), w => w!.GetValue<string>().Contains("factory default", StringComparison.Ordinal));
 
-        // The scan contacted devices and wrote nothing to OADM.
+        // The scan contacted devices anonymously: no login of the credential list reached any of them; nothing is written.
+        foreach (var address in new[] { "10.9.0.1", "10.9.0.2", "10.9.0.3" })
+        {
+            Assert.Empty(network[address].CredentialRequests);
+            Assert.Equal(0, network[address].RejectedLogins);
+        }
+
         Assert.Empty(await ListAsync(server.Host));
         Assert.Equal(0, (await new Proto.WaitingDeviceService.WaitingDeviceServiceClient(server.Host.Invoker).ListAsync(new Proto.ListWaitingRequest())).TotalCount);
 
@@ -416,13 +467,17 @@ public sealed class McpDeviceChangeTests
         Assert.True((await server.CallToolAsync(key, "oadm_devices_refresh_run", new JsonObject { ["handle"] = handle }))["isError"]!.GetValue<bool>());
         var run = await server.ToolAsync(key, "oadm_devices_add_run", new JsonObject { ["handle"] = handle });
         Assert.Equal(1, run["added"]!.GetValue<int>());
-        Assert.Equal(0, run["not_added"]!.GetValue<int>());
+        Assert.Equal(1, run["not_added"]!.GetValue<int>()); // the device with another password did not log in
 
+        // The logins happened in the run, with the credential list; only the device that logged in is stored.
+        Assert.NotEmpty(network["10.9.0.1"].CredentialRequests);
+        Assert.Empty(network["10.9.0.3"].CredentialRequests); // factory default: never logged in to
         var added = await ListAsync(server.Host);
-        Assert.Equal(["10.9.0.1"], added.Keys); // the device that logged in; not the wrong password, not the factory default
+        Assert.Equal(["10.9.0.1"], added.Keys);
         var stored = await server.Host.Get<CredentialStore>().GetAsync(Guid.Parse(added["10.9.0.1"]), CancellationToken.None);
         Assert.Equal(("root", Password), (stored!.UserName, stored.Password));
         Assert.DoesNotContain(Password, run.ToJsonString(), StringComparison.Ordinal);
+        Assert.DoesNotContain("other-password", run.ToJsonString(), StringComparison.Ordinal);
         Assert.True((await server.CallToolAsync(key, "oadm_devices_add_run", new JsonObject { ["handle"] = handle }))["isError"]!.GetValue<bool>());
     }
 
@@ -438,13 +493,14 @@ public sealed class McpDeviceChangeTests
         var preview = await server.ToolAsync(key, "oadm_devices_add_preview", input);
         Assert.Equal("addresses", preview["source"]!.GetValue<string>());
         Assert.Equal(2, preview["found"]!.GetValue<int>());
-        Assert.Equal(1, preview["will_add"]!.GetValue<int>());
+        Assert.Equal(2, preview["will_try"]!.GetValue<int>());
         Assert.Equal(["10.9.0.77"], preview["not_answering"]!.AsArray().Select(a => a!.GetValue<string>()));
         Assert.Equal(1, preview["keep_waiting"]!.GetValue<int>());
         Assert.Equal(0, (await waiting.ListAsync(new Proto.ListWaitingRequest())).TotalCount);
 
         var run = await server.ToolAsync(key, "oadm_devices_add_run", new JsonObject { ["handle"] = preview["handle"]!.GetValue<string>() });
         Assert.Equal(1, run["added"]!.GetValue<int>());
+        Assert.Equal(1, run["not_added"]!.GetValue<int>());
         Assert.Equal(1, run["waiting_kept"]!.GetValue<int>());
         var kept = Assert.Single((await waiting.ListAsync(new Proto.ListWaitingRequest())).Devices);
         Assert.Equal("10.9.0.77", kept.Address);
@@ -460,7 +516,7 @@ public sealed class McpDeviceChangeTests
         // The waiting list can be tried now: a preview of it, then the run.
         var tryNow = await server.ToolAsync(key, "oadm_devices_add_preview", new JsonObject { ["try_waiting"] = true });
         Assert.Equal("waiting", tryNow["source"]!.GetValue<string>());
-        Assert.Equal(1, tryNow["will_add"]!.GetValue<int>());
+        Assert.Equal(1, tryNow["will_try"]!.GetValue<int>());
         var tried = await server.ToolAsync(key, "oadm_devices_add_run", new JsonObject { ["handle"] = tryNow["handle"]!.GetValue<string>() });
         Assert.Equal(1, tried["waiting_tried"]!.GetValue<int>());
         Assert.Equal(0, tried["added"]!.GetValue<int>());
@@ -485,6 +541,59 @@ public sealed class McpDeviceChangeTests
         Assert.True((await ErrorsAsync(new JsonObject { ["range"] = new JsonObject { ["from"] = "10.0.0.1", ["to"] = "10.0.0.2" }, ["addresses"] = new JsonArray("10.0.0.3") })).ContainsKey("range"));
         Assert.True((await ErrorsAsync(new JsonObject { ["range"] = new JsonObject { ["from"] = "10.0.0.1", ["to"] = "10.0.0.2" }, ["keep_waiting"] = true })).ContainsKey("keep_waiting"));
         Assert.True((await ErrorsAsync(new JsonObject { ["addresses"] = new JsonArray("10.0.0.3", "ftp://cam") })).ContainsKey("addresses[1]"));
+        Assert.Empty(await ListAsync(server.Host));
+    }
+
+    [Theory]
+    [InlineData("cam1.example.com")]
+    [InlineData("localhost")]
+    [InlineData("http://10.9.0.1")]
+    [InlineData("https://10.9.0.1")]
+    [InlineData("10.9.0.1:8443")]
+    [InlineData("[::1]:443")]
+    [InlineData("10.9.0.1/24")]
+    [InlineData("10.9.1")]
+    public async Task OnlyPlainIpAddressLiteralsAreAcceptedNoNamesSchemesOrPorts(string address)
+    {
+        var network = Network();
+        await using var server = await StartAsync(network);
+        var key = await server.CreateKeyAsync();
+        var result = await server.CallToolAsync(key, "oadm_devices_add_preview", new JsonObject { ["addresses"] = new JsonArray(address) });
+        Assert.True(result["isError"]!.GetValue<bool>(), result.ToJsonString());
+        var errors = JsonNode.Parse(TextOf(result))!["errors"]!.AsArray();
+        Assert.Equal(DeviceChangeTools.PlainAddress, errors[0]!["error"]!.GetValue<string>());
+        Assert.Equal("addresses[0]", errors[0]!["field"]!.GetValue<string>());
+        Assert.Equal(0, network["10.9.0.1"].Requests); // nothing was contacted
+    }
+
+    [Fact]
+    public async Task AnAddPreviewAcceptsOnlyNetworksOfTheServersInterfacesOrOfConnectedSitesAndSaysWhichAreAllowed()
+    {
+        var network = Network();
+        var outside = network.Add("10.77.0.5", FakeSerials.Make(77), Password);
+        var loopback = network.Add("127.0.0.1", FakeSerials.Make(78), Password);
+        await using var server = await StartAsync(network);
+        var key = await server.CreateKeyAsync();
+
+        async Task<Dictionary<string, string>> ErrorsAsync(JsonObject input)
+        {
+            var result = await server.CallToolAsync(key, "oadm_devices_add_preview", input);
+            Assert.True(result["isError"]!.GetValue<bool>(), result.ToJsonString());
+            return JsonNode.Parse(TextOf(result))!["errors"]!.AsArray().ToDictionary(e => e!["field"]!.GetValue<string>(), e => e!["error"]!.GetValue<string>());
+        }
+
+        var range = await ErrorsAsync(new JsonObject { ["range"] = new JsonObject { ["from"] = "10.77.0.1", ["to"] = "10.77.0.9" } });
+        Assert.Contains("10.9.0.0/24", range["range"], StringComparison.Ordinal);
+        Assert.Contains("connected sites", range["range"], StringComparison.Ordinal);
+        // A range that starts inside and ends outside is not inside.
+        Assert.True((await ErrorsAsync(new JsonObject { ["range"] = new JsonObject { ["from"] = "10.9.0.200", ["to"] = "10.9.1.10" } })).ContainsKey("range"));
+        var addresses = await ErrorsAsync(new JsonObject { ["addresses"] = new JsonArray("10.9.0.1", "10.77.0.5", "127.0.0.1") });
+        Assert.Equal(["addresses[1]", "addresses[2]"], addresses.Keys.Order(StringComparer.Ordinal));
+        Assert.Contains("10.9.0.0/24", addresses["addresses[1]"], StringComparison.Ordinal);
+
+        // Nothing outside was contacted, and no handle exists for it.
+        Assert.Equal(0, outside.Requests);
+        Assert.Equal(0, loopback.Requests);
         Assert.Empty(await ListAsync(server.Host));
     }
 

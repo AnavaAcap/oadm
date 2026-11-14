@@ -35,7 +35,8 @@ public sealed class DiscoveryGrpcService(
     DiscoveryAuthenticator authenticator,
     IHostApplicationLifetime lifetime,
     Core.Sites.ISiteNetwork? sites = null,
-    Core.Sites.ISiteStates? states = null) : Proto.DiscoveryService.DiscoveryServiceBase
+    Core.Sites.ISiteStates? states = null,
+    Sdk.Network.IServerNetworkInterfaces? interfaces = null) : Proto.DiscoveryService.DiscoveryServiceBase
 {
     /// <summary>Longest user name of a probe credential (like the credential list).</summary>
     public const int MaxUserNameLength = 64;
@@ -55,8 +56,19 @@ public sealed class DiscoveryGrpcService(
         var reach = await ReachAsync(context).ConfigureAwait(false);
         try
         {
-            var session = await discovery.StartRangeScanAsync(request.From, request.To, context.CancellationToken, reach.Routes).ConfigureAwait(false);
-            return new Proto.DiscoverySession { SessionId = await OwnAsync(session.Id, reach, context).ConfigureAwait(false) };
+            var routes = reach.Routes;
+            if (request.OwnNetworksOnly)
+            {
+                if (!Ipv4Range.TryParse(request.From, request.To, out var range, out var rangeError))
+                {
+                    throw GrpcGuard.InvalidArgument(rangeError ?? "Invalid address range.");
+                }
+
+                routes = OnlyInsideNetworks(reach.Routes, range!.From, range.To);
+            }
+
+            var session = await discovery.StartRangeScanAsync(request.From, request.To, context.CancellationToken, routes).ConfigureAwait(false);
+            return new Proto.DiscoverySession { SessionId = await OwnAsync(session.Id, reach, context, request.NoLogins).ConfigureAwait(false) };
         }
         catch (ArgumentException ex)
         {
@@ -81,12 +93,29 @@ public sealed class DiscoveryGrpcService(
             throw GrpcGuard.InvalidArgument("The MAC address must be 12 hexadecimal digits.");
         }
 
+        if (request.NoLogins && hasCredentials)
+        {
+            throw GrpcGuard.InvalidArgument("A look without logins takes no user name and password.");
+        }
+
         var reach = await ReachAsync(context).ConfigureAwait(false);
+        var routes = reach.Routes;
+        if (request.OwnNetworksOnly)
+        {
+            // A bare IP address inside the allowed networks, probed only there: no name to resolve, no scheme or port to choose.
+            if (!OwnNetworks.TryBareAddress(request.Address, out var literal))
+            {
+                throw GrpcGuard.FailedPrecondition("Enter a plain IP address, without a host name, scheme or port. " + OwnNetworks.Allowed(Interfaces));
+            }
+
+            routes = OnlyInsideNetworks(reach.Routes, literal, literal);
+        }
+
         Guid? siteId = null;
         if (!string.IsNullOrWhiteSpace(request.Site))
         {
             // A site outside the caller's device group answers like one that does not exist.
-            siteId = sites?.FindSite(request.Site.Trim()) is { } found && reach.Routes.Allows(found)
+            siteId = sites?.FindSite(request.Site.Trim()) is { } found && routes.Allows(found)
                 ? found
                 : throw GrpcGuard.InvalidArgument($"There is no site named {request.Site.Trim()}.");
         }
@@ -94,8 +123,8 @@ public sealed class DiscoveryGrpcService(
         try
         {
             var session = await discovery.StartAddressProbeAsync(request.Address, request.ImportLine, context.CancellationToken, siteId,
-                expectedSerial.Length > 0 ? expectedSerial : null, reach.Routes).ConfigureAwait(false);
-            await OwnAsync(session.Id, reach, context).ConfigureAwait(false);
+                expectedSerial.Length > 0 ? expectedSerial : null, routes).ConfigureAwait(false);
+            await OwnAsync(session.Id, reach, context, request.NoLogins).ConfigureAwait(false);
             if (expectedSerial.Length > 0)
             {
                 // Before the watch starts the automatic login: another device at this address gets no password.
@@ -243,9 +272,9 @@ public sealed class DiscoveryGrpcService(
     /// credential list only for a user with all devices (before the first device is seen). A session of a call whose
     /// user's devices, role or login changed meanwhile is stopped at once and refused ("Your devices changed. Connect again.").
     /// </summary>
-    private async Task<string> OwnAsync(string sessionId, AddReach reach, ServerCallContext context)
+    private async Task<string> OwnAsync(string sessionId, AddReach reach, ServerCallContext context, bool noLogins = false)
     {
-        if (reach.UsesCredentialList)
+        if (reach.UsesCredentialList && !noLogins)
         {
             authenticator.AllowCredentialList(sessionId);
         }
@@ -258,6 +287,12 @@ public sealed class DiscoveryGrpcService(
 
         return sessionId;
     }
+
+    private Sdk.Network.IServerNetworkInterfaces Interfaces => interfaces ?? Sdk.Network.SystemNetworkInterfaces.Instance;
+
+    /// <summary>The caller's routes cut down to the ones whose networks hold the whole range; FAILED_PRECONDITION naming the allowed networks when none does.</summary>
+    private Core.Discovery.DiscoveryRoutes OnlyInsideNetworks(Core.Discovery.DiscoveryRoutes allowed, System.Net.IPAddress first, System.Net.IPAddress last) =>
+        OwnNetworks.RoutesFor(allowed, Interfaces, sites, first, last) ?? throw GrpcGuard.FailedPrecondition(OwnNetworks.Allowed(Interfaces));
 
     /// <summary>Whether OADM manages the serial, and whether the device is one of the caller's.</summary>
     private async Task<Managed> ManagedAsync(string serial, DeviceView view, CancellationToken ct)

@@ -144,6 +144,9 @@ public sealed class AuthTests
                 "/oadm.v1.SettingsService/ListCredentials", "/oadm.v1.SettingsService/RemoveCredential", "/oadm.v1.SettingsService/RevealCredential", "/oadm.v1.SettingsService/Set",
                 "/oadm.v1.TagService/Delete", "/oadm.v1.TagService/Update", "/oadm.v1.TaskService/DeleteAll"],
             methods.Where(m => AccessPolicy.For(m).AllDevices && !m.StartsWith("/oadm.v1.EventService/", StringComparison.Ordinal)).Order(StringComparer.Ordinal).ToArray());
+        // Applying an entry of the credential list takes the rule of reading the list: Administrator, never a device group.
+        Assert.Equal(AccessPolicy.For("/oadm.v1.SettingsService/ListCredentials"), AccessPolicy.For("/oadm.v1.DeviceService/SetStoredCredentials"));
+        Assert.Equal(AccessRule.Admin.ForAllDevices(), AccessPolicy.For("/oadm.v1.DeviceService/SetStoredCredentials"));
         Assert.Equal(AccessRule.Needs(HostPermissions.EventsView).ForAllDevices(), AccessPolicy.For("/oadm.v1.EventService/ListRules"));
         Assert.Equal(AccessRule.Needs(HostPermissions.TagsManage).ForAllDevices(), AccessPolicy.For("/oadm.v1.TagService/Delete"));
         Assert.False(AccessPolicy.For("/oadm.v1.TagService/SetDeviceTags").AllDevices);
