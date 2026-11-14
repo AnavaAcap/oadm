@@ -72,6 +72,9 @@ public sealed class McpGrpcService(McpListener listener, ServerSettingsStore sto
         return Task.FromResult(new Proto.McpCaCertificate { FileName = CaFileName, Pem = pem.ToString() });
     }
 
+    public override Task<Proto.McpSkillZip> GetSkill(Proto.Empty request, ServerCallContext context) =>
+        Task.FromResult(new Proto.McpSkillZip { FileName = McpSkill.ZipFileName, Content = Google.Protobuf.ByteString.CopyFrom(McpSkill.Zip()) });
+
     private Proto.McpState ToProto(McpStatus status, bool admin)
     {
         var state = new Proto.McpState

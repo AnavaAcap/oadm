@@ -79,9 +79,16 @@ public static class McpEndpoint
             {
                 o.ProtocolVersion = ProtocolVersion;
                 o.ServerInfo = new Implementation { Name = "OADM", Version = Mapping.Mappers.ServerVersion };
-                o.Capabilities = new ServerCapabilities { Tools = new ToolsCapability { ListChanged = false } };
+                o.Capabilities = new ServerCapabilities
+                {
+                    Tools = new ToolsCapability { ListChanged = false },
+                    Resources = new ResourcesCapability { ListChanged = false, Subscribe = false },
+                    Extensions = new Dictionary<string, object> { [McpSkill.Extension] = new JsonObject() },
+                };
             })
             .WithHttpTransport(o => o.Stateless = true)
+            .WithListResourcesHandler((request, ct) => ValueTask.FromResult(McpSkill.List()))
+            .WithReadResourceHandler((request, ct) => ValueTask.FromResult(McpSkill.Read(request.Params?.Uri)))
             .WithListToolsHandler((request, ct) => ValueTask.FromResult(tools.List(CallerOf(request.Services))))
             .WithCallToolHandler(async (request, ct) =>
             {

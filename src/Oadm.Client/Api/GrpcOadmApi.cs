@@ -714,6 +714,8 @@ public sealed class GrpcOadmApi : IOadmApi, IDisposable
 
     public async Task<McpCaCertificate> GetMcpCaCertificateAsync(CancellationToken ct) => await C.Mcp.GetCaCertificateAsync(new Empty(), cancellationToken: ct);
 
+    public async Task<McpSkillZip> GetMcpSkillAsync(CancellationToken ct) => await C.Mcp.GetSkillAsync(new Empty(), cancellationToken: ct);
+
     public async Task<IReadOnlyList<AccessKey>> ListAccessKeysAsync(bool everyUser, CancellationToken ct) =>
         (everyUser ? await C.AccessKeys.ListAllAsync(new Empty(), cancellationToken: ct) : await C.AccessKeys.ListMineAsync(new Empty(), cancellationToken: ct)).Keys;
 

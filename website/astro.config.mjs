@@ -153,6 +153,7 @@ export default defineConfig({
 						{ label: 'Overview', slug: 'tools/overview' },
 						{ label: '802.1X server', slug: 'tools/radius-server' },
 						{ label: 'Action Rule Editor', slug: 'tools/action-rule-editor' },
+						{ label: 'AI agents', slug: 'tools/ai-agents' },
 						{ label: 'Applications', slug: 'tools/applications' },
 						{ label: 'Dashboards', slug: 'tools/dashboards' },
 						{ label: 'Device triggers', slug: 'tools/device-triggers' },

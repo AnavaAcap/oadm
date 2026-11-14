@@ -132,6 +132,70 @@ public sealed class AiAgentsTests
     }
 
     [Fact]
+    public async Task ConnectAnAgentShowsTheConfigurationsOfThisServerWithCopyAndDownloadSkillSavesTheZip()
+    {
+        var outDir = Environment.GetEnvironmentVariable("OADM_SCREENSHOT_DIR");
+        var done = await HeadlessSession.Shared.Dispatch(async () =>
+        {
+            var api = new FakeOadmApi(TimeSpan.FromMilliseconds(5));
+            using var f = new DevicesFixture(api);
+            using var connection = new ServerConnection(f.Api, f.Store, f.Tasks, f.Ui, Microsoft.Extensions.Logging.Abstractions.NullLogger<ServerConnection>.Instance);
+            var dialogs = Substitute.For<IDialogService>();
+            dialogs.SaveFileAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<FileType>(), Arg.Any<byte[]>()).Returns("oadm-skill.zip");
+            var clipboard = Substitute.For<IClipboardService>();
+            clipboard.SetTextAsync(Arg.Any<string>()).Returns(true);
+            var session = Session(UserRole.Admin);
+            var card = new AiAgentsViewModel(api, dialogs, session, clipboard);
+            var settings = new SettingsViewModel(f.Api, connection, Microsoft.Extensions.Logging.Abstractions.NullLogger<SettingsViewModel>.Instance, session, aiAgents: card);
+            await settings.LoadAsync();
+            Assert.False(card.HasConnections); // off: no address to give
+
+            await card.TurnOnCommand.ExecuteAsync(null);
+            Assert.True(card.HasConnections);
+            Assert.Equal(["Claude Code", ".mcp.json", "Claude Desktop", "VS Code"], card.Connections.Select(c => c.Title));
+            var code = card.Connections[0].Text;
+            Assert.Equal("claude mcp add --transport http oadm https://oadm-server.local:5082/mcp --header \"Authorization: Bearer ${OADM_KEY}\"", code);
+            Assert.All(card.Connections, c => Assert.Contains("https://oadm-server.local:5082/mcp", c.Text, StringComparison.Ordinal));
+            Assert.Contains("\"password\": true", card.Connections[3].Text, StringComparison.Ordinal);
+            Assert.Contains("\"servers\"", card.Connections[3].Text, StringComparison.Ordinal);
+            Assert.All(card.Connections, c => Assert.DoesNotContain("oadm_", c.Text, StringComparison.Ordinal)); // never a key
+
+            await card.CopyCommand.ExecuteAsync(card.Connections[0]);
+            await clipboard.Received(1).SetTextAsync(code);
+            Assert.Equal("Copied Claude Code.", card.Message);
+
+            await card.DownloadSkillCommand.ExecuteAsync(null);
+            await dialogs.Received(1).SaveFileAsync("Download skill", "oadm-skill.zip", Arg.Any<FileType>(), Arg.Is<byte[]>(b => b.Length > 4 && b[0] == (byte)'P' && b[1] == (byte)'K'));
+            Assert.Equal("Saved oadm-skill.zip.", card.Message);
+
+            var window = new Window { Width = 1520, Height = 1500, Content = new SettingsView { DataContext = settings, Margin = new Avalonia.Thickness(24) } };
+            window.Show();
+            Pump();
+            var view = Assert.Single(window.GetVisualDescendants().OfType<AiAgentsCardView>(), c => c.IsEffectivelyVisible);
+            view.GetVisualDescendants().OfType<Oadm.Client.Controls.CollapsibleCard>().Single().IsExpanded = true;
+            Pump();
+            Assert.True(view.FindControl<Control>("ConnectAgent")!.IsEffectivelyVisible);
+            Assert.True(view.FindControl<Button>("McpDownloadSkill")!.IsEffectivelyVisible);
+            Assert.Equal(4, view.GetVisualDescendants().OfType<Oadm.Sdk.Client.Controls.CodeView>().Count(c => c.IsEffectivelyVisible));
+            var texts = view.GetVisualDescendants().OfType<TextBlock>().Where(t => t.IsEffectivelyVisible).Select(t => t.Text).ToList();
+            Assert.Contains("Connect an agent", texts);
+            Save(window, outDir, "client-page-settings-ai-agents-connect.png");
+            window.Close();
+            return true;
+        }, CancellationToken.None);
+        Assert.True(done);
+    }
+
+    [Theory]
+    [InlineData("oadm-server.local|10.0.0.17", "oadm-server.local")]
+    [InlineData("10.0.0.17|oadm-server.local", "oadm-server.local")]
+    [InlineData("10.0.0.17", "10.0.0.17")]
+    [InlineData("fd00::17", "[fd00::17]")]
+    [InlineData("", null)]
+    public void TheAgentConnectsToANameOfTheCertificate(string names, string? host) =>
+        Assert.Equal(host, AgentConnections.HostOf(names.Split('|', StringSplitOptions.RemoveEmptyEntries)));
+
+    [Fact]
     public async Task ANewKeyIsShownOnceWithCopyAndTheListDeletesKeys()
     {
         var outDir = Environment.GetEnvironmentVariable("OADM_SCREENSHOT_DIR");

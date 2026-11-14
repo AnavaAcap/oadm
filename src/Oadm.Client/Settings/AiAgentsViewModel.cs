@@ -34,13 +34,17 @@ public sealed partial class AiAgentsViewModel : ValidatingViewModel
 
     private readonly IOadmApi _api;
     private readonly IDialogService _dialogs;
+    private static readonly FileType ZipFile = new("Skill", "zip", "application/zip");
+
     private readonly UserSession? _session;
+    private readonly IClipboardService? _clipboard;
     private McpState? _state;
 
-    public AiAgentsViewModel(IOadmApi api, IDialogService dialogs, UserSession? session = null)
+    public AiAgentsViewModel(IOadmApi api, IDialogService dialogs, UserSession? session = null, IClipboardService? clipboard = null)
     {
         _api = api;
         _dialogs = dialogs;
+        _clipboard = clipboard;
         _session = session;
         if (session is not null)
         {
@@ -105,6 +109,14 @@ public sealed partial class AiAgentsViewModel : ValidatingViewModel
     public bool ShowTurnOn => IsAdmin && !IsOn;
 
     public bool ShowTurnOff => IsAdmin && IsOn;
+
+    /// <summary>The configurations of Connect an agent for this server's address (while it runs and its names are known).</summary>
+    public IReadOnlyList<AgentConnection> Connections =>
+        _state is { Running: true } state && AgentConnections.HostOf([.. state.CertificateNames]) is { } host
+            ? AgentConnections.For(host, state.Settings.Port)
+            : [];
+
+    public bool HasConnections => Connections.Count > 0;
 
     public bool CanDownloadCa => _state?.HasCaCertificate ?? false;
 
@@ -174,6 +186,35 @@ public sealed partial class AiAgentsViewModel : ValidatingViewModel
         }
     }
 
+    [RelayCommand]
+    private async Task DownloadSkillAsync()
+    {
+        try
+        {
+            var skill = await _api.GetMcpSkillAsync(CancellationToken.None).ConfigureAwait(true);
+            if (await _dialogs.SaveFileAsync("Download skill", skill.FileName, ZipFile, skill.Content.ToByteArray()).ConfigureAwait(true) is { } name)
+            {
+                MessageIsError = false;
+                Message = $"Saved {name}.";
+            }
+        }
+        catch (RpcException ex)
+        {
+            MessageIsError = true;
+            Message = ex.Status.Detail;
+        }
+    }
+
+    [RelayCommand]
+    private async Task CopyAsync(AgentConnection? connection)
+    {
+        if (connection is not null && _clipboard is not null && await _clipboard.SetTextAsync(connection.Text).ConfigureAwait(true))
+        {
+            MessageIsError = false;
+            Message = $"Copied {connection.Title}.";
+        }
+    }
+
     private async Task SetAsync(bool enabled)
     {
         if (!Validation.IsValid)
@@ -233,6 +274,8 @@ public sealed partial class AiAgentsViewModel : ValidatingViewModel
         OnPropertyChanged(nameof(CertificateHint));
         OnPropertyChanged(nameof(ListenText));
         OnPropertyChanged(nameof(CanDownloadCa));
+        OnPropertyChanged(nameof(Connections));
+        OnPropertyChanged(nameof(HasConnections));
         NotifyCommands();
     }
 

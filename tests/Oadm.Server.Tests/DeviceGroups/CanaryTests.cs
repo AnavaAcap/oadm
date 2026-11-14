@@ -390,6 +390,7 @@ public sealed partial class CanaryTests
         ["/oadm.v1.MyAxisService/SignOut"] = "the caller's own MyAxis sign-in, no device",
         ["/oadm.v1.McpService/Get"] = "the AI agents card: on, port, interface, the certificate's names, no device",
         ["/oadm.v1.McpService/GetCaCertificate"] = "the CA certificates of the AI agents server, no device",
+        ["/oadm.v1.McpService/GetSkill"] = "the skill for AI agents as a ZIP, no device",
         ["/oadm.v1.AccessKeyService/ListMine"] = "the caller's own access keys, no device",
         ["/oadm.v1.AccessKeyService/Create"] = "an access key of the caller, no device",
         ["/oadm.v1.AccessKeyService/Delete"] = "an access key of the caller, no device",

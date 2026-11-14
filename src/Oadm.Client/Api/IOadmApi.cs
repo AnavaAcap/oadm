@@ -414,6 +414,9 @@ public interface IOadmApi
     /// <summary>The CA certificates of the MCP server's certificate (PEM) for the agent's computer.</summary>
     Task<McpCaCertificate> GetMcpCaCertificateAsync(CancellationToken ct) => throw new NotSupportedException(NoAiAgents);
 
+    /// <summary>The skill for agents as a ZIP (docs/spec/mcp.md "Skill").</summary>
+    Task<McpSkillZip> GetMcpSkillAsync(CancellationToken ct) => throw new NotSupportedException(NoAiAgents);
+
     /// <summary>The caller's access keys, or with <paramref name="everyUser"/> every user's (administrators).</summary>
     Task<IReadOnlyList<AccessKey>> ListAccessKeysAsync(bool everyUser, CancellationToken ct) => throw new NotSupportedException(NoAiAgents);
 

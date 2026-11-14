@@ -245,6 +245,7 @@ public static class AccessPolicy
         // the caller's own (creating one needs "Use AI agents"), every user's for administrators (Permissions page).
         ["/oadm.v1.McpService/Get"] = AccessRule.SignedIn,
         ["/oadm.v1.McpService/GetCaCertificate"] = AccessRule.SignedIn,
+        ["/oadm.v1.McpService/GetSkill"] = AccessRule.SignedIn,
         ["/oadm.v1.McpService/Set"] = AccessRule.Admin.ForAllDevices(),
         ["/oadm.v1.AccessKeyService/ListMine"] = AccessRule.SignedIn,
         ["/oadm.v1.AccessKeyService/Create"] = AccessRule.Needs(HostPermissions.McpUse),

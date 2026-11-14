@@ -65,6 +65,23 @@ public sealed partial class FakeOadmApi
         return Task.FromResult(new McpCaCertificate { FileName = "oadm-ca.pem", Pem = new string(PemEncoding.Write("CERTIFICATE", ca.RawData)) + "\n" });
     }
 
+    public Task<McpSkillZip> GetMcpSkillAsync(CancellationToken ct)
+    {
+        lock (_gate)
+        {
+            ThrowIfOffline();
+        }
+
+        using var stream = new MemoryStream();
+        using (var zip = new System.IO.Compression.ZipArchive(stream, System.IO.Compression.ZipArchiveMode.Create, leaveOpen: true))
+        {
+            using var writer = new StreamWriter(zip.CreateEntry("oadm/SKILL.md").Open());
+            writer.Write("---\nname: oadm\ndescription: Fake skill.\n---\n");
+        }
+
+        return Task.FromResult(new McpSkillZip { FileName = "oadm-skill.zip", Content = Google.Protobuf.ByteString.CopyFrom(stream.ToArray()) });
+    }
+
     public Task<IReadOnlyList<AccessKey>> ListAccessKeysAsync(bool everyUser, CancellationToken ct)
     {
         lock (_gate)
