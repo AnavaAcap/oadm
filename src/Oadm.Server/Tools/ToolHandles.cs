@@ -8,6 +8,20 @@ internal sealed record PlannedRun(string PluginId, IReadOnlyList<string> DeviceI
 /// <summary>A file the caller may send once through an upload link: its name and exact size.</summary>
 internal sealed record PlannedUpload(string Name, long Size);
 
+/// <summary>A file the caller may fetch once through a download link: its name, its media type and how to make its bytes.</summary>
+/// <param name="Name">The file name the answer suggests (no folder).</param>
+/// <param name="ContentType">The media type of the answer.</param>
+/// <param name="Open">Makes the file as the caller of the link (the same rules as in the client); its stream is closed by the channel.</param>
+internal sealed record PlannedDownload(string Name, string ContentType, Func<CancellationToken, Task<Stream>> Open);
+
+/// <summary>
+/// What the preview of a change (devices, tags, rules, plugin tools) fixed for its run: the run tool that may take it and the
+/// checked plan, in memory only. A handle is taken only by its own run tool.
+/// </summary>
+/// <param name="RunTool">The name of the run tool of this preview, e.g. <c>oadm_devices_remove_run</c>.</param>
+/// <param name="Plan">The checked plan the run tool applies (its own record).</param>
+internal sealed record PlannedChange(string RunTool, object Plan);
+
 /// <summary>
 /// The handles of previews and the upload links (docs/spec/mcp.md "Tasks", "Files"): each one random, bound to the caller's
 /// binding key, good for <see cref="Lifetime"/> and taken once. Kept in server memory only (a restart ends them), at most
@@ -34,10 +48,27 @@ internal sealed class ToolHandles(TimeProvider time)
     public string AddUpload(string bindingKey, PlannedUpload upload) => Add(bindingKey, upload);
 
     /// <summary>The run of <paramref name="handle"/>, taken (it never runs twice); null when it is unknown, ended or of another caller.</summary>
-    public PlannedRun? TakeRun(string bindingKey, string? handle) => Take(bindingKey, handle) as PlannedRun;
+    public PlannedRun? TakeRun(string bindingKey, string? handle) => Take(bindingKey, handle, v => v is PlannedRun) as PlannedRun;
 
     /// <summary>The upload of <paramref name="token"/>, taken; null when it is unknown, ended or of another caller.</summary>
-    public PlannedUpload? TakeUpload(string bindingKey, string? token) => Take(bindingKey, token) as PlannedUpload;
+    public PlannedUpload? TakeUpload(string bindingKey, string? token) => Take(bindingKey, token, v => v is PlannedUpload) as PlannedUpload;
+
+    /// <summary>A new download link token for <paramref name="bindingKey"/>.</summary>
+    public string AddDownload(string bindingKey, PlannedDownload download) => Add(bindingKey, download);
+
+    /// <summary>The download of <paramref name="token"/>, taken; null when it is unknown, ended or of another caller.</summary>
+    public PlannedDownload? TakeDownload(string bindingKey, string? token) => Take(bindingKey, token, v => v is PlannedDownload) as PlannedDownload;
+
+    /// <summary>A new handle of a change preview for <paramref name="bindingKey"/>.</summary>
+    public string AddChange(string bindingKey, PlannedChange change) => Add(bindingKey, change);
+
+    /// <summary>
+    /// The plan of <paramref name="handle"/> for the run tool <paramref name="runTool"/>, taken (it never runs twice); null when it
+    /// is unknown, ended, of another caller or of another run tool (then it stays for its own run tool).
+    /// </summary>
+    public T? TakeChange<T>(string bindingKey, string? handle, string runTool)
+        where T : class =>
+        (Take(bindingKey, handle, v => v is PlannedChange c && string.Equals(c.RunTool, runTool, StringComparison.Ordinal) && c.Plan is T) as PlannedChange)?.Plan as T;
 
     /// <summary>When a handle made now ends.</summary>
     public DateTimeOffset EndOfNew() => time.GetUtcNow() + Lifetime;
@@ -66,7 +97,7 @@ internal sealed class ToolHandles(TimeProvider time)
         return token;
     }
 
-    private object? Take(string bindingKey, string? token)
+    private object? Take(string bindingKey, string? token, Func<object, bool> kind)
     {
         if (string.IsNullOrEmpty(token))
         {
@@ -75,9 +106,10 @@ internal sealed class ToolHandles(TimeProvider time)
 
         lock (_gate)
         {
-            if (!_entries.TryGetValue(token, out var entry) || !string.Equals(entry.BindingKey, bindingKey, StringComparison.Ordinal))
+            if (!_entries.TryGetValue(token, out var entry) || !string.Equals(entry.BindingKey, bindingKey, StringComparison.Ordinal)
+                || !kind(entry.Value))
             {
-                return null; // another caller's handle answers like an unknown one and stays theirs
+                return null; // another caller's handle, or one of another kind, answers like an unknown one and stays where it is
             }
 
             _entries.Remove(token);

@@ -26,6 +26,12 @@ public sealed record ToolCaller(AuthenticatedCaller User, string BindingKey)
 
     /// <summary>What the channel tells about itself in <c>oadm_server_info</c> (its key and limits); <see cref="ToolChannel.None"/> without.</summary>
     public ToolChannel Channel { get; init; } = ToolChannel.None;
+
+    /// <summary>
+    /// The permission the channel itself needs on top of each tool's own (MCP: "Use AI agents"); null when the channel needs
+    /// none. The channel sets it; the registry only checks it, so the tools stay independent of any one channel.
+    /// </summary>
+    public string? ChannelPermission { get; init; }
 }
 
 /// <summary>What <c>oadm_server_info</c> says of the channel a caller came through: its access key and its own limits.</summary>
@@ -178,9 +184,9 @@ internal sealed class ToolRegistry
     {
         ArgumentNullException.ThrowIfNull(tool);
         ArgumentNullException.ThrowIfNull(caller);
-        if (!caller.User.Has(HostPermissions.McpUse))
+        if (caller.ChannelPermission is { } channel && !caller.User.Has(channel))
         {
-            return _roles.Catalog.DeniedMessage(HostPermissions.McpUse);
+            return _roles.Catalog.DeniedMessage(channel);
         }
 
         if (caller.ReadOnly && !tool.ReadsOnly)

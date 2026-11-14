@@ -85,6 +85,7 @@ public sealed class McpAccess(AuthTokenStore tokens, RoleStore roles, DeviceView
             ReadOnly = session.ReadOnly,
             ReadOnlyRefusal = ReadOnlyKey,
             Channel = new ToolChannel(keyName, session.ExpiresUtc, CallsPerSecond, CallsAtOnce, RunsPerMinute),
+            ChannelPermission = HostPermissions.McpUse, // access keys are MCP's: their user also needs "Use AI agents"
         };
     }
 

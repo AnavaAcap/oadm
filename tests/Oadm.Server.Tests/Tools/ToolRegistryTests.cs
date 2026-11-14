@@ -59,10 +59,42 @@ public sealed class ToolRegistryTests
         Assert.Equal(ToolAnswers.FieldsMessage, invalid.Error);
         Assert.Equal("limit", Assert.Single(invalid.Fields).Field);
 
-        // A read only caller of any channel lists no change, and a role without "Use AI agents" none.
+        // A read only caller of any channel lists no change. The registry itself needs no MCP permission: a channel names the
+        // one it needs (MCP: "Use AI agents"), and a role without it then lists none.
         Assert.All(registry.For(caller with { ReadOnly = true }), t => Assert.True(t.ReadsOnly, t.Name));
-        var none = caller with { User = caller.User with { Permissions = await host.Get<RoleStore>().PermissionsOfAsync(BuiltInRoles.IdOf(Oadm.Sdk.Plugins.UserRole.Operator), CancellationToken.None) } };
-        Assert.Empty(registry.For(none));
+        var operatorRole = caller with { User = caller.User with { Permissions = await host.Get<RoleStore>().PermissionsOfAsync(BuiltInRoles.IdOf(Oadm.Sdk.Plugins.UserRole.Operator), CancellationToken.None) } };
+        Assert.Contains(registry.For(operatorRole), t => t.Name == "oadm_devices_search");
+        Assert.Empty(registry.For(operatorRole with { ChannelPermission = HostPermissions.McpUse }));
+        var refused = await registry.CallAsync(operatorRole with { ChannelPermission = HostPermissions.McpUse }, "oadm_server_info", null, CancellationToken.None);
+        Assert.True(refused.IsError);
+    }
+
+    /// <summary>Tools that change something without a preview: they only hand out a one-time link, the change is the file sent to it.</summary>
+    private static readonly string[] LinksWithoutPreview = ["oadm_files_upload_link"];
+
+    [Fact]
+    public async Task PreviewAndRunStayTwoTools()
+    {
+        await using var host = await TestServerHost.StartAsync();
+        var tools = host.Get<ToolRegistry>().All.ToDictionary(t => t.Name, StringComparer.Ordinal);
+        var runs = tools.Values.Where(t => !t.ReadsOnly && !LinksWithoutPreview.Contains(t.Name)).ToList();
+        Assert.NotEmpty(runs);
+        foreach (var run in runs)
+        {
+            // Every change is a run tool that takes only the handle of its preview...
+            Assert.EndsWith("_run", run.Name, StringComparison.Ordinal);
+            var properties = run.Input["properties"]!.AsObject().Select(p => p.Key).ToList();
+            Assert.Equal(["handle"], properties);
+
+            // ...and its preview is a separate tool that only reads and answers a handle.
+            var previewName = run.Name[..^"_run".Length] + "_preview";
+            Assert.True(tools.TryGetValue(previewName, out var preview), $"{run.Name} has no {previewName}");
+            Assert.True(preview!.ReadsOnly, previewName);
+            Assert.True(preview.Output["properties"]!.AsObject().ContainsKey("handle"), $"{previewName} answers no handle");
+        }
+
+        // No tool both reads a plan and changes: a preview never writes, a run never takes anything but the handle.
+        Assert.All(tools.Values.Where(t => t.Name.EndsWith("_preview", StringComparison.Ordinal)), t => Assert.True(t.ReadsOnly, t.Name));
     }
 
     /// <summary>The namespace of the tool layer: the registry and every tool.</summary>
