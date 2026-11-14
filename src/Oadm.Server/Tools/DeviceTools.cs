@@ -5,11 +5,11 @@ using System.Text.Json.Nodes;
 using Oadm.Server.Auth;
 using Oadm.Server.Devices;
 
-using static Oadm.Server.Mcp.McpSchema;
+using static Oadm.Server.Tools.ToolSchema;
 
 using Proto = Oadm.Contracts.V1;
 
-namespace Oadm.Server.Mcp;
+namespace Oadm.Server.Tools;
 
 /// <summary>
 /// The device tools (docs/spec/mcp.md "Devices and the device filter"): a summary with counts first, then a search that pages,
@@ -61,9 +61,9 @@ internal static class DeviceTools
             P("categories", List("Device categories.", Choice("A category.", Categories), Categories.Count)),
         ]);
 
-    public static IEnumerable<McpTool> Create(McpCursors cursors)
+    public static IEnumerable<OadmTool> Create(ToolCursors cursors)
     {
-        yield return new McpTool(
+        yield return new OadmTool(
             "oadm_devices_summary",
             "Device summary",
             "Counts of your devices by status, model, AXIS OS version, site, tag or category. Call it before oadm_devices_search to see where the devices are.",
@@ -85,7 +85,7 @@ internal static class DeviceTools
             [SearchPath],
             call => SummaryAsync(call));
 
-        yield return new McpTool(
+        yield return new OadmTool(
             "oadm_devices_search",
             "Search devices",
             "Your devices that match a filter, a page at a time with the total and a cursor. Narrow with a filter after oadm_devices_summary; pass next_cursor for the next page.",
@@ -94,8 +94,8 @@ internal static class DeviceTools
                 P("filter", Filter()),
                 P("fields", List("Fields to add to each row.", Choice("A field.", ExtraFields), ExtraFields.Count)),
                 P("sort", Choice("The order; a leading - sorts descending (default address).", Sorts)),
-                P("cursor", Text("next_cursor of the previous page of the same search.", McpAnswers.MaxCursorLength)),
-                P("limit", Number("Rows per page.", 1, McpAnswers.MaxRows, McpAnswers.DefaultRows)),
+                P("cursor", Text("next_cursor of the previous page of the same search.", ToolAnswers.MaxCursorLength)),
+                P("limit", Number("Rows per page.", 1, ToolAnswers.MaxRows, ToolAnswers.DefaultRows)),
             ]),
             OutObject(null,
             [
@@ -107,7 +107,7 @@ internal static class DeviceTools
             [SearchPath],
             call => SearchAsync(call, cursors));
 
-        yield return new McpTool(
+        yield return new OadmTool(
             "oadm_devices_get",
             "Device details",
             "One device with its details, as the device details in OADM show them, never its credentials. Take the id from oadm_devices_search.",
@@ -148,10 +148,10 @@ internal static class DeviceTools
             : [];
 
     /// <summary>One <c>DeviceService.Search</c> as the key's user.</summary>
-    public static Task<Proto.SearchDevicesReply> SearchAsync(McpToolCall call, Proto.SearchDevicesRequest request) =>
+    public static Task<Proto.SearchDevicesReply> SearchAsync(ToolCall call, Proto.SearchDevicesRequest request) =>
         call.CallAsync<DeviceGrpcService, Proto.SearchDevicesRequest, Proto.SearchDevicesReply>(SearchPath, request, (s, r, c) => s.Search(r, c));
 
-    private static async Task<JsonObject> SummaryAsync(McpToolCall call)
+    private static async Task<JsonObject> SummaryAsync(ToolCall call)
     {
         var groupBy = call.Text("group_by") ?? "status";
         var reply = await SearchAsync(call, new Proto.SearchDevicesRequest { Filter = FilterOf(call.Element("filter")), GroupBy = groupBy }).ConfigureAwait(false);
@@ -170,11 +170,11 @@ internal static class DeviceTools
         return new JsonObject { ["total"] = reply.Total, ["group_by"] = groupBy, ["groups"] = groups };
     }
 
-    private static async Task<JsonObject> SearchAsync(McpToolCall call, McpCursors cursors)
+    private static async Task<JsonObject> SearchAsync(ToolCall call, ToolCursors cursors)
     {
-        var query = McpCursors.QueryOf(call.Arguments);
+        var query = ToolCursors.QueryOf(call.Arguments);
         var after = cursors.Read(call.Caller, call.Text("cursor"), query);
-        var limit = call.Number("limit") ?? McpAnswers.DefaultRows;
+        var limit = call.Number("limit") ?? ToolAnswers.DefaultRows;
         var fields = call.Texts("fields").ToHashSet(StringComparer.Ordinal);
         var reply = await SearchAsync(call, new Proto.SearchDevicesRequest
         {
@@ -190,8 +190,8 @@ internal static class DeviceTools
         for (var i = 0; i < reply.Devices.Count; i++)
         {
             var row = Row(reply.Devices[i], fields);
-            var rowSize = McpAnswers.SizeOf(row) + 1;
-            if (size + rowSize > McpAnswers.MaxBytes && rows.Count > 0)
+            var rowSize = ToolAnswers.SizeOf(row) + 1;
+            if (size + rowSize > ToolAnswers.MaxBytes && rows.Count > 0)
             {
                 break; // the answer stays small: the rest comes with the next page
             }
@@ -211,7 +211,7 @@ internal static class DeviceTools
         };
     }
 
-    private static async Task<JsonObject> GetAsync(McpToolCall call)
+    private static async Task<JsonObject> GetAsync(ToolCall call)
     {
         // An unknown device and one outside the group answer the same: "1 device is no longer available." (NOT_FOUND).
         var reply = await SearchAsync(call, new Proto.SearchDevicesRequest
@@ -220,7 +220,7 @@ internal static class DeviceTools
             Limit = 1,
             WithApis = true,
         }).ConfigureAwait(false);
-        var device = reply.Devices.Count > 0 ? reply.Devices[0] : throw new McpToolException(Sdk.Devices.DeviceMessages.NoLongerAvailable(1));
+        var device = reply.Devices.Count > 0 ? reply.Devices[0] : throw new ToolException(Sdk.Devices.DeviceMessages.NoLongerAvailable(1));
         var detail = Row(device, ExtraFields.ToHashSet(StringComparer.Ordinal));
         detail["apis"] = new JsonArray([.. device.Apis.Select(a => (JsonNode)new JsonObject { ["id"] = a.Id, ["version"] = a.Version })]);
         return new JsonObject { ["device"] = detail };

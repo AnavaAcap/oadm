@@ -2,23 +2,10 @@ using System.Globalization;
 
 using Oadm.Core.Auth;
 using Oadm.Core.DeviceGroups;
+using Oadm.Server.Tools;
 using Oadm.Sites.Transport;
 
 namespace Oadm.Server.Mcp;
-
-/// <summary>The access key's user for one MCP request: the caller every tool calls the gRPC services as.</summary>
-/// <param name="Caller">The user with the role and devices of now; its client machine is "MCP &lt;key name&gt;" (task owner "&lt;user&gt;@MCP &lt;key name&gt;").</param>
-/// <param name="KeyName">The name of the access key.</param>
-/// <param name="ReadOnly">A Read only key: no tool that changes something.</param>
-/// <param name="KeyExpiresUtc">When the key ends.</param>
-public sealed record McpCaller(AuthenticatedCaller Caller, string KeyName, bool ReadOnly, DateTime KeyExpiresUtc)
-{
-    /// <summary>The user of the audit entries the agent causes: "&lt;user&gt; via access key &lt;name&gt;".</summary>
-    public string AuditUser => AuditActions.ViaAccessKey(Caller.UserName, KeyName);
-
-    /// <summary>The SHA-256 of the key (limits and cursors are bound to it; never sent anywhere).</summary>
-    public string KeyHash => Caller.TokenHash;
-}
 
 /// <summary>
 /// Who calls the MCP server (docs/spec/mcp.md "Access keys"): the access key of <c>Authorization: Bearer</c> resolved to its
@@ -57,8 +44,15 @@ public sealed class McpAccess(AuthTokenStore tokens, RoleStore roles, DeviceView
     private readonly Dictionary<string, int> _inFlight = new(StringComparer.Ordinal); // only keys with a call that waits
     private readonly Dictionary<string, Refusals> _refusals = new(StringComparer.Ordinal);
 
-    /// <summary>The caller of <paramref name="key"/>; null when the key is missing, unknown, ended or its user is disabled (audited).</summary>
-    public async Task<McpCaller?> AuthenticateAsync(string? key, string clientAddress, CancellationToken ct)
+    /// <summary>The answer to a change with a Read only key.</summary>
+    public const string ReadOnlyKey = "This access key is Read only.";
+
+    /// <summary>
+    /// The tool caller of <paramref name="key"/> (its user with the role and devices of now, client machine "MCP &lt;key name&gt;",
+    /// task owner "&lt;user&gt;@MCP &lt;key name&gt;", bound to the key's hash); null when the key is missing, unknown, ended or its
+    /// user is disabled (audited).
+    /// </summary>
+    public async Task<ToolCaller?> AuthenticateAsync(string? key, string clientAddress, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(clientAddress);
         var epoch = epochs.Capture(); // before the key is read: a change after it refuses the call's jobs
@@ -77,7 +71,12 @@ public sealed class McpAccess(AuthTokenStore tokens, RoleStore roles, DeviceView
             Devices = devices,
             AccessEpoch = epoch,
         };
-        return new McpCaller(caller, keyName, session.ReadOnly, session.ExpiresUtc);
+        return new ToolCaller(caller, session.TokenHash)
+        {
+            ReadOnly = session.ReadOnly,
+            ReadOnlyRefusal = ReadOnlyKey,
+            Channel = new ToolChannel(keyName, session.ExpiresUtc, CallsPerSecond, CallsAtOnce, RunsPerMinute),
+        };
     }
 
     /// <summary>
@@ -90,31 +89,31 @@ public sealed class McpAccess(AuthTokenStore tokens, RoleStore roles, DeviceView
         System.Net.IPAddress.TryParse(clientAddress, out var address) ? AddressRateLimiter.KeyOf(address) : clientAddress;
 
     /// <summary>Counts a call of the key; false beyond <see cref="CallsPerSecond"/> (nothing counted).</summary>
-    public bool TryCall(McpCaller caller)
+    public bool TryCall(ToolCaller caller)
     {
         ArgumentNullException.ThrowIfNull(caller);
-        return _calls.TryAcquire(caller.KeyHash);
+        return _calls.TryAcquire(caller.BindingKey);
     }
 
     /// <summary>
     /// Takes one of the key's <see cref="CallsAtOnce"/> places for a call until its answer (dispose the result); null when all
     /// are taken (nothing taken).
     /// </summary>
-    public IDisposable? TryStartCall(McpCaller caller)
+    public IDisposable? TryStartCall(ToolCaller caller)
     {
         ArgumentNullException.ThrowIfNull(caller);
         lock (_inFlightGate)
         {
-            var now = _inFlight.GetValueOrDefault(caller.KeyHash);
+            var now = _inFlight.GetValueOrDefault(caller.BindingKey);
             if (now >= CallsAtOnce)
             {
                 return null;
             }
 
-            _inFlight[caller.KeyHash] = now + 1;
+            _inFlight[caller.BindingKey] = now + 1;
         }
 
-        return new CallInFlight(this, caller.KeyHash);
+        return new CallInFlight(this, caller.BindingKey);
     }
 
     private void EndCall(string keyHash)

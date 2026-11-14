@@ -31,7 +31,7 @@ public sealed class McpSecretTests
         {
             ["oadm_server_info"] = [],
             ["oadm_devices_summary"] = new() { ["group_by"] = "model" },
-            ["oadm_devices_search"] = new() { ["fields"] = new JsonArray([.. Oadm.Server.Mcp.DeviceTools.ExtraFields.Select(f => (JsonNode)f)]) },
+            ["oadm_devices_search"] = new() { ["fields"] = new JsonArray([.. Oadm.Server.Tools.DeviceTools.ExtraFields.Select(f => (JsonNode)f)]) },
             ["oadm_devices_get"] = new() { ["device_id"] = device.Id.ToString() },
             ["oadm_tasks_list"] = [],
             ["oadm_tasks_get"] = new() { ["task_id"] = Guid.NewGuid().ToString() },

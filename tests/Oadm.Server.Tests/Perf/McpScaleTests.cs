@@ -5,6 +5,7 @@ using Oadm.Core.Persistence;
 using Oadm.Core.Tasks;
 using Oadm.Sdk.Plugins;
 using Oadm.Server.Mcp;
+using Oadm.Server.Tools;
 using Oadm.Server.Tests.Mcp;
 
 using Xunit.Abstractions;
@@ -45,8 +46,8 @@ public sealed class McpScaleTests(ITestOutputHelper output)
                 var text = result["content"]![0]!["text"]!.GetValue<string>();
                 var bytes = Encoding.UTF8.GetByteCount(text);
                 output.WriteLine($"  {tool}: {bytes:N0} bytes");
-                Assert.True(bytes <= McpAnswers.MaxBytes, $"{tool} answered {bytes:N0} bytes");
-                Assert.True(Encoding.UTF8.GetByteCount(result["structuredContent"]!.ToJsonString()) <= McpAnswers.MaxBytes);
+                Assert.True(bytes <= ToolAnswers.MaxBytes, $"{tool} answered {bytes:N0} bytes");
+                Assert.True(Encoding.UTF8.GetByteCount(result["structuredContent"]!.ToJsonString()) <= ToolAnswers.MaxBytes);
                 answer = result["structuredContent"]!.AsObject();
             });
             return answer;
@@ -61,14 +62,14 @@ public sealed class McpScaleTests(ITestOutputHelper output)
 
         var page = await MeasureAsync("oadm_devices_search, first page of 200 with every field", TimeSpan.FromSeconds(30), "oadm_devices_search", new JsonObject
         {
-            ["limit"] = McpAnswers.MaxRows,
+            ["limit"] = ToolAnswers.MaxRows,
             ["fields"] = new JsonArray([.. DeviceTools.ExtraFields.Select(f => (JsonNode)f)]),
         });
         Assert.Equal(ServerScale.Devices, page["total"]!.GetValue<int>());
         Assert.NotNull(page["next_cursor"]);
         await MeasureAsync("oadm_devices_search, the next page", TimeSpan.FromSeconds(30), "oadm_devices_search", new JsonObject
         {
-            ["limit"] = McpAnswers.MaxRows,
+            ["limit"] = ToolAnswers.MaxRows,
             ["fields"] = new JsonArray([.. DeviceTools.ExtraFields.Select(f => (JsonNode)f)]),
             ["cursor"] = page["next_cursor"]!.GetValue<string>(),
         });
@@ -82,11 +83,11 @@ public sealed class McpScaleTests(ITestOutputHelper output)
 
         await MeasureAsync("oadm_devices_get of one device with 100 APIs", TimeSpan.FromSeconds(30), "oadm_devices_get", new JsonObject { ["device_id"] = ids[^1].ToString() });
 
-        var taskList = await MeasureAsync("oadm_tasks_list of 50,000 tasks with the counts", TimeSpan.FromSeconds(15), "oadm_tasks_list", new JsonObject { ["limit"] = McpAnswers.MaxRows });
+        var taskList = await MeasureAsync("oadm_tasks_list of 50,000 tasks with the counts", TimeSpan.FromSeconds(15), "oadm_tasks_list", new JsonObject { ["limit"] = ToolAnswers.MaxRows });
         Assert.Equal(ServerScale.Tasks, taskList["counts"]!["Done"]!.GetValue<int>());
 
         await MeasureAsync("oadm_tasks_get of one task", TimeSpan.FromSeconds(15), "oadm_tasks_get", new JsonObject { ["task_id"] = tasks[^1].Id.ToString() });
-        await MeasureAsync("oadm_logs_search, 200 lines", TimeSpan.FromSeconds(5), "oadm_logs_search", new JsonObject { ["limit"] = McpAnswers.MaxRows });
-        await MeasureAsync("oadm_logs_audit, 200 entries", TimeSpan.FromSeconds(5), "oadm_logs_audit", new JsonObject { ["limit"] = McpAnswers.MaxRows });
+        await MeasureAsync("oadm_logs_search, 200 lines", TimeSpan.FromSeconds(5), "oadm_logs_search", new JsonObject { ["limit"] = ToolAnswers.MaxRows });
+        await MeasureAsync("oadm_logs_audit, 200 entries", TimeSpan.FromSeconds(5), "oadm_logs_audit", new JsonObject { ["limit"] = ToolAnswers.MaxRows });
     }
 }

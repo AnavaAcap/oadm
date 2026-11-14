@@ -4,11 +4,11 @@ using System.Text.Json.Nodes;
 using Oadm.Server.Auth;
 using Oadm.Server.Logging;
 
-using static Oadm.Server.Mcp.McpSchema;
+using static Oadm.Server.Tools.ToolSchema;
 
 using Proto = Oadm.Contracts.V1;
 
-namespace Oadm.Server.Mcp;
+namespace Oadm.Server.Tools;
 
 /// <summary>
 /// The log tools of stage 1 (docs/spec/mcp.md "Other areas", read only): the server log (since, level, text, at most 200 lines a
@@ -29,9 +29,9 @@ internal static class LogTools
     /// <summary>Audit entries one call looks at at most when the text matches few of them (the cursor then goes on from there).</summary>
     private const int MaxScanned = 20_000;
 
-    public static IEnumerable<McpTool> Create(McpCursors cursors)
+    public static IEnumerable<OadmTool> Create(ToolCursors cursors)
     {
-        yield return new McpTool(
+        yield return new OadmTool(
             "oadm_logs_search",
             "Search the server log",
             "Lines of the OADM server log, the newest first: since a time, at a level or above, with a text. Use it to find why something failed.",
@@ -40,8 +40,8 @@ internal static class LogTools
                 P("since", Text("Only lines from this time on (ISO 8601, e.g. 2026-11-14T09:30:00Z).", 40, "date-time")),
                 P("level", Choice("Only lines at this level or above (default all).", Levels)),
                 P("text", Text("Only lines with this text (any case).", 200)),
-                P("cursor", Text("next_cursor of the previous page of the same search.", McpAnswers.MaxCursorLength)),
-                P("limit", Number("Lines per page.", 1, McpAnswers.MaxRows, McpAnswers.DefaultRows)),
+                P("cursor", Text("next_cursor of the previous page of the same search.", ToolAnswers.MaxCursorLength)),
+                P("limit", Number("Lines per page.", 1, ToolAnswers.MaxRows, ToolAnswers.DefaultRows)),
             ]),
             OutObject(null,
             [
@@ -59,7 +59,7 @@ internal static class LogTools
             [ServerLogPath],
             call => ServerLogAsync(call, cursors));
 
-        yield return new McpTool(
+        yield return new OadmTool(
             "oadm_logs_audit",
             "Search the audit log",
             "Who did what in OADM, the newest first: since a time, with a text in the user, action, target or detail. Administrators only.",
@@ -67,8 +67,8 @@ internal static class LogTools
             [
                 P("since", Text("Only entries from this time on (ISO 8601, e.g. 2026-11-14T09:30:00Z).", 40, "date-time")),
                 P("text", Text("Only entries with this text (any case).", 200)),
-                P("cursor", Text("next_cursor of the previous page of the same search.", McpAnswers.MaxCursorLength)),
-                P("limit", Number("Entries per page.", 1, McpAnswers.MaxRows, McpAnswers.DefaultRows)),
+                P("cursor", Text("next_cursor of the previous page of the same search.", ToolAnswers.MaxCursorLength)),
+                P("limit", Number("Entries per page.", 1, ToolAnswers.MaxRows, ToolAnswers.DefaultRows)),
             ]),
             OutObject(null,
             [
@@ -92,12 +92,12 @@ internal static class LogTools
     /// Server log lines have no id: the cursor is the last line's time and how many lines of that same millisecond were
     /// shown, read with <c>not_after</c> (lines newer than it never move the page).
     /// </summary>
-    private static async Task<JsonObject> ServerLogAsync(McpToolCall call, McpCursors cursors)
+    private static async Task<JsonObject> ServerLogAsync(ToolCall call, ToolCursors cursors)
     {
-        var query = McpCursors.QueryOf(call.Arguments);
+        var query = ToolCursors.QueryOf(call.Arguments);
         var after = cursors.Read(call.Caller, call.Text("cursor"), query);
         var skip = after is { } a && int.TryParse(a.Id, NumberStyles.None, CultureInfo.InvariantCulture, out var shown) ? shown : 0;
-        var limit = call.Number("limit") ?? McpAnswers.DefaultRows;
+        var limit = call.Number("limit") ?? ToolAnswers.DefaultRows;
         var since = Since(call);
         var lines = new JsonArray();
         var size = 512;
@@ -138,8 +138,8 @@ internal static class LogTools
                     ["message"] = entry.Message,
                     ["exception"] = entry.Exception,
                 };
-                var lineSize = McpAnswers.SizeOf(line) + 1;
-                if (lines.Count >= limit || (size + lineSize > McpAnswers.MaxBytes && lines.Count > 0))
+                var lineSize = ToolAnswers.SizeOf(line) + 1;
+                if (lines.Count >= limit || (size + lineSize > ToolAnswers.MaxBytes && lines.Count > 0))
                 {
                     more = true;
                     break;
@@ -164,12 +164,12 @@ internal static class LogTools
     }
 
     /// <summary>The audit log by its ids (<c>before_id</c>): the cursor is the last entry looked at, its time and id.</summary>
-    private static async Task<JsonObject> AuditAsync(McpToolCall call, McpCursors cursors)
+    private static async Task<JsonObject> AuditAsync(ToolCall call, ToolCursors cursors)
     {
-        var query = McpCursors.QueryOf(call.Arguments);
+        var query = ToolCursors.QueryOf(call.Arguments);
         var after = cursors.Read(call.Caller, call.Text("cursor"), query);
         var beforeId = after is { } a && long.TryParse(a.Id, NumberStyles.None, CultureInfo.InvariantCulture, out var id) ? id : 0;
-        var limit = call.Number("limit") ?? McpAnswers.DefaultRows;
+        var limit = call.Number("limit") ?? ToolAnswers.DefaultRows;
         var since = Since(call);
         var text = call.Text("text");
         var entries = new JsonArray();
@@ -211,8 +211,8 @@ internal static class LogTools
                     ["target"] = entry.Target,
                     ["detail"] = entry.Detail,
                 };
-                var rowSize = McpAnswers.SizeOf(row) + 1;
-                if (entries.Count >= limit || (size + rowSize > McpAnswers.MaxBytes && entries.Count > 0))
+                var rowSize = ToolAnswers.SizeOf(row) + 1;
+                if (entries.Count >= limit || (size + rowSize > ToolAnswers.MaxBytes && entries.Count > 0))
                 {
                     more = true;
                     break;
@@ -236,6 +236,6 @@ internal static class LogTools
         return new JsonObject { ["entries"] = entries, ["more"] = next is not null, ["next_cursor"] = next };
     }
 
-    private static DateTimeOffset? Since(McpToolCall call) =>
+    private static DateTimeOffset? Since(ToolCall call) =>
         call.Text("since") is { } text && DateTimeOffset.TryParse(text, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var since) ? since : null;
 }

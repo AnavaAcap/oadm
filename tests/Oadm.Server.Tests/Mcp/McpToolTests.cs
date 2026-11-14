@@ -7,6 +7,7 @@ using Oadm.Core.Persistence;
 using Oadm.Core.Plugins;
 using Oadm.Plugins.Restart;
 using Oadm.Server.Mcp;
+using Oadm.Server.Tools;
 using Oadm.Server.Tests.Support;
 
 using Proto = Oadm.Contracts.V1;
@@ -97,7 +98,7 @@ public sealed partial class McpToolTests
     {
         // Rule 5: an agent can never raise rights; these stay GUI only (docs/spec/mcp.md "Not over MCP").
         await using var server = await McpTestServer.StartAsync(turnOn: false);
-        var tools = server.Host.Get<McpTools>().All;
+        var tools = server.Host.Get<ToolRegistry>().All;
         Assert.Equal(Stage1Tools.Length, tools.Count);
         Assert.All(tools, t => Assert.True(t.ReadsOnly, t.Name));
         var methods = tools.SelectMany(t => t.Methods).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToList();
@@ -158,7 +159,9 @@ public sealed partial class McpToolTests
         Assert.NotEmpty(tools);
         Assert.All(tools, t => Assert.True(t!["annotations"]!["readOnlyHint"]!.GetValue<bool>()));
         var info = await server.ToolAsync(key, "oadm_server_info");
-        Assert.True(info["access_key"]!["read_only"]!.GetValue<bool>());
+        Assert.True(info["read_only"]!.GetValue<bool>());
+        Assert.Equal("agent", info["access_key"]!["name"]!.GetValue<string>());
+        Assert.Equal(McpAccess.CallsAtOnce, info["limits"]!["calls_at_once"]!.GetValue<int>()); // the limits of MCP, the channel
     }
 
     [Fact]
@@ -285,8 +288,8 @@ public sealed partial class McpToolTests
         var answer = JsonNode.Parse(result["content"]![0]!["text"]!.GetValue<string>())!;
         var errors = answer["errors"]!.AsArray().ToDictionary(e => e!["field"]!.GetValue<string>(), e => e!["error"]!.GetValue<string>());
         Assert.Equal("Enter a whole number from 1 to 200.", errors["limit"]);
-        Assert.Equal(McpInputTexts.Unknown, errors["colour"]);
-        Assert.Equal(McpInputTexts.Id, errors["filter.ids[0]"]);
+        Assert.Equal(ToolInputTexts.Unknown, errors["colour"]);
+        Assert.Equal(ToolInputTexts.Id, errors["filter.ids[0]"]);
         Assert.StartsWith("Use one of: Ok, Unreachable", errors["filter.status[0]"], StringComparison.Ordinal);
 
         var missing = await server.CallToolAsync(key, "oadm_devices_get");
@@ -306,7 +309,7 @@ public sealed partial class McpToolTests
         var key = await server.CreateKeyAsync();
         var first = await server.ToolAsync(key, "oadm_devices_search");
         Assert.Equal(120, first["total"]!.GetValue<int>());
-        Assert.Equal(McpAnswers.DefaultRows, first["devices"]!.AsArray().Count);
+        Assert.Equal(ToolAnswers.DefaultRows, first["devices"]!.AsArray().Count);
         Assert.Equal("10.8.0.1", first["devices"]![0]!["address"]!.GetValue<string>());
         Assert.Equal("10.8.0.2", first["devices"]![1]!["address"]!.GetValue<string>()); // in number order
         Assert.Equal("70 more. Add a filter, e.g. site or model, or pass next_cursor.", first["note"]!.GetValue<string>());
@@ -325,7 +328,7 @@ public sealed partial class McpToolTests
         var other = await server.CreateKeyAsync(name: "other");
         var foreign = await server.CallToolAsync(other, "oadm_devices_search", new JsonObject { ["cursor"] = first["next_cursor"]!.GetValue<string>() });
         Assert.True(foreign["isError"]!.GetValue<bool>());
-        Assert.Contains(McpCursors.NotValid, foreign["content"]![0]!["text"]!.GetValue<string>(), StringComparison.Ordinal);
+        Assert.Contains(ToolCursors.NotValid, foreign["content"]![0]!["text"]!.GetValue<string>(), StringComparison.Ordinal);
 
         var changedQuery = await server.CallToolAsync(key, "oadm_devices_search", new JsonObject { ["cursor"] = first["next_cursor"]!.GetValue<string>(), ["sort"] = "-address" });
         Assert.True(changedQuery["isError"]!.GetValue<bool>());

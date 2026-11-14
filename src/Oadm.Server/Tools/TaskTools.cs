@@ -6,11 +6,11 @@ using Google.Protobuf.WellKnownTypes;
 using Oadm.Server.Auth;
 using Oadm.Server.Tasks;
 
-using static Oadm.Server.Mcp.McpSchema;
+using static Oadm.Server.Tools.ToolSchema;
 
 using Proto = Oadm.Contracts.V1;
 
-namespace Oadm.Server.Mcp;
+namespace Oadm.Server.Tools;
 
 /// <summary>
 /// The task tools of stage 1 (docs/spec/mcp.md "Tasks"): the task list with the counts per state first (an agent polls it
@@ -26,9 +26,9 @@ internal static class TaskTools
 
     public static IReadOnlyList<string> States { get; } = ["Queued", "Running", "Done", "DoneWithWarnings", "Failed", "Cancelled"];
 
-    public static IEnumerable<McpTool> Create(McpCursors cursors)
+    public static IEnumerable<OadmTool> Create(ToolCursors cursors)
     {
-        yield return new McpTool(
+        yield return new OadmTool(
             "oadm_tasks_list",
             "Task list",
             "Tasks of your devices, the newest first, with the counts per state first. Pass batch to follow the tasks of one run; next_cursor for the next page.",
@@ -37,8 +37,8 @@ internal static class TaskTools
                 P("batch", Text("Only the tasks of this run (the batch id).", 36, "uuid")),
                 P("device_id", Text("Only the tasks of this device.", 36, "uuid")),
                 P("status", List("Only tasks in these states.", Choice("A state.", States), States.Count)),
-                P("cursor", Text("next_cursor of the previous page of the same list.", McpAnswers.MaxCursorLength)),
-                P("limit", Number("Tasks per page.", 1, McpAnswers.MaxRows, McpAnswers.DefaultRows)),
+                P("cursor", Text("next_cursor of the previous page of the same list.", ToolAnswers.MaxCursorLength)),
+                P("limit", Number("Tasks per page.", 1, ToolAnswers.MaxRows, ToolAnswers.DefaultRows)),
             ]),
             OutObject(null,
             [
@@ -51,7 +51,7 @@ internal static class TaskTools
             [ListPath],
             call => ListAsync(call, cursors));
 
-        yield return new McpTool(
+        yield return new OadmTool(
             "oadm_tasks_get",
             "Task details",
             "One task with its steps and its log (the newest 200 lines). Take the id from oadm_tasks_list.",
@@ -77,17 +77,17 @@ internal static class TaskTools
             call => GetAsync(call));
     }
 
-    private static async Task<IReadOnlyList<Proto.TaskInfo>> TasksAsync(McpToolCall call)
+    private static async Task<IReadOnlyList<Proto.TaskInfo>> TasksAsync(ToolCall call)
     {
         var list = await call.CallAsync<TaskGrpcService, Proto.ListTasksRequest, Proto.TaskList>(ListPath, new Proto.ListTasksRequest(), (s, r, c) => s.List(r, c)).ConfigureAwait(false);
         return list.Tasks;
     }
 
-    private static async Task<JsonObject> ListAsync(McpToolCall call, McpCursors cursors)
+    private static async Task<JsonObject> ListAsync(ToolCall call, ToolCursors cursors)
     {
-        var query = McpCursors.QueryOf(call.Arguments);
+        var query = ToolCursors.QueryOf(call.Arguments);
         var after = cursors.Read(call.Caller, call.Text("cursor"), query);
-        var limit = call.Number("limit") ?? McpAnswers.DefaultRows;
+        var limit = call.Number("limit") ?? ToolAnswers.DefaultRows;
         var batch = call.Text("batch");
         var device = call.Text("device_id");
         var states = call.Texts("status").ToHashSet(StringComparer.Ordinal);
@@ -114,8 +114,8 @@ internal static class TaskTools
         for (var i = index; i < matching.Count && rows.Count < limit; i++)
         {
             var row = Row(matching[i].Task);
-            var rowSize = McpAnswers.SizeOf(row) + 1;
-            if (size + rowSize > McpAnswers.MaxBytes && rows.Count > 0)
+            var rowSize = ToolAnswers.SizeOf(row) + 1;
+            if (size + rowSize > ToolAnswers.MaxBytes && rows.Count > 0)
             {
                 break;
             }
@@ -153,14 +153,14 @@ internal static class TaskTools
         return byKey != 0 ? byKey : string.CompareOrdinal(idA, idB);
     }
 
-    private static async Task<JsonObject> GetAsync(McpToolCall call)
+    private static async Task<JsonObject> GetAsync(ToolCall call)
     {
         var id = call.Text("task_id")!;
         var task = (await TasksAsync(call).ConfigureAwait(false)).FirstOrDefault(t => string.Equals(t.Id, id, StringComparison.OrdinalIgnoreCase))
-            ?? throw new McpToolException(TaskNotFound);
+            ?? throw new ToolException(TaskNotFound);
         var log = await call.CallAsync<TaskGrpcService, Proto.TaskIdRequest, Proto.TaskLog>(LogPath, new Proto.TaskIdRequest { TaskId = task.Id }, (s, r, c) => s.GetLog(r, c)).ConfigureAwait(false);
         var lines = new JsonArray();
-        var size = McpAnswers.SizeOf(Row(task)) + 2048;
+        var size = ToolAnswers.SizeOf(Row(task)) + 2048;
         var kept = new List<JsonObject>();
         foreach (var entry in log.Entries.Reverse().Take(MaxLogLines))
         {
@@ -170,8 +170,8 @@ internal static class TaskTools
                 ["level"] = entry.Level switch { Proto.TaskLogLevel.Warning => "Warning", Proto.TaskLogLevel.Error => "Error", _ => "Info" },
                 ["message"] = entry.Message,
             };
-            size += McpAnswers.SizeOf(line) + 1;
-            if (size > McpAnswers.MaxBytes)
+            size += ToolAnswers.SizeOf(line) + 1;
+            if (size > ToolAnswers.MaxBytes)
             {
                 break;
             }

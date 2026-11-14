@@ -2,34 +2,34 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 
-namespace Oadm.Server.Mcp;
+namespace Oadm.Server.Tools;
 
 /// <summary>A place in a list: the sort key and the id of the last row of a page (the next page starts after it).</summary>
-internal readonly record struct McpCursor(string Key, string Id);
+internal readonly record struct ToolCursor(string Key, string Id);
 
 /// <summary>
 /// The cursors of the lists (rule 3): the last row's sort key and id, so a row added, removed or changed elsewhere never
-/// moves the rows between pages (docs/spec/mcp.md "Stage 1 as built"). Bound to the access key and the query (a cursor of
+/// moves the rows between pages (docs/spec/mcp.md "Stage 1 as built"). Bound to the caller (the access key over MCP) and the query (a cursor of
 /// another key or another search is refused) and signed with a key of this server process: a restart ends every cursor.
 /// </summary>
-internal sealed class McpCursors
+internal sealed class ToolCursors
 {
     public const string NotValid = "This cursor does not belong to this search. Search again without it.";
 
     private readonly byte[] _secret = RandomNumberGenerator.GetBytes(32);
 
     /// <summary>The cursor of the page after the row with <paramref name="key"/> and <paramref name="id"/>.</summary>
-    public string Make(McpCaller caller, string query, string key, string id)
+    public string Make(ToolCaller caller, string query, string key, string id)
     {
         var payload = Base64Url(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(new[] { key, id })));
         return payload + "." + Mac(caller, query, payload);
     }
 
     /// <summary>
-    /// The place of <paramref name="cursor"/>; null without one. <see cref="McpToolException"/> with <see cref="NotValid"/> for a
+    /// The place of <paramref name="cursor"/>; null without one. <see cref="ToolException"/> with <see cref="NotValid"/> for a
     /// cursor of another key or query, or one that was changed.
     /// </summary>
-    public McpCursor? Read(McpCaller caller, string? cursor, string query)
+    public ToolCursor? Read(ToolCaller caller, string? cursor, string query)
     {
         if (string.IsNullOrEmpty(cursor))
         {
@@ -46,7 +46,7 @@ internal sealed class McpCursors
         try
         {
             var parts = JsonSerializer.Deserialize<string[]>(FromBase64Url(cursor[..dot]));
-            return parts is [{ } key, { } id] ? new McpCursor(key, id) : throw Refused();
+            return parts is [{ } key, { } id] ? new ToolCursor(key, id) : throw Refused();
         }
         catch (Exception ex) when (ex is JsonException or FormatException)
         {
@@ -62,7 +62,7 @@ internal sealed class McpCursors
         return builder.ToString();
     }
 
-    private static McpToolException Refused() => new(NotValid, [new McpFieldError("cursor", NotValid)]);
+    private static ToolException Refused() => new(NotValid, [new ToolFieldError("cursor", NotValid)]);
 
     private static void Write(JsonElement value, StringBuilder builder, bool top)
     {
@@ -95,9 +95,9 @@ internal sealed class McpCursors
         }
     }
 
-    private string Mac(McpCaller caller, string query, string payload)
+    private string Mac(ToolCaller caller, string query, string payload)
     {
-        var data = Encoding.UTF8.GetBytes(caller.KeyHash + "\n" + query + "\n" + payload);
+        var data = Encoding.UTF8.GetBytes(caller.BindingKey + "\n" + query + "\n" + payload);
         return Base64Url(HMACSHA256.HashData(_secret, data).AsSpan(0, 16));
     }
 

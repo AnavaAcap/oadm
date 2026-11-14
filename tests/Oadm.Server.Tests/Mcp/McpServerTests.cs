@@ -12,6 +12,7 @@ using Oadm.Core.Auth;
 using Oadm.Core.DeviceGroups;
 using Oadm.Core.Persistence;
 using Oadm.Server.Mcp;
+using Oadm.Server.Tools;
 using Oadm.Server.Tests.Support;
 
 using Proto = Oadm.Contracts.V1;
@@ -60,7 +61,7 @@ public sealed class McpServerTests
     {
         var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var entered = 0;
-        var held = new McpTool("oadm_test_hold", "Hold", "Waits for the test.", McpSchema.Object(null, []), McpSchema.OutObject(null, []), [], async _ =>
+        var held = new OadmTool("oadm_test_hold", "Hold", "Waits for the test.", ToolSchema.Object(null, []), ToolSchema.OutObject(null, []), [], async _ =>
         {
             Interlocked.Increment(ref entered);
             await gate.Task;
@@ -68,8 +69,8 @@ public sealed class McpServerTests
         });
         await using var server = await McpTestServer.StartAsync(configureServices: services =>
         {
-            services.RemoveAll<McpTools>();
-            services.AddSingleton(sp => new McpTools([held], sp.GetRequiredService<Oadm.Server.Auth.InProcessCalls>(), sp.GetRequiredService<RoleStore>()));
+            services.RemoveAll<ToolRegistry>();
+            services.AddSingleton(sp => new ToolRegistry([held], sp.GetRequiredService<Oadm.Server.Auth.InProcessCalls>(), sp.GetRequiredService<RoleStore>()));
         });
         var key = await server.CreateKeyAsync();
         var other = await server.CreateKeyAsync(name: "other");

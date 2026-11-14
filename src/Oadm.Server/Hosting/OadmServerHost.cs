@@ -191,24 +191,25 @@ public static partial class OadmServerHost
         services.AddSingleton<LoginAddressLimit>();
         services.AddHostedService<AuthMaintenanceHostedService>();
 
-        // AI agents (docs/spec/mcp.md): access keys, the MCP server on its own port (off by default) and its tools, which call the
-        // gRPC services in process as the key's user.
+        // The tools (docs/spec/mcp.md "Tools and MCP"): one registry that calls the gRPC services in process as its caller and
+        // knows no channel. AI agents reach it through MCP: access keys and the MCP server on its own port (off by default).
         services.AddSingleton<InProcessCalls>();
-        services.AddSingleton<Mcp.McpCursors>();
-        services.AddSingleton<Mcp.McpAccess>();
+        services.AddSingleton<Tools.ToolCursors>();
         services.AddSingleton(sp =>
         {
             var roles = sp.GetRequiredService<Core.Auth.RoleStore>();
-            var cursors = sp.GetRequiredService<Mcp.McpCursors>();
-            return new Mcp.McpTools(
+            var cursors = sp.GetRequiredService<Tools.ToolCursors>();
+            return new Tools.ToolRegistry(
                 [
-                    Mcp.ServerInfoTool.Create(() => roles.Catalog),
-                    .. Mcp.DeviceTools.Create(cursors),
-                    .. Mcp.TaskTools.Create(cursors),
-                    .. Mcp.LogTools.Create(cursors),
+                    Tools.ServerInfoTool.Create(() => roles.Catalog),
+                    .. Tools.DeviceTools.Create(cursors),
+                    .. Tools.TaskTools.Create(cursors),
+                    .. Tools.LogTools.Create(cursors),
                 ],
                 sp.GetRequiredService<InProcessCalls>(), roles);
         });
+        services.AddSingleton<Mcp.McpAccess>();
+        services.AddSingleton<Mcp.McpToolAdapter>();
         services.AddSingleton(sp => new Mcp.McpListener(sp, sp.GetRequiredService<ServerSettingsStore>(), sp.GetRequiredService<PluginServiceRegistry>(),
             sp.GetRequiredService<TimeProvider>(), sp.GetRequiredService<ILogger<Mcp.McpListener>>(), firewall: sp.GetService<Sdk.Network.IFirewallRules>()));
 

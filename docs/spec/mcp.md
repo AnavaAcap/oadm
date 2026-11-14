@@ -31,6 +31,25 @@ host change.
    returned only as JSON field values, never inside tool descriptions or messages to the agent, and the skill says they are
    never instructions.
 
+## Tools and MCP
+
+The tools do not depend on MCP: a later built-in assistant (a chat window of the client that runs on the server against a
+hosted or local model) calls the same tools in process, with the same `oadm_*` names, schemas, device filter,
+preview/run handles and caller rules.
+
+- **One tool registry** in the server (`src/Oadm.Server/Tools/`, `ToolRegistry`): every tool's descriptor (name, title,
+  description, read only or change, starts tasks), its input and output schemas, its permission (the gRPC methods it calls,
+  `AccessPolicy`) and its invoke method. It knows nothing of MCP: no MCP SDK and no ASP.NET request types (an architecture
+  test checks the source and the compiled types).
+- **The caller is a parameter.** A tool gets a `ToolCaller`: the user with the role and devices of now, the key cursors and
+  handles are bound to, Read only, and what the channel tells of itself (its access key and its own limits, for
+  `oadm_server_info`). Nothing comes from the HTTP request; an in-process gRPC call carries only the caller's address.
+- **MCP is a thin adapter** (`src/Oadm.Server/Mcp/`): the transport and its checks, access keys (which make the
+  `ToolCaller`), its own limits (calls per second, calls at once, runs per minute), and the mapping to `tools/list` and
+  `tools/call` (`McpToolAdapter`).
+- **Preview and run stay two tools.** A change is always a preview tool (it writes nothing and answers the plan and a
+  handle) and a run tool that takes only the handle: the assistant shows the preview as a card with a Run button.
+
 ## Transport and certificate
 
 - Streamable HTTP, MCP revision 2026-07-28 (stateless: no session id, no `initialize`), one endpoint `POST /mcp` on its own
@@ -203,9 +222,10 @@ The website gets a user page (Tools > AI agents) and a developer page (plugin MC
 
 ## Stage 1 as built
 
-- **Code**: server `src/Oadm.Server/Mcp/` (`McpListener` opens and closes the port, `McpEndpoint` the web host and its
-  checks, `McpAccess` the key's caller, the per-key limit and the audit of refused keys, `McpTools` the list and the calls,
-  `McpSchema` the schemas and their check, `McpCursors`, `ServerInfoTool`, `DeviceTools`, `TaskTools`, `LogTools`,
+- **Code**: the tools in `src/Oadm.Server/Tools/` (`ToolRegistry` the list and the calls with `ToolCaller`, `ToolSchema`
+  the schemas and their check, `ToolCursors`, `ServerInfoTool`, `DeviceTools`, `TaskTools`, `LogTools`); MCP in
+  `src/Oadm.Server/Mcp/` (`McpListener` opens and closes the port, `McpEndpoint` the web host and its checks, `McpAccess`
+  the key's `ToolCaller`, the per-key limits and the audit of refused keys, `McpToolAdapter` the two MCP handlers,
   `McpGrpcService` the card), `Auth/InProcessAccess.cs` (`InProcessCalls`: a gRPC method called in process with the rule of
   `AccessPolicy`, the caller in the call's user state and in `CallerContext`, the interceptor's answers),
   `Auth/AccessKeyGrpcService`, `Devices/DeviceSearch` (`DeviceService.Search`: the filter, the sort and the page on the
@@ -243,7 +263,7 @@ The website gets a user page (Tools > AI agents) and a developer page (plugin MC
   filter is applied on the server to the devices of the view, only the page is mapped and without the API lists
   (`oadm_devices_get` asks for them), the server info counts the view's cached ids. Log lists answer `more` and
   `next_cursor`, never a total (rule 3).
-- **Cursors**: the last row's sort key and id (`McpCursors`), signed with a key of the server process (a restart ends them)
+- **Cursors**: the last row's sort key and id (`ToolCursors`), signed with a key of the server process (a restart ends them)
   and bound to the access key and the query (the arguments without `cursor` and `limit`); a cursor of another key or
   search, or one that was changed, answers "This cursor does not belong to this search. Search again without it." The next
   page starts after that row in the sort order, so rows added, removed or changed elsewhere never move it: devices by the
@@ -271,7 +291,8 @@ The website gets a user page (Tools > AI agents) and a developer page (plugin MC
   only as JSON values (rule 6), keys ending, field errors, paging and sort-key cursors (also an empty filter, the three
   names of a row, both logs with new lines between pages), the summary, the same devices over MCP and gRPC, tasks, the
   audit log; `DeviceSearchTests` (`DeviceService.Search`);
-  `McpSecretTests`: no password, token or key in any answer, audit entry or log line), `Perf/McpScaleTests`, PKI
+  `McpSecretTests`: no password, token or key in any answer, audit entry or log line), `Tools/ToolRegistryTests` (two tools
+  called in process with a caller object and no request; the tools name nothing of MCP or ASP.NET), `Perf/McpScaleTests`, PKI
   `McpServerPolicyTests` (the shared certificate on the first Turn on, also without OADM PRO; the host's full name), client `AiAgentsTests` (headless, screenshots).
 
 ## Open points

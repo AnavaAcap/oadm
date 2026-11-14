@@ -57,11 +57,11 @@ public sealed class InProcessCalls(IServiceProvider services, RoleStore roles, U
     /// <summary>
     /// Calls the method <paramref name="path"/> of the service <typeparamref name="TService"/> (made for this call from the
     /// server's services, like gRPC does) as <paramref name="caller"/>. Throws the <see cref="RpcException"/> a network client
-    /// would get (PERMISSION_DENIED, NOT_FOUND, INVALID_ARGUMENT ...).
+    /// would get (PERMISSION_DENIED, NOT_FOUND, INVALID_ARGUMENT ...). Nothing of an HTTP request reaches it: a service that
+    /// asks for the call's connection gets one with the caller's address (<see cref="AuthInterceptor.ClientAddressOf"/>).
     /// </summary>
-    /// <param name="http">The HTTP request the call serves (its address is the caller's, <see cref="AuthInterceptor.ClientAddressOf"/>).</param>
     public async Task<TResponse> CallAsync<TService, TRequest, TResponse>(
-        AuthenticatedCaller caller, string path, TRequest request, Func<TService, TRequest, ServerCallContext, Task<TResponse>> call, HttpContext? http, CancellationToken ct)
+        AuthenticatedCaller caller, string path, TRequest request, Func<TService, TRequest, ServerCallContext, Task<TResponse>> call, CancellationToken ct)
         where TService : class
     {
         ArgumentNullException.ThrowIfNull(caller);
@@ -77,7 +77,7 @@ public sealed class InProcessCalls(IServiceProvider services, RoleStore roles, U
             throw new RpcException(new Status(StatusCode.PermissionDenied, AccessPolicy.DeniedMessage(rule, roles.Catalog, caller)));
         }
 
-        var context = new InProcessCallContext(path, caller, http, ct);
+        var context = new InProcessCallContext(path, caller, ct);
         var service = ActivatorUtilities.CreateInstance<TService>(services);
         using var scope = CallerContext.Use(caller);
         try
@@ -98,7 +98,7 @@ public sealed class InProcessCalls(IServiceProvider services, RoleStore roles, U
         }
     }
 
-    /// <summary>The call context of an in-process call: the method, the caller in the user state, no headers or deadline.</summary>
+    /// <summary>The call context of an in-process call: the method, the caller in the user state, the caller's address, no headers or deadline.</summary>
     private sealed class InProcessCallContext : ServerCallContext
     {
         /// <summary>Where Grpc.AspNetCore's <c>GetHttpContext</c> finds the HTTP request of a call made outside its pipeline.</summary>
@@ -110,15 +110,14 @@ public sealed class InProcessCalls(IServiceProvider services, RoleStore roles, U
         private readonly Metadata _trailers = [];
         private readonly Dictionary<object, object> _state = [];
 
-        public InProcessCallContext(string method, AuthenticatedCaller caller, HttpContext? http, CancellationToken ct)
+        public InProcessCallContext(string method, AuthenticatedCaller caller, CancellationToken ct)
         {
             _method = method;
             _ct = ct;
             _state[AuthInterceptor.CallerKey] = caller;
-            if (http is not null)
-            {
-                _state[HttpContextKey] = http;
-            }
+            var connection = new DefaultHttpContext();
+            connection.Connection.RemoteIpAddress = System.Net.IPAddress.TryParse(caller.ClientAddress, out var address) ? address : null;
+            _state[HttpContextKey] = connection; // the caller's address, never a request of a channel
         }
 
         protected override string MethodCore => _method;

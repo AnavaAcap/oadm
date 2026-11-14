@@ -2,7 +2,7 @@ using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 
-namespace Oadm.Server.Mcp;
+namespace Oadm.Server.Tools;
 
 /// <summary>
 /// The JSON Schemas of the tools (JSON Schema 2020-12, the default of MCP): built here, published as the tools' input and output
@@ -10,7 +10,7 @@ namespace Oadm.Server.Mcp;
 /// enforces. Objects never take other properties (<c>additionalProperties: false</c>); strings have a length, numbers a range,
 /// lists a size, choices an <c>enum</c>.
 /// </summary>
-internal static class McpSchema
+internal static class ToolSchema
 {
     public static JsonObject Text(string description, int maxLength, string? format = null, int minLength = 0)
     {
@@ -101,15 +101,15 @@ internal static class McpSchema
     /// The errors of <paramref name="value"/> against <paramref name="schema"/> (the subset these schemas use), one per field:
     /// ("filter.tags[2]", "Use at most 64 characters."). Empty when it fits.
     /// </summary>
-    public static IReadOnlyList<McpFieldError> Validate(JsonObject schema, JsonElement value)
+    public static IReadOnlyList<ToolFieldError> Validate(JsonObject schema, JsonElement value)
     {
         ArgumentNullException.ThrowIfNull(schema);
-        var errors = new List<McpFieldError>();
+        var errors = new List<ToolFieldError>();
         Check(schema, value, string.Empty, errors);
         return errors;
     }
 
-    private static void Check(JsonObject schema, JsonElement value, string path, List<McpFieldError> errors)
+    private static void Check(JsonObject schema, JsonElement value, string path, List<ToolFieldError> errors)
     {
         var type = schema["type"]?.GetValue<string>();
         var field = path.Length == 0 ? "arguments" : path;
@@ -118,7 +118,7 @@ internal static class McpSchema
             case "object":
                 if (value.ValueKind != JsonValueKind.Object)
                 {
-                    errors.Add(new(field, McpInputTexts.Object));
+                    errors.Add(new(field, ToolInputTexts.Object));
                     return;
                 }
 
@@ -131,7 +131,7 @@ internal static class McpSchema
                     }
                     else
                     {
-                        errors.Add(new(Join(path, property.Name), McpInputTexts.Unknown));
+                        errors.Add(new(Join(path, property.Name), ToolInputTexts.Unknown));
                     }
                 }
 
@@ -139,7 +139,7 @@ internal static class McpSchema
                 {
                     if (!value.TryGetProperty(name, out _))
                     {
-                        errors.Add(new(Join(path, name), McpInputTexts.Required));
+                        errors.Add(new(Join(path, name), ToolInputTexts.Required));
                     }
                 }
 
@@ -147,7 +147,7 @@ internal static class McpSchema
             case "array":
                 if (value.ValueKind != JsonValueKind.Array)
                 {
-                    errors.Add(new(field, McpInputTexts.List));
+                    errors.Add(new(field, ToolInputTexts.List));
                     return;
                 }
 
@@ -172,31 +172,31 @@ internal static class McpSchema
             case "integer":
                 if (value.ValueKind != JsonValueKind.Number || !value.TryGetInt64(out var number))
                 {
-                    errors.Add(new(field, McpInputTexts.WholeNumber(schema)));
+                    errors.Add(new(field, ToolInputTexts.WholeNumber(schema)));
                     return;
                 }
 
                 if (number < (schema["minimum"]?.GetValue<int>() ?? int.MinValue) || number > (schema["maximum"]?.GetValue<int>() ?? int.MaxValue))
                 {
-                    errors.Add(new(field, McpInputTexts.WholeNumber(schema)));
+                    errors.Add(new(field, ToolInputTexts.WholeNumber(schema)));
                 }
 
                 return;
             case "boolean":
                 if (value.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
                 {
-                    errors.Add(new(field, McpInputTexts.TrueOrFalse));
+                    errors.Add(new(field, ToolInputTexts.TrueOrFalse));
                 }
 
                 return;
         }
     }
 
-    private static void CheckText(JsonObject schema, JsonElement value, string field, List<McpFieldError> errors)
+    private static void CheckText(JsonObject schema, JsonElement value, string field, List<ToolFieldError> errors)
     {
         if (value.ValueKind != JsonValueKind.String)
         {
-            errors.Add(new(field, McpInputTexts.Text));
+            errors.Add(new(field, ToolInputTexts.Text));
             return;
         }
 
@@ -220,19 +220,19 @@ internal static class McpSchema
         }
         else if (text.Length < min)
         {
-            errors.Add(new(field, McpInputTexts.Required));
+            errors.Add(new(field, ToolInputTexts.Required));
         }
         else if (text.Any(char.IsControl))
         {
-            errors.Add(new(field, McpInputTexts.ControlCharacters));
+            errors.Add(new(field, ToolInputTexts.ControlCharacters));
         }
         else if (schema["format"]?.GetValue<string>() is { } format && !Fits(format, text))
         {
             errors.Add(new(field, format switch
             {
-                "uuid" => McpInputTexts.Id,
-                "date-time" => McpInputTexts.Time,
-                _ => McpInputTexts.Text,
+                "uuid" => ToolInputTexts.Id,
+                "date-time" => ToolInputTexts.Time,
+                _ => ToolInputTexts.Text,
             }));
         }
     }
@@ -248,10 +248,10 @@ internal static class McpSchema
 }
 
 /// <summary>One refused field of a call: the path of the field and what to do.</summary>
-internal sealed record McpFieldError(string Field, string Error);
+internal sealed record ToolFieldError(string Field, string Error);
 
 /// <summary>The texts of refused input (short, plain: what to enter instead).</summary>
-internal static class McpInputTexts
+internal static class ToolInputTexts
 {
     public const string Object = "Pass an object.";
     public const string Unknown = "This field is not known. Leave it out.";

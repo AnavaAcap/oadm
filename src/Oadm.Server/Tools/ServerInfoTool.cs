@@ -5,11 +5,11 @@ using Oadm.Core.Auth;
 using Oadm.Server.Auth;
 using Oadm.Server.Settings;
 
-using static Oadm.Server.Mcp.McpSchema;
+using static Oadm.Server.Tools.ToolSchema;
 
 using Proto = Oadm.Contracts.V1;
 
-namespace Oadm.Server.Mcp;
+namespace Oadm.Server.Tools;
 
 /// <summary>
 /// <c>oadm_server_info</c>, the first call (docs/spec/mcp.md "Tools"): the server's version, the key's user, role and what it
@@ -21,7 +21,7 @@ internal static class ServerInfoTool
     public static readonly string MePath = InProcessCalls.PathOf(Proto.AuthService.Descriptor, "Me");
     public static readonly string SettingsPath = InProcessCalls.PathOf(Proto.SettingsService.Descriptor, "Get");
 
-    public static McpTool Create(Func<PermissionCatalog> catalog) => new(
+    public static OadmTool Create(Func<PermissionCatalog> catalog) => new(
         "oadm_server_info",
         "Server info",
         "The OADM server, your user, role and what it allows, the limits of this server and how many devices you see. Call it first.",
@@ -45,30 +45,31 @@ internal static class ServerInfoTool
                 P("count", Out("integer", "How many.")),
                 P("scope", Out("string", "All devices, or the user's device group.")),
             ], "count", "scope")),
-            P("access_key", OutObject(null,
+            P("read_only", Out("boolean", "You can only read: no tool that changes something.")),
+            P("access_key", OrNull(OutObject("The access key of the call; null without one.",
             [
                 P("name", Out("string", "The key's name.")),
-                P("read_only", Out("boolean", "The key only reads.")),
                 P("expires", Out("string", "When it ends (UTC).")),
-            ], "name", "read_only", "expires")),
+            ], "name", "expires"))),
             P("limits", OutObject(null,
             [
-                P("calls_per_second", Out("integer", "Calls per second and key.")),
-                P("calls_at_once", Out("integer", "Calls of one key that wait for their answer at the same time.")),
-                P("runs_per_minute", Out("integer", "Task runs per minute and key.")),
+                P("calls_per_second", OrNull(Out("integer", "Calls per second; null without a limit."))),
+                P("calls_at_once", OrNull(Out("integer", "Calls that wait for their answer at the same time; null without a limit."))),
+                P("runs_per_minute", OrNull(Out("integer", "Task runs per minute; null without a limit."))),
                 P("rows_default", Out("integer", "Rows of a list page by default.")),
                 P("rows_max", Out("integer", "Rows of a list page at most.")),
                 P("answer_max_bytes", Out("integer", "The largest answer.")),
             ], "calls_per_second", "calls_at_once", "runs_per_minute", "rows_default", "rows_max", "answer_max_bytes")),
-        ], "server", "user", "role", "all_permissions", "permissions", "devices", "access_key", "limits"),
+        ], "server", "user", "role", "all_permissions", "permissions", "devices", "read_only", "access_key", "limits"),
         [MePath, SettingsPath, DeviceTools.SearchPath],
         call => RunAsync(call, catalog()));
 
-    private static async Task<JsonObject> RunAsync(McpToolCall call, PermissionCatalog catalog)
+    private static async Task<JsonObject> RunAsync(ToolCall call, PermissionCatalog catalog)
     {
         var me = await call.CallAsync<AuthGrpcService, Proto.Empty, Proto.UserInfo>(MePath, new Proto.Empty(), (s, r, c) => s.Me(r, c)).ConfigureAwait(false);
         var settings = await call.CallAsync<SettingsGrpcService, Proto.Empty, Proto.ServerSettings>(SettingsPath, new Proto.Empty(), (s, r, c) => s.Get(r, c)).ConfigureAwait(false);
         var devices = await DeviceTools.SearchAsync(call, new Proto.SearchDevicesRequest()).ConfigureAwait(false);
+        var channel = call.Caller.Channel; // what the channel tells of its key and its own limits
         var keys = me.AllPermissions ? catalog.Entries.Select(e => e.Key) : me.Permissions;
         var permissions = new JsonArray();
         foreach (var key in keys.Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal))
@@ -87,20 +88,22 @@ internal static class ServerInfoTool
             ["all_permissions"] = me.AllPermissions,
             ["permissions"] = permissions,
             ["devices"] = new JsonObject { ["count"] = devices.Total, ["scope"] = scope },
-            ["access_key"] = new JsonObject
-            {
-                ["name"] = call.Caller.KeyName,
-                ["read_only"] = call.Caller.ReadOnly,
-                ["expires"] = call.Caller.KeyExpiresUtc.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", CultureInfo.InvariantCulture),
-            },
+            ["read_only"] = call.Caller.ReadOnly,
+            ["access_key"] = channel.KeyName is { } keyName
+                ? new JsonObject
+                {
+                    ["name"] = keyName,
+                    ["expires"] = channel.KeyExpiresUtc?.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", CultureInfo.InvariantCulture),
+                }
+                : null,
             ["limits"] = new JsonObject
             {
-                ["calls_per_second"] = McpAccess.CallsPerSecond,
-                ["calls_at_once"] = McpAccess.CallsAtOnce,
-                ["runs_per_minute"] = McpAccess.RunsPerMinute,
-                ["rows_default"] = McpAnswers.DefaultRows,
-                ["rows_max"] = McpAnswers.MaxRows,
-                ["answer_max_bytes"] = McpAnswers.MaxBytes,
+                ["calls_per_second"] = channel.CallsPerSecond,
+                ["calls_at_once"] = channel.CallsAtOnce,
+                ["runs_per_minute"] = channel.RunsPerMinute,
+                ["rows_default"] = ToolAnswers.DefaultRows,
+                ["rows_max"] = ToolAnswers.MaxRows,
+                ["answer_max_bytes"] = ToolAnswers.MaxBytes,
             },
         };
     }

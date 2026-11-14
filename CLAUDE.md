@@ -189,7 +189,8 @@ must never break.
   TLS, trusted CAs, VLAN, Block) are PKI's policies (docs/spec/pki.md), never settings of its own.
 - **[MCP server](docs/spec/mcp.md)** (stage 1 built: the endpoint, access keys and the read tools; stages 2 to 4 not built):
   AI agents do what a user can in the client, through the server's gRPC services in process with an access key (the
-  user's role and device group, `InProcessCalls`); off by default, own port (TCP 5082) with the certificate of the PKI
+  user's role and device group, `InProcessCalls`); the tools are one registry that knows nothing of MCP (`ToolRegistry`,
+  the caller a parameter, never the HTTP request; MCP is a thin adapter: transport, access keys, its own limits); off by default, own port (TCP 5082) with the certificate of the PKI
   policy AI agents ("MCP" only in the config snippet and the docs); access keys stored only as SHA-256, never a session;
   every change is preview then run; never all devices in a result (pages with the total and a sort-key cursor, logs with
   `more` instead of a total, answers at most 32 KB); no secrets over MCP; rights and settings GUI only.

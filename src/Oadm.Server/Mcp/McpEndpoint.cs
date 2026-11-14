@@ -12,6 +12,8 @@ using Microsoft.AspNetCore.Server.Kestrel.Https;
 
 using ModelContextProtocol.Protocol;
 
+using Oadm.Server.Tools;
+
 namespace Oadm.Server.Mcp;
 
 /// <summary>Where and with which certificate the MCP server listens.</summary>
@@ -29,7 +31,7 @@ public sealed record McpListenOptions(int Port, IReadOnlyList<IPAddress>? Addres
 /// -32020). In front of it: a browser origin other than the server (a name of its certificate) is refused (403), bodies are at most
 /// <see cref="MaxBodyBytes"/> (413), every request needs a valid access key (401) and each key at most
 /// <see cref="McpAccess.CallsPerSecond"/> calls a second and <see cref="McpAccess.CallsAtOnce"/> at once (429). Answers are not
-/// compressed (no gzip: the SDK's event stream stays as it is; they are at most <see cref="McpAnswers.MaxBytes"/>).
+/// compressed (no gzip: the SDK's event stream stays as it is; they are at most <see cref="ToolAnswers.MaxBytes"/>).
 /// </summary>
 public static class McpEndpoint
 {
@@ -61,7 +63,7 @@ public static class McpEndpoint
     internal static WebApplication Build(IServiceProvider server, McpListenOptions? listen, Action<WebApplicationBuilder>? configure = null, IReadOnlyCollection<string>? serverNames = null)
     {
         ArgumentNullException.ThrowIfNull(server);
-        var tools = server.GetRequiredService<McpTools>();
+        var tools = server.GetRequiredService<McpToolAdapter>();
         var access = server.GetRequiredService<McpAccess>();
         var builder = WebApplication.CreateEmptyBuilder(new WebApplicationOptions { EnvironmentName = "Production" });
         builder.Services.AddSingleton(server.GetRequiredService<ILoggerFactory>());
@@ -79,9 +81,8 @@ public static class McpEndpoint
             .WithListToolsHandler((request, ct) => ValueTask.FromResult(tools.List(CallerOf(request.Services))))
             .WithCallToolHandler(async (request, ct) =>
             {
-                var http = request.Services?.GetService<IHttpContextAccessor>()?.HttpContext;
                 var arguments = request.Params?.Arguments is { } given ? JsonSerializer.SerializeToElement(given) : (JsonElement?)null;
-                return await tools.CallAsync(CallerOf(request.Services), request.Params?.Name ?? string.Empty, arguments, http, ct).ConfigureAwait(false);
+                return await tools.CallAsync(CallerOf(request.Services), request.Params?.Name ?? string.Empty, arguments, ct).ConfigureAwait(false);
             });
 
         if (listen is not null)
@@ -123,9 +124,9 @@ public static class McpEndpoint
         return app;
     }
 
-    /// <summary>The caller the guard put into the request.</summary>
-    private static McpCaller CallerOf(IServiceProvider? services) =>
-        services?.GetService<IHttpContextAccessor>()?.HttpContext?.Items[CallerKey] as McpCaller
+    /// <summary>The tool caller the guard made from the access key (the only thing of the request the tools get).</summary>
+    private static ToolCaller CallerOf(IServiceProvider? services) =>
+        services?.GetService<IHttpContextAccessor>()?.HttpContext?.Items[CallerKey] as ToolCaller
         ?? throw new InvalidOperationException("An MCP request without its caller."); // the guard runs first: never reached
 
     /// <summary>The checks before the SDK sees a request.</summary>
