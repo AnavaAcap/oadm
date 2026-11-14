@@ -1,3 +1,4 @@
+using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 
 using Oadm.Core.Plugins;
@@ -63,7 +64,12 @@ public sealed class SeveralCasTests
         var stored = await settings.GetSettings(PkiPluginInfo.PluginId).GetAsync(PkiStore.ImportedCasKey, CancellationToken.None);
         Assert.Contains("keyProtected", stored, StringComparison.Ordinal);
         Assert.DoesNotContain("PRIVATE KEY", stored, StringComparison.Ordinal);
-        Assert.DoesNotContain("MII", PkiJson.Deserialize<List<StoredImportedCa>>(stored)[0].KeyProtected!, StringComparison.Ordinal); // no plain DER/PEM body
+        // No plain DER/PEM body: pieces of this key's own PKCS#8 never appear (a short marker such as "MII" can turn up in any
+        // random Base64 by chance).
+        var plain = Convert.ToBase64String(root.GetRSAPrivateKey()!.ExportPkcs8PrivateKey());
+        var protectedKey = PkiJson.Deserialize<List<StoredImportedCa>>(stored)[0].KeyProtected!;
+        Assert.DoesNotContain(plain[..24], protectedKey, StringComparison.Ordinal);
+        Assert.DoesNotContain(plain.Substring(plain.Length / 2, 24), protectedKey, StringComparison.Ordinal);
 
         // The same master key (a restart, a restored server backup with its key): it issues again.
         await using (var again = await PkiHarness.StartAsync(settings, secrets))
