@@ -253,14 +253,19 @@ internal sealed class FakeServerCertificates : IServerCertificates, IDisposable
 
     public X509Certificate2 Ca => _ca;
 
+    /// <summary>How often the host asked for the certificate (it asks only while the server is on: the first ask is its Turn on).</summary>
+    public int Loads => Volatile.Read(ref _loads);
+
+    private int _loads;
+
     public event EventHandler? Changed;
 
     public void RaiseChanged() => Changed?.Invoke(this, EventArgs.Empty);
 
     public Task<HostServerCertificate> LoadAsync(string server, CancellationToken ct) =>
-        Task.FromResult(Problem is { } problem
-            ? new HostServerCertificate([], problem)
-            : new HostServerCertificate([X509CertificateLoader.LoadPkcs12(_leaf.Export(X509ContentType.Pfx), null), X509CertificateLoader.LoadCertificate(_ca.RawData)], null));
+        Interlocked.Increment(ref _loads) > 0 && Problem is { } problem
+            ? Task.FromResult(new HostServerCertificate([], problem))
+            : Task.FromResult(new HostServerCertificate([X509CertificateLoader.LoadPkcs12(_leaf.Export(X509ContentType.Pfx), null), X509CertificateLoader.LoadCertificate(_ca.RawData)], null));
 
     public void Dispose()
     {

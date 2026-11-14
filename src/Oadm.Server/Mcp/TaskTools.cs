@@ -37,7 +37,7 @@ internal static class TaskTools
                 P("batch", Text("Only the tasks of this run (the batch id).", 36, "uuid")),
                 P("device_id", Text("Only the tasks of this device.", 36, "uuid")),
                 P("status", List("Only tasks in these states.", Choice("A state.", States), States.Count)),
-                P("cursor", Text("next_cursor of the previous page of the same list.", 200)),
+                P("cursor", Text("next_cursor of the previous page of the same list.", McpAnswers.MaxCursorLength)),
                 P("limit", Number("Tasks per page.", 1, McpAnswers.MaxRows, McpAnswers.DefaultRows)),
             ]),
             OutObject(null,
@@ -86,29 +86,34 @@ internal static class TaskTools
     private static async Task<JsonObject> ListAsync(McpToolCall call, McpCursors cursors)
     {
         var query = McpCursors.QueryOf(call.Arguments);
-        var offset = cursors.Read(call.Caller, call.Text("cursor"), query, 0);
+        var after = cursors.Read(call.Caller, call.Text("cursor"), query);
         var limit = call.Number("limit") ?? McpAnswers.DefaultRows;
         var batch = call.Text("batch");
         var device = call.Text("device_id");
         var states = call.Texts("status").ToHashSet(StringComparer.Ordinal);
-        var matching = (await TasksAsync(call).ConfigureAwait(false))
-            .Where(t => (batch is null || string.Equals(t.BatchId, batch, StringComparison.OrdinalIgnoreCase))
-                && (device is null || string.Equals(t.DeviceId, device, StringComparison.OrdinalIgnoreCase))
-                && (states.Count == 0 || states.Contains(StateOf(t.State))))
-            .ToList();
-
-        var counts = new JsonObject();
-        foreach (var state in States)
+        var counts = States.ToDictionary(s => s, _ => 0, StringComparer.Ordinal);
+        var matching = new List<(Proto.TaskInfo Task, string Key)>();
+        foreach (var task in await TasksAsync(call).ConfigureAwait(false))
         {
-            counts[state] = matching.Count(t => StateOf(t.State) == state);
+            if ((batch is null || string.Equals(task.BatchId, batch, StringComparison.OrdinalIgnoreCase))
+                && (device is null || string.Equals(task.DeviceId, device, StringComparison.OrdinalIgnoreCase))
+                && (states.Count == 0 || states.Contains(StateOf(task.State))))
+            {
+                counts[StateOf(task.State)]++;
+                matching.Add((task, SortKey(task)));
+            }
         }
 
+        // Newest first, ties by id: a new task comes before the first page and never moves the rows between pages.
+        matching.Sort((x, y) => Compare(x.Key, x.Task.Id, y.Key, y.Task.Id));
+        var index = after is { } cursor ? matching.FindIndex(m => Compare(m.Key, m.Task.Id, cursor.Key, cursor.Id) > 0) : 0;
+        index = index < 0 ? matching.Count : index;
         var rows = new JsonArray();
         var size = 1024;
-        var index = offset;
-        for (; index < matching.Count && rows.Count < limit; index++)
+        var last = -1;
+        for (var i = index; i < matching.Count && rows.Count < limit; i++)
         {
-            var row = Row(matching[index]);
+            var row = Row(matching[i].Task);
             var rowSize = McpAnswers.SizeOf(row) + 1;
             if (size + rowSize > McpAnswers.MaxBytes && rows.Count > 0)
             {
@@ -117,17 +122,35 @@ internal static class TaskTools
 
             size += rowSize;
             rows.Add(row);
+            last = i;
         }
 
-        var more = matching.Count - index;
+        var more = last < 0 ? 0 : matching.Count - last - 1;
+        var countsJson = new JsonObject();
+        foreach (var state in States)
+        {
+            countsJson[state] = counts[state];
+        }
+
         return new JsonObject
         {
             ["total"] = matching.Count,
-            ["counts"] = counts,
+            ["counts"] = countsJson,
             ["tasks"] = rows,
-            ["next_cursor"] = more > 0 ? cursors.Make(call.Caller, query, 0, index) : null,
+            ["next_cursor"] = more > 0 ? cursors.Make(call.Caller, query, matching[last].Key, matching[last].Task.Id) : null,
             ["note"] = more > 0 ? string.Create(CultureInfo.InvariantCulture, $"{more:N0} more. Pass next_cursor, or a batch or status.") : null,
         };
+    }
+
+    /// <summary>The sort key of a task: when it was created, so the newest sorts first.</summary>
+    private static string SortKey(Proto.TaskInfo task) =>
+        (task.Created?.ToDateTime().Ticks ?? 0).ToString("D20", CultureInfo.InvariantCulture);
+
+    /// <summary>Newest first (the key descending), then by id.</summary>
+    private static int Compare(string keyA, string idA, string keyB, string idB)
+    {
+        var byKey = string.CompareOrdinal(keyB, keyA);
+        return byKey != 0 ? byKey : string.CompareOrdinal(idA, idB);
     }
 
     private static async Task<JsonObject> GetAsync(McpToolCall call)

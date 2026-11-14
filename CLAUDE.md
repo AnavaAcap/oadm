@@ -190,9 +190,9 @@ must never break.
 - **[MCP server](docs/spec/mcp.md)** (stage 1 built: the endpoint, access keys and the read tools; stages 2 to 4 not built):
   AI agents do what a user can in the client, through the server's gRPC services in process with an access key (the
   user's role and device group, `InProcessCalls`); off by default, own port (TCP 5082) with the certificate of the PKI
-  policy MCP server; access keys stored only as SHA-256, never a session; every change is preview then run; never all
-  devices in a result (pages with the total and a cursor, answers at most 32 KB); no secrets over MCP; rights and settings
-  GUI only.
+  policy AI agents ("MCP" only in the config snippet and the docs); access keys stored only as SHA-256, never a session;
+  every change is preview then run; never all devices in a result (pages with the total and a sort-key cursor, logs with
+  `more` instead of a total, answers at most 32 KB); no secrets over MCP; rights and settings GUI only.
 - **[Load test](docs/spec/load-test.md)** (core plugin `oadm.load-test`, off by default): a load test of the chosen
   cameras and the network to the server, at most 1,000 camera streams per check in batches of at most 200; the exposure
   is the only write and always goes back.

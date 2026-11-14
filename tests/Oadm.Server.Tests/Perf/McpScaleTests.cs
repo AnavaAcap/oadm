@@ -14,8 +14,7 @@ namespace Oadm.Server.Tests.Perf;
 /// <summary>
 /// The MCP tools at the device limit (docs/spec/mcp.md "Tests"): 100,000 devices with 100 APIs each and 50,000 tasks; the
 /// summary, search pages, one device, the task list and the server info stay within their budgets, and no answer of any tool
-/// is larger than 32 KB. Measured: about 3 s for each device tool (DeviceService.List of 100,000 devices, as the client's
-/// snapshot), 1.4 s for the task list, milliseconds for the logs.
+/// is larger than 32 KB.
 /// </summary>
 [Trait("Category", "Perf")]
 [Collection(ServerScale.OneAtATime)]
@@ -67,11 +66,17 @@ public sealed class McpScaleTests(ITestOutputHelper output)
         });
         Assert.Equal(ServerScale.Devices, page["total"]!.GetValue<int>());
         Assert.NotNull(page["next_cursor"]);
+        await MeasureAsync("oadm_devices_search, the next page", TimeSpan.FromSeconds(30), "oadm_devices_search", new JsonObject
+        {
+            ["limit"] = McpAnswers.MaxRows,
+            ["fields"] = new JsonArray([.. DeviceTools.ExtraFields.Select(f => (JsonNode)f)]),
+            ["cursor"] = page["next_cursor"]!.GetValue<string>(),
+        });
 
-        var filtered = await MeasureAsync("oadm_devices_search with a filter (status Unreachable, sorted by name)", TimeSpan.FromSeconds(30), "oadm_devices_search", new JsonObject
+        var filtered = await MeasureAsync("oadm_devices_search with a filter (status Unreachable, sorted by host name)", TimeSpan.FromSeconds(30), "oadm_devices_search", new JsonObject
         {
             ["filter"] = new JsonObject { ["status"] = new JsonArray("Unreachable"), ["search"] = "10." },
-            ["sort"] = "-name",
+            ["sort"] = "-host_name",
         });
         Assert.Equal(ServerScale.Devices / 50, filtered["total"]!.GetValue<int>());
 

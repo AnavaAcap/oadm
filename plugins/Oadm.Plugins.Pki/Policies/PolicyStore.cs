@@ -539,7 +539,7 @@ public sealed partial class PolicyStore : IDisposable
     public bool AnyServerTurnedOn => _serverSwitches.Values.Any(on => on());
 
     /// <summary>
-    /// The names of this computer (its addresses and host name), set by PKI: the MCP server policy refuses a certificate that
+    /// The names of this computer (its addresses and host name), set by PKI: the policy AI agents refuses a certificate that
     /// names none of them (docs/spec/mcp.md "Transport and certificate"). Null: not checked.
     /// </summary>
     public Func<IReadOnlyList<string>>? McpServerNames { get; set; }
@@ -778,7 +778,7 @@ public sealed partial class PolicyStore : IDisposable
             PolicyKinds.Dot1xCertificate => $"Enable IEEE 802.1X issues certificates from {ca}, {Issued(policy)}. {SignsInAs(policy)}"
                 + (policy.RadiusCaId is { } radius ? $" Cameras check the RADIUS server with {CaName(radius, caNames)}." : string.Empty),
             PolicyKinds.EstServer => $"The EST server {shows}.",
-            PolicyKinds.McpServer => $"The MCP server for AI agents {shows}.",
+            PolicyKinds.McpServer => $"The server for AI agents {shows}.",
             PolicyKinds.Dot1xServer => string.Create(CultureInfo.CurrentCulture,
                 $"The 802.1X server {shows}. It accepts TLS {policy.MinimumTls} or later with secure cipher suites, sends EAP packets of up to {policy.LargestEapPacket ?? 0:N0} bytes and ")
                 + (policy.ReauthMinutes is { } minutes

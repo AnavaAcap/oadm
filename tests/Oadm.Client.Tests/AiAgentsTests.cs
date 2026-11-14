@@ -9,6 +9,7 @@ using Oadm.Client.Api;
 using Oadm.Client.Dialogs;
 using Oadm.Client.Settings;
 using Oadm.Client.Shell;
+using Oadm.Contracts.Mcp;
 using Oadm.Contracts.V1;
 
 namespace Oadm.Client.Tests;
@@ -51,10 +52,12 @@ public sealed class AiAgentsTests
         Assert.True(card.ShowTurnOn);
         Assert.False(card.SaveCommand.CanExecute(null));
         Assert.Equal(AiAgentsViewModel.NoChanges, card.SaveTip);
-        Assert.Equal("MCP server (OADM Root CA FAKE), until 2036-11-14", card.CertificateText);
-        Assert.Equal("Names: oadm-server.local, 10.0.0.17", card.CertificateHint);
+        Assert.Equal(McpTexts.CertificateOnTurnOn, card.CertificateText); // the first Turn on gives the policy AI agents one
+        Assert.False(card.CanDownloadCa);
 
         await card.TurnOnCommand.ExecuteAsync(null);
+        Assert.Equal("802.1X and EST server (OADM Root CA FAKE), until 2036-11-14", card.CertificateText);
+        Assert.Equal("Names: oadm-server.local, 10.0.0.17", card.CertificateHint);
         Assert.True(card.Running);
         Assert.Equal("Running on port 5082", card.StatusText);
         Assert.True(card.ShowTurnOff);

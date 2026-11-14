@@ -200,11 +200,10 @@ public static partial class OadmServerHost
         {
             var roles = sp.GetRequiredService<Core.Auth.RoleStore>();
             var cursors = sp.GetRequiredService<Mcp.McpCursors>();
-            var feed = sp.GetRequiredService<IDeviceChangeFeed>();
             return new Mcp.McpTools(
                 [
                     Mcp.ServerInfoTool.Create(() => roles.Catalog),
-                    .. Mcp.DeviceTools.Create(cursors, () => feed is DeviceChangeFeed changes ? changes.MembershipVersion : 0),
+                    .. Mcp.DeviceTools.Create(cursors),
                     .. Mcp.TaskTools.Create(cursors),
                     .. Mcp.LogTools.Create(cursors),
                 ],

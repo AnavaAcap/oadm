@@ -33,7 +33,8 @@ used again.
   (unset = keep; audited "devices Building B"); a password or disabling ends the user's sessions, a role applies to the
   next call, new devices end the user's streams like a new role), `Delete`. FAILED_PRECONDITION for the own account or
   the last enabled administrator.
-- **`AuditService`** (`auth.proto`, Admin): `List(limit, offset)` newest first + `total_count` (limit 0 = 10,000).
+- **`AuditService`** (`auth.proto`, Admin): `List(limit, offset, before_id = 3)` newest first + `total_count` (limit 0 =
+  10,000; `before_id`: only entries older than that entry, the page after it, which new entries never move).
 - **`RoleService`** (`roles.proto`, Admin except `Mine`): `GetMatrix` (every `PermissionInfo` {key, name, description,
   group, icon_key, operator_default, viewer_default, full_device_control, available} in matrix order and every `RoleInfo`
   {id, name, description, kind, permissions, user_count, version, start_page}), `SaveRoles(roles)` (create = empty id;
@@ -63,6 +64,19 @@ used again.
   the client does not use it: 23 MB for 5,000 devices with their API lists), `Remove` and `SetCredentials` (one
   transaction for all ids), `Refresh`, `GetWebUiUrl`, `GetCredentialUserName(DeviceIds)` (the stored user name the
   devices share, else empty: prefill of the Log in dialog).
+  - `Search(SearchDevicesRequest)` (signed in, like `List`; the MCP device tools, `docs/spec/mcp.md`): the devices of the
+    caller's view that match `DeviceFilter` {ids, search (address, host name, UPnP name, serial, model, AXIS OS version,
+    site, tags; any case), tags, sites ("This server" = no site), models, firmware_below, firmware_at_least, statuses,
+    categories; fields combined with AND, a list matches any value}, sorted by `sort` ("address" by default, IPv4 in number
+    order; "host_name", "upnp_name", "model", "firmware", "status", "last_seen"; a leading "-" descending; ties by id), one
+    page of `limit` (0 to 500) after the row `after_key` + `after_id` (the sort key and id of the last row before, from
+    `sort_keys`; rows added or removed elsewhere never move a page), the rows without API lists unless `with_apis`, and with
+    `group_by` (status, model, firmware, site, tag, category) the `counts` of every value, the most devices first. Reply
+    `total`, `devices`, `sort_keys`, `counts`, `after_cursor` (the matches after the cursor). Every device of the view is
+    looked at, read without its API list, and only the page is mapped (100,000 devices: about 1.5 s, docs/spec/mcp.md
+    "Measured"); no filter, rows or counts answers the view's cached count. Ids in the filter read only those devices: any
+    one that is unknown or outside the view refuses the request (NOT_FOUND, like every method); INVALID_ARGUMENT for a sort,
+    count field, limit or id it does not know.
   - `LogIn(device_ids, user_name, password, save_to_credential_list)` (context menu "Log in", `docs/spec/main-window.md`;
     Operator): per device (`Oadm.Core.Devices.DeviceLoginService`, 8 at a time, 15 s each) the stored address, scheme
     and pinned certificate with the new credential, authenticated `basicdeviceinfo`, the serial must be the record's;
@@ -253,7 +267,8 @@ used again.
   used, `docs/spec/recipient-sessions.md`), `ListRecipientCertificates` (like `SaveRule`: the certificates of PKI for the recipient dialog, both
   lists empty while PKI is not running; ids and texts only, never a key). `GetCatalog` also gives `recipient_types` (`persistent`: one shared connection).
 - **`ServerLogService`** (`logs.proto`, permission `logs.server`, users with all devices): `List` (the server's log
-  files, a page newest first), see `docs/spec/main-window.md` "Logs page".
+  files, a page newest first; `not_after = 5`: only lines at or before that ISO 8601 time, the page after a line, which new
+  lines never move; INVALID_ARGUMENT for another text), see `docs/spec/main-window.md` "Logs page".
 - **`DeviceWebService`** (`deviceweb.proto`, the Web View relay, `plugins/Oadm.Plugins.WebView/README.md`):
   `Open(device_id)` (Operator; refuses Certificate changed, Credentials required, Password not set with the shared
   text; audit "Opened web interface"), `Exchange` (one bidirectional call per HTTP request or WebSocket of the embedded

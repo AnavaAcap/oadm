@@ -84,6 +84,7 @@ public static class AccessPolicy
         // Devices: every role sees the list; the rest per permission.
         ["/oadm.v1.DeviceService/List"] = AccessRule.SignedIn,
         ["/oadm.v1.DeviceService/Watch"] = AccessRule.SignedIn,
+        ["/oadm.v1.DeviceService/Search"] = AccessRule.SignedIn, // like List: the caller's view, filtered and paged (the MCP device tools)
         ["/oadm.v1.DeviceService/Remove"] = AccessRule.Needs(HostPermissions.DevicesAddRemove),
         ["/oadm.v1.DeviceService/Refresh"] = AccessRule.Needs(HostPermissions.DevicesRefresh),
         ["/oadm.v1.DeviceService/SetCredentials"] = AccessRule.Needs(HostPermissions.DevicesLogin),

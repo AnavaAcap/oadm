@@ -324,7 +324,7 @@ public sealed class AuditGrpcService(AuditLog audit) : Proto.AuditService.AuditS
 {
     public override async Task<Proto.AuditList> List(Proto.ListAuditRequest request, ServerCallContext context)
     {
-        var (entries, total) = await audit.ListAsync(request.Limit, request.Offset, context.CancellationToken).ConfigureAwait(false);
+        var (entries, total) = await audit.ListAsync(request.Limit, request.Offset, context.CancellationToken, request.BeforeId).ConfigureAwait(false);
         var reply = new Proto.AuditList { TotalCount = total };
         reply.Entries.AddRange(entries.Select(e => new Proto.AuditEntry
         {

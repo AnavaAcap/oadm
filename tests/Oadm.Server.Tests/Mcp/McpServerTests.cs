@@ -35,6 +35,60 @@ public sealed class McpServerTests
         Assert.Equal(McpSettings.DefaultPort, state.Settings.Port);
         Assert.Equal(McpTexts.Off, state.Status);
         Assert.True(state.PkiAvailable);
+
+        // While it is off PKI is never asked: its first load is the first Turn on, which gives the policy AI agents a certificate.
+        Assert.Equal(0, server.Certificates.Loads);
+        Assert.Equal(string.Empty, state.Certificate);
+        await server.SetAsync(enabled: true);
+        Assert.True(server.Certificates.Loads > 0);
+        Assert.NotEqual(string.Empty, (await server.McpService().GetAsync(new Proto.Empty())).Certificate);
+    }
+
+    [Fact]
+    public async Task AnswersAreNeverCompressedAlsoWhenTheAgentAsksForGzip()
+    {
+        await using var server = await McpTestServer.StartAsync();
+        var key = await server.CreateKeyAsync();
+        var reply = await server.PostAsync(key, McpTestServer.Request("tools/list"), new Dictionary<string, string?> { ["Accept-Encoding"] = "gzip, br" });
+        Assert.Equal(200, reply.Status);
+        Assert.DoesNotContain(reply.ContentEncoding, e => e is "gzip" or "br");
+        Assert.NotNull(reply.Body?["result"]?["tools"]);
+    }
+
+    [Fact]
+    public async Task EachKeyHasAtMostFourCallsWaitingForAnAnswerThen429()
+    {
+        var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var entered = 0;
+        var held = new McpTool("oadm_test_hold", "Hold", "Waits for the test.", McpSchema.Object(null, []), McpSchema.OutObject(null, []), [], async _ =>
+        {
+            Interlocked.Increment(ref entered);
+            await gate.Task;
+            return [];
+        });
+        await using var server = await McpTestServer.StartAsync(configureServices: services =>
+        {
+            services.RemoveAll<McpTools>();
+            services.AddSingleton(sp => new McpTools([held], sp.GetRequiredService<Oadm.Server.Auth.InProcessCalls>(), sp.GetRequiredService<RoleStore>()));
+        });
+        var key = await server.CreateKeyAsync();
+        var other = await server.CreateKeyAsync(name: "other");
+        var calls = Enumerable.Range(0, McpAccess.CallsAtOnce).Select(_ => server.CallToolAsync(key, "oadm_test_hold")).ToList();
+        await Oadm.Sdk.Testing.Eventually.TrueAsync(() => Volatile.Read(ref entered) == McpAccess.CallsAtOnce, "every allowed call waits in the tool");
+
+        var refused = await server.PostAsync(key, McpTestServer.Request("tools/call", new JsonObject { ["name"] = "oadm_test_hold", ["arguments"] = new JsonObject() }));
+        Assert.Equal(429, refused.Status);
+        Assert.Equal("1", refused.RetryAfter);
+        Assert.Equal(McpEndpoint.TooManyAtOnce, refused.ErrorMessage);
+        Assert.Equal(200, (await server.PostAsync(other, McpTestServer.Request("tools/list"))).Status); // another key has its own
+
+        gate.SetResult();
+        foreach (var call in calls)
+        {
+            Assert.False((await call)["isError"]?.GetValue<bool>() ?? false);
+        }
+
+        Assert.Equal(200, (await server.PostAsync(key, McpTestServer.Request("tools/list"))).Status); // the places are free again
     }
 
     [Fact]

@@ -4,32 +4,84 @@ using Oadm.Sdk.Certificates;
 namespace Oadm.Plugins.Pki.Tests;
 
 /// <summary>
-/// The server policy MCP server (docs/spec/mcp.md "Transport and certificate", docs/spec/pki.md "Server certificates"): a
-/// system policy without a certificate on every server, not a PRO part, refusing a certificate that names none of the
-/// server's addresses or its host name, and the host's certificate through <see cref="IServerCertificates"/>.
+/// The server policy AI agents (docs/spec/mcp.md "Transport and certificate", docs/spec/pki.md "Server certificates"): a system
+/// policy on every server, not a PRO part, that gets the shared server certificate on the first Turn on (the host's first load)
+/// also without OADM PRO, refusing a certificate that names none of the server's addresses or its host name, and the host's
+/// certificate through <see cref="IServerCertificates"/>.
 /// </summary>
 public sealed class McpServerPolicyTests
 {
     [Fact]
-    public async Task Every_server_has_the_system_policy_MCP_server_without_a_certificate_also_without_OADM_PRO()
+    public async Task Every_server_has_the_system_policy_AI_agents_and_its_first_Turn_on_gives_it_the_shared_certificate_also_without_OADM_PRO()
     {
         await using var pki = await PkiHarness.StartAsync(pro: false);
         var policy = Assert.Single(pki.Policies.PoliciesOf(PolicyKinds.McpServer));
-        Assert.Equal(PolicyLimits.McpServerName, policy.Name);
+        Assert.Equal("AI agents", policy.Name);
+        Assert.Equal("AI agents", PolicyKinds.Name(PolicyKinds.McpServer));
         Assert.Null(policy.CertificateId);
         Assert.True(PolicyStore.IsSystem(policy, pki.Policies.All));
         Assert.False(PolicyKinds.IsPro(PolicyKinds.McpServer));
-        Assert.Equal("The MCP server for AI agents has no certificate yet.", PolicyStore.Summary(policy, new Dictionary<string, string>()));
+        Assert.Equal("The server for AI agents has no certificate yet.", PolicyStore.Summary(policy, new Dictionary<string, string>()));
 
         var refused = await pki.Policies.DeleteAsync(policy.Id, "admin", CancellationToken.None);
         Assert.Equal(PolicyTexts.SystemPolicy, refused.Error?.Message);
         var second = await pki.Policies.SaveAsync(new PkiPolicy { Name = "Second", Kind = PolicyKinds.McpServer, CertificateId = "x" }, "admin", PkiService.CipherSuites, CancellationToken.None);
         Assert.NotNull(second.Error);
 
+        // The first Turn on (the host loads the certificate only while it is on): the shared server certificate, like the EST server's.
         var host = pki.Core.FakeServices.Find<IServerCertificates>()!;
         var load = await host.LoadAsync(HostServers.Mcp, CancellationToken.None);
-        Assert.Empty(load.Chain);
-        Assert.Equal("The MCP server has no certificate. Choose one in its policy.", load.Problem);
+        string shared;
+        try
+        {
+            Assert.Null(load.Problem);
+            Assert.True(load.Chain[0].HasPrivateKey);
+            Assert.Equal(PkiService.SharedServerCertificateName, load.Chain[0].GetNameInfo(System.Security.Cryptography.X509Certificates.X509NameType.SimpleName, false));
+            shared = pki.Policies.FirstOf(PolicyKinds.McpServer)!.CertificateId!;
+        }
+        finally
+        {
+            foreach (var certificate in load.Chain)
+            {
+                certificate.Dispose();
+            }
+        }
+
+        // One certificate for every server: a second load and the PRO servers' own Turn on take the same one, none is made again.
+        await pki.Service.EnsureServerCertificatesAsync(null, CancellationToken.None);
+        Assert.Equal(shared, pki.Policies.FirstOf(PolicyKinds.EstServer)!.CertificateId);
+        Assert.Single(pki.Service.ServerCertificateChoices(), c => c.Name == PkiService.SharedServerCertificateName);
+
+        // Its Certificate field changes it afterwards; the next load keeps the user's choice.
+        Assert.Null((await CertificateListTests.CreateAsync(pki, name: "agents", addresses: Environment.MachineName)).Error);
+        var chosen = pki.Service.ServerCertificateChoices().Single(c => c.Name == "agents").Id;
+        var current = pki.Policies.FirstOf(PolicyKinds.McpServer)!;
+        Assert.Null((await pki.Policies.SaveAsync(current with { CertificateId = chosen }, "admin", PkiService.CipherSuites, CancellationToken.None)).Error);
+        var again = await host.LoadAsync(HostServers.Mcp, CancellationToken.None);
+        try
+        {
+            Assert.Equal("agents", again.Chain[0].GetNameInfo(System.Security.Cryptography.X509Certificates.X509NameType.SimpleName, false));
+        }
+        finally
+        {
+            foreach (var certificate in again.Chain)
+            {
+                certificate.Dispose();
+            }
+        }
+
+        Assert.Equal(chosen, pki.Policies.FirstOf(PolicyKinds.McpServer)!.CertificateId);
+    }
+
+    [Fact]
+    public async Task With_OADM_PRO_the_policy_takes_the_shared_certificate_the_PRO_servers_already_show()
+    {
+        await using var pki = await PkiHarness.StartAsync();
+        await pki.Service.EnsureServerCertificatesAsync(null, CancellationToken.None); // OADM PRO: one certificate for every server
+        var shared = pki.Policies.FirstOf(PolicyKinds.EstServer)!.CertificateId;
+        Assert.NotNull(shared);
+        Assert.Equal(shared, pki.Policies.FirstOf(PolicyKinds.McpServer)!.CertificateId);
+        Assert.Single(pki.Service.ServerCertificateChoices(), c => c.Name == PkiService.SharedServerCertificateName);
     }
 
     [Fact]
@@ -69,7 +121,7 @@ public sealed class McpServerPolicyTests
             }
         }
 
-        // The certificate the policy shows cannot be deleted; another server than the MCP server has no policy here.
+        // The certificate the policy shows cannot be deleted; another server than the one for AI agents has no policy here.
         Assert.Equal(PolicyKinds.McpServer, pki.Policies.ShowingCertificate(own)?.Kind);
         Assert.NotNull((await host.LoadAsync("other", CancellationToken.None)).Problem);
 

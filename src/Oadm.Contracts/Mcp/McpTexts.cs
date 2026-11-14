@@ -12,7 +12,10 @@ public static class McpTexts
     public const string NoPki = "Turn on PKI to choose the certificate.";
     public const string Off = "Off";
     public const string UnknownInterface = "This interface is not available. Choose another one.";
-    public const string NoCaCertificate = "The MCP server has no certificate yet.";
+    public const string NoCaCertificate = "The server for AI agents has no certificate yet.";
+
+    /// <summary>The certificate line of the card while it is off: the first Turn on gives the policy one (docs/spec/mcp.md).</summary>
+    public const string CertificateOnTurnOn = "Turn on gets it from the PKI policy AI agents.";
 
     /// <summary>The certificate's chain is not known to PKI: agents cannot be given a CA.</summary>
     public const string NoIssuer = "PKI does not know the CA of this certificate.";

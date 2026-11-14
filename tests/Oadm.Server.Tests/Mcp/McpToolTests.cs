@@ -3,6 +3,7 @@ using System.Text.RegularExpressions;
 
 using Oadm.Core.Auth;
 using Oadm.Core.Devices;
+using Oadm.Core.Persistence;
 using Oadm.Core.Plugins;
 using Oadm.Plugins.Restart;
 using Oadm.Server.Mcp;
@@ -87,7 +88,7 @@ public sealed partial class McpToolTests
     /// <summary>The gRPC methods the tools of stage 1 call: reads only. A new tool that calls another method extends this list on purpose.</summary>
     private static readonly string[] Stage1Methods =
     [
-        "/oadm.v1.AuditService/List", "/oadm.v1.AuthService/Me", "/oadm.v1.DeviceService/List", "/oadm.v1.ServerLogService/List",
+        "/oadm.v1.AuditService/List", "/oadm.v1.AuthService/Me", "/oadm.v1.DeviceService/Search", "/oadm.v1.ServerLogService/List",
         "/oadm.v1.SettingsService/Get", "/oadm.v1.TaskService/GetLog", "/oadm.v1.TaskService/List",
     ];
 
@@ -128,9 +129,9 @@ public sealed partial class McpToolTests
         var list = await server.PostAsync(key, McpTestServer.Request("tools/list"));
         Assert.DoesNotContain(Planted, list.Body!.ToJsonString(), StringComparison.Ordinal);
 
-        var search = await server.ToolAsync(key, "oadm_devices_search", new JsonObject { ["fields"] = new JsonArray("host_name", "upnp_name", "tags") });
+        var search = await server.ToolAsync(key, "oadm_devices_search", new JsonObject { ["fields"] = new JsonArray("tags") });
         var row = Assert.Single(search["devices"]!.AsArray())!.AsObject();
-        Assert.Equal(Planted, row["name"]!.GetValue<string>());
+        Assert.Equal(Planted, row["upnp_name"]!.GetValue<string>());
         Assert.Equal(Planted, row["host_name"]!.GetValue<string>());
         Assert.Equal([Planted], row["tags"]!.AsArray().Select(t => t!.GetValue<string>()));
         Assert.True(search["note"] is null);
@@ -328,11 +329,60 @@ public sealed partial class McpToolTests
 
         var changedQuery = await server.CallToolAsync(key, "oadm_devices_search", new JsonObject { ["cursor"] = first["next_cursor"]!.GetValue<string>(), ["sort"] = "-address" });
         Assert.True(changedQuery["isError"]!.GetValue<bool>());
+        var forged = await server.CallToolAsync(key, "oadm_devices_search", new JsonObject { ["cursor"] = "WyIwIiwiMCJd." + first["next_cursor"]!.GetValue<string>().Split('.')[^1] });
+        Assert.True(forged["isError"]!.GetValue<bool>());
 
-        await DeviceServiceTests.AddDeviceAsync(server.Host, "10.8.1.1", 7999);
-        var changed = await server.CallToolAsync(key, "oadm_devices_search", new JsonObject { ["cursor"] = first["next_cursor"]!.GetValue<string>() });
-        Assert.True(changed["isError"]!.GetValue<bool>());
-        Assert.Contains(McpCursors.DevicesChanged, changed["content"]![0]!["text"]!.GetValue<string>(), StringComparison.Ordinal);
+        // A sort-key cursor: a device added before the cursor, or one removed, never moves the next page (no "list changed").
+        var second = await server.ToolAsync(key, "oadm_devices_search", new JsonObject { ["cursor"] = first["next_cursor"]!.GetValue<string>() });
+        await DeviceServiceTests.AddDeviceAsync(server.Host, "10.8.0.0", 7999); // sorts before every row
+        await new Proto.DeviceService.DeviceServiceClient(server.Host.Invoker).RemoveAsync(new Proto.DeviceIds { Ids = { seen[0] } });
+        var again = await server.ToolAsync(key, "oadm_devices_search", new JsonObject { ["cursor"] = first["next_cursor"]!.GetValue<string>() });
+        Assert.Equal(
+            second["devices"]!.AsArray().Select(d => d!["id"]!.GetValue<string>()),
+            again["devices"]!.AsArray().Select(d => d!["id"]!.GetValue<string>()));
+        Assert.Equal("10.8.0.51", again["devices"]![0]!["address"]!.GetValue<string>());
+        Assert.Equal(120, again["total"]!.GetValue<int>()); // one added, one removed
+    }
+
+    [Fact]
+    public async Task AnEmptyFilterPagesEveryDeviceWithTheTotalAndACursor()
+    {
+        // docs/spec/mcp.md "Devices and the device filter": an empty filter is every device you see, page by page.
+        await using var server = await McpTestServer.StartAsync();
+        for (var i = 1; i <= 5; i++)
+        {
+            await DeviceServiceTests.AddDeviceAsync(server.Host, $"10.9.0.{i}", 7100 + i);
+        }
+
+        var key = await server.CreateKeyAsync();
+        var page = await server.ToolAsync(key, "oadm_devices_search", new JsonObject { ["filter"] = new JsonObject(), ["limit"] = 2 });
+        Assert.Equal(5, page["total"]!.GetValue<int>());
+        Assert.Equal(2, page["devices"]!.AsArray().Count);
+        Assert.NotNull(page["next_cursor"]);
+        Assert.Equal("3 more. Add a filter, e.g. site or model, or pass next_cursor.", page["note"]!.GetValue<string>());
+    }
+
+    [Fact]
+    public async Task ARowGivesTheAddressTheHostNameAndTheUpnpNameApartAndTheSearchMatchesEach()
+    {
+        await using var server = await McpTestServer.StartAsync();
+        var repository = server.Host.Get<DeviceRepository>();
+        await repository.AddAsync(new Device { Serial = FakeSerials.Make(9101), Address = "10.4.0.1", HostName = "gate-north", UpnpFriendlyName = "Entrance camera", Model = "M3085-V", Status = Oadm.Sdk.Devices.DeviceStatus.Ok }, CancellationToken.None);
+        await repository.AddAsync(new Device { Serial = FakeSerials.Make(9102), Address = "10.4.0.2", HostName = string.Empty, UpnpFriendlyName = "Yard", Model = "Q6135-LE", Status = Oadm.Sdk.Devices.DeviceStatus.Ok }, CancellationToken.None);
+        var key = await server.CreateKeyAsync();
+
+        var all = await server.ToolAsync(key, "oadm_devices_search", new JsonObject { ["sort"] = "upnp_name" });
+        var rows = all["devices"]!.AsArray().Select(d => d!.AsObject()).ToList();
+        Assert.Equal(["Entrance camera", "Yard"], rows.Select(r => r["upnp_name"]!.GetValue<string>()));
+        Assert.Equal("gate-north", rows[0]["host_name"]!.GetValue<string>());
+        Assert.Equal(string.Empty, rows[1]["host_name"]!.GetValue<string>());
+        Assert.All(rows, r => Assert.Null(r["name"])); // OADM never picks one name for a device
+
+        foreach (var (text, address) in new[] { ("10.4.0.2", "10.4.0.2"), ("gate-NORTH", "10.4.0.1"), ("entrance", "10.4.0.1") })
+        {
+            var found = await server.ToolAsync(key, "oadm_devices_search", new JsonObject { ["filter"] = new JsonObject { ["search"] = text } });
+            Assert.Equal(address, Assert.Single(found["devices"]!.AsArray())!["address"]!.GetValue<string>());
+        }
     }
 
     [Fact]
@@ -427,5 +477,66 @@ public sealed partial class McpToolTests
         var entry = Assert.Single(entries["entries"]!.AsArray(), e => e!["action"]!.GetValue<string>() == AuditActions.AccessKeyCreated);
         Assert.Equal("auditor", entry!["target"]!.GetValue<string>());
         Assert.True(entries["next_cursor"] is null);
+        Assert.False(entries["more"]!.GetValue<bool>());
+        Assert.Null(entries["total"]); // logs answer more and a cursor, never a total (rule 3)
+    }
+
+    [Fact]
+    public async Task TheAuditLogPagesByItsLastEntryAndANewEntryNeverMovesThePages()
+    {
+        await using var server = await McpTestServer.StartAsync();
+        var key = await server.CreateKeyAsync(name: "pager-a");
+        await server.CreateKeyAsync(name: "pager-b");
+        await server.CreateKeyAsync(name: "pager-c");
+        var seen = new List<string>();
+        var page = await server.ToolAsync(key, "oadm_logs_audit", new JsonObject { ["text"] = "pager", ["limit"] = 1 });
+        while (true)
+        {
+            seen.AddRange(page["entries"]!.AsArray().Select(e => e!["target"]!.GetValue<string>()));
+            if (!page["more"]!.GetValue<bool>())
+            {
+                Assert.True(page["next_cursor"] is null);
+                break;
+            }
+
+            await server.CreateKeyAsync(name: "pager-new-" + seen.Count); // newer than every page already read
+            page = await server.ToolAsync(key, "oadm_logs_audit", new JsonObject { ["text"] = "pager", ["limit"] = 1, ["cursor"] = page["next_cursor"]!.GetValue<string>() });
+        }
+
+        Assert.Equal(["pager-c", "pager-b", "pager-a"], seen);
+    }
+
+    [Fact]
+    public async Task TheServerLogPagesByTheLastLineAndANewLineNeverMovesThePages()
+    {
+        await using var server = await McpTestServer.StartAsync();
+        var logs = server.Host.Get<OadmPaths>().LogsDirectory;
+        Directory.CreateDirectory(logs);
+        var file = Path.Combine(logs, "oadm-server-29991231.log"); // sorts first: today's file belongs to the test server's own logger
+        await File.WriteAllTextAsync(file, """
+            2026-10-17 08:00:00.000 +02:00 [INF] Oadm.Server.Tests: pager one
+            2026-10-17 08:00:01.000 +02:00 [INF] Oadm.Server.Tests: pager two
+            2026-10-17 08:00:01.000 +02:00 [INF] Oadm.Server.Tests: pager three
+            2026-10-17 08:00:02.000 +02:00 [INF] Oadm.Server.Tests: pager four
+
+            """);
+        var key = await server.CreateKeyAsync();
+        var seen = new List<string>();
+        var page = await server.ToolAsync(key, "oadm_logs_search", new JsonObject { ["text"] = "pager", ["limit"] = 1 });
+        Assert.Null(page["total"]);
+        while (true)
+        {
+            seen.AddRange(page["lines"]!.AsArray().Select(l => l!["message"]!.GetValue<string>()));
+            if (!page["more"]!.GetValue<bool>())
+            {
+                Assert.True(page["next_cursor"] is null);
+                break;
+            }
+
+            await File.AppendAllTextAsync(file, "2026-10-17 08:00:03.000 +02:00 [INF] Oadm.Server.Tests: pager new\n"); // newer than every page already read
+            page = await server.ToolAsync(key, "oadm_logs_search", new JsonObject { ["text"] = "pager", ["limit"] = 1, ["cursor"] = page["next_cursor"]!.GetValue<string>() });
+        }
+
+        Assert.Equal(["pager four", "pager three", "pager two", "pager one"], seen); // two lines of one millisecond, each once
     }
 }

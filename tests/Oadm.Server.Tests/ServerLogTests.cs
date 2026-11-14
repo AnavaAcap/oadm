@@ -53,6 +53,10 @@ public sealed class ServerLogTests
             Assert.Equal(["Error", "Warning"], problems.Entries.Select(e => e.Level));
             Assert.Single(LogFileReader.Read(folder, "oadm-server-*.log", 0, 10, 0, "connection was reset", CancellationToken.None).Entries); // in the exception
             Assert.Empty(LogFileReader.Read(Path.Combine(folder, "missing"), "*.log", 0, 10, 0, null, CancellationToken.None).Entries);
+
+            // From a line on (the page after it): newer lines are left out, so they never move the page.
+            var older = LogFileReader.Read(folder, "oadm-server-*.log", 0, 10, 0, null, CancellationToken.None, all.Entries[2].Time);
+            Assert.Equal(["Task Restart device done", "Event rule Gate: action Send email failed: smtp.example.com:587 cannot be reached", "Server started"], older.Entries.Select(e => e.Message));
         }
         finally
         {
@@ -74,6 +78,10 @@ public sealed class ServerLogTests
         Assert.Equal("A line without a source: still a message", page.Entries[0].Message);
         Assert.Equal("2026-10-17T08:00:01.000+02:00", page.Entries[1].Time);
         Assert.Contains("IOException", page.Entries[1].Exception, StringComparison.Ordinal);
+        var after = await new Proto.ServerLogService.ServerLogServiceClient(host.Invoker).ListAsync(new Proto.ListServerLogRequest { Limit = 1, NotAfter = page.Entries[1].Time });
+        Assert.Equal(page.Entries[1].Time, after.Entries[0].Time); // at or before
+        var wrong = await Assert.ThrowsAsync<RpcException>(async () => await new Proto.ServerLogService.ServerLogServiceClient(host.Invoker).ListAsync(new Proto.ListServerLogRequest { NotAfter = "yesterday" }));
+        Assert.Equal(StatusCode.InvalidArgument, wrong.StatusCode);
 
         // An operator does not see it until the role gets "See the server log".
         var op = new Proto.ServerLogService.ServerLogServiceClient(await host.InvokerForUserAsync("op", UserRole.Operator));

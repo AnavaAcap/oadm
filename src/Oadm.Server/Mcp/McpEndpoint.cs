@@ -28,8 +28,8 @@ public sealed record McpListenOptions(int Port, IReadOnlyList<IPAddress>? Addres
 /// <c>initialize</c>; the SDK checks <c>MCP-Protocol-Version</c>, <c>Mcp-Method</c> and <c>Mcp-Name</c> against the body,
 /// -32020). In front of it: a browser origin other than the server (a name of its certificate) is refused (403), bodies are at most
 /// <see cref="MaxBodyBytes"/> (413), every request needs a valid access key (401) and each key at most
-/// <see cref="McpAccess.CallsPerSecond"/> calls a second (429). The SDK answers every request as a short event stream marked
-/// <c>Content-Encoding: identity</c>, so answers are not compressed (they are at most <see cref="McpAnswers.MaxBytes"/>).
+/// <see cref="McpAccess.CallsPerSecond"/> calls a second and <see cref="McpAccess.CallsAtOnce"/> at once (429). Answers are not
+/// compressed (no gzip: the SDK's event stream stays as it is; they are at most <see cref="McpAnswers.MaxBytes"/>).
 /// </summary>
 public static class McpEndpoint
 {
@@ -46,6 +46,7 @@ public static class McpEndpoint
     public const string BrowserRefused = "Requests from web pages are not accepted.";
     public const string TooLarge = "The request is larger than 1 MB.";
     public const string TooManyCalls = "Too many calls with this access key. Wait a second.";
+    public const string TooManyAtOnce = "Too many calls with this access key at once. Wait for an answer.";
     public const string NoProtocolVersion = "The MCP-Protocol-Version header is missing.";
     public const string TooManyRefused = "Too many refused access keys from your address. Try again in a few minutes.";
 
@@ -189,6 +190,14 @@ public static class McpEndpoint
         {
             // The SDK would serve it as an older revision; this server speaks only ProtocolVersion (Streamable HTTP "Server Validation").
             await RefuseAsync(http, StatusCodes.Status400BadRequest, NoProtocolVersion, HeaderMismatch).ConfigureAwait(false);
+            return;
+        }
+
+        using var inFlight = access.TryStartCall(caller);
+        if (inFlight is null)
+        {
+            http.Response.Headers.RetryAfter = "1";
+            await RefuseAsync(http, StatusCodes.Status429TooManyRequests, TooManyAtOnce).ConfigureAwait(false);
             return;
         }
 

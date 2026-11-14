@@ -9,7 +9,7 @@ Each entry is one short line in plain words (what the user gets, not how); no ne
 
 ### Added
 
-- AI agents: turn on the server AI agents connect to on the Settings page, with the certificate of the PKI policy MCP server.
+- AI agents: turn on the server AI agents connect to on the Settings page; the first Turn on gives it the shared server certificate of PKI, the PKI policy AI agents changes it.
 - AI agents: create access keys in the account menu; an agent reads your devices, tasks and logs with the rights of your role.
 - Permissions: the role right Use AI agents, and every user's access keys with Delete.
 - Plugin SDK 0.13.0: the certificates of the servers OADM runs, and the permission Use AI agents.

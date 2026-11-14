@@ -13,13 +13,13 @@ using Oadm.Sdk.Network;
 namespace Oadm.Server.Mcp;
 
 /// <summary>What the Settings card shows of the MCP server.</summary>
-/// <param name="Certificate">"MCP server (OADM Root CA SERVER01), until 2036-11-14"; null without one.</param>
+/// <param name="Certificate">"802.1X and EST server (OADM Root CA SERVER01), until 2036-11-14"; null without one or while off.</param>
 public sealed record McpStatus(McpSettings Settings, bool Running, string Text, bool PkiAvailable, string? Certificate, IReadOnlyList<string> CertificateNames, IReadOnlyList<byte[]> CaCertificates);
 
 /// <summary>
 /// Opens and closes the MCP server's port (docs/spec/mcp.md "Transport and certificate"): while the setting is on, PKI runs and
-/// its policy MCP server picks a usable certificate, the server listens on the port and interface; otherwise the port is
-/// closed and the status says why. It follows the setting (Save on the card), PKI's certificate (a change of the policy or the
+/// its policy AI agents picks a usable certificate (the first Turn on gives the policy the shared server certificate), the
+/// server listens on the port and interface; otherwise the port is closed and the status says why. It follows the setting (Save on the card), PKI's certificate (a change of the policy or the
 /// Certificates list), PKI being turned on or off and, every 30 s, whatever it could not open before (a port in use, an
 /// interface that is gone). The Windows service keeps a firewall rule for the port only while it listens.
 /// </summary>
@@ -107,6 +107,14 @@ public sealed partial class McpListener : IAsyncDisposable
                 return;
             }
 
+            if (!settings.Enabled)
+            {
+                // Off: PKI is not asked (its first load gives the policy the shared server certificate, like a Turn on).
+                await CloseAsync().ConfigureAwait(false);
+                Set(new McpStatus(settings, false, McpTexts.Off, true, null, [], []));
+                return;
+            }
+
             var loaded = await certificates.LoadAsync(HostServers.Mcp, ct).ConfigureAwait(false);
             try
             {
@@ -114,13 +122,6 @@ public sealed partial class McpListener : IAsyncDisposable
                 var label = leaf is null ? null : Label(leaf);
                 var names = leaf is null ? [] : NamesOf(leaf);
                 IReadOnlyList<byte[]> cas = [.. loaded.Chain.Skip(1).Select(c => c.RawData)];
-                if (!settings.Enabled)
-                {
-                    await CloseAsync().ConfigureAwait(false);
-                    Set(new McpStatus(settings, false, McpTexts.Off, true, label, names, cas));
-                    return;
-                }
-
                 if (leaf is null)
                 {
                     await CloseAsync().ConfigureAwait(false);
@@ -311,7 +312,7 @@ public sealed partial class McpListener : IAsyncDisposable
         }
     }
 
-    /// <summary>"MCP server (OADM Root CA SERVER01), until 2036-11-14".</summary>
+    /// <summary>"802.1X and EST server (OADM Root CA SERVER01), until 2036-11-14".</summary>
     private static string Label(X509Certificate2 certificate) =>
         $"{certificate.GetNameInfo(X509NameType.SimpleName, false)} ({certificate.GetNameInfo(X509NameType.SimpleName, true)}), until {certificate.NotAfter.ToUniversalTime():yyyy-MM-dd}";
 
@@ -320,15 +321,15 @@ public sealed partial class McpListener : IAsyncDisposable
             ? [.. san.EnumerateIPAddresses().Select(ip => ip.ToString()), .. san.EnumerateDnsNames()]
             : [];
 
-    [LoggerMessage(Level = LogLevel.Information, Message = "MCP server listening on port {Port}")]
+    [LoggerMessage(Level = LogLevel.Information, Message = "AI agents: listening on port {Port}")]
     private partial void LogListening(int port);
 
-    [LoggerMessage(Level = LogLevel.Information, Message = "MCP server port closed")]
+    [LoggerMessage(Level = LogLevel.Information, Message = "AI agents: port closed")]
     private partial void LogClosed();
 
-    [LoggerMessage(Level = LogLevel.Warning, Message = "MCP server: port {Port} cannot be opened")]
+    [LoggerMessage(Level = LogLevel.Warning, Message = "AI agents: port {Port} cannot be opened")]
     private partial void LogOpenFailed(Exception ex, int port);
 
-    [LoggerMessage(Level = LogLevel.Warning, Message = "MCP server: the port could not be brought in line with the setting")]
+    [LoggerMessage(Level = LogLevel.Warning, Message = "AI agents: the port could not be brought in line with the setting")]
     private partial void LogApplyFailed(Exception ex);
 }

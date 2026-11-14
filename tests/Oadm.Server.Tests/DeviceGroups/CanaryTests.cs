@@ -84,6 +84,11 @@ public sealed partial class CanaryTests
             await Devices(c).SetFirstPasswordAsync(new Proto.SetFirstPasswordRequest { DeviceIds = { c.Inside.ToString(), id.ToString() }, Password = "Secret123" }),
         ["/oadm.v1.DeviceService/GetWebUiUrl"] = async (c, id) =>
             await Devices(c).GetWebUiUrlAsync(new Proto.DeviceId { Id = id.ToString() }),
+        ["/oadm.v1.DeviceService/Search"] = async (c, id) =>
+            await Devices(c).SearchAsync(new Proto.SearchDevicesRequest
+            {
+                Filter = new Proto.DeviceFilter { Ids = { c.Inside.ToString(), id.ToString() } }, Limit = 10, WithApis = true, GroupBy = "status",
+            }),
         ["/oadm.v1.DeviceWebService/Open"] = async (c, id) =>
             await new Proto.DeviceWebService.DeviceWebServiceClient(c.Invoker).OpenAsync(new Proto.OpenDeviceWebRequest { DeviceId = id.ToString() }),
         ["/oadm.v1.DeviceWebService/Exchange"] = (c, id) => Inside(c, id, async () =>

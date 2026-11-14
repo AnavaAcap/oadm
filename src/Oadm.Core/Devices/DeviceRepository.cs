@@ -140,7 +140,7 @@ public sealed class DeviceRepository(IDbContextFactory<OadmDbContext> dbFactory,
     /// <see cref="Device.CredentialUserName"/> filled: the device list in pages, so 30,000 devices are never all in memory
     /// at once for one reader.
     /// </summary>
-    public async Task<IReadOnlyList<Device>> ListDevicesPageAsync(string? afterSerial, int take, CancellationToken ct)
+    public async Task<IReadOnlyList<Device>> ListDevicesPageAsync(string? afterSerial, int take, CancellationToken ct, bool withApis = true)
     {
         ArgumentOutOfRangeException.ThrowIfLessThan(take, 1);
         await using var db = await dbFactory.CreateDbContextAsync(ct).ConfigureAwait(false);
@@ -152,7 +152,8 @@ public sealed class DeviceRepository(IDbContextFactory<OadmDbContext> dbFactory,
 #pragma warning restore CA1309
         }
 
-        var devices = await query.OrderBy(d => d.Serial).Take(take).ToListAsync(ct).ConfigureAwait(false);
+        query = query.OrderBy(d => d.Serial).Take(take);
+        var devices = await (withApis ? query : query.Select(WithoutApis)).ToListAsync(ct).ConfigureAwait(false);
         var ids = devices.Select(d => d.Id).ToList();
         var users = await db.DeviceCredentials.AsNoTracking().Where(c => ids.Contains(c.DeviceId))
             .ToDictionaryAsync(c => c.DeviceId, c => c.UserName, ct).ConfigureAwait(false);
@@ -185,7 +186,7 @@ public sealed class DeviceRepository(IDbContextFactory<OadmDbContext> dbFactory,
     /// The devices of <paramref name="ids"/> that exist, with <see cref="Device.CredentialUserName"/> filled (read 500 ids at
     /// a time; unknown ids are left out, so a caller compares the counts). Order: by serial.
     /// </summary>
-    public async Task<IReadOnlyList<Device>> GetManyAsync(IReadOnlyCollection<Guid> ids, CancellationToken ct)
+    public async Task<IReadOnlyList<Device>> GetManyAsync(IReadOnlyCollection<Guid> ids, CancellationToken ct, bool withApis = true)
     {
         ArgumentNullException.ThrowIfNull(ids);
         if (ids.Count == 0)
@@ -197,7 +198,8 @@ public sealed class DeviceRepository(IDbContextFactory<OadmDbContext> dbFactory,
         await using var db = await dbFactory.CreateDbContextAsync(ct).ConfigureAwait(false);
         foreach (var chunk in ids.Distinct().Chunk(500))
         {
-            var devices = await db.Devices.AsNoTracking().Where(d => chunk.Contains(d.Id)).ToListAsync(ct).ConfigureAwait(false);
+            var query = db.Devices.AsNoTracking().Where(d => chunk.Contains(d.Id));
+            var devices = await (withApis ? query : query.Select(WithoutApis)).ToListAsync(ct).ConfigureAwait(false);
             var users = await db.DeviceCredentials.AsNoTracking().Where(c => chunk.Contains(c.DeviceId))
                 .ToDictionaryAsync(c => c.DeviceId, c => c.UserName, ct).ConfigureAwait(false);
             foreach (var device in devices)
@@ -459,6 +461,47 @@ public sealed class DeviceRepository(IDbContextFactory<OadmDbContext> dbFactory,
 
     async Task<IDeviceInfo?> IDeviceRepository.FindAsync(Guid id, CancellationToken ct) =>
         await GetAsync(id, ct).ConfigureAwait(false);
+
+    /// <summary>
+    /// Every column but the API list (the largest one, about 8 KB with 100 APIs): reads that filter or count devices
+    /// (<c>DeviceService.Search</c>) skip it. A test checks that it names every other column of the table.
+    /// </summary>
+    internal static readonly System.Linq.Expressions.Expression<Func<Device, Device>> WithoutApis = d => new Device
+    {
+        Id = d.Id,
+        Serial = d.Serial,
+        Address = d.Address,
+        UseHostName = d.UseHostName,
+        HostName = d.HostName,
+        Model = d.Model,
+        FirmwareVersion = d.FirmwareVersion,
+        DhcpEnabled = d.DhcpEnabled,
+        HttpsEnabled = d.HttpsEnabled,
+        Dot1xEnabled = d.Dot1xEnabled,
+        UpnpFriendlyName = d.UpnpFriendlyName,
+        ServerName = d.ServerName,
+        Status = d.Status,
+        Scheme = d.Scheme,
+        CertFingerprintSha256 = d.CertFingerprintSha256,
+        ProductType = d.ProductType,
+        Soc = d.Soc,
+        Architecture = d.Architecture,
+        Category = d.Category,
+        CertNotAfterUtc = d.CertNotAfterUtc,
+        CertTrust = d.CertTrust,
+        CertSubject = d.CertSubject,
+        CertIssuer = d.CertIssuer,
+        CertNameMatches = d.CertNameMatches,
+        LastSeenUtc = d.LastSeenUtc,
+        ClockOffsetMs = d.ClockOffsetMs,
+        NtpState = d.NtpState,
+        WarrantyExpiry = d.WarrantyExpiry,
+        ReplacementModel = d.ReplacementModel,
+        Tags = d.Tags,
+        SiteId = d.SiteId,
+        AddedByAllDevices = d.AddedByAllDevices,
+        AddedByGroupId = d.AddedByGroupId,
+    };
 
     private static void CopyColumns(Device from, Device to)
     {

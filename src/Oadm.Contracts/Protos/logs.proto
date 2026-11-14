@@ -14,6 +14,7 @@ message ListServerLogRequest {
   int32 limit = 2;
   string min_level = 3;
   string search = 4;
+  string not_after = 5;  // ISO 8601: only entries at or before this time (the page after a line with this time); empty = from the newest
 }
 
 // time: ISO 8601 with the server's offset; level: "Information", "Warning" ...; source: the class that logged it.

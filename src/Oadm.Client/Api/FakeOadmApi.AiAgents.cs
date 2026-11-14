@@ -126,10 +126,14 @@ public sealed partial class FakeOadmApi
             Running = _mcp.Enabled,
             Status = _mcp.Enabled ? Oadm.Contracts.Mcp.McpTexts.Running(_mcp.Port) : Oadm.Contracts.Mcp.McpTexts.Off,
             PkiAvailable = true,
-            Certificate = "MCP server (OADM Root CA FAKE), until 2036-11-14",
-            HasCaCertificate = true,
+            Certificate = _mcp.Enabled ? "802.1X and EST server (OADM Root CA FAKE), until 2036-11-14" : string.Empty, // PKI is asked only while on
+            HasCaCertificate = _mcp.Enabled,
         };
-        state.CertificateNames.AddRange(["oadm-server.local", "10.0.0.17"]);
+        if (_mcp.Enabled)
+        {
+            state.CertificateNames.AddRange(["oadm-server.local", "10.0.0.17"]);
+        }
+
         state.Interfaces.Add(new McpInterface { Id = "all", Label = "All interfaces", Name = "All interfaces" });
         state.Interfaces.Add(new McpInterface { Id = "eth0", Label = "Ethernet - 10.0.0.17", Name = "Ethernet", Addresses = { "10.0.0.17" } });
         return state;

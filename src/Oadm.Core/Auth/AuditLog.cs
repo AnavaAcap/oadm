@@ -187,13 +187,22 @@ public sealed partial class AuditLog(IDbContextFactory<OadmDbContext> dbFactory,
     /// </summary>
     public static string Clean(string? text) => Cut(text);
 
-    /// <summary>Newest first; <paramref name="limit"/> 0 = <see cref="DefaultListLimit"/>.</summary>
-    public async Task<(IReadOnlyList<AuditRecord> Entries, int TotalCount)> ListAsync(int limit, int offset, CancellationToken ct)
+    /// <summary>
+    /// Newest first; <paramref name="limit"/> 0 = <see cref="DefaultListLimit"/>. <paramref name="beforeId"/> above 0: only
+    /// entries older than that entry (the page after it, which a new entry never moves); the total counts every entry.
+    /// </summary>
+    public async Task<(IReadOnlyList<AuditRecord> Entries, int TotalCount)> ListAsync(int limit, int offset, CancellationToken ct, long beforeId = 0)
     {
         limit = limit <= 0 ? DefaultListLimit : Math.Min(limit, MaxListLimit);
         await using var db = await dbFactory.CreateDbContextAsync(ct).ConfigureAwait(false);
         var total = await db.AuditEntries.CountAsync(ct).ConfigureAwait(false);
-        var rows = await db.AuditEntries.AsNoTracking()
+        var query = db.AuditEntries.AsNoTracking();
+        if (beforeId > 0)
+        {
+            query = query.Where(e => e.Id < beforeId);
+        }
+
+        var rows = await query
             .OrderByDescending(e => e.Id)
             .Skip(Math.Max(0, offset))
             .Take(limit)

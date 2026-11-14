@@ -23,7 +23,8 @@ public sealed record McpCaller(AuthenticatedCaller Caller, string KeyName, bool 
 /// <summary>
 /// Who calls the MCP server (docs/spec/mcp.md "Access keys"): the access key of <c>Authorization: Bearer</c> resolved to its
 /// user with the role and device group of now (a new role or group applies to the next call; a disabled or deleted user, a
-/// new password or a deleted key end it at once), at most <see cref="CallsPerSecond"/> calls per second and key, and every
+/// new password or a deleted key end it at once), at most <see cref="CallsPerSecond"/> calls per second and
+/// <see cref="CallsAtOnce"/> calls waiting for their answer per key (every device tool reads the whole view), and every
 /// refused key in the audit log (one entry per address and key a minute, its count in the detail, so a client that retries
 /// never pushes the history out).
 /// </summary>
@@ -31,6 +32,9 @@ public sealed class McpAccess(AuthTokenStore tokens, RoleStore roles, DeviceView
 {
     /// <summary>Calls per second and key (HTTP 429 with Retry-After beyond).</summary>
     public const int CallsPerSecond = 20;
+
+    /// <summary>Calls of one key that wait for their answer at the same time (HTTP 429 with Retry-After beyond).</summary>
+    public const int CallsAtOnce = 4;
 
     /// <summary>Task runs per minute and key (stage 2: the task tools).</summary>
     public const int RunsPerMinute = 10;
@@ -49,6 +53,8 @@ public sealed class McpAccess(AuthTokenStore tokens, RoleStore roles, DeviceView
     private readonly AddressRateLimiter _calls = new(CallsPerSecond, total: 0, TimeSpan.FromSeconds(1), time);
     private readonly AddressRateLimiter _refused = new(MaxRefusedPerAddress, total: 0, RefusedWindow, time);
     private readonly SemaphoreSlim _refusalGate = new(1, 1);
+    private readonly Lock _inFlightGate = new();
+    private readonly Dictionary<string, int> _inFlight = new(StringComparer.Ordinal); // only keys with a call that waits
     private readonly Dictionary<string, Refusals> _refusals = new(StringComparer.Ordinal);
 
     /// <summary>The caller of <paramref name="key"/>; null when the key is missing, unknown, ended or its user is disabled (audited).</summary>
@@ -88,6 +94,56 @@ public sealed class McpAccess(AuthTokenStore tokens, RoleStore roles, DeviceView
     {
         ArgumentNullException.ThrowIfNull(caller);
         return _calls.TryAcquire(caller.KeyHash);
+    }
+
+    /// <summary>
+    /// Takes one of the key's <see cref="CallsAtOnce"/> places for a call until its answer (dispose the result); null when all
+    /// are taken (nothing taken).
+    /// </summary>
+    public IDisposable? TryStartCall(McpCaller caller)
+    {
+        ArgumentNullException.ThrowIfNull(caller);
+        lock (_inFlightGate)
+        {
+            var now = _inFlight.GetValueOrDefault(caller.KeyHash);
+            if (now >= CallsAtOnce)
+            {
+                return null;
+            }
+
+            _inFlight[caller.KeyHash] = now + 1;
+        }
+
+        return new CallInFlight(this, caller.KeyHash);
+    }
+
+    private void EndCall(string keyHash)
+    {
+        lock (_inFlightGate)
+        {
+            var now = _inFlight.GetValueOrDefault(keyHash) - 1;
+            if (now <= 0)
+            {
+                _inFlight.Remove(keyHash);
+            }
+            else
+            {
+                _inFlight[keyHash] = now;
+            }
+        }
+    }
+
+    private sealed class CallInFlight(McpAccess access, string keyHash) : IDisposable
+    {
+        private int _ended;
+
+        public void Dispose()
+        {
+            if (Interlocked.Exchange(ref _ended, 1) == 0)
+            {
+                access.EndCall(keyHash);
+            }
+        }
     }
 
     private async Task AuditRefusedAsync(string? key, string clientAddress, CancellationToken ct)

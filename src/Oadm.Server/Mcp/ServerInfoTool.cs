@@ -3,7 +3,6 @@ using System.Text.Json.Nodes;
 
 using Oadm.Core.Auth;
 using Oadm.Server.Auth;
-using Oadm.Server.Devices;
 using Oadm.Server.Settings;
 
 using static Oadm.Server.Mcp.McpSchema;
@@ -15,7 +14,7 @@ namespace Oadm.Server.Mcp;
 /// <summary>
 /// <c>oadm_server_info</c>, the first call (docs/spec/mcp.md "Tools"): the server's version, the key's user, role and what it
 /// allows, Read only, the limits and how many devices the user sees. Through <c>AuthService.Me</c>, <c>SettingsService.Get</c>
-/// and <c>DeviceService.List</c>.
+/// and <c>DeviceService.Search</c> (the count only).
 /// </summary>
 internal static class ServerInfoTool
 {
@@ -55,20 +54,21 @@ internal static class ServerInfoTool
             P("limits", OutObject(null,
             [
                 P("calls_per_second", Out("integer", "Calls per second and key.")),
+                P("calls_at_once", Out("integer", "Calls of one key that wait for their answer at the same time.")),
                 P("runs_per_minute", Out("integer", "Task runs per minute and key.")),
                 P("rows_default", Out("integer", "Rows of a list page by default.")),
                 P("rows_max", Out("integer", "Rows of a list page at most.")),
                 P("answer_max_bytes", Out("integer", "The largest answer.")),
-            ], "calls_per_second", "runs_per_minute", "rows_default", "rows_max", "answer_max_bytes")),
+            ], "calls_per_second", "calls_at_once", "runs_per_minute", "rows_default", "rows_max", "answer_max_bytes")),
         ], "server", "user", "role", "all_permissions", "permissions", "devices", "access_key", "limits"),
-        [MePath, SettingsPath, DeviceTools.ListPath],
+        [MePath, SettingsPath, DeviceTools.SearchPath],
         call => RunAsync(call, catalog()));
 
     private static async Task<JsonObject> RunAsync(McpToolCall call, PermissionCatalog catalog)
     {
         var me = await call.CallAsync<AuthGrpcService, Proto.Empty, Proto.UserInfo>(MePath, new Proto.Empty(), (s, r, c) => s.Me(r, c)).ConfigureAwait(false);
         var settings = await call.CallAsync<SettingsGrpcService, Proto.Empty, Proto.ServerSettings>(SettingsPath, new Proto.Empty(), (s, r, c) => s.Get(r, c)).ConfigureAwait(false);
-        var devices = await call.CallAsync<DeviceGrpcService, Proto.Empty, Proto.DeviceList>(DeviceTools.ListPath, new Proto.Empty(), (s, r, c) => s.List(r, c)).ConfigureAwait(false);
+        var devices = await DeviceTools.SearchAsync(call, new Proto.SearchDevicesRequest()).ConfigureAwait(false);
         var keys = me.AllPermissions ? catalog.Entries.Select(e => e.Key) : me.Permissions;
         var permissions = new JsonArray();
         foreach (var key in keys.Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal))
@@ -86,7 +86,7 @@ internal static class ServerInfoTool
             ["role"] = me.RoleName,
             ["all_permissions"] = me.AllPermissions,
             ["permissions"] = permissions,
-            ["devices"] = new JsonObject { ["count"] = devices.Devices.Count, ["scope"] = scope },
+            ["devices"] = new JsonObject { ["count"] = devices.Total, ["scope"] = scope },
             ["access_key"] = new JsonObject
             {
                 ["name"] = call.Caller.KeyName,
@@ -96,6 +96,7 @@ internal static class ServerInfoTool
             ["limits"] = new JsonObject
             {
                 ["calls_per_second"] = McpAccess.CallsPerSecond,
+                ["calls_at_once"] = McpAccess.CallsAtOnce,
                 ["runs_per_minute"] = McpAccess.RunsPerMinute,
                 ["rows_default"] = McpAnswers.DefaultRows,
                 ["rows_max"] = McpAnswers.MaxRows,

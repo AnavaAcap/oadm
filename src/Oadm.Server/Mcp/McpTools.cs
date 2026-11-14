@@ -180,6 +180,9 @@ internal static class McpAnswers
     public const int DefaultRows = 50;
     public const int MaxRows = 200;
 
+    /// <summary>The longest cursor (the last row's sort key and id, signed).</summary>
+    public const int MaxCursorLength = 1024;
+
     public const string FieldsMessage = "Some arguments are not valid. Correct them and call again.";
     public const string Failed = "The call failed. Try again.";
     public const string ReadOnlyKey = "This access key is Read only.";

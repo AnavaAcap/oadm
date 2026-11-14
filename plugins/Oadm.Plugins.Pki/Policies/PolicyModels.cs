@@ -47,7 +47,7 @@ public static class PolicyKinds
     /// <summary>The EST server's certificate: CA, valid days, key (one only).</summary>
     public const string EstServer = "estServer";
 
-    /// <summary>The certificate of the host's MCP server for AI agents (one only, not PRO; docs/spec/mcp.md).</summary>
+    /// <summary>"AI agents": the certificate of the host's MCP server (one only, not PRO; docs/spec/mcp.md; "MCP" only in the docs).</summary>
     public const string McpServer = "mcpServer";
 
     /// <summary>"802.1X trusted CA": certificates of a CA may pass the 802.1X server.</summary>
@@ -82,7 +82,7 @@ public static class PolicyKinds
         Dot1xCertificate => "IEEE 802.1X certificate",
         Dot1xServer => "802.1X server",
         EstServer => "EST server",
-        McpServer => "MCP server",
+        McpServer => "AI agents",
         AllowCa => "802.1X trusted CA",
         Vlan => "VLAN",
         Block => "Block",
@@ -198,7 +198,7 @@ public static class PolicyLimits
     public const string Dot1xName = "IEEE 802.1X";
     public const string Dot1xServerCertificateName = "802.1X server";
     public const string EstServerCertificateName = "EST server";
-    public const string McpServerName = "MCP server";
+    public const string McpServerName = "AI agents";
 }
 
 /// <summary>The key of an issuing policy.</summary>
@@ -595,7 +595,7 @@ public static class PolicyTexts
     public const string CertificateGone = "This certificate is no longer in the Certificates list. Choose another one.";
     public const string Dot1xServerNeedsEccCertificate = "The 802.1X server needs a certificate with an ECC key.";
 
-    /// <summary>The MCP server's certificate names none of this computer's addresses and not its host name (agents could not check it).</summary>
+    /// <summary>The certificate of AI agents names none of this computer's addresses and not its host name (agents could not check it).</summary>
     public const string McpServerNamesNotInCertificate = "This certificate names none of this server's addresses and not its host name. Choose another one.";
 
     /// <summary>A server certificate is valid for 10 years (Create of a server policy, Turn on).</summary>

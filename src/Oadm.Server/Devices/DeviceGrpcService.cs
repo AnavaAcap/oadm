@@ -76,6 +76,84 @@ public sealed class DeviceGrpcService(
     }
 
     /// <summary>
+    /// The devices of the caller's view that match the filter, one page after the cursor (the last row's sort key and id),
+    /// with the number of matches and the asked counts (<see cref="DeviceSearch"/>). Every device of the view is looked at,
+    /// only the page is mapped; ids in the filter read only those devices, and any id that is unknown or outside the view
+    /// refuses the whole request (NOT_FOUND, like every method). INVALID_ARGUMENT for a sort, count field, row number or id
+    /// it does not know.
+    /// </summary>
+    public override async Task<Proto.SearchDevicesReply> Search(Proto.SearchDevicesRequest request, ServerCallContext context)
+    {
+        var ct = context.CancellationToken;
+        DeviceSearch search;
+        try
+        {
+            search = DeviceSearch.From(request);
+        }
+        catch (ArgumentException ex)
+        {
+            throw GrpcGuard.InvalidArgument(ex.Message);
+        }
+
+        var view = await views.ForAsync(context).ConfigureAwait(false);
+        if (search.CountsOnly)
+        {
+            var count = await view.CountAsync(ct).ConfigureAwait(false);
+            return new Proto.SearchDevicesReply { Total = count, AfterCursor = count };
+        }
+
+        if (search.Ids is { } ids)
+        {
+            foreach (var device in await view.GetAsync(ids, ct).ConfigureAwait(false))
+            {
+                search.Add(device);
+            }
+        }
+        else
+        {
+            // Without the API lists: they are the largest column, and only one device's details show them.
+            await foreach (var page in view.PagesAsync(SnapshotPageSize, ct, withApis: false).ConfigureAwait(false))
+            {
+                foreach (var device in page)
+                {
+                    search.Add(device);
+                }
+            }
+        }
+
+        var rows = search.Page();
+        var withCredentials = rows.Count == 0 ? (IReadOnlySet<Guid>)new HashSet<Guid>() : await actions.DeviceIdsWithCredentialsAsync(ct).ConfigureAwait(false);
+        Dictionary<Guid, Device>? full = null;
+        if (request.WithApis && search.Ids is null)
+        {
+            full = []; // the page read again with its API lists (a device removed meanwhile keeps its row without them)
+            foreach (var (row, _) in rows)
+            {
+                if (await view.FindAsync(row.Id, ct).ConfigureAwait(false) is { } device)
+                {
+                    full[device.Id] = device;
+                }
+            }
+        }
+        var reply = new Proto.SearchDevicesReply { Total = search.Total, AfterCursor = search.AfterCursor };
+        foreach (var (row, key) in rows)
+        {
+            var device = full?.GetValueOrDefault(row.Id) ?? row;
+            var proto = ToProto(device, withCredentials.Contains(device.Id));
+            if (!request.WithApis)
+            {
+                proto.Apis.Clear();
+            }
+
+            reply.Devices.Add(proto);
+            reply.SortKeys.Add(key);
+        }
+
+        reply.Counts.AddRange(search.Counts().Select(c => new Proto.DeviceFieldCount { Value = c.Value, Count = c.Count }));
+        return reply;
+    }
+
+    /// <summary>
     /// Snapshot (one ADDED per device of the caller's view), SNAPSHOT_END when asked for, then live changes until the client
     /// or the server stops. A slow client gets the changes coalesced per device, never dropped. A device that leaves the
     /// view becomes REMOVED, one that enters it ADDED (<see cref="DeviceViewFeed"/>); a change of the caller's group ends the

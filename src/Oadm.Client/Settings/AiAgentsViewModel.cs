@@ -25,7 +25,8 @@ namespace Oadm.Client.Settings;
 public sealed partial class AiAgentsViewModel : ValidatingViewModel
 {
     public const string Intro = "AI agents work in OADM with an access key and the rights of its user.";
-    public const string ChooseCertificate = "Choose a certificate in the PKI policy MCP server.";
+    public const string ChooseCertificate = McpTexts.CertificateOnTurnOn;
+    public const string NoCertificate = "None";
     public const string PortRange = McpTexts.PortRange;
     public const string NoChanges = "No changes to save.";
 
@@ -88,10 +89,11 @@ public sealed partial class AiAgentsViewModel : ValidatingViewModel
     /// <summary>On but not listening: the status is a problem.</summary>
     public bool HasProblem => IsOn && !Running;
 
-    /// <summary>The certificate the PKI policy picks, or what to do.</summary>
+    /// <summary>The certificate the PKI policy picks (known while it is on), or where it comes from; on without one the status says why.</summary>
     public string CertificateText => _state is null ? string.Empty
         : !_state.PkiAvailable ? McpTexts.NoPki
         : _state.Certificate.Length > 0 ? _state.Certificate
+        : _state.Settings.Enabled ? NoCertificate
         : ChooseCertificate;
 
     /// <summary>The names the certificate holds (agents connect with one of them).</summary>

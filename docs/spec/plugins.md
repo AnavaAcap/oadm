@@ -628,8 +628,9 @@ box back with the error below the list (`PluginsViewModel.SwitchAsync`).
   (`DeviceCertificatePurposes`). `CertificateDescriber` (SDK) and the client SDK's `CertificateWindow` show a certificate
   in plain names. Also `IRecipientCertificates` by PKI, which only the host reads, and `IRecipientCertificateUse` by the host for PKI
   (`docs/spec/recipient-sessions.md` "Security"); `IServerCertificates` by PKI (SDK 0.13.0): the certificate with its key and
-  issuers that a server policy picks for a server the host runs (`HostServers.Mcp`, the MCP server, docs/spec/mcp.md), or why
-  there is none, and `Changed`; only the host reads it. Test fake: `FakePluginServices` (`FakeCoreContext.FakeServices`).
+  issuers that a server policy picks for a server the host runs (`HostServers.Mcp`, the MCP server of the policy AI agents,
+  docs/spec/mcp.md), or why there is none, and `Changed`; only the host reads it, and only while that server is on (like a
+  PKI server's Turn on, the first load gives a policy without a certificate the shared server certificate). Test fake: `FakePluginServices` (`FakeCoreContext.FakeServices`).
 - **Protected tags** (`ICorePluginContext.ProtectedTags`, `Oadm.Sdk.Devices.IProtectedTags.Protect(names, refusal)`;
   server `ProtectedTagRegistry`): a core plugin whose settings act on devices by tag names those tags; only users with all
   devices then add them to or remove them from devices (`docs/spec/tags.md` "Protected tags"). Each call replaces the
