@@ -31,6 +31,9 @@ namespace Oadm.Server.Tests.Mcp;
 /// </summary>
 public sealed class McpTaskPartTests
 {
+    /// <summary>The Applications task (<c>AcapPlugin.Id</c>; HardeningScan links the same class, so the type name is ambiguous here).</summary>
+    private const string AcapTaskId = "oadm.acap";
+
     private static readonly DeviceApi Fwmgr = new("fwmgr", "1.0");
     private static readonly DeviceApi NetworkSettings = new("network-settings", "1.0");
     private static readonly DeviceApi Application = new("application", "1.0");
@@ -85,7 +88,7 @@ public sealed class McpTaskPartTests
         var tasks = catalog["tasks"]!.AsArray().Select(t => t!["task"]!.GetValue<string>()).ToHashSet(StringComparer.Ordinal);
         string[] offered =
         [
-            FirmwareTaskPlugin.PluginId, NetworkSettingsTaskPlugin.PluginId, AssignIpTaskPlugin.PluginId, AcapPlugin.Id, PkiTaskIds.HttpsEnable, PkiTaskIds.HttpsDisable,
+            FirmwareTaskPlugin.PluginId, NetworkSettingsTaskPlugin.PluginId, AssignIpTaskPlugin.PluginId, AcapTaskId, PkiTaskIds.HttpsEnable, PkiTaskIds.HttpsDisable,
             PkiTaskIds.Dot1xEnable, PkiTaskIds.Dot1xDisable, PkiTaskIds.Renew, PkiTaskIds.InstallCa,
         ];
         Assert.All(offered, id => Assert.Contains(id, tasks));
@@ -233,19 +236,19 @@ public sealed class McpTaskPartTests
         var device = await AddAsync(server.Host, "10.22.0.1", 5201, "M3085-V", "12.8.0", DeviceStatus.Ok, Application);
         var key = await server.CreateKeyAsync();
 
-        var remove = await PreviewAsync(server, key, AcapPlugin.Id, Filter(device), new JsonObject { ["action"] = "remove", ["application"] = "vmd" });
+        var remove = await PreviewAsync(server, key, AcapTaskId, Filter(device), new JsonObject { ["action"] = "remove", ["application"] = "vmd" });
         Assert.Equal(1, remove["will_run"]!.GetValue<int>());
         Assert.Equal("Remove vmd", remove["task_name"]!.GetValue<string>());
         Assert.Equal("The application's settings are lost with it.", Assert.Single(remove["warnings"]!.AsArray())!.GetValue<string>());
-        var stop = await PreviewAsync(server, key, AcapPlugin.Id, Filter(device), new JsonObject { ["action"] = "stop", ["application"] = "vmd" });
+        var stop = await PreviewAsync(server, key, AcapTaskId, Filter(device), new JsonObject { ["action"] = "stop", ["application"] = "vmd" });
         Assert.Empty(stop["warnings"]!.AsArray());
 
         // The dialog's rules at their fields; the schema leaves license keys and settings out.
-        var install = await RefusedAsync(server, key, AcapPlugin.Id, Filter(device), new JsonObject { ["action"] = "install" });
+        var install = await RefusedAsync(server, key, AcapTaskId, Filter(device), new JsonObject { ["action"] = "install" });
         Assert.StartsWith("Install needs an uploaded package", install["input.files"], StringComparison.Ordinal);
-        var name = await RefusedAsync(server, key, AcapPlugin.Id, Filter(device), new JsonObject { ["action"] = "start", ["application"] = "../x" });
+        var name = await RefusedAsync(server, key, AcapTaskId, Filter(device), new JsonObject { ["action"] = "start", ["application"] = "../x" });
         Assert.StartsWith("The application name is not valid", name["input.application"], StringComparison.Ordinal);
-        var secret = await RefusedAsync(server, key, AcapPlugin.Id, Filter(device), new JsonObject
+        var secret = await RefusedAsync(server, key, AcapTaskId, Filter(device), new JsonObject
         {
             ["action"] = "installLicense",
             ["licenseKeys"] = new JsonArray(),
