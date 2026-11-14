@@ -420,11 +420,29 @@ internal static class DeviceChangeTools
     ], "source", "complete", "found", "will_try", "states", "first", "not_answering", "not_answering_count", "keep_waiting", "warnings", "handle", "expires");
 
     /// <summary>What watching a discovery session gave: the last message of every device and whether the scan finished.</summary>
+    /// <remarks>
+    /// The discovery session can still write after the watch ended (its own threads), so writes are locked and
+    /// <see cref="Devices"/> answers a copy: a caller never enumerates a dictionary that changes under it.
+    /// </remarks>
     private sealed class Watched : IServerStreamWriter<Proto.DiscoveredDevice>
     {
-        public Dictionary<string, Proto.DiscoveredDevice> Devices { get; } = new(StringComparer.Ordinal);
+        private readonly Lock _gate = new();
+        private readonly Dictionary<string, Proto.DiscoveredDevice> _devices = new(StringComparer.Ordinal);
+        private volatile bool _finished;
 
-        public bool Finished { get; private set; }
+        /// <summary>A copy of the last message of every device so far.</summary>
+        public IReadOnlyDictionary<string, Proto.DiscoveredDevice> Devices
+        {
+            get
+            {
+                lock (_gate)
+                {
+                    return new Dictionary<string, Proto.DiscoveredDevice>(_devices, StringComparer.Ordinal);
+                }
+            }
+        }
+
+        public bool Finished => _finished;
 
         public WriteOptions? WriteOptions { get; set; }
 
@@ -432,10 +450,17 @@ internal static class DeviceChangeTools
 
         public Task WriteAsync(Proto.DiscoveredDevice message)
         {
-            Finished |= message.ScanFinished;
+            if (message.ScanFinished)
+            {
+                _finished = true;
+            }
+
             if (!string.IsNullOrEmpty(message.DiscoveredId))
             {
-                Devices[message.DiscoveredId] = message;
+                lock (_gate)
+                {
+                    _devices[message.DiscoveredId] = message;
+                }
             }
 
             return Task.CompletedTask;

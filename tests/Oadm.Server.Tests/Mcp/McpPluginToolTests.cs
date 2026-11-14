@@ -302,6 +302,11 @@ public sealed class McpPluginToolTests
         await server.Host.Get<CorePluginHost>().StartAllAsync(CancellationToken.None);
         await pki.Service!.Background; // the default CA
         server.Host.Get<PluginServiceRegistry>().For("oadm.pki").Offer<IServerCertificates>(server.Certificates);
+
+        // Starting PKI made the listener apply again in the background with PKI's own certificates; applies run one at a
+        // time, so this one, after the fake is back, is the last word and the server listens when it returns.
+        await server.Listener.ApplyAsync(CancellationToken.None);
+        Assert.NotNull(server.Listener.App);
         return server;
     }
 
