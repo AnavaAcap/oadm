@@ -15,6 +15,7 @@ Each entry is one short line in plain words (what the user gets, not how); no ne
 - AI agents: an agent sends a file for a task through a one-time upload link, never through the model.
 - AI agents: an agent runs Upgrade AXIS OS, Network settings, Assign IP address, Applications and the HTTPS, 802.1X and renew certificate tasks, with the dialogs' checks and warnings.
 - AI agents: an agent cancels tasks and lists and deletes the files it sent.
+- AI agents: a task preview names the uploaded files it uses with their SHA-256.
 - AI agents: an agent takes a camera picture, refreshes, removes and adds devices, and sets their login from the credential list.
 - AI agents: an agent lists and changes device tags, lists sites, reads compliance results and checks, works with event rules and reads the event log.
 - AI agents: an agent reads PKI certificates and policies, creates a certificate, and reads the NTP server, DHCP server and Hardening scan status.

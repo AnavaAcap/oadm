@@ -349,7 +349,9 @@ The website gets a user page (Tools > AI agents, `tools/ai-agents`) and a develo
   dialog makes), EST setup, Users. The PKI enable tasks have no clock question over MCP: a device with a late clock
   refuses. The schema export also describes maps (Network's devices by id: `propertyNames` uuid, at most 100,000).
 - **Tasks and files**: `oadm_tasks_cancel_preview`/`_run` (a batch or up to 200 task ids; counts what stops and what
-  cannot; only the caller's devices); `oadm_files_list` (the files this key's user sent, newest first, 50 a page;
+  cannot; only the caller's devices; one cancel takes at most 200 tasks and runs at most 60 s, `more_after_this` and
+  `left` say to preview again); a task preview names each uploaded file it uses with its SHA-256 (`files`), and an
+  application install warns that the package runs on the devices; `oadm_files_list` (the files this key's user sent, newest first, 50 a page;
   `FileService.List`) and `oadm_files_delete_preview`/`_run`.
 - **Download links**: `GET /files/<token>` on the MCP port serves a `PlannedDownload`: once, 10 minutes, bound to the key,
   the same key check as uploads, audited "Downloaded file"; a Read only key may fetch one. No tool hands one out yet: a
@@ -387,8 +389,8 @@ The website gets a user page (Tools > AI agents, `tools/ai-agents`) and a develo
   saved off unless `enabled`; the preview names actions that change devices and warns about one on every device),
   `oadm_rules_delete_preview`/`_run`, `oadm_events_log` (`more` and a cursor, no total). Passwords, secret headers, code
   and file fields of actions are never shown, and a rule that needs a new one answers "Set this in OADM.". A change keeps
-  an action's stored passwords, tokens and hidden headers only while everything that names where the action sends (host,
-  URL, port, user, recipient, topic, address) is unchanged; otherwise it is refused with "Set this in OADM.". Rule answers
+  an action's stored passwords, tokens and hidden headers only while the change touches nothing but the action's content
+  (message text, code, multi-line text); any other change of such an action is refused with "Set this in OADM.". Rule answers
   show an address as scheme, host and port only (an address given back unchanged keeps the stored one), and a URL with a
   login in it is refused. The save preview names every outside destination ("Sends event data to ...") and warns again
   of a new one that is not a saved recipient. Warnings and errors are fixed sentences; rule, recipient and device names

@@ -195,6 +195,7 @@ used again.
   - `Run` and `Query` answer a task plugin their permission lookup does not find with NOT_FOUND "Unknown task plugin 'x'."
     at once (one turned on meanwhile never runs unchecked). `Run` refuses a page task (hidden from the menus, no
     permissions of its own) for every caller: PERMISSION_DENIED "This task starts only from its page."
+  - `Plan` answers `files` (`PlanFile`: name and SHA-256 of each upload the plan uses, from the caller's uploads).
 - **`FileService`** (`files.proto`): `Upload` (client stream: header {name, size}, then 256 KB data chunks; returns id,
   name, size, SHA-256; INVALID_ARGUMENT; RESOURCE_EXHAUSTED over `Uploads.MaxMegabytes`, over the 10 GB of all uploads
   together or when less than 1 GB of disk would stay free, `docs/spec/security.md` "Limits"), `Delete(fileId)`. Uploads
