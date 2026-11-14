@@ -20,7 +20,9 @@ host change.
    apply exactly as for the client. A tool never reads stores, `VapixClient` or plugins around that layer.
 2. **No change without a preview.** Every tool that changes something (devices, tags, rules, files, tasks) is two calls:
    a preview that checks all input on the server and returns the plan and a handle, and a run that takes only that
-   handle. Nothing is written by a preview.
+   handle. Nothing is written by a preview. One exception: `oadm_files_upload_link` hands out a one-time link and writes
+   nothing itself; the file sent to it is the change, and a task that uses the file is again a preview and a run
+   (`ToolRegistryTests.PreviewAndRunStayTwoTools` names it as the only exception).
 3. **Never all devices in a result.** Lists return at most 50 rows by default (at most 200), always with the total and a
    cursor; the first answer about devices is a summary (counts), never a list. Logs are the exception: a log list answers
    `more` and a cursor instead of a total (a text or time filter would need a count of the whole log).
