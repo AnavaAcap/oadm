@@ -49,4 +49,29 @@ public sealed class ToolTests
         Assert.Equal(1, mine["recent_answered"]!.GetValue<int>());
         Assert.Empty(ctx.RefusedAccesses);
     }
+
+    [Fact]
+    public async Task Every_tool_without_Changes_leaves_the_stored_state_as_it_was()
+    {
+        var ctx = new Testing.FakeCoreContext();
+        await using var plugin = new NtpServerPlugin(new NtpServerOptions { Time = new FakeTimeProvider() });
+        await plugin.StartAsync(ctx, CancellationToken.None);
+        var admin = ctx.CallAsAllDevices();
+        await ctx.InvokeAsync(plugin, admin, NtpServerMethods.GetState, null);
+        var before = Stored(ctx);
+
+        ICorePlugin core = plugin;
+        Assert.All(core.Tools, t => Assert.False(t.Changes)); // no change tool here: every tool is a read
+        foreach (var tool in core.Tools)
+        {
+            Assert.NotNull(await ctx.InvokeAsync(plugin, admin, tool.Method, null));
+            Assert.NotNull(await ctx.InvokeAsync(plugin, admin, tool.Method, "{}"));
+        }
+
+        Assert.Equal(before, Stored(ctx));
+    }
+
+    /// <summary>Everything the plugin keeps: its settings and the number of record writes.</summary>
+    private static string Stored(Testing.FakeCoreContext ctx) =>
+        string.Join('\n', ctx.PluginSettings.Values.OrderBy(p => p.Key, StringComparer.Ordinal).Select(p => p.Key + "=" + p.Value)) + "\nrecord writes: " + ctx.PluginRecords.WrittenRecords;
 }

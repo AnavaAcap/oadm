@@ -118,4 +118,33 @@ public sealed class ToolTests(ITestOutputHelper output)
         Assert.True(rows > 0);
         Assert.True(slowest < TimeSpan.FromSeconds(2), $"too slow: {slowest.TotalMilliseconds:F0} ms");
     }
+
+    [Fact]
+    public async Task Every_tool_without_Changes_leaves_the_stored_state_as_it_was()
+    {
+        var ctx = new Testing.FakeCoreContext();
+        ctx.Add(new Testing.FakeDevice { Address = "10.0.0.7" });
+        await using var plugin = new HardeningScanPlugin(new HardeningScanOptions { Time = new FakeTimeProvider() });
+        await plugin.StartAsync(ctx, CancellationToken.None);
+        var admin = ctx.CallAsAllDevices();
+        await ctx.InvokeAsync(plugin, admin, HardeningMethods.StartScan, """{"level":"Basic"}""");
+        await plugin.Service!.WaitAsync();
+        var before = Stored(ctx);
+        Assert.NotEmpty(ctx.PluginSettings.Values); // the scan stored its results: there is something to compare
+
+        ICorePlugin core = plugin;
+        Assert.All(core.Tools, t => Assert.False(t.Changes)); // no change tool here: every tool is a read
+        foreach (var tool in core.Tools)
+        {
+            Assert.NotNull(await ctx.InvokeAsync(plugin, admin, tool.Method, null));
+            Assert.NotNull(await ctx.InvokeAsync(plugin, admin, tool.Method, """{"level":"basic","limit":1}"""));
+            Assert.NotNull(await ctx.InvokeAsync(plugin, admin, tool.Method, """{"level":"deep"}""")); // an invalid call too
+        }
+
+        Assert.Equal(before, Stored(ctx));
+    }
+
+    /// <summary>Everything the plugin keeps: its settings and the number of record writes.</summary>
+    private static string Stored(Testing.FakeCoreContext ctx) =>
+        string.Join('\n', ctx.PluginSettings.Values.OrderBy(p => p.Key, StringComparer.Ordinal).Select(p => p.Key + "=" + p.Value)) + "\nrecord writes: " + ctx.PluginRecords.WrittenRecords;
 }

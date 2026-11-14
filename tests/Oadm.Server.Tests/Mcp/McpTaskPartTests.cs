@@ -127,7 +127,8 @@ public sealed class McpTaskPartTests
         var down = await AddAsync(server.Host, "10.20.0.5", 5005, "P3265-V", "12.5.0", DeviceStatus.Unreachable, Fwmgr);
         var key = await server.CreateKeyAsync();
         var tasksBefore = (await server.Host.Tasks.ListAsync(new Proto.ListTasksRequest())).Tasks.Count;
-        var fileId = Convert.ToHexString(RandomNumberGenerator.GetBytes(16)).ToLowerInvariant();
+        var image = RandomNumberGenerator.GetBytes(64);
+        var fileId = await UploadAsync(server, key, "P3265-V_12_11_77.bin", image);
         JsonObject Input(string mode = "none", bool downgrade = false) => new()
         {
             ["files"] = new JsonArray(new JsonObject { ["fileId"] = fileId, ["fileName"] = "P3265-V_12_11_77.bin" }),
@@ -146,6 +147,14 @@ public sealed class McpTaskPartTests
         Assert.Contains(skipped, r => r.StartsWith("Downgrade 12.12.0", StringComparison.Ordinal) && r.Contains("Allow downgrade", StringComparison.Ordinal));
         Assert.Equal(4, skipped.Count); // and the unreachable one, by its own reason
         Assert.Empty(preview["warnings"]!.AsArray());
+
+        // The preview names the file it would use, with its SHA-256 from the upload store (the caller's own uploads only).
+        var named = Assert.Single(preview["files"]!.AsArray())!;
+        Assert.Equal("P3265-V_12_11_77.bin", named["name"]!.GetValue<string>());
+        Assert.Equal(Convert.ToHexString(SHA256.HashData(image)), named["sha256"]!.GetValue<string>());
+        var strange = await PreviewAsync(server, key, FirmwareTaskPlugin.PluginId, Filter(up), new JsonObject { ["files"] = new JsonArray(new JsonObject { ["fileId"] = Convert.ToHexString(RandomNumberGenerator.GetBytes(16)).ToLowerInvariant(), ["fileName"] = "P3265-V_12_11_77.bin" }) });
+        Assert.Empty(strange["files"]!.AsArray());
+        Assert.Equal(FirmwareTaskPlugin.FileMissingWarning, Assert.Single(strange["warnings"]!.AsArray())!.GetValue<string>());
         Assert.False(string.IsNullOrEmpty(preview["handle"]!.GetValue<string>()));
         Assert.Equal(tasksBefore, (await server.Host.Tasks.ListAsync(new Proto.ListTasksRequest())).Tasks.Count); // nothing written
 
@@ -153,6 +162,7 @@ public sealed class McpTaskPartTests
         var soft = await PreviewAsync(server, key, FirmwareTaskPlugin.PluginId, Filter(older), Input("soft", downgrade: true));
         Assert.Equal(1, soft["will_run"]!.GetValue<int>());
         Assert.Equal(FirmwareWarnings.Soft, Assert.Single(soft["warnings"]!.AsArray())!.GetValue<string>());
+        Assert.Single(soft["files"]!.AsArray());
 
         // The dialog's rules: a file that is not a .bin file, at its field; the schema first for a name or a choice it does not know.
         var rules = await RefusedAsync(server, key, FirmwareTaskPlugin.PluginId, Filter(up), new JsonObject { ["files"] = new JsonArray(new JsonObject { ["fileId"] = fileId, ["fileName"] = "firmware.zip" }) });
@@ -243,6 +253,16 @@ public sealed class McpTaskPartTests
         Assert.Equal("The application's settings are lost with it.", Assert.Single(remove["warnings"]!.AsArray())!.GetValue<string>());
         var stop = await PreviewAsync(server, key, AcapTaskId, Filter(device), new JsonObject { ["action"] = "stop", ["application"] = "vmd" });
         Assert.Empty(stop["warnings"]!.AsArray());
+
+        // An install names each package with its hash and warns that it runs on the devices.
+        var package = new byte[] { 1, 2, 3, 4, 5 };
+        var packageId = await UploadAsync(server, key, "vmd_1_0_0_aarch64.eap", package);
+        var named = await PreviewAsync(server, key, AcapTaskId, Filter(device), new JsonObject { ["action"] = "install", ["files"] = new JsonArray(new JsonObject { ["fileId"] = packageId }) });
+        var file = Assert.Single(named["files"]!.AsArray())!;
+        Assert.Equal("vmd_1_0_0_aarch64.eap", file["name"]!.GetValue<string>());
+        Assert.Equal(Convert.ToHexString(SHA256.HashData(package)), file["sha256"]!.GetValue<string>());
+        Assert.Equal("The package runs on the devices. Check that it is the one you want.", Assert.Single(named["warnings"]!.AsArray())!.GetValue<string>());
+        Assert.Empty(stop["files"]!.AsArray());
 
         // The dialog's rules at their fields; the schema leaves license keys and settings out.
         var install = await RefusedAsync(server, key, AcapTaskId, Filter(device), new JsonObject { ["action"] = "install" });
@@ -340,6 +360,63 @@ public sealed class McpTaskPartTests
 
         var after = await server.ToolAsync(key, "oadm_tasks_list", new JsonObject { ["batch"] = run.BatchId });
         Assert.Equal(2, after["counts"]!["Cancelled"]!.GetValue<int>());
+    }
+
+    [Fact]
+    public async Task AOneCancelTakesAtMostTwoHundredTasksAndSaysHowManyRemain()
+    {
+        await using var server = await McpTestServer.StartAsync();
+        Assert.True(server.Host.Get<PluginRegistry>().RegisterTaskPlugin(new BlockingTask(), new PluginOrigin(BlockingTask.PluginId, "1.0.0", null)));
+        var request = new Proto.RunTaskRequest { PluginId = BlockingTask.PluginId };
+        for (var i = 0; i < TaskRunTools.MaxCancelPerRun + 5; i++)
+        {
+            request.DeviceIds.Add((await DeviceServiceTests.AddDeviceAsync(server.Host, "10.25." + (i / 200) + "." + ((i % 200) + 1), 5500 + i)).Id.ToString());
+        }
+
+        var run = await server.Host.Tasks.RunAsync(request);
+        var key = await server.CreateKeyAsync();
+        var preview = await server.ToolAsync(key, "oadm_tasks_cancel_preview", new JsonObject { ["batch"] = run.BatchId });
+        Assert.Equal(TaskRunTools.MaxCancelPerRun + 5, preview["matched"]!.GetValue<int>());
+        Assert.Equal(TaskRunTools.MaxCancelPerRun, preview["will_cancel"]!.GetValue<int>());
+        Assert.Equal(5, preview["more_after_this"]!.GetValue<int>());
+        Assert.Equal(TaskRunTools.CancelMore, preview["note"]!.GetValue<string>());
+
+        // The tool takes the first 200 active tasks in the list's order; wait until those have ended.
+        var engine = server.Host.Get<TaskEngine>();
+        var taken = (await server.Host.Tasks.ListAsync(new Proto.ListTasksRequest())).Tasks
+            .Where(t => t.BatchId == run.BatchId && t.State is Proto.TaskState.Queued or Proto.TaskState.Running).Take(TaskRunTools.MaxCancelPerRun).Select(t => t.Id).ToList();
+        var done = await server.ToolAsync(key, "oadm_tasks_cancel_run", new JsonObject { ["handle"] = preview["handle"]!.GetValue<string>() });
+        Assert.Equal(TaskRunTools.MaxCancelPerRun, done["cancelled"]!.GetValue<int>());
+        Assert.Equal(0, done["left"]!.GetValue<int>());
+        foreach (var id in taken)
+        {
+            await engine.WaitForCompletionAsync(Guid.Parse(id), CancellationToken.None);
+        }
+
+        var again = await server.ToolAsync(key, "oadm_tasks_cancel_preview", new JsonObject { ["batch"] = run.BatchId });
+        Assert.Equal(5, again["will_cancel"]!.GetValue<int>());
+        Assert.Equal(0, again["more_after_this"]!.GetValue<int>());
+        var finish = await server.ToolAsync(key, "oadm_tasks_cancel_run", new JsonObject { ["handle"] = again["handle"]!.GetValue<string>() });
+        Assert.Equal(5, finish["cancelled"]!.GetValue<int>());
+    }
+
+    [Fact]
+    public async Task ACancelRunStopsWhenItsTimeIsSpentAndReportsWhatIsLeft()
+    {
+        var seen = new List<string>();
+        Task Take(string id)
+        {
+            seen.Add(id);
+            return id == "gone" ? Task.FromException(new Grpc.Core.RpcException(new Grpc.Core.Status(Grpc.Core.StatusCode.NotFound, "x"))) : Task.CompletedTask;
+        }
+
+        var all = await TaskRunTools.CancelEachAsync(["a", "gone", "b"], Take, Timeout.InfiniteTimeSpan, TimeProvider.System, CancellationToken.None);
+        Assert.Equal((2, 1, 0), all);
+
+        seen.Clear();
+        var none = await TaskRunTools.CancelEachAsync(["a", "b", "c"], Take, TimeSpan.Zero, TimeProvider.System, CancellationToken.None); // no time at all
+        Assert.Equal((0, 0, 3), none);
+        Assert.Empty(seen);
     }
 
     [Fact]

@@ -16,8 +16,11 @@ public sealed record PayloadError(string Field, string Message);
 /// <param name="SkipReason">Null: the run changes the device; else why it is left out ("No file for this model.").</param>
 public sealed record TaskPlanDevice(Guid DeviceId, string? SkipReason = null);
 
+/// <summary>An uploaded file a run would use: its name and SHA-256 (upper-case hex) as the upload store holds them.</summary>
+public sealed record TaskPlanFile(string Name, string Sha256);
+
 /// <summary>
-/// What a run of a payload would do on the chosen devices (SDK 0.13.0, <see cref="ITaskPlugin.PlanAsync"/>): every device once,
+/// What a run of a payload would do on the chosen devices (SDK 0.13.0, <see cref="ITaskPlugin.PlanAsync(string?, IReadOnlyList{IDeviceInfo}, IUploadedFiles, CancellationToken)"/>): every device once,
 /// to run or skipped with a reason, and the warnings of the dialog (a change that can make devices unreachable).
 /// </summary>
 /// <param name="Devices">Every device of the request, in its order.</param>
@@ -25,6 +28,9 @@ public sealed record TaskPlan(IReadOnlyList<TaskPlanDevice> Devices)
 {
     /// <summary>The dialog's warnings for this run, in plain words; empty without.</summary>
     public IReadOnlyList<string> Warnings { get; init; } = [];
+
+    /// <summary>The uploaded files the run would use, each with its name and SHA-256 from the upload store; empty without.</summary>
+    public IReadOnlyList<TaskPlanFile> Files { get; init; } = [];
 
     /// <summary>
     /// The plan of <see cref="ITaskPlugin.CanRun"/>: a device it cannot run on is skipped with

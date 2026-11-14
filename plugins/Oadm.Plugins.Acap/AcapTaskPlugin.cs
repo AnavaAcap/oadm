@@ -140,13 +140,59 @@ public sealed class AcapTaskPlugin : ITaskPlugin, ITaskPluginQuery
     /// The devices the task can run on; what a package or an application needs is checked per device when its task runs (the
     /// package and the installed applications are not in the cached data). Removing says that the settings are lost.
     /// </summary>
-    public Task<TaskPlan> PlanAsync(string? payloadJson, IReadOnlyList<IDeviceInfo> devices, CancellationToken ct)
+    public Task<TaskPlan> PlanAsync(string? payloadJson, IReadOnlyList<IDeviceInfo> devices, CancellationToken ct) =>
+        PlanCoreAsync(payloadJson, devices, null, ct);
+
+    /// <summary>The fixed warning of an install: the package is code that runs on the devices.</summary>
+    public const string PackageWarning = "The package runs on the devices. Check that it is the one you want.";
+
+    /// <summary>The note for an upload the plan cannot find: nothing is run from it until the task reads it again.</summary>
+    public const string PackageMissingWarning = "A package of this install is not among your uploads. Upload it again.";
+
+    /// <summary>
+    /// The same plan naming each uploaded package an install would use, with its name and SHA-256 from the upload store, and the
+    /// fixed warning that the package runs on the devices.
+    /// </summary>
+    public Task<TaskPlan> PlanAsync(string? payloadJson, IReadOnlyList<IDeviceInfo> devices, IUploadedFiles files, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(files);
+        return PlanCoreAsync(payloadJson, devices, files, ct);
+    }
+
+    private async Task<TaskPlan> PlanCoreAsync(string? payloadJson, IReadOnlyList<IDeviceInfo> devices, IUploadedFiles? files, CancellationToken ct)
     {
         var payload = AcapPayload.Parse(payloadJson);
         var plan = TaskPlan.ByCanRun(this, devices);
-        return Task.FromResult(payload.Action == AcapAction.Remove
-            ? plan with { Warnings = ["The application's settings are lost with it."] }
-            : plan);
+        if (payload.Action == AcapAction.Remove)
+        {
+            return plan with { Warnings = ["The application's settings are lost with it."] };
+        }
+
+        if (payload.Action != AcapAction.Install)
+        {
+            return plan;
+        }
+
+        if (files is null)
+        {
+            return plan; // the dialog's own preview: no upload lookup
+        }
+
+        var named = new List<TaskPlanFile>();
+        var missing = false;
+        foreach (var entry in payload.AllFiles())
+        {
+            if (await files.FindAsync(entry.FileId, ct).ConfigureAwait(false) is { } file)
+            {
+                named.Add(new TaskPlanFile(file.Name, file.Sha256));
+            }
+            else
+            {
+                missing = true;
+            }
+        }
+
+        return plan with { Files = named, Warnings = missing ? [PackageWarning, PackageMissingWarning] : [PackageWarning] };
     }
 
     /// <summary>The user's query (SDK 0.4.0): reads only the queried device, which the host checked against the user's view.</summary>

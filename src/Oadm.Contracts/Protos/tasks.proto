@@ -120,6 +120,11 @@ message TaskPlanReply {
   repeated string run_device_ids = 4;     // the devices a Run would change, in address order
   repeated NotRunnableGroup skipped = 5;  // the others by reason (count only), most devices first
   repeated string warnings = 6;
+  repeated PlanFile files = 7;            // the uploaded files the run would use (name and SHA-256 from the upload store)
+}
+message PlanFile {
+  string name = 1;
+  string sha256 = 2;
 }
 message TaskIdRequest { string task_id = 1; }
 message DeleteAllReply { int32 deleted = 1; }

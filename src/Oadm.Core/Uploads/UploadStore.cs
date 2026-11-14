@@ -44,6 +44,9 @@ public sealed partial class UploadStore : IUploadedFiles
     private readonly TimeProvider _time;
     private readonly ILogger _logger;
     private readonly Lock _quotaGate = new();
+    private readonly Lock _indexGate = new();
+    private Dictionary<UploadOwner, Dictionary<string, UploadListing>>? _byOwner;
+    private Dictionary<string, UploadOwner>? _ownerOf;
     private readonly Dictionary<string, long> _reserved = new(StringComparer.Ordinal);
 
     public UploadStore(OadmPaths paths, ServerSettingsStore? settings = null, TimeProvider? timeProvider = null, ILogger<UploadStore>? logger = null)
@@ -159,26 +162,100 @@ public sealed partial class UploadStore : IUploadedFiles
         return OpenContent(fileId);
     }
 
-    /// <summary>The finished uploads of <paramref name="owner"/> (a user's session), newest first; never another owner's.</summary>
-    public async Task<IReadOnlyList<UploadListing>> ListAsync(UploadOwner owner, CancellationToken ct)
+    /// <summary>
+    /// The finished uploads of <paramref name="owner"/> (a user's session), newest first; never another owner's. Reads an index by owner
+    /// in memory (built from the metadata files on the first call, then kept on upload, delete, expiry and removal for room), so a call
+    /// costs the owner's own files only, never every owner's.
+    /// </summary>
+    public Task<IReadOnlyList<UploadListing>> ListAsync(UploadOwner owner, CancellationToken ct)
     {
-        var found = new List<UploadListing>();
-        if (!System.IO.Directory.Exists(Directory))
+        ct.ThrowIfCancellationRequested();
+        List<UploadListing> found;
+        lock (_indexGate)
         {
-            return found;
+            EnsureIndex(ct);
+            if (!_byOwner!.TryGetValue(owner, out var own))
+            {
+                return Task.FromResult<IReadOnlyList<UploadListing>>([]);
+            }
+
+            found = [.. own.Values];
         }
 
-        foreach (var path in System.IO.Directory.EnumerateFiles(Directory, "*" + MetadataExtension))
+        var gone = found.Where(f => !File.Exists(ContentPath(f.File.Id))).Select(f => f.File.Id).ToList();
+        foreach (var id in gone)
         {
-            ct.ThrowIfCancellationRequested();
-            var id = Path.GetFileNameWithoutExtension(path);
-            if (IsValidId(id) && await ReadMetadataAsync(id, ct).ConfigureAwait(false) is { } meta && meta.IsOwnedBy(owner) && File.Exists(ContentPath(id)))
+            RemoveFromIndex(id);
+        }
+
+        return Task.FromResult<IReadOnlyList<UploadListing>>([.. found.Where(f => !gone.Contains(f.File.Id)).OrderByDescending(f => f.CreatedUtc).ThenBy(f => f.File.Id, StringComparer.Ordinal)]);
+    }
+
+    /// <summary>Builds the index once from the metadata files. Caller holds <c>_indexGate</c>.</summary>
+    private void EnsureIndex(CancellationToken ct)
+    {
+        if (_byOwner is not null)
+        {
+            return;
+        }
+
+        var byOwner = new Dictionary<UploadOwner, Dictionary<string, UploadListing>>();
+        var ownerOf = new Dictionary<string, UploadOwner>(StringComparer.Ordinal);
+        if (System.IO.Directory.Exists(Directory))
+        {
+            foreach (var path in System.IO.Directory.EnumerateFiles(Directory, "*" + MetadataExtension))
             {
-                found.Add(new UploadListing(meta.ToUploadedFile(), DateTime.SpecifyKind(meta.CreatedUtc, DateTimeKind.Utc)));
+                ct.ThrowIfCancellationRequested();
+                var id = Path.GetFileNameWithoutExtension(path);
+                if (IsValidId(id) && ReadMetadataSync(id) is { UserId: { } user, SessionId: { Length: > 0 } session } meta && File.Exists(ContentPath(id)))
+                {
+                    AddToIndex(byOwner, ownerOf, new UploadOwner(user, session), meta);
+                }
             }
         }
 
-        return [.. found.OrderByDescending(f => f.CreatedUtc).ThenBy(f => f.File.Id, StringComparer.Ordinal)];
+        _byOwner = byOwner;
+        _ownerOf = ownerOf;
+    }
+
+    private static void AddToIndex(Dictionary<UploadOwner, Dictionary<string, UploadListing>> byOwner, Dictionary<string, UploadOwner> ownerOf, UploadOwner owner, Metadata meta)
+    {
+        if (!byOwner.TryGetValue(owner, out var own))
+        {
+            byOwner[owner] = own = new Dictionary<string, UploadListing>(StringComparer.Ordinal);
+        }
+
+        own[meta.Id] = new UploadListing(meta.ToUploadedFile(), DateTime.SpecifyKind(meta.CreatedUtc, DateTimeKind.Utc));
+        ownerOf[meta.Id] = owner;
+    }
+
+    /// <summary>Forgets an upload that was deleted or expired (a no-op before the index is built).</summary>
+    private void RemoveFromIndex(string id)
+    {
+        lock (_indexGate)
+        {
+            if (_byOwner is null || _ownerOf is null || !_ownerOf.Remove(id, out var owner))
+            {
+                return;
+            }
+
+            if (_byOwner.TryGetValue(owner, out var own) && own.Remove(id) && own.Count == 0)
+            {
+                _byOwner.Remove(owner);
+            }
+        }
+    }
+
+    private Metadata? ReadMetadataSync(string fileId)
+    {
+        try
+        {
+            return JsonSerializer.Deserialize<Metadata>(File.ReadAllText(MetadataPath(fileId)), JsonOptions);
+        }
+        catch (Exception ex) when (ex is JsonException or IOException)
+        {
+            return null;
+        }
     }
 
     /// <summary>Deletes an upload of <paramref name="owner"/>. Returns false when it does not exist or another owner has it.</summary>
@@ -204,6 +281,7 @@ public sealed partial class UploadStore : IUploadedFiles
         TryDelete(MetadataPath(fileId));
         TryDelete(ContentPath(fileId));
         TryDelete(Path.Combine(Directory, fileId + PartialExtension));
+        RemoveFromIndex(fileId);
         return Task.FromResult(existed);
     }
 
@@ -248,6 +326,7 @@ public sealed partial class UploadStore : IUploadedFiles
                 if (extension == MetadataExtension)
                 {
                     TryDelete(ContentPath(id));
+                    RemoveFromIndex(id);
                     removed++;
                     LogExpired(id);
                 }
@@ -266,6 +345,17 @@ public sealed partial class UploadStore : IUploadedFiles
         var tmp = MetadataPath(id) + ".tmp";
         await File.WriteAllTextAsync(tmp, JsonSerializer.Serialize(meta, JsonOptions), ct).ConfigureAwait(false);
         File.Move(tmp, MetadataPath(id), overwrite: true);
+        if (owner is { } own)
+        {
+            lock (_indexGate)
+            {
+                if (_byOwner is not null && _ownerOf is not null)
+                {
+                    AddToIndex(_byOwner, _ownerOf, own, meta);
+                }
+            }
+        }
+
         LogStored(id, size);
         return meta.ToUploadedFile();
     }
@@ -291,6 +381,7 @@ public sealed partial class UploadStore : IUploadedFiles
                 var oldest = finished[next++];
                 TryDelete(MetadataPath(oldest.Id));
                 TryDelete(ContentPath(oldest.Id));
+                RemoveFromIndex(oldest.Id);
                 used -= oldest.Size;
                 freed += oldest.Size;
                 LogRemovedForRoom(oldest.Id, oldest.Size);

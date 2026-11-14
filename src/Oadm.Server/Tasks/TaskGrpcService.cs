@@ -196,7 +196,7 @@ public sealed partial class TaskGrpcService(
     /// <summary>
     /// What a Run of the payload would do on the filter's devices, nothing written (docs/spec/grpc.md): the checks of Run, the
     /// payload's field errors (then nothing else), else the devices to run in address order, the skipped ones by reason, the
-    /// task name and the warnings (<see cref="Sdk.Plugins.ITaskPlugin.PlanAsync"/>, cached data only).
+    /// task name and the warnings (<see cref="Sdk.Plugins.ITaskPlugin.PlanAsync(string?, IReadOnlyList{Sdk.Devices.IDeviceInfo}, Sdk.Plugins.IUploadedFiles, CancellationToken)"/>, cached data only).
     /// </summary>
     public override async Task<Proto.TaskPlanReply> Plan(Proto.PlanTaskRequest request, ServerCallContext context)
     {
@@ -227,7 +227,7 @@ public sealed partial class TaskGrpcService(
         Sdk.Tasks.TaskPlan plan;
         try
         {
-            plan = await task.Plugin.PlanAsync(payload, devices, ct).ConfigureAwait(false);
+            plan = await task.Plugin.PlanAsync(payload, devices, engine.FilesOf(TaskCaller.Of(caller)), ct).ConfigureAwait(false);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -258,6 +258,7 @@ public sealed partial class TaskGrpcService(
         reply.Skipped.AddRange(skipped.OrderByDescending(p => p.Value).ThenBy(p => p.Key, StringComparer.Ordinal)
             .Select(p => new Proto.NotRunnableGroup { Reason = p.Key, Count = p.Value }));
         reply.Warnings.AddRange(plan.Warnings.Where(w => !string.IsNullOrWhiteSpace(w)));
+        reply.Files.AddRange(plan.Files.Select(f => new Proto.PlanFile { Name = f.Name, Sha256 = f.Sha256 }));
         return reply;
     }
 

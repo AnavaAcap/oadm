@@ -201,6 +201,49 @@ public sealed class UploadStoreTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task TheListingOfAnOwnerUsesAnIndexKeptOnUploadAndDeleteAndNeverShowsAnotherOwner()
+    {
+        var anna = new UploadOwner(Guid.NewGuid(), "session-a");
+        var ben = new UploadOwner(Guid.NewGuid(), "session-b");
+        async Task<UploadedFile> Put(string name, UploadOwner owner)
+        {
+            await using var writer = await _store.BeginAsync(name, 3, owner, CancellationToken.None);
+            await writer.WriteAsync(new byte[] { 1, 2, 3 }, CancellationToken.None);
+            return await writer.CompleteAsync(CancellationToken.None);
+        }
+
+        var one = await Put("one.bin", anna);
+        await Put("ben.bin", ben);
+        await UploadAsync("system.bin", [1, 2, 3]);
+        Assert.Equal([one.Id], (await _store.ListAsync(anna, CancellationToken.None)).Select(f => f.File.Id));
+
+        // The index is built once: an upload that appears on disk behind the store's back is not read again on each call.
+        var uploads = Path.Combine(_db.Paths.DataDirectory, "uploads");
+        var sneaked = Guid.NewGuid().ToString("N");
+        await File.WriteAllBytesAsync(Path.Combine(uploads, sneaked + ".bin"), [1]);
+        await File.WriteAllTextAsync(Path.Combine(uploads, sneaked + ".json"),
+            $"{{\"id\":\"{sneaked}\",\"name\":\"s.bin\",\"size\":1,\"sha256\":\"00\",\"createdUtc\":\"2020-01-01T00:00:00Z\",\"userId\":\"{anna.UserId}\",\"sessionId\":\"session-a\"}}");
+        Assert.Equal([one.Id], (await _store.ListAsync(anna, CancellationToken.None)).Select(f => f.File.Id));
+
+        // An upload through the store, and a delete, are kept in the index; so is an upload another owner deletes (refused).
+        var two = await Put("two.bin", anna);
+        Assert.Equal(2, (await _store.ListAsync(anna, CancellationToken.None)).Count);
+        Assert.False(await _store.DeleteAsync(two.Id, ben, CancellationToken.None));
+        Assert.Equal(2, (await _store.ListAsync(anna, CancellationToken.None)).Count);
+        Assert.True(await _store.DeleteAsync(one.Id, anna, CancellationToken.None));
+        Assert.Equal([two.Id], (await _store.ListAsync(anna, CancellationToken.None)).Select(f => f.File.Id));
+        Assert.Single(await _store.ListAsync(ben, CancellationToken.None));
+
+        // A content file that vanished is dropped from the listing.
+        File.Delete(Path.Combine(uploads, two.Id + ".bin"));
+        Assert.Empty(await _store.ListAsync(anna, CancellationToken.None));
+
+        // A new store on the same directory builds its index from the files (the sneaked upload has no content problem now).
+        var again = new UploadStore(_db.Paths, _db.Get<ServerSettingsStore>(), _time);
+        Assert.Equal([sneaked], (await again.ListAsync(anna, CancellationToken.None)).Select(f => f.File.Id));
+    }
+
+    [Fact]
     public async Task AnUploadBelongsToItsUsersSessionAndAnswersLikeAnUnknownIdForEveryoneElse()
     {
         var anna = new UploadOwner(Guid.NewGuid(), "session-a");

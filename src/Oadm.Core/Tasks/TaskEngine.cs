@@ -163,7 +163,7 @@ public sealed partial class TaskEngine : ITaskRunner, IAsyncDisposable
     /// The uploads a task reads (<see cref="ITaskExecutionContext.Files"/>): a task a user started reads only the uploads of
     /// that user's session (another id answers like an unknown one); a task the system started reads any upload.
     /// </summary>
-    private IUploadedFiles FilesOf(TaskCaller? caller) =>
+    public IUploadedFiles FilesOf(TaskCaller? caller) =>
         caller is not null && _files is UploadStore store ? store.For(new UploadOwner(caller.UserId, caller.SessionId)) : _files;
 
     /// <summary>

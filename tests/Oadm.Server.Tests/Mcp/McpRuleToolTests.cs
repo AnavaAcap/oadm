@@ -35,6 +35,7 @@ public sealed class McpRuleToolTests
         plugins.RegisterActionPlugin(new LoginAction(), new PluginOrigin("test.mcp.login", "1.0", null) { DisplayName = "Log in" });
         plugins.RegisterActionPlugin(new PulseAction(), new PluginOrigin("test.mcp.pulse", "1.0", null) { DisplayName = "Pulse" });
         plugins.RegisterActionPlugin(new HookAction(), new PluginOrigin("test.mcp.hook", "1.0", null) { DisplayName = "Hook" });
+        plugins.RegisterActionPlugin(new SecureAction(), new PluginOrigin("test.mcp.secure", "1.0", null) { DisplayName = "Secure" });
         plugins.RegisterActionPlugin(new RelayAction(), new PluginOrigin("test.mcp.relay", "1.0", null) { DisplayName = "Relay" });
         return server;
     }
@@ -494,6 +495,89 @@ public sealed class McpRuleToolTests
     }
 
     [Fact]
+    public async Task AnyChangeOtherThanContentToAnActionWithAStoredSecretIsSetInOadmAndAContentChangeKeepsEverything()
+    {
+        await using var server = await StartAsync();
+        var key = await server.CreateKeyAsync();
+        var saved = await SaveDirectAsync(server, Direct("Secure rule", new RuleAction
+        {
+            ActionId = "test.mcp.secure",
+            Settings = new JsonObject
+            {
+                ["server"] = "relay.example.com", ["security"] = "tls", ["policy"] = "strict", ["retries"] = 3, ["verify"] = true,
+                ["message"] = "hi", ["body"] = "line one", ["script"] = "{}", ["token"] = Password,
+            },
+        }));
+        var id = saved.Summary.Id;
+        var actionKey = RuleDefinition.FromJson(saved.DefinitionJson).Actions[0].Key.ToString();
+
+        JsonObject Full(Action<JsonObject> edit)
+        {
+            var settings = new JsonObject
+            {
+                ["server"] = "relay.example.com", ["security"] = "tls", ["policy"] = "strict", ["retries"] = 3, ["verify"] = true,
+                ["message"] = "hi", ["body"] = "line one", ["script"] = "{}",
+            };
+            edit(settings);
+            return new JsonObject
+            {
+                ["id"] = id, ["name"] = "Secure rule", ["conditions"] = new JsonArray(Trigger()),
+                ["actions"] = new JsonArray(new JsonObject { ["key"] = actionKey, ["action"] = "test.mcp.secure", ["settings"] = settings }),
+            };
+        }
+
+        // Every setting that is not content: a choice that turns the encryption off, another choice, a number, a flag, the host.
+        foreach (var edit in new Action<JsonObject>[]
+        {
+            s => s["security"] = "none",
+            s => s["policy"] = "open",
+            s => s["retries"] = 9,
+            s => s["verify"] = false,
+            s => s["server"] = "other.example.com",
+        })
+        {
+            var result = await server.CallToolAsync(key, "oadm_rules_save_preview", new JsonObject { ["rule"] = Full(edit) });
+            Assert.True(result["isError"]!.GetValue<bool>());
+            var error = JsonNode.Parse(Text(result))!["errors"]![0]!;
+            Assert.Equal("rule.actions[0]", error["field"]!.GetValue<string>());
+            Assert.Equal(RuleTools.SetInOadm, error["error"]!.GetValue<string>());
+        }
+
+        // Content only (message text, multi-line text, code): allowed, and the secret stays.
+        var preview = await PreviewAsync(server, key, Full(s => { s["message"] = "new"; s["body"] = "line two"; s["script"] = "{\"a\":1}"; }));
+        await server.ToolAsync(key, "oadm_rules_save_run", new JsonObject { ["handle"] = preview["handle"]!.GetValue<string>() });
+        var action = RuleDefinition.FromJson((await Events(server).GetRuleAsync(new Proto.RuleId { Id = id })).DefinitionJson).Actions[0];
+        Assert.Equal("new", action.Settings["message"]!.GetValue<string>());
+        Assert.Equal("line two", action.Settings["body"]!.GetValue<string>());
+        Assert.Equal("tls", action.Settings["security"]!.GetValue<string>());
+        Assert.Equal(["token"], action.StoredSecretFields);
+    }
+
+    [Fact]
+    public async Task ARuleThatCarriesNoSecretMayChangeAnySetting()
+    {
+        await using var server = await StartAsync();
+        var key = await server.CreateKeyAsync();
+        var saved = await SaveDirectAsync(server, Direct("Open rule", new RuleAction
+        {
+            ActionId = "test.mcp.secure",
+            Settings = new JsonObject { ["server"] = "relay.example.com", ["security"] = "tls", ["policy"] = "strict", ["retries"] = 3, ["verify"] = true, ["message"] = "hi", ["body"] = "x", ["script"] = "{}" },
+        }));
+        var actionKey = RuleDefinition.FromJson(saved.DefinitionJson).Actions[0].Key.ToString();
+        var rule = new JsonObject
+        {
+            ["id"] = saved.Summary.Id, ["name"] = "Open rule", ["conditions"] = new JsonArray(Trigger()),
+            ["actions"] = new JsonArray(new JsonObject
+            {
+                ["key"] = actionKey, ["action"] = "test.mcp.secure",
+                ["settings"] = new JsonObject { ["server"] = "relay.example.com", ["security"] = "none", ["policy"] = "open", ["retries"] = 1, ["verify"] = false, ["message"] = "hi", ["body"] = "x", ["script"] = "{}" },
+            }),
+        };
+        var result = await PreviewAsync(server, key, rule);
+        Assert.Equal("change", result["change"]!.GetValue<string>());
+    }
+
+    [Fact]
     public async Task ARecipientReferencedByIdIsFineAndItsSecretStaysWithTheRecipient()
     {
         await using var server = await StartAsync();
@@ -672,6 +756,32 @@ public sealed class McpRuleToolTests
                 : new Dictionary<string, string>();
 
         public string Describe(JsonElement settings) => "Call " + (settings.TryGetProperty("url", out var url) ? url.GetString() : string.Empty);
+
+        public Task ExecuteAsync(IActionContext ctx, ActionInvocation invocation, CancellationToken ct) => Task.CompletedTask;
+    }
+
+    private sealed class SecureAction : IActionPlugin
+    {
+        public string Id => "test.mcp.secure";
+
+        public string DisplayName => "Secure";
+
+        public string? IconKey => null;
+
+        public bool NeedsDevice => false;
+
+        public IReadOnlyList<ActionField> Fields { get; } =
+        [
+            ActionField.Text("server", "Server"),
+            ActionField.Choice("security", "Encryption", [new("tls", "TLS"), new("none", "None")], "tls"),
+            ActionField.Choice("policy", "Policy", [new("strict", "Strict"), new("open", "Open")], "strict"),
+            ActionField.Number("retries", "Retries", 0, 10, 3),
+            ActionField.Bool("verify", "Verify the certificate", true),
+            ActionField.Text("message", "Message"),
+            ActionField.Multiline("body", "Body"),
+            ActionField.Code("script", "Script"),
+            ActionField.Password("token", "Token"),
+        ];
 
         public Task ExecuteAsync(IActionContext ctx, ActionInvocation invocation, CancellationToken ct) => Task.CompletedTask;
     }

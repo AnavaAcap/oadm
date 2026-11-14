@@ -1,6 +1,9 @@
 using Oadm.Plugins.Pki.Certificates;
+using Oadm.Plugins.Pki.Client;
+using Oadm.Plugins.Pki.Policies;
 using Oadm.Plugins.Pki.Tools;
 using Oadm.Sdk.Plugins;
+using Oadm.Sdk.Testing;
 
 namespace Oadm.Plugins.Pki.Tests;
 
@@ -33,4 +36,43 @@ public sealed class ToolTests
         Assert.True(create.Changes);
         Assert.Equal(UserRole.Admin, plugin.RequiredRole(CertificateMethods.Create));
     }
+
+    [Fact]
+    public async Task Every_tool_without_Changes_and_every_preview_leaves_the_stored_state_as_it_was()
+    {
+        var ctx = new FakeCoreContext { Secrets = TestSecrets.Create() };
+        ctx.Add(new FakeDevice { Address = "10.0.0.48", Serial = "B8A44F631339" });
+        var trust = new FakeTrustStore();
+        await using var plugin = new PkiPlugin(PkiHarness.Options(trust));
+        await plugin.StartAsync(ctx, CancellationToken.None);
+        await plugin.Service!.Background;
+        var admin = ctx.CallAsAllDevices();
+        var policy = plugin.Service.Policies.FirstOf(PolicyKinds.HttpsCertificate)!.Id;
+        Assert.True(PkiJson.Deserialize<CertificateActionReply>(await ctx.InvokeAsync(plugin, admin, CertificateMethods.Create,
+            PkiJson.Serialize(new CreateCertificateRequest(Oadm.Sdk.Certificates.DeviceCertificatePurposes.Https, policy, "x.example.com", "x.example.com")))).Ok);
+
+        string Stored() =>
+            string.Join('\n', ctx.PluginSettings.Values.OrderBy(p => p.Key, StringComparer.Ordinal).Select(p => p.Key + "=" + p.Value))
+            + "\nrecord writes: " + ctx.PluginRecords.WrittenRecords
+            + "\nlocal certificates: " + plugin.Service.Local.List.Count
+            + "\ntrust store installs: " + trust.Installs + "/" + trust.Installed.Count;
+        var before = Stored();
+
+        ICorePlugin core = plugin;
+        Assert.Contains(core.Tools, t => t.Changes); // the create tool is in the list
+        foreach (var tool in core.Tools)
+        {
+            var method = tool.Changes ? tool.PreviewMethod : tool.Method;
+            var payloads = tool.Changes
+                ? new[] { """{"use":"https","name":"Gate","addresses":["10.0.0.5","gate.example"]}""", """{"use":"mqtt","name":"Gate","addresses":[]}""" }
+                : new[] { null, """{"limit":1}""" };
+            foreach (var payload in payloads)
+            {
+                Assert.NotNull(await ctx.InvokeAsync(plugin, admin, method, payload));
+            }
+        }
+
+        Assert.Equal(before, Stored());
+    }
+
 }

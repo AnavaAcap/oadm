@@ -206,7 +206,20 @@ public sealed partial class FirmwareTaskPlugin : ITaskPlugin, ITaskPluginQuery
     /// "Already up to date", a downgrade that is not allowed). The size of a file and the installed applications are checked by
     /// the task, which reads them.
     /// </summary>
-    public Task<Oadm.Sdk.Tasks.TaskPlan> PlanAsync(string? payloadJson, IReadOnlyList<IDeviceInfo> devices, CancellationToken ct)
+    public Task<Oadm.Sdk.Tasks.TaskPlan> PlanAsync(string? payloadJson, IReadOnlyList<IDeviceInfo> devices, CancellationToken ct) =>
+        PlanCoreAsync(payloadJson, devices, null, ct);
+
+    /// <summary>The note for an upload the plan cannot find.</summary>
+    public const string FileMissingWarning = "A file of this upgrade is not among your uploads. Upload it again.";
+
+    /// <summary>The same plan naming each uploaded AXIS OS file, with its name and SHA-256 from the upload store.</summary>
+    public Task<Oadm.Sdk.Tasks.TaskPlan> PlanAsync(string? payloadJson, IReadOnlyList<IDeviceInfo> devices, IUploadedFiles files, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(files);
+        return PlanCoreAsync(payloadJson, devices, files, ct);
+    }
+
+    private async Task<Oadm.Sdk.Tasks.TaskPlan> PlanCoreAsync(string? payloadJson, IReadOnlyList<IDeviceInfo> devices, IUploadedFiles? files, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(devices);
         var run = _runs.For(payloadJson);
@@ -227,8 +240,32 @@ public sealed partial class FirmwareTaskPlugin : ITaskPlugin, ITaskPluginQuery
             planned.Add(new(device.Id, online < 0 && file < 0 ? FirmwareCompatibility.NoFileForModel : check.WillInstall ? null : check.Message));
         }
 
-        var warning = FirmwareWarnings.Of(payload.FactoryDefaultMode);
-        return Task.FromResult(new Oadm.Sdk.Tasks.TaskPlan(planned) { Warnings = warning is null ? [] : [warning] });
+        var named = new List<Oadm.Sdk.Tasks.TaskPlanFile>();
+        var missing = false;
+        foreach (var entry in run.Files.Where(_ => files is not null))
+        {
+            if (await files!.FindAsync(entry.FileId, ct).ConfigureAwait(false) is { } found)
+            {
+                named.Add(new Oadm.Sdk.Tasks.TaskPlanFile(found.Name, found.Sha256));
+            }
+            else
+            {
+                missing = true;
+            }
+        }
+
+        var warnings = new List<string>();
+        if (FirmwareWarnings.Of(payload.FactoryDefaultMode) is { } warning)
+        {
+            warnings.Add(warning);
+        }
+
+        if (missing)
+        {
+            warnings.Add(FileMissingWarning);
+        }
+
+        return new Oadm.Sdk.Tasks.TaskPlan(planned) { Files = named, Warnings = warnings };
     }
 
     /// <summary>The text of an <see cref="ArgumentException"/> without the " (Parameter 'json')" .NET adds.</summary>

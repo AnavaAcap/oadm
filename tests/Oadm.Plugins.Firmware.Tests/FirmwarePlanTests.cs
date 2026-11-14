@@ -4,7 +4,7 @@ using Oadm.Sdk.Plugins;
 namespace Oadm.Plugins.Firmware.Tests;
 
 /// <summary>
-/// The plan of the tools (<see cref="FirmwareTaskPlugin.PlanAsync"/>) is the dialog's choice (<see cref="FirmwareCompatibility.Choose"/>)
+/// The plan of the tools (<see cref="FirmwareTaskPlugin.PlanAsync(string?, IReadOnlyList{IDeviceInfo}, CancellationToken)"/>) is the dialog's choice (<see cref="FirmwareCompatibility.Choose"/>)
 /// from the cached model and version, never a device request; the payload of the tools is read by the same task.
 /// </summary>
 public sealed class FirmwarePlanTests
@@ -80,5 +80,28 @@ public sealed class FirmwarePlanTests
         Assert.Equal("Not an AXIS OS image: the file must be a .bin file.", error.Message);
         Assert.Equal("No AXIS OS file was selected. Nothing was changed.", Assert.Single(plugin.ValidatePayload("{}", caller)).Message);
         Assert.Equal(typeof(FirmwareMcpPayload), plugin.PayloadType);
+    }
+
+    [Fact]
+    public async Task TheToolsPlanNamesEachUploadedFileWithItsHashAndASecondPlanWithoutUploadsStaysAsItWas()
+    {
+        var plugin = new FirmwareTaskPlugin();
+        var files = new FakeFiles();
+        var file = files.Add("P3265-V_12_11_77.bin", [1, 2, 3, 4]);
+        var device = new FakeDevice(DeviceStatus.Ok, "P3265-V", "12.8.0", Fixture.Fwmgr110);
+        var payload = new FirmwarePayload { Files = [new FirmwareFile(file.Id, file.Name, null)] }.ToJson();
+
+        var plan = await plugin.PlanAsync(payload, [device], files, CancellationToken.None);
+
+        Assert.Equal([new Oadm.Sdk.Tasks.TaskPlanFile(file.Name, file.Sha256)], plan.Files);
+        Assert.Empty(plan.Warnings);
+        Assert.Equal(0, files.Opens); // the plan reads only the metadata
+
+        var gone = new FirmwarePayload { Files = [new FirmwareFile("0123456789abcdef0123456789abcdef", file.Name, null)] }.ToJson();
+        var missing = await plugin.PlanAsync(gone, [device], files, CancellationToken.None);
+        Assert.Empty(missing.Files);
+        Assert.Equal([FirmwareTaskPlugin.FileMissingWarning], missing.Warnings);
+
+        Assert.Empty((await plugin.PlanAsync(payload, [device], CancellationToken.None)).Files);
     }
 }

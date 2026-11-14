@@ -85,4 +85,32 @@ public sealed class ToolTests
         Assert.Equal(2, JsonNode.Parse((await ctx.InvokeAsync(plugin, admin, Tools.DhcpTools.Leases.Method, null))!)!["total"]!.GetValue<int>());
         Assert.Empty(ctx.RefusedAccesses);
     }
+
+    [Fact]
+    public async Task Every_tool_without_Changes_leaves_the_stored_state_as_it_was()
+    {
+        var ctx = new Testing.FakeCoreContext();
+        await using var plugin = new DhcpServerPlugin(Options.Test(new FakeDhcpNetwork(), time: new FakeTimeProvider()));
+        await plugin.StartAsync(ctx, CancellationToken.None);
+        var admin = ctx.CallAsAllDevices();
+        await ctx.InvokeAsync(plugin, admin, DhcpServerMethods.SaveStatic, DhcpJson.Serialize(new StaticLeaseRequest("AC:CC:8E:00:00:01", "10.0.0.101", "gate 1")));
+        string Everything() => Stored(ctx) + "\n" + DhcpJson.Serialize(plugin.Service!.GetState(full: true)); // the leases live in memory and are stored later
+        var before = Everything();
+        Assert.Contains("gate 1", before, StringComparison.Ordinal); // there is something to compare
+
+        ICorePlugin core = plugin;
+        Assert.All(core.Tools, t => Assert.False(t.Changes)); // no change tool here: every tool is a read
+        foreach (var tool in core.Tools)
+        {
+            Assert.NotNull(await ctx.InvokeAsync(plugin, admin, tool.Method, null));
+            Assert.NotNull(await ctx.InvokeAsync(plugin, admin, tool.Method, """{"state":"reserved","limit":1}"""));
+            Assert.NotNull(await ctx.InvokeAsync(plugin, admin, tool.Method, """{"state":"asleep"}"""));
+        }
+
+        Assert.Equal(before, Everything());
+    }
+
+    /// <summary>Everything the plugin keeps: its settings and the number of record writes.</summary>
+    private static string Stored(Testing.FakeCoreContext ctx) =>
+        string.Join('\n', ctx.PluginSettings.Values.OrderBy(p => p.Key, StringComparer.Ordinal).Select(p => p.Key + "=" + p.Value)) + "\nrecord writes: " + ctx.PluginRecords.WrittenRecords;
 }

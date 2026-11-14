@@ -137,6 +137,13 @@ public interface ITaskPlugin : IPlugin
         Task.FromResult(Tasks.TaskPlan.ByCanRun(this, devices));
 
     /// <summary>
+    /// The same plan with the caller's uploads (<paramref name="files"/>: only the uploads of the caller's session), so the plan
+    /// can name each uploaded file it would use (<see cref="Tasks.TaskPlan.Files"/>). Default: <see cref="PlanAsync(string?, IReadOnlyList{IDeviceInfo}, CancellationToken)"/>.
+    /// </summary>
+    Task<Tasks.TaskPlan> PlanAsync(string? payloadJson, IReadOnlyList<IDeviceInfo> devices, IUploadedFiles files, CancellationToken ct) =>
+        PlanAsync(payloadJson, devices, ct);
+
+    /// <summary>
     /// Runs once per device. Return normally for Done, call <see cref="ITaskExecutionContext.ReportWarning"/>
     /// for Done with warnings, throw for Failed. <paramref name="payloadJson"/> comes from the dialog;
     /// it is kept in memory only and never persisted, so it may carry secrets such as passwords.

@@ -461,9 +461,6 @@ internal static partial class RuleTools
     private static bool IsHidden(Proto.ActionFieldKind kind) =>
         kind is Proto.ActionFieldKind.ActionFieldPassword or Proto.ActionFieldKind.ActionFieldCode or Proto.ActionFieldKind.ActionFieldKeyValues or Proto.ActionFieldKind.ActionFieldFile;
 
-    [GeneratedRegex("(host|url|uri|endpoint|address|port|user|login|realm|domain|^from$|^to$|^cc$|^bcc$|recipient|topic|broker|server|path|node|auth|proxy|tls|ssl|secure|untrusted|verify|cert|client|scheme|webhook|link)", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
-    private static partial Regex DestinationName();
-
     [GeneratedRegex("(url|uri|endpoint|webhook|link)", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
     private static partial Regex AddressName();
 
@@ -477,13 +474,6 @@ internal static partial class RuleTools
     private static bool IsAddressText(Proto.ActionFieldEntry field) =>
         field.Kind is Proto.ActionFieldKind.ActionFieldText
         && (field.Format is Proto.ActionTextFormat.Url or Proto.ActionTextFormat.OpcEndpoint or Proto.ActionTextFormat.Host || AddressName().IsMatch(field.Key));
-
-    /// <summary>Where an action sends: a field that names a host, URL, port, user, recipient, topic or address, or the security of the connection.</summary>
-    private static bool IsDestination(Proto.ActionFieldEntry field) =>
-        field.Kind is not (Proto.ActionFieldKind.ActionFieldPassword or Proto.ActionFieldKind.ActionFieldCode or Proto.ActionFieldKind.ActionFieldKeyValues or Proto.ActionFieldKind.ActionFieldFile or Proto.ActionFieldKind.ActionFieldMultiline)
-        && (field.Format != Proto.ActionTextFormat.None
-            || field.Kind is Proto.ActionFieldKind.ActionFieldRecipient or Proto.ActionFieldKind.ActionFieldClientCertificate or Proto.ActionFieldKind.ActionFieldTrustedCertificate
-            || DestinationName().IsMatch(field.Key));
 
     /// <summary>
     /// An address as scheme, host and port only (no user info, path, query or fragment); a host text as the host. Null when it cannot
@@ -866,9 +856,9 @@ internal static partial class RuleTools
 
     /// <summary>
     /// A change keeps what the call left out: <c>enabled</c>, the limits, and for an action of the same key the passwords OADM
-    /// holds and the fields the tool never shows (headers, bodies, files). Their values stay on the server. They stay only when every
-    /// destination field of the action (host, URL, port, user, recipient, topic, address) is unchanged: a stored secret never goes
-    /// to a destination the call chose, so a changed destination of an action that holds one is set in OADM. An address the tool showed
+    /// holds and the fields the tool never shows (headers, bodies, files). Their values stay on the server. They stay only when no setting
+    /// of the action other than its content fields (message text, code, multi-line text) changed: a stored secret never goes
+    /// to a destination or a connection mode the call chose, so any other change to an action that holds one is set in OADM. An address the tool showed
     /// as scheme, host and port comes back as it was stored.
     /// </summary>
     private static void KeepWhatIsLeftOut(RuleDefinition rule, RuleDefinition before, JsonElement input, Proto.EventCatalog catalog, List<ToolFieldError> errors)
@@ -927,21 +917,38 @@ internal static partial class RuleTools
         }
     }
 
-    /// <summary>An action the catalog does not know compares every setting, since nothing says which one names the destination.</summary>
+    /// <summary>
+    /// The settings that are content: the text of a message, a code body, multi-line text. A plain text field is content only when its
+    /// key names a message (<see cref="ContentName"/>) and it has no format; every other kind (choice, number, bool, text of a
+    /// format, recipient, certificate, key values, file) is a setting of where or how the action sends.
+    /// </summary>
+    private static bool IsContent(Proto.ActionFieldEntry field) =>
+        field.Kind is Proto.ActionFieldKind.ActionFieldMultiline or Proto.ActionFieldKind.ActionFieldCode
+        || (field.Kind is Proto.ActionFieldKind.ActionFieldText && field.Format == Proto.ActionTextFormat.None && ContentName().IsMatch(field.Key));
+
+    [GeneratedRegex("^(message|text|subject|body|title|content|description|note|comment|caption)$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    private static partial Regex ContentName();
+
+    /// <summary>
+    /// For an action that carries a stored secret or a hidden field: true when any setting other than its content fields changed.
+    /// A setting the call left out and the server keeps (a password, a hidden field) is no change. An action the catalog does not
+    /// know compares every setting, since nothing says which one is content.
+    /// </summary>
     private static bool DestinationChanged(RuleAction action, RuleAction was, Proto.ActionEntry? entry)
     {
-        var keys = entry is null
-            ? action.Settings.Select(p => p.Key).Concat(was.Settings.Select(p => p.Key)).ToHashSet(StringComparer.Ordinal)
-            : entry.Fields.Where(IsDestination).Select(f => f.Key).ToHashSet(StringComparer.Ordinal);
-        foreach (var key in keys)
+        HashSet<string> keys;
+        if (entry is null)
         {
-            if (!SameSetting(action.Settings[key], was.Settings[key]))
-            {
-                return true;
-            }
+            keys = action.Settings.Select(p => p.Key).Concat(was.Settings.Select(p => p.Key)).ToHashSet(StringComparer.Ordinal);
+        }
+        else
+        {
+            var skipped = entry.Fields.Where(f => IsContent(f) || f.Kind == Proto.ActionFieldKind.ActionFieldPassword || (IsHidden(f.Kind) && !action.Settings.ContainsKey(f.Key)))
+                .Select(f => f.Key).ToHashSet(StringComparer.Ordinal);
+            keys = action.Settings.Select(p => p.Key).Concat(was.Settings.Select(p => p.Key)).Where(k => !skipped.Contains(k)).ToHashSet(StringComparer.Ordinal);
         }
 
-        return false;
+        return keys.Any(key => !SameSetting(action.Settings[key], was.Settings[key]));
     }
 
     private static bool SameSetting(JsonNode? a, JsonNode? b)

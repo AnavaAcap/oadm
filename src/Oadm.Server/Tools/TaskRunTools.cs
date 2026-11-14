@@ -33,6 +33,15 @@ internal static class TaskRunTools
     /// <summary>Task ids of one cancel by id at most.</summary>
     public const int MaxCancelIds = 200;
 
+    /// <summary>The most tasks one cancel run takes; the preview names how many remain and says to preview again.</summary>
+    public const int MaxCancelPerRun = 200;
+
+    /// <summary>The longest one cancel run goes on; it stops and says what it cancelled and what is left.</summary>
+    public static readonly TimeSpan CancelRunBudget = TimeSpan.FromSeconds(60);
+
+    public const string CancelMore = "More tasks match. Run this cancel, then call oadm_tasks_cancel_preview again for the rest.";
+    public const string CancelOutOfTime = "The time for one cancel ran out. Call oadm_tasks_cancel_preview again for the tasks that are left.";
+
     public const string CancelEnded = "This preview has ended or already ran. Call oadm_tasks_cancel_preview again.";
     public const string CancelWhich = "Pass either batch or task_ids.";
 
@@ -302,6 +311,7 @@ internal static class TaskRunTools
             ["will_run"] = plan.RunDeviceIds.Count,
             ["first"] = first,
             ["skipped"] = new JsonArray([.. Reasons(plan.Skipped)]),
+            ["files"] = new JsonArray([.. plan.Files.Take(ShownReasons).Select(f => (JsonNode)new JsonObject { ["name"] = f.Name, ["sha256"] = f.Sha256 })]),
             ["warnings"] = new JsonArray([.. (plan.RunDeviceIds.Count == 0 ? plan.Warnings.Append(NothingToRun) : plan.Warnings).Take(ShownReasons).Select(w => (JsonNode)JsonValue.Create(w)!)]),
             ["handle"] = handle,
             ["expires"] = handle is null ? null : Time(handles.EndOfNew()),
@@ -375,7 +385,9 @@ internal static class TaskRunTools
         var matching = list.Tasks.Where(t => batch is null
             ? wanted.Contains(t.Id.ToLowerInvariant())
             : string.Equals(t.BatchId, batch, StringComparison.OrdinalIgnoreCase)).ToList();
-        var active = matching.Where(t => t.State is Proto.TaskState.Queued or Proto.TaskState.Running).ToList();
+        var allActive = matching.Where(t => t.State is Proto.TaskState.Queued or Proto.TaskState.Running).ToList();
+        var active = allActive.Take(MaxCancelPerRun).ToList();
+        var remaining = allActive.Count - active.Count;
         var cannot = matching.Where(t => t.State is not (Proto.TaskState.Queued or Proto.TaskState.Running))
             .GroupBy(t => "Already " + TaskTools.StateOf(t.State) + ".")
             .Select(g => (reason: g.Key, count: g.Count())).ToList();
@@ -394,6 +406,8 @@ internal static class TaskRunTools
         {
             ["matched"] = matching.Count,
             ["will_cancel"] = active.Count,
+            ["more_after_this"] = remaining,
+            ["note"] = remaining > 0 ? CancelMore : null,
             ["cannot"] = new JsonArray([.. cannot.OrderByDescending(c => c.count).Select(c => (JsonNode)new JsonObject { ["reason"] = c.reason, ["count"] = c.count })]),
             ["first"] = new JsonArray([.. active.Take(ShownDevices).Select(t => (JsonNode)new JsonObject
             {
@@ -411,13 +425,35 @@ internal static class TaskRunTools
     {
         var plan = handles.TakeChange<PlannedCancel>(call.Caller.BindingKey, call.Text("handle"), "oadm_tasks_cancel_run")
             ?? throw new ToolException(CancelEnded, [new ToolFieldError("handle", CancelEnded)]);
+        var (cancelled, missing, left) = await CancelEachAsync(
+            plan.TaskIds,
+            id => call.CallAsync<TaskGrpcService, Proto.TaskIdRequest, Proto.Empty>(CancelPath, new Proto.TaskIdRequest { TaskId = id }, (s, r, c) => s.Cancel(r, c)),
+            CancelRunBudget,
+            TimeProvider.System,
+            call.Ct).ConfigureAwait(false);
+        return new JsonObject { ["cancelled"] = cancelled, ["not_found"] = missing, ["left"] = left, ["note"] = left > 0 ? CancelOutOfTime : null };
+    }
+
+    /// <summary>
+    /// Cancels the tasks one after the other until <paramref name="budget"/> is spent (checked before each task); the tasks it did
+    /// not reach are counted as left, never cancelled by a later call of this run.
+    /// </summary>
+    internal static async Task<(int Cancelled, int NotFound, int Left)> CancelEachAsync(IReadOnlyList<string> ids, Func<string, Task> cancel, TimeSpan budget, TimeProvider time, CancellationToken ct)
+    {
+        var started = time.GetTimestamp();
         var cancelled = 0;
         var missing = 0;
-        foreach (var id in plan.TaskIds)
+        for (var i = 0; i < ids.Count; i++)
         {
+            if (budget != Timeout.InfiniteTimeSpan && time.GetElapsedTime(started) >= budget)
+            {
+                return (cancelled, missing, ids.Count - i);
+            }
+
+            ct.ThrowIfCancellationRequested();
             try
             {
-                await call.CallAsync<TaskGrpcService, Proto.TaskIdRequest, Proto.Empty>(CancelPath, new Proto.TaskIdRequest { TaskId = id }, (s, r, c) => s.Cancel(r, c)).ConfigureAwait(false);
+                await cancel(ids[i]).ConfigureAwait(false);
                 cancelled++;
             }
             catch (RpcException ex) when (ex.StatusCode == StatusCode.NotFound)
@@ -426,7 +462,7 @@ internal static class TaskRunTools
             }
         }
 
-        return new JsonObject { ["cancelled"] = cancelled, ["not_found"] = missing };
+        return (cancelled, missing, 0);
     }
 
     private static string Join(string parent, string field) => field.Length == 0 ? parent : parent + "." + field;
