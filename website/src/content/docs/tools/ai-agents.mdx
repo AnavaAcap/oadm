@@ -36,7 +36,7 @@ Permissions page.
 <Steps>
 
 1. Open the account menu (your name, top right) and click **Access keys**.
-2. Enter a **Name** for the agent or the computer, choose how long the key lasts (30, 90 or 365 days) and click
+2. Enter a **Name** for the agent or the computer (letters, digits, spaces, `-`, `_` and `.`), choose how long the key lasts (30, 90 or 365 days) and click
    **Create**.
 3. Click the copy button next to the new key and keep it where the agent can read it.
 
@@ -109,8 +109,9 @@ Texts that come from devices, such as names, locations and log lines, are data f
 
 ## Limits
 
-A key can make 20 calls a second and run 10 tasks a minute. A list answers at most 200 rows at a time, with the total, and
-no answer is larger than 32 KB. An agent asks for a summary first and narrows with filters.
+A key can make 20 calls a second and 10 changes a minute, and all keys of one user together the same. A list answers at
+most 200 rows at a time, with the total, and no answer is larger than 32 KB. An agent asks for a summary first and
+narrows with filters.
 
 ## Troubleshooting
 
@@ -123,3 +124,4 @@ no answer is larger than 32 KB. An agent asks for a summary first and narrows wi
 | The agent says **This access key is Read only.** | Create a key without **Read only** for changes. |
 | The agent has no tool for something | The key's user does not have the permission, or the plugin is off. Check the role on the Permissions page. |
 | **Too many calls with this access key** | The agent waits a second and tries again. |
+| **Too many changes with this access key. Wait a minute.** | The agent made 10 changes in a minute. It waits. |

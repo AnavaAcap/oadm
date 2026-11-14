@@ -82,7 +82,8 @@ preview/run handles and caller rules.
   `mcp.use`, off for every built-in role except Administrator). Fields: Name (1..64, unique per user), Expires (30, 90 or
   365 days, default 90), **Read only**. OADM shows the key once ("Copy it now. OADM cannot show it again."); it stores
   only its SHA-256 (32 random bytes, base64url, prefix `oadm_`), like session tokens (`AuthTokens`, new kind `AccessKey`,
-  migration `AccessKeys`).
+  migration `AccessKeys`). A name has letters, digits, spaces, `-`, `_` and `.` only (the form's field error and
+  `AccessKeyService.Create`); audit and task owner texts use the cleaned name.
 - The Permissions page lists every user's keys for administrators (user, name, created, expires, last used, Read only)
   with Delete. A disabled or deleted user, a new password or a deleted key ends the key at once; a new role or device group
   applies to the next call.
@@ -90,8 +91,14 @@ preview/run handles and caller rules.
   a new one in OADM under Access keys."; not allowed: the tool is not listed, and a call answers `isError` with
   `AccessPolicy.DeniedMessage`.
 - Audit: every call that changes something, every upload and every failed key is logged as "<user> via access key
-  <name>"; a task's Owner is "<user>@MCP <key name>". Limits per key: 20 calls per second, 10 runs per minute (HTTP 429 with
-  Retry-After).
+  <name>"; a task's Owner is "<user>@MCP <key name>".
+- Limits (HTTP 429 with Retry-After): each key and, with the same numbers, each user (all their keys together) makes at
+  most 20 calls a second, has at most 4 calls waiting at once and makes at most 10 changes a minute ("Too many changes with
+  this access key. Wait a minute."); the whole port takes at most 32 calls waiting at once. Every tool that is not a plain
+  read counts as a change (`OadmTool.CountsAsChange`: a run, a task start, or a call that acts outside OADM such as the
+  add preview). A call is counted as soon as its key is valid, before the role and device view are read. Open handles and
+  links: at most 20 of a kind per key, 60 and 16 MB per user, the oldest go first. The file links and the skill also need
+  Use AI agents (403).
 
 ## Tools
 
