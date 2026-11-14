@@ -372,8 +372,14 @@ The website gets a user page (Tools > AI agents, `tools/ai-agents`) and a develo
   change; the rule editor's checks and texts through `EventService.CheckRule`, nothing saved by the preview; a new rule is
   saved off unless `enabled`; the preview names actions that change devices and warns about one on every device),
   `oadm_rules_delete_preview`/`_run`, `oadm_events_log` (`more` and a cursor, no total). Passwords, secret headers, code
-  and file fields of actions are never shown, a change keeps them, and a rule that needs a new one answers "Set this in
-  OADM.". A rule naming more than 200 devices is changed in OADM.
+  and file fields of actions are never shown, and a rule that needs a new one answers "Set this in OADM.". A change keeps
+  an action's stored passwords, tokens and hidden headers only while everything that names where the action sends (host,
+  URL, port, user, recipient, topic, address) is unchanged; otherwise it is refused with "Set this in OADM.". Rule answers
+  show an address as scheme, host and port only (an address given back unchanged keeps the stored one), and a URL with a
+  login in it is refused. The save preview names every outside destination ("Sends event data to ...") and warns again
+  of a new one that is not a saved recipient. Warnings and errors are fixed sentences; rule, recipient and device names
+  appear only in their own fields, the server's problem text in `problem`. A rule naming more than 200 devices is
+  changed in OADM.
 - **Plugin tools** (`Tools/PluginTools`, a tool source of the registry that follows the plugins that are on): core plugins
   bring tools through `ICorePlugin.Tools` (SDK 0.13.0: `PluginTool`, `PluginToolPage`, `PluginToolErrors`, `ToolArea`, which
   defaults to the plugin id without `oadm.`). The host names them `oadm_<area>_<name>`, refuses a name that a host tool
