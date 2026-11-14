@@ -240,6 +240,22 @@ public interface ICorePlugin : IPlugin
     /// <c>ctx.System</c> refuses there like <c>ctx.Devices</c>. Keep the list short: the canary test prints it.
     /// </summary>
     string? SystemAccessReason(string method) => null;
+
+    /// <summary>
+    /// The tools of this plugin (SDK 0.13.0): steps a program such as an assistant may take without the plugin's page. The host
+    /// lists them while the plugin is on and the caller's role has their permission, and calls the plugin's own
+    /// <see cref="InvokeAsync(ICallContext, string, string?, CancellationToken)"/> with the caller (<see cref="PluginTool.Method"/>,
+    /// <see cref="PluginTool.PreviewMethod"/>), so <see cref="RequiredRole"/>, <see cref="RequiredPermission"/>,
+    /// <see cref="RequiresAllDevices"/> and the audit of <see cref="IsAudited"/> apply to a tool as to a page method. Default: none.
+    /// </summary>
+    IReadOnlyList<PluginTool> Tools => [];
+
+    /// <summary>
+    /// The word the host puts after <c>oadm_</c> in the names of this plugin's tools (SDK 0.13.0): "pki" gives
+    /// <c>oadm_pki_certificates</c>. Lower case letters, digits and underscores. Default null: the plugin's id without "oadm."
+    /// ("oadm.pki" gives "pki", "oadm.io-monitor" gives "io_monitor").
+    /// </summary>
+    string? ToolArea => null;
 }
 
 /// <summary>Role of an OADM user. Admin may do everything; Operator works with devices and tasks.</summary>

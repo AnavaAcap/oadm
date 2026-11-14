@@ -70,6 +70,22 @@ internal sealed record OadmTool(
 
     /// <summary>The tool starts tasks (a channel may limit these runs per minute).</summary>
     public bool StartsTasks { get; init; }
+
+    /// <summary>
+    /// A rule of the tool beyond the gRPC methods it calls (a plugin tool: the plugin is on, the method's permission): the reason
+    /// the caller may not use it now, null when it may. Asked when the list is made and before every call.
+    /// </summary>
+    public Func<ToolCaller, string?>? Gate { get; init; }
+}
+
+/// <summary>
+/// Tools that change while the server runs (the tools of the plugins that are on): asked for their tools each time the registry
+/// reads them, so a plugin turned on or off shows or hides its tools at once. It knows nothing of any channel.
+/// </summary>
+internal interface IToolSource
+{
+    /// <summary>The tools now; a name of the registry's fixed tools is never taken over.</summary>
+    IReadOnlyList<OadmTool> Current();
 }
 
 /// <summary>One call of a tool: the caller, the checked arguments and the way to the gRPC services.</summary>
@@ -121,25 +137,44 @@ internal sealed record ToolResult(JsonObject? Answer, string? Error, IReadOnlyLi
 internal sealed class ToolRegistry
 {
     private readonly Dictionary<string, OadmTool> _tools;
+    private readonly IReadOnlyList<IToolSource> _sources;
     private readonly InProcessCalls _calls;
     private readonly RoleStore _roles;
 
-    public ToolRegistry(IEnumerable<OadmTool> tools, InProcessCalls calls, RoleStore roles)
+    public ToolRegistry(IEnumerable<OadmTool> tools, InProcessCalls calls, RoleStore roles, IEnumerable<IToolSource>? sources = null)
     {
         _tools = tools.ToDictionary(t => t.Name, StringComparer.Ordinal);
+        _sources = [.. sources ?? []];
         _calls = calls;
         _roles = roles;
     }
 
+    /// <summary>The fixed tools and those of the sources now; a source never replaces a fixed tool or another source's first.</summary>
+    private Dictionary<string, OadmTool> Now()
+    {
+        if (_sources.Count == 0)
+        {
+            return _tools;
+        }
+
+        var all = new Dictionary<string, OadmTool>(_tools, StringComparer.Ordinal);
+        foreach (var tool in _sources.SelectMany(s => s.Current()))
+        {
+            all.TryAdd(tool.Name, tool);
+        }
+
+        return all;
+    }
+
     /// <summary>Every tool, also those a caller does not see (tests).</summary>
-    public IReadOnlyCollection<OadmTool> All => _tools.Values;
+    public IReadOnlyCollection<OadmTool> All => Now().Values.ToList();
 
     /// <summary>The tool of <paramref name="name"/>; false for a name no tool has.</summary>
-    public bool TryGet(string? name, out OadmTool tool) => _tools.TryGetValue(name ?? string.Empty, out tool!);
+    public bool TryGet(string? name, out OadmTool tool) => Now().TryGetValue(name ?? string.Empty, out tool!);
 
     /// <summary>The tools <paramref name="caller"/> may use now, in a fixed order.</summary>
     public IReadOnlyList<OadmTool> For(ToolCaller caller) =>
-        [.. _tools.Values.Where(t => Refusal(t, caller) is null).OrderBy(t => t.Name, StringComparer.Ordinal)];
+        [.. Now().Values.Where(t => Refusal(t, caller) is null).OrderBy(t => t.Name, StringComparer.Ordinal)];
 
     /// <summary>
     /// Calls the tool <paramref name="name"/> (it must exist, <see cref="TryGet"/>) as <paramref name="caller"/>: the refusal
@@ -196,7 +231,7 @@ internal sealed class ToolRegistry
 
         return tool.Methods.FirstOrDefault(m => !InProcessCalls.Allows(m, caller.User)) is { } method
             ? _calls.DeniedMessage(method, caller.User)
-            : null;
+            : tool.Gate?.Invoke(caller);
     }
 
     private static readonly JsonElement EmptyObject = JsonDocument.Parse("{}").RootElement.Clone();

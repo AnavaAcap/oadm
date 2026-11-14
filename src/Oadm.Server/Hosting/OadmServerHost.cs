@@ -196,6 +196,7 @@ public static partial class OadmServerHost
         services.AddSingleton<InProcessCalls>();
         services.AddSingleton<Tools.ToolCursors>();
         services.AddSingleton(sp => new Tools.ToolHandles(sp.GetRequiredService<TimeProvider>()));
+        services.AddSingleton<Tools.PluginTools>();
         services.AddSingleton(sp =>
         {
             var roles = sp.GetRequiredService<Core.Auth.RoleStore>();
@@ -208,7 +209,8 @@ public static partial class OadmServerHost
                     .. Tools.LogTools.Create(cursors),
                     .. Tools.TaskRunTools.Create(sp.GetRequiredService<Tools.ToolHandles>()),
                 ],
-                sp.GetRequiredService<InProcessCalls>(), roles);
+                sp.GetRequiredService<InProcessCalls>(), roles,
+                [sp.GetRequiredService<Tools.PluginTools>()]); // the tools of the plugins that are on
         });
         services.AddSingleton<Mcp.McpAccess>();
         services.AddSingleton<Mcp.McpToolAdapter>();

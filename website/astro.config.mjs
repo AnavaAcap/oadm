@@ -230,6 +230,7 @@ export default defineConfig({
 						{ label: 'Devices and VAPIX', slug: 'dev/devices' },
 						{ label: 'Task plugins', slug: 'dev/tasks' },
 						{ label: 'Core plugins and pages', slug: 'dev/core-plugins' },
+						{ label: 'Plugin tools', slug: 'dev/plugin-tools' },
 						{ label: 'Host services', slug: 'dev/host-services' },
 						{ label: 'Event rules', slug: 'dev/event-rules' },
 						{ label: 'Compliance checks', slug: 'dev/compliance-checks' },
