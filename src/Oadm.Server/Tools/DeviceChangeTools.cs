@@ -785,7 +785,7 @@ internal static class DeviceChangeTools
             {
                 await Parallel.ForEachAsync(plan.Devices, new ParallelOptions { MaxDegreeOfParallelism = ProbeParallelism, CancellationToken = linked.Token }, async (device, ct) =>
                 {
-                    if (!await AddOneAsync(working, device, plan.UseDnsNames, added).ConfigureAwait(false))
+                    if (!await AddOneAsync(working, call, device, plan.UseDnsNames, added).ConfigureAwait(false))
                     {
                         Interlocked.Increment(ref failed);
                     }
@@ -795,9 +795,10 @@ internal static class DeviceChangeTools
             {
                 // out of time: the devices not done count as not added
             }
-            catch (RpcException ex) when (!added.IsEmpty)
+            catch (RpcException) when (!added.IsEmpty)
             {
-                throw new ToolException($"{added.Count} devices were added before this stopped: {ex.Status.Detail}");
+                // A fixed sentence: the server's detail can carry device texts (rule 6), so it is not passed on.
+                throw new ToolException($"{added.Count} devices were added before this stopped. See them with oadm_devices_search.");
             }
 
             notAdded = plan.Devices.Count - added.Count;
@@ -830,7 +831,10 @@ internal static class DeviceChangeTools
     }
 
     /// <summary>Logs in to one planned device with the credential list (the server's own login) and commits it when that worked.</summary>
-    private static async Task<bool> AddOneAsync(ToolCall call, AddDevice device, bool useDns, System.Collections.Concurrent.ConcurrentBag<string> added)
+    /// <param name="call">The run's call, bounded by its time.</param>
+    /// <param name="unbounded">The same call without that bound: it stops the probe session also when the time ran out, so no
+    /// login goes on after the answer said "not added".</param>
+    private static async Task<bool> AddOneAsync(ToolCall call, ToolCall unbounded, AddDevice device, bool useDns, System.Collections.Concurrent.ConcurrentBag<string> added)
     {
         Proto.DiscoverySession session;
         try
@@ -843,22 +847,36 @@ internal static class DeviceChangeTools
             return false; // the networks changed since the preview, or the address no longer probes
         }
 
-        var watched = await WatchAsync(call, session.SessionId).ConfigureAwait(false);
-        var loggedIn = watched.Devices.Values.FirstOrDefault(d => d.AuthState == Proto.AuthState.Authenticated && !d.AlreadyManaged
-            && string.Equals(d.Serial, device.Serial, StringComparison.OrdinalIgnoreCase));
-        if (loggedIn is null)
+        try
         {
-            return false;
-        }
+            var watched = await WatchAsync(call, session.SessionId).ConfigureAwait(false);
+            var loggedIn = watched.Devices.Values.FirstOrDefault(d => d.AuthState == Proto.AuthState.Authenticated && !d.AlreadyManaged
+                && string.Equals(d.Serial, device.Serial, StringComparison.OrdinalIgnoreCase));
+            if (loggedIn is null)
+            {
+                return false;
+            }
 
-        var request = new Proto.CommitRequest { SessionId = session.SessionId, UseHostName = useDns };
-        request.DiscoveredIds.Add(loggedIn.DiscoveredId);
-        var reply = await call.CallAsync<AddDevicesGrpcService, Proto.CommitRequest, Proto.CommitReply>(CommitPath, request, (s, r, c) => s.Commit(r, c)).ConfigureAwait(false);
-        foreach (var id in reply.DeviceIds)
+            var request = new Proto.CommitRequest { SessionId = session.SessionId, UseHostName = useDns };
+            request.DiscoveredIds.Add(loggedIn.DiscoveredId);
+            var reply = await call.CallAsync<AddDevicesGrpcService, Proto.CommitRequest, Proto.CommitReply>(CommitPath, request, (s, r, c) => s.Commit(r, c)).ConfigureAwait(false);
+            foreach (var id in reply.DeviceIds)
+            {
+                added.Add(id);
+            }
+
+            return reply.DeviceIds.Count > 0;
+        }
+        finally
         {
-            added.Add(id);
+            try
+            {
+                await unbounded.CallAsync<DiscoveryGrpcService, Proto.DiscoverySession, Proto.Empty>(StopScanPath, new Proto.DiscoverySession { SessionId = session.SessionId }, (s, r, c) => s.StopScan(r, c)).ConfigureAwait(false);
+            }
+            catch (RpcException)
+            {
+                // the session already ended (a commit ends it)
+            }
         }
-
-        return reply.DeviceIds.Count > 0;
     }
 }

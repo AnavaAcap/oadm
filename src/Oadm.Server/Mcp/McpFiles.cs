@@ -117,27 +117,33 @@ internal sealed class McpFiles(ToolHandles handles, InProcessCalls calls, AuditL
         }
 
         long sent = 0;
-        await using (stream.ConfigureAwait(false))
+        try
         {
-            http.Response.ContentType = download.ContentType;
-            http.Response.Headers.ContentDisposition = new System.Net.Mime.ContentDisposition { FileName = download.Name, DispositionType = "attachment" }.ToString();
-            http.Response.Headers.CacheControl = "no-store";
-            if (stream.CanSeek)
+            await using (stream.ConfigureAwait(false))
             {
-                http.Response.ContentLength = stream.Length;
-            }
+                http.Response.ContentType = download.ContentType;
+                http.Response.Headers.ContentDisposition = new System.Net.Mime.ContentDisposition { FileName = download.Name, DispositionType = "attachment" }.ToString();
+                http.Response.Headers.CacheControl = "no-store";
+                if (stream.CanSeek)
+                {
+                    http.Response.ContentLength = stream.Length;
+                }
 
-            var buffer = new byte[ChunkBytes];
-            int read;
-            while ((read = await stream.ReadAsync(buffer, http.RequestAborted).ConfigureAwait(false)) > 0)
-            {
-                await http.Response.Body.WriteAsync(buffer.AsMemory(0, read), http.RequestAborted).ConfigureAwait(false);
-                sent += read;
+                var buffer = new byte[ChunkBytes];
+                int read;
+                while ((read = await stream.ReadAsync(buffer, http.RequestAborted).ConfigureAwait(false)) > 0)
+                {
+                    await http.Response.Body.WriteAsync(buffer.AsMemory(0, read), http.RequestAborted).ConfigureAwait(false);
+                    sent += read;
+                }
             }
         }
-
-        await audit.WriteAsync(caller.User.AuditUserName ?? caller.User.UserName, caller.User.ClientAddress, AuditActions.FileDownloaded, download.Name,
-            string.Create(CultureInfo.InvariantCulture, $"{sent:N0} bytes"), CancellationToken.None).ConfigureAwait(false);
+        finally
+        {
+            // Also a download cut off halfway is audited: its bytes left OADM.
+            await audit.WriteAsync(caller.User.AuditUserName ?? caller.User.UserName, caller.User.ClientAddress, AuditActions.FileDownloaded, download.Name,
+                string.Create(CultureInfo.InvariantCulture, $"{sent:N0} bytes"), CancellationToken.None).ConfigureAwait(false);
+        }
     }
 
     private static Task RefuseAsync(HttpContext http, int status, string message)

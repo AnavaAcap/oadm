@@ -27,8 +27,11 @@ public sealed class InstallCaTask(Func<PkiService?> service) : PkiTaskBase(servi
 
     public override string? IconKey => "upload";
 
-    /// <summary>The CA certificates for AI agents (SDK 0.13.0): public certificates only.</summary>
-    public override Type? PayloadType => typeof(InstallCaPayload);
+    /// <summary>
+    /// Not offered to AI agents (null, SDK 0.13.0): the certificates would become trust anchors on the devices, and an agent
+    /// could bring any one. The dialog shows each certificate to the person who installs it.
+    /// </summary>
+    public override Type? PayloadType => null;
 
     /// <summary>Every certificate checked as before the first write (<see cref="Validate"/>): a CA certificate, valid now.</summary>
     public override IReadOnlyList<PayloadError> ValidatePayload(string? payloadJson, ICallContext caller)

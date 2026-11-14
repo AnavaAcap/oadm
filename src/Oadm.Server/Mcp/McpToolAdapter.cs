@@ -71,7 +71,7 @@ internal sealed class McpToolAdapter(ToolRegistry tools)
         Annotations = new ToolAnnotations
         {
             Title = tool.Title,
-            ReadOnlyHint = tool.ReadsOnly,
+            ReadOnlyHint = tool.ReadsOnly && !tool.ActsOutside, // a call that acts outside OADM is not announced as a plain read
             DestructiveHint = tool.Destructive,
             IdempotentHint = tool.Idempotent,
             OpenWorldHint = false, // OADM's own devices and data

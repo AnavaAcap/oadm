@@ -49,6 +49,9 @@ public sealed partial class McpToolTests
         .. McpAreaToolTests.RunTools,
     ];
 
+    /// <summary>Previews that act outside OADM (the add scan): no plain read, so not announced as one and not offered to Read only keys.</summary>
+    private static readonly string[] ActsOutsideTools = ["oadm_devices_add_preview"];
+
     [GeneratedRegex("^oadm_[a-z0-9_]+$")]
     private static partial Regex ToolName();
 
@@ -71,7 +74,7 @@ public sealed partial class McpToolTests
             AssertStrict(tool["inputSchema"]!.AsObject(), name);
             Assert.Equal("object", tool["outputSchema"]?["type"]?.GetValue<string>());
             var annotations = tool["annotations"]!.AsObject();
-            Assert.Equal(!WriteTools.Contains(name), annotations["readOnlyHint"]!.GetValue<bool>());
+            Assert.Equal(!WriteTools.Contains(name) && !ActsOutsideTools.Contains(name), annotations["readOnlyHint"]!.GetValue<bool>()); // a call that reaches devices or the network is no plain read
             Assert.Equal(DestructiveTools.Contains(name), annotations["destructiveHint"]!.GetValue<bool>());
             Assert.False(annotations["openWorldHint"]!.GetValue<bool>(), name);
         }

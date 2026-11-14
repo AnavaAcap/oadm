@@ -89,12 +89,13 @@ public sealed class McpTaskPartTests
         string[] offered =
         [
             FirmwareTaskPlugin.PluginId, NetworkSettingsTaskPlugin.PluginId, AssignIpTaskPlugin.PluginId, AcapTaskId, PkiTaskIds.HttpsEnable, PkiTaskIds.HttpsDisable,
-            PkiTaskIds.Dot1xEnable, PkiTaskIds.Dot1xDisable, PkiTaskIds.Renew, PkiTaskIds.InstallCa,
+            PkiTaskIds.Dot1xEnable, PkiTaskIds.Dot1xDisable, PkiTaskIds.Renew,
         ];
         Assert.All(offered, id => Assert.Contains(id, tasks));
 
-        // A password (users, install certificates) or a choice only the dialog makes (what to delete, what to view) stays in OADM.
-        string[] notOffered = [UsersTaskPlugin.PluginId, PkiTaskIds.Install, PkiTaskIds.Delete, PkiTaskIds.View];
+        // A password (users, install certificates), a choice only the dialog makes (what to delete, what to view) or a new
+        // trust anchor on the devices (install CA certificates: the dialog shows each one to the person) stays in OADM.
+        string[] notOffered = [UsersTaskPlugin.PluginId, PkiTaskIds.Install, PkiTaskIds.Delete, PkiTaskIds.View, PkiTaskIds.InstallCa];
         Assert.All(notOffered, id => Assert.DoesNotContain(id, tasks));
         Assert.All(notOffered, id => Assert.Null(TaskPayloadSchemas.Of(server.Host.Get<PluginRegistry>().TryGetTaskPlugin(id, out var plugin) ? plugin.Plugin : throw new InvalidOperationException(id))));
 
@@ -279,12 +280,12 @@ public sealed class McpTaskPartTests
         var clock = await RefusedAsync(server, key, PkiTaskIds.Dot1xEnable, Filter(device), new JsonObject { ["clockConfirmed"] = true });
         Assert.Equal(ToolInputTexts.Unknown, clock["input.clockConfirmed"]);
 
+        // Install CA certificates is not offered: an agent could bring any certificate as a trust anchor.
         var ca = await RefusedAsync(server, key, PkiTaskIds.InstallCa, Filter(device), new JsonObject
         {
             ["certificates"] = new JsonArray(new JsonObject { ["name"] = "Acme", ["pem"] = "not a certificate" }),
         });
-        Assert.StartsWith("Acme:", ca["input.certificates"], StringComparison.Ordinal);
-        Assert.EndsWith("Nothing was changed.", ca["input.certificates"], StringComparison.Ordinal);
+        Assert.Equal(TaskRunTools.NotOffered, ca["task"]);
     }
 
     [Fact]
