@@ -72,7 +72,14 @@ Set `Changes` and the host makes two tools, `<name>_preview` and `<name>_run`. I
 
 Set `Destructive` for a change that removes something. A Read only caller gets the previews and never the runs.
 
+## Your duty
+
+The host trusts what you declare. A tool without `Changes`, and every `tool.<name>.preview`, is offered to Read only keys,
+so it must never write: not to OADM, not to a device, not to a file. Anything that writes is a change with a preview and a
+run. Never return a password, private key, license key or token, and keep texts from devices and users in their own
+fields, never in a message.
+
 ## Test
 
 Call your `InvokeAsync` with `FakeCallContext` for a user with all devices and for a group: the answer, the field errors,
-that a preview leaves nothing behind, and that no answer holds a secret.
+that a tool without `Changes` and every preview leave nothing behind, and that no answer holds a secret.
