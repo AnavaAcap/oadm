@@ -199,6 +199,7 @@ used again.
   15 min) and reach tasks through `IUploadedFiles`. An upload belongs to the caller's user and session (`UploadOwner` in
   the `.json`): `Delete`, `BackupService.Inspect` / `Restore` and the tasks that user starts in that session see it; for
   anyone else its id answers NOT_FOUND like an unknown one.
+  - `List` (signed in): the caller's own finished uploads, newest first, with `created` (the AI agents' `oadm_files_list`).
 - **`PluginService`** (`plugins.proto`):
   - `ListCorePlugins`: the rail pages; `CorePluginInfo.no_page = 4` for a core plugin without a page (`ICorePlugin.HasPage`
     false: no rail entry).

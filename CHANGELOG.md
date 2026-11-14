@@ -13,6 +13,8 @@ Each entry is one short line in plain words (what the user gets, not how); no ne
 - AI agents: create access keys in the account menu; an agent reads your devices, tasks and logs with the rights of your role.
 - AI agents: an agent previews a task on the devices of a filter and runs it with your rights; Restart, Use OADM NTP server and Date and time are offered.
 - AI agents: an agent sends a file for a task through a one-time upload link, never through the model.
+- AI agents: an agent runs Upgrade AXIS OS, Network settings, Assign IP address, Applications and the HTTPS, 802.1X, renew and CA certificate tasks, with the dialogs' checks and warnings.
+- AI agents: an agent cancels tasks and lists and deletes the files it sent.
 - AI agents: an agent takes a camera picture, refreshes, removes and adds devices, and sets their login from the credential list.
 - AI agents: an agent lists and changes device tags, lists sites, reads compliance results and checks, works with event rules and reads the event log.
 - AI agents: an agent reads PKI certificates and policies, creates a certificate, and reads the NTP server, DHCP server and Hardening scan status.

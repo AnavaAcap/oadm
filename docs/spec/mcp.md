@@ -1,10 +1,10 @@
 # MCP server (AI agents)
 
-Status: **stages 1 and 2 built** (stage 1: the endpoint, the Settings card AI agents, the PKI policy AI agents, access keys
-and the read tools; stage 2: the SDK members for tasks, `ValidatePayload` in `TaskService.Run`, `oadm_tasks_catalog`,
-`oadm_task_preview`, `oadm_task_run`, the schemas of Restart, Use OADM NTP server and Date and time, upload links; see
-"Stage 1 as built" and "Stage 2 as built"). Not built: download links, schemas of the other bundled tasks,
-`oadm_tasks_cancel`, stages 3 and 4.
+Status: **all four stages built** (stage 1: the endpoint, the Settings card AI agents, the PKI policy AI agents, access
+keys and the read tools; stage 2: the SDK members for tasks, `ValidatePayload` in `TaskService.Run`, the task catalog,
+preview and run, the schemas of the bundled tasks without secrets, cancel, file links; stage 3: device actions, tags,
+sites, compliance, event rules, plugin tools; stage 4: the skill, Connect an agent, the website pages; see the "as built"
+sections). Not offered on purpose: see "Open points".
 
 Part of the OADM spec (`CLAUDE.md` "Feature specs"): read it before you change this area, update it in the same change.
 
@@ -330,7 +330,20 @@ The website gets a user page (Tools > AI agents, `tools/ai-agents`) and a develo
   minute.", Retry-After 60; counted on `Mcp-Method` tools/call and `Mcp-Name` of a tool that starts tasks).
 - **Offered tasks**: Restart and Use OADM NTP server (no settings), Date and time (`DateTimePayload` with its
   descriptions, `PayloadValidator` at the payload's fields; the year is left to the device as in the task). Users has a
-  `[Secret]` password and is not offered. The other bundled tasks have no payload type yet and are not offered.
+  `[Secret]` password and is not offered. Also offered: Upgrade AXIS OS (uploaded files only, factory default, allow
+  downgrade; `PlanAsync` is `FirmwareCompatibility.ChooseFor` from the cached model and version; no online download, which
+  needs the user's MyAxis sign-in), Network settings, Assign IP address, Applications (install, remove, start, stop),
+  Enable and Disable HTTPS, Enable and Disable IEEE 802.1X, Renew certificates, Install CA certificates. The dialogs and
+  the previews share their warning texts (`FirmwareWarnings`, `NetworkWarningTexts`, `PkiTaskIds`). Not offered (fail
+  closed): application license keys and settings, Install certificates (secrets), Delete and View certificates (choices
+  only the dialog makes), EST setup, Users. The PKI enable tasks have no clock question over MCP: a device with a late clock
+  refuses. The schema export also describes maps (Network's devices by id: `propertyNames` uuid, at most 100,000).
+- **Tasks and files**: `oadm_tasks_cancel_preview`/`_run` (a batch or up to 200 task ids; counts what stops and what
+  cannot; only the caller's devices); `oadm_files_list` (the files this key's user sent, newest first, 50 a page;
+  `FileService.List`) and `oadm_files_delete_preview`/`_run`.
+- **Download links**: `GET /files/<token>` on the MCP port serves a `PlannedDownload`: once, 10 minutes, bound to the key,
+  the same key check as uploads, audited "Downloaded file"; a Read only key may fetch one. No tool hands one out yet: a
+  backup needs a password the administrator chooses and holds every secret of the server (see "Open points").
 - **Read only**: a Read only key lists no tool that changes something (`oadm_task_run`, `oadm_files_upload_link`), a call of
   one answers "This access key is Read only.", and an upload with it is refused; previews stay (they write nothing).
 - **Tests**: `McpTaskToolTests` (the catalog and a secret task, a preview that writes nothing, the handle of another key,
@@ -400,6 +413,7 @@ The website gets a user page (Tools > AI agents, `tools/ai-agents`) and a develo
 - Not offered yet: recipients, changing compliance checks, turning a rule on or off by itself; the waiting list keeps no
   tags or site for a device an agent puts there.
 - The skills extension is declared without fields; when its schema settles, `McpSkill` may list the skill there too.
-- Download links (backups, reports, exports) are not built; nor are the schemas of Upgrade AXIS OS (its `PlanAsync` with
-  `FirmwareCompatibility.Choose`, the files of upload links), Network, Applications and the PKI tasks, nor
-  `oadm_tasks_cancel`.
+- A backup over a download link: `BackupService.Create` needs a password the administrator chooses (rule 4: no tool takes
+  one) and the file holds the database, the server key and the plugins' files. A link to a backup already kept on the
+  server (`BackupService.Download` by name) would need no password; whether agents get it, and with which right, is the
+  maintainer's call. The download route and `ToolHandles.AddDownload` are ready for it.
