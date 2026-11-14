@@ -1,8 +1,10 @@
 # MCP server (AI agents)
 
-Status: **stage 1 built** (the endpoint, the Settings card AI agents, the PKI policy MCP server, access keys and the tools
-`oadm_server_info`, `oadm_devices_summary`, `oadm_devices_search`, `oadm_devices_get`, `oadm_tasks_list`, `oadm_tasks_get`,
-`oadm_logs_search`, `oadm_logs_audit`; see "Stage 1 as built"). Stages 2 to 4 are not built: no tool changes anything yet.
+Status: **stages 1 and 2 built** (stage 1: the endpoint, the Settings card AI agents, the PKI policy AI agents, access keys
+and the read tools; stage 2: the SDK members for tasks, `ValidatePayload` in `TaskService.Run`, `oadm_tasks_catalog`,
+`oadm_task_preview`, `oadm_task_run`, the schemas of Restart, Use OADM NTP server and Date and time, upload links; see
+"Stage 1 as built" and "Stage 2 as built"). Not built: download links, schemas of the other bundled tasks,
+`oadm_tasks_cancel`, stages 3 and 4.
 
 Part of the OADM spec (`CLAUDE.md` "Feature specs"): read it before you change this area, update it in the same change.
 
@@ -168,7 +170,8 @@ exports) work the same way with a one-time download link. A Read only key gets d
 New default interface members (SDK minor version up, `docs/spec/plugins.md`):
 
 - `ITaskPlugin.PayloadType` (`Type?`): the payload record; the host exports its JSON Schema (`JsonSchemaExporter`, with
-  `[Description]` and validation attributes) as the tool's input. Null: not offered over MCP.
+  `[Description]` and validation attributes) as the tool's input. Null: not offered over MCP. `ITaskPlugin.PayloadJsonOptions`:
+  the serializer options the plugin reads the payload with (its names and enum texts); null: `PluginJson.CreateOptions()`.
 - `ITaskPlugin.ValidatePayload(string payloadJson, ICallContext caller)` → field errors (the dialog's rules, reused by the
   dialog view model). Called by MCP preview **and by `TaskService.Run`**, which then refuses an invalid payload with
   INVALID_ARGUMENT before any task starts.
@@ -178,7 +181,7 @@ New default interface members (SDK minor version up, `docs/spec/plugins.md`):
 - `ICorePlugin.McpTools`: tool descriptors (name, title, description, input and output type, read only or change,
   permission, the `InvokeAsync` method). Changes get the preview/run pair from the host; the plugin implements a
   `<method>.preview` that never writes.
-- `IsSecret` on a payload property: a task whose payload has one is not offered over MCP.
+- `[Secret]` (`SecretAttribute`) on a payload property: a task whose payload has one, anywhere, is not offered over MCP.
 
 ## Skill
 
@@ -244,8 +247,7 @@ The website gets a user page (Tools > AI agents) and a developer page (plugin MC
   "<user>@MCP <key name>"). A tool is listed when the role has "Use AI agents" and `AccessPolicy` allows every gRPC method
   the tool calls (so the logs need "See the server log" and all devices, the audit log the Administrator role); otherwise a
   call answers `isError` with the refusal. Calls per key: 20 a second (429, Retry-After 1) and 4 waiting for their answer at
-  once (429 "Too many calls with this access key at once. Wait for an answer.", Retry-After 1); `RunsPerMinute` (10) waits
-  for the task runs of stage 2. A refused key is audited once per address and key a minute, the count in the detail; an ended
+  once (429 "Too many calls with this access key at once. Wait for an answer.", Retry-After 1); 10 task runs a minute (stage 2). A refused key is audited once per address and key a minute, the count in the detail; an ended
   key keeps its row until the hourly cleanup, so its refusal names "<user> via access key <name>" ("The key has ended. 2
   refused calls"); after 50 refused keys from an address (IPv6 per /64) in 5 minutes it waits until they end (429,
   Retry-After 300), like logins.
@@ -295,6 +297,47 @@ The website gets a user page (Tools > AI agents) and a developer page (plugin MC
   called in process with a caller object and no request; the tools name nothing of MCP or ASP.NET), `Perf/McpScaleTests`, PKI
   `McpServerPolicyTests` (the shared certificate on the first Turn on, also without OADM PRO; the host's full name), client `AiAgentsTests` (headless, screenshots).
 
+## Stage 2 as built
+
+- **SDK 0.13.0** (`src/Oadm.Sdk/Tasks/TaskPayloads.cs`, `ITaskPlugin`): `PayloadType`, `PayloadJsonOptions`, `ValidatePayload`
+  (`PayloadError` per JSON field), `PlanAsync` (`TaskPlan`, `TaskPlanDevice`, default `TaskPlan.ByCanRun`), `SecretAttribute`.
+  The host's `Tasks/TaskPayloadSchemas` exports the schema once per type: objects without other properties, the attributes'
+  bounds, the host's bounds for a text, number or list without one (4,096 characters, the 32-bit range, 100,000 items); no
+  schema (not offered) for a secret, a value of any type, a reference or a type the exporter cannot describe.
+- **gRPC** (docs/spec/grpc.md): `TaskService.Run` asks `ValidatePayload` before any task starts (INVALID_ARGUMENT with the
+  first text, trailer `oadm-field`; a check that throws refuses the run) and answers `batch_id`; `TaskService.Plan` (the
+  preview: the checks of Run, the field errors, the filter resolved in the caller's view in address order, per device run
+  or skipped by `PlanAsync`, the task name, the warnings; nothing written); `ListTaskPlugins` with `with_payload_schema` and
+  a `filter` (counts only within it).
+- **Tools** (`Tools/TaskRunTools`): `oadm_tasks_catalog(filter, task)` (the offered tasks by name with `can_run`,
+  `cannot_run` by reason and `input_schema`; schemas that do not fit 32 KB are left out with a note, `task` gives one in
+  full), `oadm_task_preview(task, filter, input)` (the input against the task's schema, then the plugin's rules, field errors
+  as `input.<field>`; the plan with the first 20 devices, the skipped ones by reason and the warnings; a handle when a
+  device would run), `oadm_task_run(handle)` (`destructiveHint`; `TaskService.Run` with the preview's devices and payload:
+  every check again; batch and task count), `oadm_files_upload_link(name, size)` (a file name without a folder, the exact
+  size). Handles and links (`Tools/ToolHandles`): random, bound to the caller's binding key, 10 minutes, once, at most 20
+  of a kind per caller, in memory only; another key's handle answers like an ended one.
+- **MCP** (`Mcp/McpFiles`, `McpEndpoint`): `PUT /files/<token>` with the same key: the link's caller only, exactly its size
+  (400 otherwise), through `FileService.Upload` in process (its limits; the tasks of the same key read the file), answers
+  `file_id`, `name`, `size`, `sha256`, audited "Uploaded file" as "<user> via access key <name>"; a Read only key gets 403
+  also with a link. Every change an agent causes is audited as "<user> via access key <name>"
+  (`AuthenticatedCaller.AuditUserName`). Runs per key: 10 a minute (429 "Too many task runs with this access key. Wait a
+  minute.", Retry-After 60; counted on `Mcp-Method` tools/call and `Mcp-Name` of a tool that starts tasks).
+- **Offered tasks**: Restart and Use OADM NTP server (no settings), Date and time (`DateTimePayload` with its
+  descriptions, `PayloadValidator` at the payload's fields; the year is left to the device as in the task). Users has a
+  `[Secret]` password and is not offered. The other bundled tasks have no payload type yet and are not offered.
+- **Read only**: a Read only key lists no tool that changes something (`oadm_task_run`, `oadm_files_upload_link`), a call of
+  one answers "This access key is Read only.", and an upload with it is refused; previews stay (they write nothing).
+- **Tests**: `McpTaskToolTests` (the catalog and a secret task, a preview that writes nothing, the handle of another key,
+  once, 10 minutes, invalid input from the schema and from the plugin, the same refusal through `TaskService.Run`, Read only
+  keys and every write tool, upload links, 10 runs a minute), `McpToolTests` and `McpSecretTests` over every tool, the canary
+  case of `TaskService.Plan`.
+
 ## Open points
 
 - Client support for the MCP tasks extension: if it spreads, `oadm_task_run` may answer a task handle instead of polling.
+- Download links (backups, reports, exports) are not built; nor are the schemas of Upgrade AXIS OS (its `PlanAsync` with
+  `FirmwareCompatibility.Choose`, the files of upload links), Network, Applications and the PKI tasks, nor
+  `oadm_tasks_cancel`.
+- `ICorePlugin.McpTools` (stage 3) would name MCP in the SDK although the tools no longer depend on it: `ICorePlugin.Tools`
+  fits the registry.

@@ -69,6 +69,10 @@ Part of the OADM spec (`CLAUDE.md` "Feature specs"): read it before you change t
   `json_each`); measured at 100,000 devices and 50,000 tasks (Debug, 2026-11-10): a page in 0.4 s, a group's Watch snapshot of 10,000 in 1.8 s. The Watch
   follows devices that leave (their tasks Removed at once) and enter (their tasks Added, like the snapshot) through tag,
   site and rule changes.
+- **The payload is checked before a run** (SDK 0.13.0): `TaskService.Run` asks the plugin's `ValidatePayload` (the dialog's
+  rules) before any task is created and refuses an invalid payload with the first problem's text (INVALID_ARGUMENT); a
+  plugin without it checks its payload in its tasks as before. AI agents preview a run first (`TaskService.Plan`,
+  [mcp.md](mcp.md) "Tasks").
 - **Page tasks**: a task hidden from the menus (`ShowInMenus` false) without permissions of its own starts only through
   `call.Tasks` of a page method or job of its own package, on that method's permission; `TaskService.Run` refuses it for
   every caller ("This task starts only from its page.", [security.md](security.md)).

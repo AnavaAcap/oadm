@@ -156,12 +156,22 @@ used again.
     (`NotRunnableGroup` {reason, device_ids, count, other_devices}): why the plugin cannot run on the other devices
     (`ITaskPlugin.NotSupportedReason`, computed in the same cache), grouped by reason, most devices first, every id sent
     once: with `runnable_on_all_except` the not-runnable ids are sorted by group and each group takes its `count` of them,
-    otherwise the most common reason is `other_devices` (no ids) and the rarer ones list their ids.
+    otherwise the most common reason is `other_devices` (no ids) and the rarer ones list their ids. `with_payload_schema = 2`:
+    `payload_schema_json = 12` (the JSON Schema of `ITaskPlugin.PayloadType`; empty when the task is not offered to the
+    tools); `filter = 3` (DeviceFilter): counts only within the filter's devices, `runnable_count = 13` and the groups
+    without ids.
   - `StreamTaskPlugins(ListTaskPluginsRequest)`: the same entries, one `TaskPluginInfo` message per plugin; the client
     uses it (at 100,000 devices the whole list can pass its 32 MB message limit, one plugin stays at a few MB) and falls
     back to `ListTaskPlugins` when a server answers UNIMPLEMENTED.
-  - `Run(pluginId, deviceIds, payloadJson)`: one task per device, reply `task_ids` (`task_id` is deprecated = first id),
-    all tasks of a Run written in one transaction.
+  - `Run(pluginId, deviceIds, payloadJson)`: one task per device, reply `task_ids` (`task_id` is deprecated = first id) and
+    `batch_id = 3`, all tasks of a Run written in one transaction. Before any task starts the plugin checks the payload
+    (`ITaskPlugin.ValidatePayload`, SDK 0.13.0): INVALID_ARGUMENT with the first problem's text and its field in the trailer
+    `oadm-field`; a check that throws refuses the run ("The task settings cannot be checked. Nothing was changed.").
+  - `Plan(PlanTaskRequest {plugin_id, filter (DeviceFilter), payload_json})` (like Run, nothing written; the preview of the
+    tools, `docs/spec/mcp.md` "Tasks"): NOT_FOUND unknown plugin, PERMISSION_DENIED page task or what the run needs; the
+    payload's `errors` {field, message} (then nothing else), else the filter's devices in the caller's view in address order
+    (NOT_FOUND for an id outside it), `run_device_ids` (`PlanAsync`, cached data only), `skipped` {reason, count},
+    `task_name`, `device_count`, `warnings`.
   - `List(ListTasksRequest)`: newest first, `limit` / `offset` paging, `TaskList.total_count = 2`, limit 0 = all.
     `Watch(WatchTasksRequest)`: every active task plus the newest `snapshot_limit` (0 = all), `SNAPSHOT_END` (kind 4, no
     task) when `snapshot_end_marker`, then live changes. For a user with a group both are filtered in the query

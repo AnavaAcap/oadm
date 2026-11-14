@@ -95,6 +95,7 @@ public static class AuditActions
     public const string AccessKeyDeleted = "Deleted access key";
     public const string AccessKeyRefused = "Access key refused";
     public const string AiAgentsChanged = "Changed AI agents";
+    public const string FileUploaded = "Uploaded file";
 
     /// <summary>The user of an entry an AI agent caused: "&lt;user&gt; via access key &lt;name&gt;" (docs/spec/mcp.md "Access keys").</summary>
     public static string ViaAccessKey(string userName, string keyName) => userName + " via access key " + keyName;
@@ -122,7 +123,7 @@ public sealed partial class AuditLog(IDbContextFactory<OadmDbContext> dbFactory,
     public Task WriteAsync(string action, string target, string? detail = null, CancellationToken ct = default)
     {
         var caller = CallerContext.Current;
-        return WriteAsync(caller?.UserName ?? "system", caller?.ClientAddress ?? string.Empty, action, target, detail, ct);
+        return WriteAsync(caller?.AuditUserName ?? caller?.UserName ?? "system", caller?.ClientAddress ?? string.Empty, action, target, detail, ct);
     }
 
     /// <summary>Writes an entry for an explicit user (login attempts). Failures are logged, never thrown.</summary>

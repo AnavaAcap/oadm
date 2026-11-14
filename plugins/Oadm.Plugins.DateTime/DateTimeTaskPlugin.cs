@@ -45,6 +45,31 @@ public sealed class DateTimeTaskPlugin : ITaskPlugin, ITaskPluginQuery
 
     public string DisplayName => "Date and time";
 
+    /// <summary>The payload of the dialog (SDK 0.13.0): its schema is the input of the task for AI agents.</summary>
+    public Type? PayloadType => typeof(DateTimePayload);
+
+    /// <summary>The names and enum texts the task reads.</summary>
+    public System.Text.Json.JsonSerializerOptions? PayloadJsonOptions => DateTimePayload.JsonOptions;
+
+    /// <summary>
+    /// The dialog's rules (<see cref="PayloadValidator"/>) before any task starts, each at its JSON field. The year is left to
+    /// the device, like the task itself does (the dialog knows the device's last year).
+    /// </summary>
+    public IReadOnlyList<Oadm.Sdk.Tasks.PayloadError> ValidatePayload(string? payloadJson, ICallContext caller)
+    {
+        DateTimePayload payload;
+        try
+        {
+            payload = DateTimePayload.Parse(payloadJson);
+        }
+        catch (ArgumentException ex)
+        {
+            return [new(string.Empty, ex.Message)];
+        }
+
+        return [.. PayloadValidator.Validate(payload, int.MaxValue).Select(e => new Oadm.Sdk.Tasks.PayloadError(PayloadValidator.JsonFieldOf(e.Field), e.Message))];
+    }
+
     public string Group => TaskGroups.Maintenance;
 
     public string? IconKey => "clock";

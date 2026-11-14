@@ -74,6 +74,13 @@ internal static class ToolSchema
 
     public static KeyValuePair<string, JsonObject> P(string name, JsonObject schema) => new(name, schema);
 
+    /// <summary>
+    /// An object whose properties another schema names (a task's input: its schema comes with the task catalog and the
+    /// preview checks the input against it, field by field).
+    /// </summary>
+    public static JsonObject OpenObject(string description) =>
+        new() { ["type"] = "object", ["description"] = description, ["additionalProperties"] = true };
+
     /// <summary>A value of an output schema that may be null (a time not reached yet, a value the device did not report).</summary>
     public static JsonObject OrNull(JsonObject schema)
     {
@@ -111,8 +118,35 @@ internal static class ToolSchema
 
     private static void Check(JsonObject schema, JsonElement value, string path, List<ToolFieldError> errors)
     {
-        var type = schema["type"]?.GetValue<string>();
         var field = path.Length == 0 ? "arguments" : path;
+        var types = schema["type"] switch
+        {
+            JsonValue one when one.TryGetValue<string>(out var single) => [single],
+            JsonArray many => many.Select(t => t?.GetValue<string>() ?? string.Empty).ToList(),
+            _ => new List<string>(),
+        };
+        if (value.ValueKind == JsonValueKind.Null)
+        {
+            if (!types.Contains("null"))
+            {
+                errors.Add(new(field, ToolInputTexts.Required));
+            }
+
+            return;
+        }
+
+        if (schema["enum"] is JsonArray choices && value.ValueKind != JsonValueKind.String)
+        {
+            // Choices of numbers or other values (a payload's enum); texts are checked with their length below.
+            if (!choices.Any(c => c is not null && JsonNode.DeepEquals(c, JsonNode.Parse(value.GetRawText()))))
+            {
+                errors.Add(new(field, "Use one of: " + string.Join(", ", choices.Select(c => c?.ToJsonString())) + "."));
+            }
+
+            return;
+        }
+
+        var type = types.FirstOrDefault(t => t != "null") ?? (schema["enum"] is not null ? "string" : null);
         switch (type)
         {
             case "object":
@@ -129,7 +163,7 @@ internal static class ToolSchema
                     {
                         Check(inner, property.Value, Join(path, property.Name), errors);
                     }
-                    else
+                    else if (schema["additionalProperties"] is not JsonValue open || !open.GetValue<bool>())
                     {
                         errors.Add(new(Join(path, property.Name), ToolInputTexts.Unknown));
                     }
@@ -151,10 +185,16 @@ internal static class ToolSchema
                     return;
                 }
 
-                var max = schema["maxItems"]?.GetValue<int>() ?? int.MaxValue;
+                var max = Bound(schema, "maxItems") ?? int.MaxValue;
                 if (value.GetArrayLength() > max)
                 {
                     errors.Add(new(field, string.Create(CultureInfo.InvariantCulture, $"Use at most {max:N0} values.")));
+                    return;
+                }
+
+                if (Bound(schema, "minItems") is { } least && value.GetArrayLength() < least)
+                {
+                    errors.Add(new(field, string.Create(CultureInfo.InvariantCulture, $"Use at least {least:N0} values.")));
                     return;
                 }
 
@@ -169,14 +209,15 @@ internal static class ToolSchema
             case "string":
                 CheckText(schema, value, field, errors);
                 return;
-            case "integer":
-                if (value.ValueKind != JsonValueKind.Number || !value.TryGetInt64(out var number))
+            case "integer" or "number":
+                if (value.ValueKind != JsonValueKind.Number || (type == "integer" && !value.TryGetInt64(out _)))
                 {
                     errors.Add(new(field, ToolInputTexts.WholeNumber(schema)));
                     return;
                 }
 
-                if (number < (schema["minimum"]?.GetValue<int>() ?? int.MinValue) || number > (schema["maximum"]?.GetValue<int>() ?? int.MaxValue))
+                var number = value.GetDouble();
+                if (number < (Bound(schema, "minimum") ?? double.MinValue) || number > (Bound(schema, "maximum") ?? double.MaxValue))
                 {
                     errors.Add(new(field, ToolInputTexts.WholeNumber(schema)));
                 }
@@ -192,6 +233,10 @@ internal static class ToolSchema
         }
     }
 
+    /// <summary>A number of the schema (an int or a double node), or null.</summary>
+    private static double? Bound(JsonObject schema, string name) =>
+        schema[name] is JsonValue value && double.TryParse(value.ToJsonString(), NumberStyles.Float, CultureInfo.InvariantCulture, out var number) ? number : null;
+
     private static void CheckText(JsonObject schema, JsonElement value, string field, List<ToolFieldError> errors)
     {
         if (value.ValueKind != JsonValueKind.String)
@@ -203,7 +248,7 @@ internal static class ToolSchema
         var text = value.GetString() ?? string.Empty;
         if (schema["enum"] is JsonArray choices)
         {
-            var allowed = choices.Select(c => c!.GetValue<string>()).ToList();
+            var allowed = choices.OfType<JsonValue>().Where(c => c.TryGetValue<string>(out _)).Select(c => c.GetValue<string>()).ToList();
             if (!allowed.Contains(text, StringComparer.Ordinal))
             {
                 errors.Add(new(field, "Use one of: " + string.Join(", ", allowed) + "."));
@@ -212,8 +257,8 @@ internal static class ToolSchema
             return;
         }
 
-        var max = schema["maxLength"]?.GetValue<int>() ?? int.MaxValue;
-        var min = schema["minLength"]?.GetValue<int>() ?? 0;
+        var max = (int)(Bound(schema, "maxLength") ?? int.MaxValue);
+        var min = (int)(Bound(schema, "minLength") ?? 0);
         if (text.Length > max)
         {
             errors.Add(new(field, string.Create(CultureInfo.InvariantCulture, $"Use at most {max:N0} characters.")));
@@ -240,6 +285,7 @@ internal static class ToolSchema
     private static bool Fits(string format, string text) => format switch
     {
         "uuid" => Guid.TryParseExact(text, "D", out _),
+        "ipv4" => System.Net.IPAddress.TryParse(text, out var ip) && ip.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork && text.Count(c => c == '.') == 3,
         "date-time" => DateTimeOffset.TryParse(text, CultureInfo.InvariantCulture, DateTimeStyles.None, out _) && text.Contains('T', StringComparison.Ordinal),
         _ => true,
     };
@@ -264,5 +310,8 @@ internal static class ToolInputTexts
     public const string Time = "Enter a time like 2026-11-14T09:30:00Z.";
 
     public static string WholeNumber(JsonObject schema) =>
-        string.Create(CultureInfo.InvariantCulture, $"Enter a whole number from {schema["minimum"]?.GetValue<int>() ?? 0:N0} to {schema["maximum"]?.GetValue<int>() ?? 0:N0}.");
+        string.Create(CultureInfo.InvariantCulture, $"Enter a whole number from {Number(schema, "minimum"):N0} to {Number(schema, "maximum"):N0}.");
+
+    private static double Number(JsonObject schema, string name) =>
+        schema[name] is JsonValue value && double.TryParse(value.ToJsonString(), NumberStyles.Float, CultureInfo.InvariantCulture, out var number) ? number : 0;
 }

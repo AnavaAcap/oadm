@@ -20,6 +20,13 @@ public sealed class McpAccess(AuthTokenStore tokens, RoleStore roles, DeviceView
     /// <summary>Calls per second and key (HTTP 429 with Retry-After beyond).</summary>
     public const int CallsPerSecond = 20;
 
+    /// <summary>Counts a task run of the key; false beyond <see cref="RunsPerMinute"/> (nothing counted).</summary>
+    public bool TryRun(ToolCaller caller)
+    {
+        ArgumentNullException.ThrowIfNull(caller);
+        return _runs.TryAcquire(caller.BindingKey);
+    }
+
     /// <summary>Calls of one key that wait for their answer at the same time (HTTP 429 with Retry-After beyond).</summary>
     public const int CallsAtOnce = 4;
 
@@ -38,6 +45,7 @@ public sealed class McpAccess(AuthTokenStore tokens, RoleStore roles, DeviceView
     public static readonly TimeSpan RefusedWindow = TimeSpan.FromMinutes(5);
 
     private readonly AddressRateLimiter _calls = new(CallsPerSecond, total: 0, TimeSpan.FromSeconds(1), time);
+    private readonly AddressRateLimiter _runs = new(RunsPerMinute, total: 0, TimeSpan.FromMinutes(1), time);
     private readonly AddressRateLimiter _refused = new(MaxRefusedPerAddress, total: 0, RefusedWindow, time);
     private readonly SemaphoreSlim _refusalGate = new(1, 1);
     private readonly Lock _inFlightGate = new();
@@ -70,6 +78,7 @@ public sealed class McpAccess(AuthTokenStore tokens, RoleStore roles, DeviceView
         {
             Devices = devices,
             AccessEpoch = epoch,
+            AuditUserName = AuditActions.ViaAccessKey(session.UserName, keyName), // every change an agent causes
         };
         return new ToolCaller(caller, session.TokenHash)
         {

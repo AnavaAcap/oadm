@@ -53,6 +53,9 @@ public sealed class RestartTaskPlugin : ITaskPlugin
 
     public string DisplayName => "Restart";
 
+    /// <summary>Restart takes no settings (SDK 0.13.0): its schema is an empty object, so AI agents may run it.</summary>
+    public Type? PayloadType => typeof(RestartPayload);
+
     /// <summary>The task name in the tasks pane.</summary>
     public string GetTaskName(string? payloadJson) => "Restart device";
 
@@ -174,3 +177,7 @@ public sealed class RestartTaskPlugin : ITaskPlugin
         }
     }
 }
+
+/// <summary>The settings of Restart: none.</summary>
+[System.ComponentModel.Description("Restart takes no settings.")]
+public sealed record RestartPayload;

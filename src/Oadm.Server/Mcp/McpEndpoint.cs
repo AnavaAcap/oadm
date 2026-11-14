@@ -49,6 +49,10 @@ public static class McpEndpoint
     public const string TooLarge = "The request is larger than 1 MB.";
     public const string TooManyCalls = "Too many calls with this access key. Wait a second.";
     public const string TooManyAtOnce = "Too many calls with this access key at once. Wait for an answer.";
+    public const string TooManyRuns = "Too many task runs with this access key. Wait a minute.";
+
+    /// <summary>Where upload links point: <c>PUT /files/&lt;token&gt;</c> with the same key (docs/spec/mcp.md "Files").</summary>
+    public const string FilesPath = "/files/";
     public const string NoProtocolVersion = "The MCP-Protocol-Version header is missing.";
     public const string TooManyRefused = "Too many refused access keys from your address. Try again in a few minutes.";
 
@@ -119,7 +123,9 @@ public static class McpEndpoint
 
         configure?.Invoke(builder);
         var app = builder.Build();
-        app.Use((http, next) => GuardAsync(http, next, access, serverNames));
+        var files = server.GetRequiredService<McpFiles>();
+        var registry = server.GetRequiredService<ToolRegistry>();
+        app.Use((http, next) => GuardAsync(http, next, access, serverNames, files, registry));
         app.MapMcp(Path);
         return app;
     }
@@ -130,9 +136,11 @@ public static class McpEndpoint
         ?? throw new InvalidOperationException("An MCP request without its caller."); // the guard runs first: never reached
 
     /// <summary>The checks before the SDK sees a request.</summary>
-    private static async Task GuardAsync(HttpContext http, RequestDelegate next, McpAccess access, IReadOnlyCollection<string>? serverNames)
+    private static async Task GuardAsync(HttpContext http, RequestDelegate next, McpAccess access, IReadOnlyCollection<string>? serverNames, McpFiles files, ToolRegistry tools)
     {
-        if (!string.Equals(http.Request.Path.Value, Path, StringComparison.Ordinal))
+        var path = http.Request.Path.Value ?? string.Empty;
+        var upload = path.StartsWith(FilesPath, StringComparison.Ordinal) ? path[FilesPath.Length..] : null;
+        if (!string.Equals(path, Path, StringComparison.Ordinal) && (upload is null || upload.Length == 0 || upload.Contains('/', StringComparison.Ordinal)))
         {
             http.Response.StatusCode = StatusCodes.Status404NotFound;
             return;
@@ -144,14 +152,15 @@ public static class McpEndpoint
             return;
         }
 
-        if (!HttpMethods.IsPost(http.Request.Method))
+        var method = upload is null ? HttpMethods.Post : HttpMethods.Put;
+        if (!string.Equals(http.Request.Method, method, StringComparison.OrdinalIgnoreCase))
         {
-            http.Response.Headers.Allow = "POST";
+            http.Response.Headers.Allow = method;
             http.Response.StatusCode = StatusCodes.Status405MethodNotAllowed; // no stream on GET, no session to DELETE
             return;
         }
 
-        if (http.Request.ContentLength > MaxBodyBytes)
+        if (upload is null && http.Request.ContentLength > MaxBodyBytes)
         {
             await RefuseAsync(http, StatusCodes.Status413PayloadTooLarge, TooLarge).ConfigureAwait(false);
             return;
@@ -159,7 +168,7 @@ public static class McpEndpoint
 
         if (http.Features.Get<IHttpMaxRequestBodySizeFeature>() is { IsReadOnly: false } limit)
         {
-            limit.MaxRequestBodySize = MaxBodyBytes; // also a body without a length
+            limit.MaxRequestBodySize = upload is null ? MaxBodyBytes : null; // also a body without a length; an upload is bound by its link
         }
 
         var header = http.Request.Headers.Authorization.ToString();
@@ -187,6 +196,20 @@ public static class McpEndpoint
             return;
         }
 
+        if (upload is not null)
+        {
+            using var uploading = access.TryStartCall(caller);
+            if (uploading is null)
+            {
+                http.Response.Headers.RetryAfter = "1";
+                await RefuseAsync(http, StatusCodes.Status429TooManyRequests, TooManyAtOnce).ConfigureAwait(false);
+                return;
+            }
+
+            await files.ReceiveAsync(http, caller, upload).ConfigureAwait(false);
+            return;
+        }
+
         if (http.Request.Headers["MCP-Protocol-Version"].Count == 0)
         {
             // The SDK would serve it as an older revision; this server speaks only ProtocolVersion (Streamable HTTP "Server Validation").
@@ -202,7 +225,17 @@ public static class McpEndpoint
             return;
         }
 
-        http.Items[CallerKey] = caller;
+        // Task runs per key a minute (MCP's own limit): the SDK checks that Mcp-Name is the body's tool.
+        if (string.Equals(http.Request.Headers["Mcp-Method"].ToString(), "tools/call", StringComparison.Ordinal)
+            && tools.TryGet(http.Request.Headers["Mcp-Name"].ToString(), out var tool) && tool.StartsTasks && !access.TryRun(caller))
+        {
+            http.Response.Headers.RetryAfter = "60";
+            await RefuseAsync(http, StatusCodes.Status429TooManyRequests, TooManyRuns).ConfigureAwait(false);
+            return;
+        }
+
+        // The tools get the caller and where this channel takes files, nothing else of the request.
+        http.Items[CallerKey] = caller with { Channel = caller.Channel with { FilesUrl = http.Request.Scheme + "://" + http.Request.Host.Value + FilesPath } };
         await next(http).ConfigureAwait(false);
     }
 

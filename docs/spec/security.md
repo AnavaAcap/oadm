@@ -83,7 +83,8 @@ AuthTokens, AuditEntries) and `Roles`; client `Shell/AppShell`, `LoginViewModel`
   `oadm_` + 32 random bytes, only the SHA-256 kept, a fixed end (30, 90 or 365 days), at most 20 per user, the last use
   stored at most once a minute; they end with the sessions (new password, disabled or deleted user, a restore) and by
   Delete. A session token is never an access key and an access key never a session (UNAUTHENTICATED on gRPC, 401 on MCP).
-  Audited: "Created access key" (the name, Read only, the end), "Deleted access key" ("user: name"), "Access key refused"
+  Audited: every change an agent causes as "<user> via access key <name>" (`AuthenticatedCaller.AuditUserName`), "Uploaded
+  file" (an upload link), "Created access key" (the name, Read only, the end), "Deleted access key" ("user: name"), "Access key refused"
   (the key's user and name when its row is still there, else "Unknown access key" or "No access key"; one entry per address
   and key a minute with the count). `AccessKeyService` (`mcp.proto`): own keys for every user, Create with "Use AI agents",
   every user's for the Administrator role (the card Access keys of the Permissions page).

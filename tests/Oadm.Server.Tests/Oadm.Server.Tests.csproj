@@ -27,6 +27,9 @@
     <ProjectReference Include="..\..\plugins\Oadm.Plugins.Notifications\Oadm.Plugins.Notifications.csproj" />
     <ProjectReference Include="..\..\src\Oadm.Sdk.Testing\Oadm.Sdk.Testing.csproj" />
     <ProjectReference Include="..\..\plugins\Oadm.Plugins.Restart\Oadm.Plugins.Restart.csproj" />
+    <!-- The bundled tasks the tools of AI agents offer and refuse (docs/spec/mcp.md "Tasks"). -->
+    <ProjectReference Include="..\..\plugins\Oadm.Plugins.DateTime\Oadm.Plugins.DateTime.csproj" />
+    <ProjectReference Include="..\..\plugins\Oadm.Plugins.Users\Oadm.Plugins.Users.csproj" />
     <ProjectReference Include="..\..\plugins\Oadm.Plugins.VapixCommander\Oadm.Plugins.VapixCommander.csproj" />
     <ProjectReference Include="..\..\plugins\Oadm.Plugins.SystemReport\Oadm.Plugins.SystemReport.csproj" />
     <!-- The real OADM Site Node in the same process (sites tests). -->

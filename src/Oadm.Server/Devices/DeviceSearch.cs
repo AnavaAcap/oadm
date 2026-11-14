@@ -129,6 +129,48 @@ public sealed class DeviceSearch
         }
     }
 
+    /// <summary>
+    /// Every device of <paramref name="view"/> that matches <paramref name="filter"/>, in address order (a task preview's fixed
+    /// list); ids in the filter read only those (unknown ones and ones outside the view refuse it, NOT_FOUND).
+    /// <see cref="ArgumentException"/> for an id that is not valid.
+    /// </summary>
+    public static async Task<IReadOnlyList<Device>> MatchesAsync(Core.DeviceGroups.DeviceView view, Proto.DeviceFilter filter, bool withApis, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(view);
+        Filter matcher;
+        try
+        {
+            matcher = new Filter(filter ?? new Proto.DeviceFilter());
+        }
+        catch (ArgumentException ex)
+        {
+            throw new Grpc.Core.RpcException(new Grpc.Core.Status(Grpc.Core.StatusCode.InvalidArgument, ex.Message));
+        }
+
+        var found = new List<(Device Device, string Key)>();
+        if (matcher.Ids is { } ids)
+        {
+            foreach (var device in await view.GetAsync(ids, ct).ConfigureAwait(false))
+            {
+                found.Add((device, AddressKey(device.Address)));
+            }
+        }
+        else
+        {
+            await foreach (var page in view.PagesAsync(Server.Devices.DeviceGrpcService.SnapshotPageSize, ct, withApis).ConfigureAwait(false))
+            {
+                found.AddRange(page.Where(matcher.Matches).Select(d => (d, AddressKey(d.Address))));
+            }
+        }
+
+        found.Sort((a, b) =>
+        {
+            var byKey = StringComparer.OrdinalIgnoreCase.Compare(a.Key, b.Key);
+            return byKey != 0 ? byKey : a.Device.Id.CompareTo(b.Device.Id);
+        });
+        return [.. found.Where(f => matcher.Matches(f.Device)).Select(f => f.Device)];
+    }
+
     /// <summary>The rows of the page in order, each with its sort key.</summary>
     public IReadOnlyList<(Device Device, string Key)> Page() => [.. _page.Select(r => (r.Device, r.Key))];
 

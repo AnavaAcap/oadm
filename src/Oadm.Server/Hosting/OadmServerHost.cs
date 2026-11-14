@@ -195,6 +195,7 @@ public static partial class OadmServerHost
         // knows no channel. AI agents reach it through MCP: access keys and the MCP server on its own port (off by default).
         services.AddSingleton<InProcessCalls>();
         services.AddSingleton<Tools.ToolCursors>();
+        services.AddSingleton(sp => new Tools.ToolHandles(sp.GetRequiredService<TimeProvider>()));
         services.AddSingleton(sp =>
         {
             var roles = sp.GetRequiredService<Core.Auth.RoleStore>();
@@ -205,11 +206,13 @@ public static partial class OadmServerHost
                     .. Tools.DeviceTools.Create(cursors),
                     .. Tools.TaskTools.Create(cursors),
                     .. Tools.LogTools.Create(cursors),
+                    .. Tools.TaskRunTools.Create(sp.GetRequiredService<Tools.ToolHandles>()),
                 ],
                 sp.GetRequiredService<InProcessCalls>(), roles);
         });
         services.AddSingleton<Mcp.McpAccess>();
         services.AddSingleton<Mcp.McpToolAdapter>();
+        services.AddSingleton<Mcp.McpFiles>();
         services.AddSingleton(sp => new Mcp.McpListener(sp, sp.GetRequiredService<ServerSettingsStore>(), sp.GetRequiredService<PluginServiceRegistry>(),
             sp.GetRequiredService<TimeProvider>(), sp.GetRequiredService<ILogger<Mcp.McpListener>>(), firewall: sp.GetService<Sdk.Network.IFirewallRules>()));
 

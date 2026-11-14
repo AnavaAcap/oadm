@@ -120,6 +120,9 @@ public sealed partial class TaskGrpcService(
         var caller = AuthInterceptor.CallerOf(context); // fail closed: never "no caller = every plugin"
         var view = await views.ForAsync(context).ConfigureAwait(false);
         var reply = new List<Proto.TaskPluginInfo>();
+        IReadOnlySet<Guid>? filtered = request.Filter is { } filter
+            ? (await Devices.DeviceSearch.MatchesAsync(view, filter, withApis: false, context.CancellationToken).ConfigureAwait(false)).Select(d => d.Id).ToHashSet()
+            : null;
         foreach (var entry in await runnable.GetAsync(view, context.CancellationToken).ConfigureAwait(false))
         {
             if (!caller.Permissions.HasAny(PermissionCatalog.TaskKeys(entry.Plugin.Plugin)))
@@ -134,7 +137,13 @@ public sealed partial class TaskGrpcService(
 
             try
             {
-                reply.Add(Mappers.ToProto(entry, request.Compact));
+                var info = filtered is null ? Mappers.ToProto(entry, request.Compact) : Counts(TaskPluginRunnableCache.Within(entry, filtered));
+                if (request.WithPayloadSchema && TaskPayloadSchemas.Of(entry.Plugin.Plugin) is { } schema)
+                {
+                    info.PayloadSchemaJson = schema.ToJsonString();
+                }
+
+                reply.Add(info);
             }
 #pragma warning disable CA1031 // A plugin with a throwing property must not break the menu.
             catch (Exception ex)
@@ -148,6 +157,109 @@ public sealed partial class TaskGrpcService(
     }
 
     private static string UnknownTaskPlugin(string pluginId) => TaskRunPermissions.UnknownPlugin(pluginId);
+
+    /// <summary>A plugin's entry with counts only (the filter of the tools): no ids leave the server.</summary>
+    private static Proto.TaskPluginInfo Counts(TaskPluginRunnable entry)
+    {
+        var info = Mappers.ToProto(entry, compact: true);
+        info.RunnableDeviceIds.Clear();
+        info.NotRunnableDeviceIds.Clear();
+        info.RunnableOnAllExcept = false;
+        info.NotRunnableGroups.Clear();
+        info.RunnableCount = entry.Runnable.Count;
+        info.NotRunnableGroups.AddRange(entry.Reasons.Select(r => new Proto.NotRunnableGroup { Reason = Sdk.Plugins.TaskSupportReasons.General(r.Reason), Count = r.DeviceIds.Count }));
+        return info;
+    }
+
+    /// <summary>The trailer of a refused payload that names its field (like a refused recipient).</summary>
+    public const string FieldTrailer = "oadm-field";
+
+    /// <summary>The text when a plugin's payload check fails itself (fail closed: no task starts).</summary>
+    public const string PayloadUnreadable = "The task settings cannot be checked. Nothing was changed.";
+
+    /// <summary>The problems of a payload by the plugin's own rules; a check that throws counts as one problem.</summary>
+    internal IReadOnlyList<Sdk.Tasks.PayloadError> PayloadErrors(Sdk.Plugins.ITaskPlugin plugin, string? payload, Sdk.Plugins.ICallContext call)
+    {
+        try
+        {
+            return plugin.ValidatePayload(payload, call) ?? [];
+        }
+#pragma warning disable CA1031 // A plugin's failing check refuses the run, it never breaks the server.
+        catch (Exception ex)
+#pragma warning restore CA1031
+        {
+            LogPayloadCheckFailed(ex, plugin.Id);
+            return [new Sdk.Tasks.PayloadError(string.Empty, PayloadUnreadable)];
+        }
+    }
+
+    /// <summary>
+    /// What a Run of the payload would do on the filter's devices, nothing written (docs/spec/grpc.md): the checks of Run, the
+    /// payload's field errors (then nothing else), else the devices to run in address order, the skipped ones by reason, the
+    /// task name and the warnings (<see cref="Sdk.Plugins.ITaskPlugin.PlanAsync"/>, cached data only).
+    /// </summary>
+    public override async Task<Proto.TaskPlanReply> Plan(Proto.PlanTaskRequest request, ServerCallContext context)
+    {
+        var ct = context.CancellationToken;
+        var payload = string.IsNullOrEmpty(request.PayloadJson) ? null : request.PayloadJson;
+        var caller = AuthInterceptor.CallerOf(context);
+        if (!registry.TryGetTaskPlugin(request.PluginId, out var task))
+        {
+            throw GrpcGuard.NotFound(UnknownTaskPlugin(request.PluginId));
+        }
+
+        if (TaskRunPermissions.IsPageTask(task.Plugin))
+        {
+            throw new RpcException(new Status(StatusCode.PermissionDenied, TaskRunPermissions.PageTaskOnly));
+        }
+
+        TaskRunPermissions.Require(task.Plugin, payload, caller.Permissions, () => roles.Catalog);
+        var view = await views.ForAsync(context).ConfigureAwait(false);
+        var reply = new Proto.TaskPlanReply();
+        var errors = PayloadErrors(task.Plugin, payload, engine.CallFor(view, TaskCaller.Of(caller)));
+        if (errors.Count > 0)
+        {
+            reply.Errors.AddRange(errors.Select(e => new Proto.PayloadFieldError { Field = e.Field, Message = e.Message }));
+            return reply;
+        }
+
+        var devices = await Devices.DeviceSearch.MatchesAsync(view, request.Filter ?? new Proto.DeviceFilter(), withApis: true, ct).ConfigureAwait(false);
+        Sdk.Tasks.TaskPlan plan;
+        try
+        {
+            plan = await task.Plugin.PlanAsync(payload, devices, ct).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            LogPayloadCheckFailed(ex, task.Plugin.Id);
+            plan = Sdk.Tasks.TaskPlan.ByCanRun(task.Plugin, devices);
+        }
+
+        var known = devices.Select(d => d.Id).ToHashSet();
+        var planned = plan.Devices.Where(p => known.Contains(p.DeviceId)).GroupBy(p => p.DeviceId).ToDictionary(g => g.Key, g => g.First());
+        var skipped = new Dictionary<string, int>(StringComparer.Ordinal);
+        foreach (var device in devices)
+        {
+            // A device the plan leaves out is skipped too: only what the plugin said yes to runs.
+            var entry = planned.GetValueOrDefault(device.Id) ?? new Sdk.Tasks.TaskPlanDevice(device.Id, Sdk.Plugins.TaskSupportReasons.Default);
+            if (entry.SkipReason is null)
+            {
+                reply.RunDeviceIds.Add(device.Id.ToString());
+            }
+            else
+            {
+                var reason = Sdk.Plugins.TaskSupportReasons.General(entry.SkipReason.Trim());
+                skipped[reason] = skipped.GetValueOrDefault(reason) + 1;
+            }
+        }
+
+        reply.TaskName = engine.TaskNameFor(task, payload);
+        reply.DeviceCount = devices.Count;
+        reply.Skipped.AddRange(skipped.OrderByDescending(p => p.Value).ThenBy(p => p.Key, StringComparer.Ordinal)
+            .Select(p => new Proto.NotRunnableGroup { Reason = p.Key, Count = p.Value }));
+        reply.Warnings.AddRange(plan.Warnings.Where(w => !string.IsNullOrWhiteSpace(w)));
+        return reply;
+    }
 
     /// <summary>One task per device of the caller's view; any device outside it (or unknown) refuses the whole run.</summary>
     public override async Task<Proto.RunTaskReply> Run(Proto.RunTaskRequest request, ServerCallContext context)
@@ -176,6 +288,14 @@ public sealed partial class TaskGrpcService(
 
         var view = await views.ForAsync(context).ConfigureAwait(false);
         var devices = await view.GetAsync(ids, context.CancellationToken).ConfigureAwait(false);
+
+        // The plugin's own check of the payload (the dialog's rules, ITaskPlugin.ValidatePayload): an invalid one starts no task.
+        if (PayloadErrors(task.Plugin, payload, engine.CallFor(view, TaskCaller.Of(caller))) is [var first, ..])
+        {
+            var refused = new Metadata { { FieldTrailer, first.Field } };
+            throw new RpcException(new Status(StatusCode.InvalidArgument, first.Message), refused);
+        }
+
         try
         {
             var taskIds = await engine.RunAsync(request.PluginId, devices, payload, TaskCaller.Of(caller), context.CancellationToken).ConfigureAwait(false);
@@ -186,6 +306,11 @@ public sealed partial class TaskGrpcService(
                 context.CancellationToken).ConfigureAwait(false);
             var reply = new Proto.RunTaskReply();
             reply.TaskIds.AddRange(taskIds.Select(t => t.ToString()));
+            if (taskIds.Count > 0 && await engine.GetAsync(taskIds[0], context.CancellationToken).ConfigureAwait(false) is { } started)
+            {
+                reply.BatchId = started.BatchId.ToString();
+            }
+
 #pragma warning disable CS0612 // task_id is deprecated but still filled for older clients.
             reply.TaskId = reply.TaskIds.Count > 0 ? reply.TaskIds[0] : string.Empty;
 #pragma warning restore CS0612
@@ -297,6 +422,9 @@ public sealed partial class TaskGrpcService(
 
     /// <summary>The answer for an unknown task and for a task outside the caller's view (the same).</summary>
     internal static RpcException TaskNotFound(Guid id) => GrpcGuard.NotFound($"Task {id} not found.");
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Task plugin {PluginId}: its payload could not be checked or planned")]
+    private partial void LogPayloadCheckFailed(Exception ex, string pluginId);
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Task plugin {PluginId} could not be described")]
     private partial void LogPluginInfoFailed(Exception ex, string pluginId);

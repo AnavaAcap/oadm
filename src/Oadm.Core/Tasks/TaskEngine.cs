@@ -329,7 +329,7 @@ public sealed partial class TaskEngine : ITaskRunner, IAsyncDisposable
     /// <see cref="TaskPluginNames.MaxTaskNameLength"/> characters (longer names are shortened with an ellipsis
     /// and a warning is logged). The plugin's display name when the plugin returns nothing or throws.
     /// </summary>
-    internal string TaskNameFor(RegisteredTaskPlugin registration, string? payloadJson)
+    public string TaskNameFor(RegisteredTaskPlugin registration, string? payloadJson)
     {
         string? raw;
         try

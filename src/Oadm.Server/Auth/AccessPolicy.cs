@@ -138,6 +138,7 @@ public static class AccessPolicy
         ["/oadm.v1.TaskService/GetLog"] = AccessRule.SignedIn,
         ["/oadm.v1.TaskService/Run"] = AccessRule.InCall,
         ["/oadm.v1.TaskService/Query"] = AccessRule.InCall,
+        ["/oadm.v1.TaskService/Plan"] = AccessRule.InCall, // like Run: the run's permissions are checked in the call, nothing is written
         ["/oadm.v1.TaskService/Cancel"] = AccessRule.Needs(HostPermissions.TasksCancel),
         ["/oadm.v1.TaskService/Delete"] = AccessRule.Needs(HostPermissions.TasksDelete),
         ["/oadm.v1.TaskService/DeleteAll"] = AccessRule.Needs(HostPermissions.TasksDeleteAll).ForAllDevices(),

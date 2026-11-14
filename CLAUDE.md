@@ -187,7 +187,8 @@ must never break.
   Turn on on its tab of the PKI page, runs only with OADM PRO): RADIUS on UDP 1812 with EAP-TLS for the switch ports,
   only devices OADM manages with a certificate of a CA of an 802.1X trusted CA policy pass; its rules (its certificate,
   TLS, trusted CAs, VLAN, Block) are PKI's policies (docs/spec/pki.md), never settings of its own.
-- **[MCP server](docs/spec/mcp.md)** (stage 1 built: the endpoint, access keys and the read tools; stages 2 to 4 not built):
+- **[MCP server](docs/spec/mcp.md)** (stages 1 and 2 built: the endpoint, access keys, the read tools, task catalog,
+  preview, run and upload links; download links and stages 3 and 4 not built):
   AI agents do what a user can in the client, through the server's gRPC services in process with an access key (the
   user's role and device group, `InProcessCalls`); the tools are one registry that knows nothing of MCP (`ToolRegistry`,
   the caller a parameter, never the HTTP request; MCP is a thin adapter: transport, access keys, its own limits); off by default, own port (TCP 5082) with the certificate of the PKI

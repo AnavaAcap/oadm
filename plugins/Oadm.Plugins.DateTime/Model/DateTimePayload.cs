@@ -1,3 +1,5 @@
+using System.ComponentModel;
+using System.ComponentModel.DataAnnotations;
 using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -36,7 +38,11 @@ public enum NtpSource
 /// <param name="Source">DHCP or the manual list.</param>
 /// <param name="Servers">Host names or IP addresses (manual NTP servers; NTS-KE servers when <paramref name="Nts"/>).</param>
 /// <param name="Nts">Network Time Security: the servers are NTS-KE servers (ntp 1.5 or later, AXIS OS 11.x+).</param>
-public sealed record NtpSettings(NtpSource Source, IReadOnlyList<string> Servers, bool Nts = false);
+[Description("The NTP settings of the mode Ntp.")]
+public sealed record NtpSettings(
+    [property: Description("Dhcp: the servers DHCP gives; Static: the servers listed.")] NtpSource Source,
+    [property: Description("Host names or IP addresses, at most 5 (NTS KE servers with nts)."), MaxLength(PayloadValidator.MaxNtpServers)] IReadOnlyList<string> Servers,
+    [property: Description("Network Time Security (AXIS OS 11 or later).")] bool Nts = false);
 
 /// <summary>
 /// Payload of the "Date and time" task. Exactly like ADM, OK always writes the time zone and the time mode to every
@@ -60,14 +66,15 @@ public sealed record NtpSettings(NtpSource Source, IReadOnlyList<string> Servers
 /// run is not set behind. Null (an older client, or the dialog never read the server's time): every device gets the
 /// entered time as it is.
 /// </param>
+[Description("Date and time: the time zone and the time mode of the devices, always written.")]
 public sealed record DateTimePayload(
-    string? TimeZone,
-    TimeMode Mode,
-    NtpSettings? Ntp = null,
-    string? ManualDateTime = null,
-    bool DaylightSaving = true,
-    bool TimeZoneUnchanged = false,
-    DateTimeOffset? ManualSetAt = null)
+    [property: Description("The time zone, e.g. Europe/Vienna; not with ServerTime (the server's zone)."), MaxLength(64)] string? TimeZone,
+    [property: Description("Ntp, ServerTime (the OADM server's time) or Manual.")] TimeMode Mode,
+    [property: Description("The NTP servers of the mode Ntp.")] NtpSettings? Ntp = null,
+    [property: Description("The mode Manual: the devices' local time, yyyy-MM-ddTHH:mm:ss."), MaxLength(19)] string? ManualDateTime = null,
+    [property: Description("Follow daylight saving time of the zone.")] bool DaylightSaving = true,
+    [property: Description("The time zone is the one the devices have (only the name of the task).")] bool TimeZoneUnchanged = false,
+    [property: Description("The mode Manual: when the time was entered (each device gets the time since then); leave it out.")] DateTimeOffset? ManualSetAt = null)
 {
     public const string ManualFormat = "yyyy-MM-ddTHH:mm:ss";
 

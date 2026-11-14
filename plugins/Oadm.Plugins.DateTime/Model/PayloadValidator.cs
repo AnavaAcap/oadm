@@ -20,6 +20,9 @@ public static class PayloadValidator
     public const string FieldNtpServers = "ntpServers";
     public const string FieldManualDateTime = "manualDateTime";
 
+    /// <summary>The payload's JSON field of a dialog field ("ntpServers" is "ntp.servers").</summary>
+    public static string JsonFieldOf(string field) => field == FieldNtpServers ? "ntp.servers" : field;
+
     /// <summary>Most static NTP servers an AXIS device takes (ntp 1.5 <c>maxSupportedStaticServers</c> = 5, REST maxItems 5).</summary>
     public const int MaxNtpServers = 5;
 

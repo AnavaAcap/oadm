@@ -34,7 +34,8 @@ public sealed record ToolCaller(AuthenticatedCaller User, string BindingKey)
 /// <param name="CallsPerSecond">Calls a second the channel takes per caller; null without a limit.</param>
 /// <param name="CallsAtOnce">Calls waiting for their answer at once; null without a limit.</param>
 /// <param name="RunsPerMinute">Task runs a minute; null without a limit.</param>
-public sealed record ToolChannel(string? KeyName = null, DateTime? KeyExpiresUtc = null, int? CallsPerSecond = null, int? CallsAtOnce = null, int? RunsPerMinute = null)
+/// <param name="FilesUrl">Where the channel takes files of upload links ("https://server:5082/files/"); null: it takes none.</param>
+public sealed record ToolChannel(string? KeyName = null, DateTime? KeyExpiresUtc = null, int? CallsPerSecond = null, int? CallsAtOnce = null, int? RunsPerMinute = null, string? FilesUrl = null)
 {
     public static ToolChannel None { get; } = new();
 }

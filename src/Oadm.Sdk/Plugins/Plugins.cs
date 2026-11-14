@@ -106,6 +106,37 @@ public interface ITaskPlugin : IPlugin
     Sites.SiteSupport? SiteSupport => null;
 
     /// <summary>
+    /// The record the payload is read into (SDK 0.13.0). The host exports its JSON Schema (properties with
+    /// <c>[Description]</c>, <c>[MaxLength]</c>, <c>[Range]</c>, <c>[Length]</c>; enums by name) as the input of the task over
+    /// MCP. Null (the default), a payload with a <see cref="Tasks.SecretAttribute"/> property, or one whose schema leaves a text,
+    /// number or list without its bounds: the task is not offered over MCP. A task without settings returns an empty record.
+    /// </summary>
+    Type? PayloadType => null;
+
+    /// <summary>
+    /// The serializer options the payload is read with (SDK 0.13.0); the host exports <see cref="PayloadType"/> with them, so
+    /// the schema has the names and enum texts the plugin reads. Null: <see cref="PluginJson.CreateOptions"/>.
+    /// </summary>
+    System.Text.Json.JsonSerializerOptions? PayloadJsonOptions => null;
+
+    /// <summary>
+    /// The problems of a payload, one per field, with the texts the dialog shows below that field (SDK 0.13.0; the same rules
+    /// as the dialog, which can call it too). <c>TaskService.Run</c> calls it before any task starts and refuses an invalid
+    /// payload (INVALID_ARGUMENT with the first text); the MCP preview answers every one. Read the payload only, never contact
+    /// a device; empty when the payload is valid. Default: no problems (the task checks its payload itself).
+    /// </summary>
+    IReadOnlyList<Tasks.PayloadError> ValidatePayload(string? payloadJson, ICallContext caller) => [];
+
+    /// <summary>
+    /// Which of <paramref name="devices"/> a run of <paramref name="payloadJson"/> would change and why the others are skipped,
+    /// from the cached device data only (no device request; SDK 0.13.0): the server-side twin of the dialog's preview, e.g.
+    /// "No file for this model." Default: <see cref="CanRun"/> and <see cref="NotSupportedReason"/>. Called only with a valid
+    /// payload.
+    /// </summary>
+    Task<Tasks.TaskPlan> PlanAsync(string? payloadJson, IReadOnlyList<IDeviceInfo> devices, CancellationToken ct) =>
+        Task.FromResult(Tasks.TaskPlan.ByCanRun(this, devices));
+
+    /// <summary>
     /// Runs once per device. Return normally for Done, call <see cref="ITaskExecutionContext.ReportWarning"/>
     /// for Done with warnings, throw for Failed. <paramref name="payloadJson"/> comes from the dialog;
     /// it is kept in memory only and never persisted, so it may carry secrets such as passwords.

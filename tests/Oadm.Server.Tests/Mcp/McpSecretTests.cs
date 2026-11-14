@@ -37,6 +37,10 @@ public sealed class McpSecretTests
             ["oadm_tasks_get"] = new() { ["task_id"] = Guid.NewGuid().ToString() },
             ["oadm_logs_search"] = new() { ["text"] = "MCP" },
             ["oadm_logs_audit"] = [],
+            ["oadm_tasks_catalog"] = [],
+            ["oadm_task_preview"] = new() { ["task"] = "oadm.restart", ["filter"] = new JsonObject(), ["input"] = new JsonObject() },
+            ["oadm_task_run"] = new() { ["handle"] = "ended" },
+            ["oadm_files_upload_link"] = new() { ["name"] = "a.bin", ["size"] = 1 },
         };
         Assert.Equal(calls.Keys.Order(StringComparer.Ordinal), await server.ToolNamesAsync(key));
         foreach (var (tool, arguments) in calls)

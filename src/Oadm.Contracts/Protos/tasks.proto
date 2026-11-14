@@ -2,6 +2,7 @@ syntax = "proto3";
 package oadm.v1;
 option csharp_namespace = "Oadm.Contracts.V1";
 import "Protos/common.proto";
+import "Protos/devices.proto";
 import "google/protobuf/timestamp.proto";
 
 // ListTaskPluginsRequest, ListTasksRequest and WatchTasksRequest replaced Empty; they are wire compatible
@@ -26,6 +27,11 @@ service TaskService {
   // changed, credentials), UNAVAILABLE, DEADLINE_EXCEEDED, INVALID_ARGUMENT; the status detail is
   // the message for the user.
   rpc Query (TaskQueryRequest) returns (TaskQueryReply);
+  // What a Run would do, nothing is written (the preview of the tools, docs/spec/mcp.md "Tasks"): the payload checked by the
+  // plugin (ValidatePayload), the filter resolved to a fixed device list in the caller's view, each device to run or skipped
+  // with a reason (PlanAsync, cached data only), the task name and the warnings. The checks of Run (unknown plugin, page task,
+  // the run's permissions); an invalid payload answers its field errors, never an error status.
+  rpc Plan (PlanTaskRequest) returns (TaskPlanReply);
 }
 
 message TaskPluginInfo {
@@ -49,6 +55,12 @@ message TaskPluginInfo {
   //   which covers every device that is neither runnable nor listed in another group.
   // Empty from older servers: the client shows "Not supported on this device".
   repeated NotRunnableGroup not_runnable_groups = 11;
+  // With ListTaskPluginsRequest.with_payload_schema: the JSON Schema of the payload (ITaskPlugin.PayloadType); empty when the
+  // task is not offered to the tools (no payload type, a secret in it, or a schema without bounds).
+  string payload_schema_json = 12;
+  // With ListTaskPluginsRequest.filter: the devices of the filter the task can run on (no id lists are sent; the groups
+  // count the others).
+  int32 runnable_count = 13;
 }
 
 message NotRunnableGroup {
@@ -62,6 +74,8 @@ message ListTaskPluginsRequest {
   // Per plugin the shorter of runnable_device_ids or runnable_on_all_except + not_runnable_device_ids.
   // Without it runnable_device_ids is always filled (former behavior).
   bool compact = 1;
+  bool with_payload_schema = 2;   // each plugin with payload_schema_json
+  DeviceFilter filter = 3;        // set: only the counts within the filter's devices (runnable_count, not_runnable_groups)
 }
 
 message ListTasksRequest {
@@ -85,6 +99,27 @@ message RunTaskRequest {
 message RunTaskReply {
   string task_id = 1 [deprecated = true];   // first of task_ids, kept for compatibility
   repeated string task_ids = 2;             // in device order
+  string batch_id = 3;                      // the run (every task of it carries this batch id)
+}
+
+message PlanTaskRequest {
+  string plugin_id = 1;
+  DeviceFilter filter = 2;    // the devices: resolved in the caller's view, sorted by address
+  string payload_json = 3;
+}
+
+message PayloadFieldError {
+  string field = 1;    // the payload's JSON name, nested with dots; empty for the whole payload
+  string message = 2;  // the dialog's text
+}
+
+message TaskPlanReply {
+  repeated PayloadFieldError errors = 1;  // the payload is not valid: nothing else is set
+  string task_name = 2;
+  int32 device_count = 3;                 // the devices of the filter
+  repeated string run_device_ids = 4;     // the devices a Run would change, in address order
+  repeated NotRunnableGroup skipped = 5;  // the others by reason (count only), most devices first
+  repeated string warnings = 6;
 }
 message TaskIdRequest { string task_id = 1; }
 message DeleteAllReply { int32 deleted = 1; }

@@ -30,6 +30,12 @@ public sealed record AuthenticatedCaller(Guid UserId, string UserName, Guid Role
     /// <summary>The caller has the Administrator role (every permission, the Administrator-only areas).</summary>
     public bool IsAdmin => BuiltInRoles.IsAdministrator(RoleId);
 
+    /// <summary>
+    /// The user of the audit entries this caller causes; null: <see cref="UserName"/>. An AI agent's caller is "&lt;user&gt; via
+    /// access key &lt;name&gt;" (docs/spec/mcp.md "Access keys").
+    /// </summary>
+    public string? AuditUserName { get; init; }
+
     /// <summary>Admin for the Administrator role, Operator for every other.</summary>
     public UserRole Role => IsAdmin ? UserRole.Admin : UserRole.Operator;
 

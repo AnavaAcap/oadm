@@ -125,6 +125,12 @@ public sealed partial class CanaryTests
                 PluginId = CanaryTaskPlugin.PluginId,
                 DeviceIds = { id == c.Inside ? new[] { id.ToString() } : new[] { c.Inside.ToString(), id.ToString() } },
             }),
+        ["/oadm.v1.TaskService/Plan"] = async (c, id) =>
+            await new Proto.TaskService.TaskServiceClient(c.Invoker).PlanAsync(new Proto.PlanTaskRequest
+            {
+                PluginId = CanaryTaskPlugin.PluginId,
+                Filter = new Proto.DeviceFilter { Ids = { c.Inside.ToString(), id.ToString() } },
+            }),
         ["/oadm.v1.TaskService/Query"] = async (c, id) =>
             await new Proto.TaskService.TaskServiceClient(c.Invoker).QueryAsync(new Proto.TaskQueryRequest
             {

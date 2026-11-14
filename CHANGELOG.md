@@ -11,8 +11,11 @@ Each entry is one short line in plain words (what the user gets, not how); no ne
 
 - AI agents: turn on the server AI agents connect to on the Settings page; the first Turn on gives it the shared server certificate of PKI, the PKI policy AI agents changes it.
 - AI agents: create access keys in the account menu; an agent reads your devices, tasks and logs with the rights of your role.
+- AI agents: an agent previews a task on the devices of a filter and runs it with your rights; Restart, Use OADM NTP server and Date and time are offered.
+- AI agents: an agent sends a file for a task through a one-time upload link, never through the model.
+- Tasks: a run with settings the task does not accept starts no task and says why.
 - Permissions: the role right Use AI agents, and every user's access keys with Delete.
-- Plugin SDK 0.13.0: the certificates of the servers OADM runs, and the permission Use AI agents.
+- Plugin SDK 0.13.0: the certificates of the servers OADM runs, the permission Use AI agents, and tasks for AI agents (payload schema, payload check, plan).
 
 ## [5.0.0] - 2026-11-13
 

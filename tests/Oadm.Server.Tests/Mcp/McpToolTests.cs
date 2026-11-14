@@ -22,9 +22,12 @@ public sealed partial class McpToolTests
 {
     private static readonly string[] Stage1Tools =
     [
-        "oadm_devices_get", "oadm_devices_search", "oadm_devices_summary", "oadm_logs_audit", "oadm_logs_search", "oadm_server_info",
-        "oadm_tasks_get", "oadm_tasks_list",
+        "oadm_devices_get", "oadm_devices_search", "oadm_devices_summary", "oadm_files_upload_link", "oadm_logs_audit", "oadm_logs_search",
+        "oadm_server_info", "oadm_task_preview", "oadm_task_run", "oadm_tasks_catalog", "oadm_tasks_get", "oadm_tasks_list",
     ];
+
+    /// <summary>The tools that change something (rule 2: each with its preview; a Read only key lists none).</summary>
+    private static readonly string[] WriteTools = ["oadm_files_upload_link", "oadm_task_run"];
 
     [GeneratedRegex("^oadm_[a-z0-9_]+$")]
     private static partial Regex ToolName();
@@ -48,8 +51,8 @@ public sealed partial class McpToolTests
             AssertStrict(tool["inputSchema"]!.AsObject(), name);
             Assert.Equal("object", tool["outputSchema"]?["type"]?.GetValue<string>());
             var annotations = tool["annotations"]!.AsObject();
-            Assert.True(annotations["readOnlyHint"]!.GetValue<bool>(), name); // every stage 1 tool only reads
-            Assert.False(annotations["destructiveHint"]!.GetValue<bool>(), name);
+            Assert.Equal(!WriteTools.Contains(name), annotations["readOnlyHint"]!.GetValue<bool>());
+            Assert.Equal(name == "oadm_task_run", annotations["destructiveHint"]!.GetValue<bool>());
             Assert.False(annotations["openWorldHint"]!.GetValue<bool>(), name);
         }
     }
@@ -59,6 +62,10 @@ public sealed partial class McpToolTests
     {
         switch (schema["type"]?.GetValue<string>())
         {
+            case "object" when where == "oadm_task_preview.input":
+                // The task's input: its own strict schema comes with oadm_tasks_catalog, and the preview checks the input against it.
+                Assert.True(schema["additionalProperties"]!.GetValue<bool>());
+                break;
             case "object":
                 Assert.False(schema["additionalProperties"]!.GetValue<bool>(), where);
                 foreach (var (name, property) in schema["properties"]!.AsObject())
@@ -89,8 +96,9 @@ public sealed partial class McpToolTests
     /// <summary>The gRPC methods the tools of stage 1 call: reads only. A new tool that calls another method extends this list on purpose.</summary>
     private static readonly string[] Stage1Methods =
     [
-        "/oadm.v1.AuditService/List", "/oadm.v1.AuthService/Me", "/oadm.v1.DeviceService/Search", "/oadm.v1.ServerLogService/List",
-        "/oadm.v1.SettingsService/Get", "/oadm.v1.TaskService/GetLog", "/oadm.v1.TaskService/List",
+        "/oadm.v1.AuditService/List", "/oadm.v1.AuthService/Me", "/oadm.v1.DeviceService/Search", "/oadm.v1.FileService/Upload",
+        "/oadm.v1.ServerLogService/List", "/oadm.v1.SettingsService/Get", "/oadm.v1.TaskService/GetLog", "/oadm.v1.TaskService/List",
+        "/oadm.v1.TaskService/ListTaskPlugins", "/oadm.v1.TaskService/Plan", "/oadm.v1.TaskService/Run",
     ];
 
     [Fact]
@@ -100,7 +108,7 @@ public sealed partial class McpToolTests
         await using var server = await McpTestServer.StartAsync(turnOn: false);
         var tools = server.Host.Get<ToolRegistry>().All;
         Assert.Equal(Stage1Tools.Length, tools.Count);
-        Assert.All(tools, t => Assert.True(t.ReadsOnly, t.Name));
+        Assert.Equal(WriteTools, tools.Where(t => !t.ReadsOnly).Select(t => t.Name).Order(StringComparer.Ordinal));
         var methods = tools.SelectMany(t => t.Methods).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToList();
         Assert.Equal(Stage1Methods, methods);
 
