@@ -138,6 +138,8 @@ used again.
   tags or single devices only gets PERMISSION_DENIED "Your device group has no site, so you cannot add devices."
   (`AddDeviceTexts.CannotAdd`); a managed device outside the caller's devices is sent with only its id, entered address
   and ALREADY_ADDED. Details: `docs/spec/add-devices.md`.
+  - `End(session)` ("Add and remove devices", the owner only): stops the session and forgets its owner and its logins at
+    once, so no login with the credential list goes on (`Stop` keeps the logins for Add); the AI agents' add run.
   - `StartRangeScan` and `ProbeAddress` take `own_networks_only` (bare IP addresses inside a network of the server's
     interfaces or of an online site node, else INVALID_ARGUMENT naming the allowed networks) and `no_logins` (the devices
     are only looked at; a user name and password are refused): the AI agents' add preview.

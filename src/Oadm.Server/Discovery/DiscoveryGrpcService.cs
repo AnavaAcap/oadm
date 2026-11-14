@@ -260,6 +260,17 @@ public sealed class DiscoveryGrpcService(
         return new Proto.Empty();
     }
 
+    public override async Task<Proto.Empty> End(Proto.DiscoverySession request, ServerCallContext context)
+    {
+        // Unknown ids and other users' sessions are ignored (the same answer); for the owner the scan stops and its logins end.
+        if (owners.Owns(request.SessionId, AuthInterceptor.CallerOf(context)))
+        {
+            await owners.StopAsync(request.SessionId).ConfigureAwait(false);
+        }
+
+        return new Proto.Empty();
+    }
+
     /// <summary>The caller's reach; a caller who cannot add devices anywhere is refused before anything is asked.</summary>
     private async Task<AddReach> ReachAsync(ServerCallContext context)
     {

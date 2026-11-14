@@ -164,7 +164,92 @@ internal sealed class McpTestServer : IAsyncDisposable
     {
         var reply = await PostAsync(key, Request("tools/call", new JsonObject { ["name"] = tool, ["arguments"] = arguments ?? [] }));
         Assert.True(reply.Status == 200, LastRaw);
-        return reply.Body?["result"] as JsonObject ?? throw new InvalidOperationException("No result: " + reply.Body);
+        var result = reply.Body?["result"] as JsonObject ?? throw new InvalidOperationException("No result: " + reply.Body);
+        AssertFitsOutputSchema(tool, result);
+        return result;
+    }
+
+    /// <summary>
+    /// Every answer that worked fits the tool's published output schema as JSON Schema reads it (types, <c>required</c>,
+    /// and no field an object with <c>additionalProperties: false</c> does not name), so a client that checks
+    /// <c>structuredContent</c> never refuses one. Checked for every call of every test.
+    /// </summary>
+    private void AssertFitsOutputSchema(string tool, JsonObject result)
+    {
+        if ((result["isError"]?.GetValue<bool>() ?? false) || result["structuredContent"] is not JsonObject structured
+            || !Host.Get<Oadm.Server.Tools.ToolRegistry>().TryGet(tool, out var described))
+        {
+            return;
+        }
+
+        var errors = new List<string>();
+        OutputCheck(described.Output, structured, "", errors);
+        Assert.True(errors.Count == 0, $"{tool} answers outside its output schema: " + string.Join("; ", errors.Take(10)));
+    }
+
+    private static void OutputCheck(JsonNode? schema, JsonNode? value, string path, List<string> errors)
+    {
+        if (schema is not JsonObject s)
+        {
+            return;
+        }
+
+        var types = s["type"] switch
+        {
+            JsonValue v => [v.GetValue<string>()],
+            JsonArray a => a.Select(t => t!.GetValue<string>()).ToList(),
+            _ => new List<string>(),
+        };
+        var kind = value switch
+        {
+            null => "null",
+            JsonObject => "object",
+            JsonArray => "array",
+            JsonValue v when v.TryGetValue(out bool _) => "boolean",
+            JsonValue v when v.TryGetValue(out string? _) => "string",
+            JsonValue v when v.TryGetValue(out long _) => "integer",
+            _ => "number",
+        };
+        if (types.Count > 0 && !types.Contains(kind) && !(kind == "integer" && types.Contains("number")))
+        {
+            errors.Add($"{path}: {kind} where the schema says {string.Join(" or ", types)}");
+            return;
+        }
+
+        if (value is JsonObject obj)
+        {
+            var properties = s["properties"] as JsonObject;
+            foreach (var required in (s["required"] as JsonArray ?? []).Select(r => r!.GetValue<string>()))
+            {
+                if (!obj.ContainsKey(required))
+                {
+                    errors.Add($"{path}.{required}: required but missing");
+                }
+            }
+
+            foreach (var (name, inner) in obj)
+            {
+                if (properties?[name] is JsonObject known)
+                {
+                    OutputCheck(known, inner, $"{path}.{name}", errors);
+                }
+                else if (s["additionalProperties"] is JsonValue closed && closed.TryGetValue(out bool open) && !open)
+                {
+                    errors.Add($"{path}.{name}: not in the schema");
+                }
+                else if (s["additionalProperties"] is JsonObject entries)
+                {
+                    OutputCheck(entries, inner, $"{path}.{name}", errors);
+                }
+            }
+        }
+        else if (value is JsonArray array && s["items"] is JsonObject items)
+        {
+            for (var i = 0; i < array.Count; i++)
+            {
+                OutputCheck(items, array[i], $"{path}[{i}]", errors);
+            }
+        }
     }
 
     /// <summary>The structured content of a tool call that worked (and checks it equals the text content).</summary>

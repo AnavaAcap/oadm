@@ -116,6 +116,7 @@ public static class AccessPolicy
         ["/oadm.v1.DiscoveryService/WatchDiscovered"] = AccessRule.Needs(HostPermissions.DevicesAddRemove),
         ["/oadm.v1.DiscoveryService/StopScan"] = AccessRule.Needs(HostPermissions.DevicesAddRemove),
         ["/oadm.v1.DiscoveryService/Stop"] = AccessRule.Needs(HostPermissions.DevicesAddRemove),
+        ["/oadm.v1.DiscoveryService/End"] = AccessRule.Needs(HostPermissions.DevicesAddRemove),
         ["/oadm.v1.AddDevicesService/Prepare"] = AccessRule.Needs(HostPermissions.DevicesAddRemove),
         ["/oadm.v1.AddDevicesService/Commit"] = AccessRule.Needs(HostPermissions.DevicesAddRemove),
         ["/oadm.v1.AddDevicesService/RetryAuth"] = AccessRule.Needs(HostPermissions.DevicesAddRemove),

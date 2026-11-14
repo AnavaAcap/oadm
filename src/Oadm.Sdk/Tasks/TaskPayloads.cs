@@ -17,6 +17,8 @@ public sealed record PayloadError(string Field, string Message);
 public sealed record TaskPlanDevice(Guid DeviceId, string? SkipReason = null);
 
 /// <summary>An uploaded file a run would use: its name and SHA-256 (upper-case hex) as the upload store holds them.</summary>
+/// <param name="Name">The file name as it was uploaded.</param>
+/// <param name="Sha256">Its SHA-256, upper-case hex.</param>
 public sealed record TaskPlanFile(string Name, string Sha256);
 
 /// <summary>

@@ -124,7 +124,7 @@ public sealed partial class McpToolTests
         "/oadm.v1.DeviceService/Refresh", "/oadm.v1.DeviceService/Remove", "/oadm.v1.DeviceService/Resolve",
         "/oadm.v1.DeviceService/Search", "/oadm.v1.DeviceService/SetStoredCredentials",
         "/oadm.v1.DiscoveryService/ProbeAddress", "/oadm.v1.DiscoveryService/StartRangeScan",
-        "/oadm.v1.DiscoveryService/StopScan", "/oadm.v1.DiscoveryService/WatchDiscovered", "/oadm.v1.FileService/Delete",
+        "/oadm.v1.DiscoveryService/End", "/oadm.v1.DiscoveryService/StopScan", "/oadm.v1.DiscoveryService/WatchDiscovered", "/oadm.v1.FileService/Delete",
         "/oadm.v1.FileService/List", "/oadm.v1.FileService/Upload", "/oadm.v1.LiveViewService/GetSnapshot",
         "/oadm.v1.ServerLogService/List", "/oadm.v1.SettingsService/Get", "/oadm.v1.SettingsService/ListCredentials",
         "/oadm.v1.TaskService/Cancel", "/oadm.v1.TaskService/GetLog", "/oadm.v1.TaskService/List",

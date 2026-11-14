@@ -326,6 +326,12 @@ public sealed partial class CanaryTests
             await c.Discovery.StopAsync(new Proto.DiscoverySession { SessionId = c.AdminSession });
             await c.AdminSessionStillWorksAsync();
         },
+        ["/oadm.v1.DiscoveryService/End"] = async c =>
+        {
+            // Another user's session answers like an unknown one and keeps running, its logins too.
+            await c.Discovery.EndAsync(new Proto.DiscoverySession { SessionId = c.AdminSession });
+            await c.AdminSessionStillWorksAsync();
+        },
         ["/oadm.v1.AddDevicesService/Prepare"] = async c =>
             await CannotAddAsync(() => c.AddDevices.PrepareAsync(new Proto.PrepareRequest { SessionId = c.AdminSession, DiscoveredIds = { OutsideSerial } }).ResponseAsync),
         ["/oadm.v1.AddDevicesService/Commit"] = async c =>

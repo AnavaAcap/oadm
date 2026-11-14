@@ -55,6 +55,7 @@ internal static class DeviceChangeTools
     public static readonly string ProbePath = InProcessCalls.PathOf(Proto.DiscoveryService.Descriptor, "ProbeAddress");
     public static readonly string WatchPath = InProcessCalls.PathOf(Proto.DiscoveryService.Descriptor, "WatchDiscovered");
     public static readonly string StopScanPath = InProcessCalls.PathOf(Proto.DiscoveryService.Descriptor, "StopScan");
+    public static readonly string EndPath = InProcessCalls.PathOf(Proto.DiscoveryService.Descriptor, "End");
     public static readonly string CommitPath = InProcessCalls.PathOf(Proto.AddDevicesService.Descriptor, "Commit");
     public static readonly string WaitingAddPath = InProcessCalls.PathOf(Proto.WaitingDeviceService.Descriptor, "Add");
     public static readonly string WaitingListPath = InProcessCalls.PathOf(Proto.WaitingDeviceService.Descriptor, "List");
@@ -200,7 +201,7 @@ internal static class DeviceChangeTools
                 P("use_dns_names", Flag("Add the devices of a range by their DNS name when they have one, else by address.")),
             ]),
             AddPreviewOutput(),
-            [StartRangePath, ProbePath, WatchPath, StopScanPath, WaitingListPath, CommitPath, WaitingAddPath, WaitingTryPath],
+            [StartRangePath, ProbePath, WatchPath, StopScanPath, EndPath, WaitingListPath, CommitPath, WaitingAddPath, WaitingTryPath],
             call => AddPreviewAsync(call, handles, time))
         {
             ActsOutside = true, // it sends packets to the network: not a read, hidden from Read only callers, counted as a change
@@ -896,11 +897,12 @@ internal static class DeviceChangeTools
         {
             try
             {
-                await unbounded.CallAsync<DiscoveryGrpcService, Proto.DiscoverySession, Proto.Empty>(StopScanPath, new Proto.DiscoverySession { SessionId = session.SessionId }, (s, r, c) => s.StopScan(r, c)).ConfigureAwait(false);
+                // End, not StopScan: the session's logins with the credential list end too, so none goes on after the answer.
+                await unbounded.CallAsync<DiscoveryGrpcService, Proto.DiscoverySession, Proto.Empty>(EndPath, new Proto.DiscoverySession { SessionId = session.SessionId }, (s, r, c) => s.End(r, c)).ConfigureAwait(false);
             }
             catch (RpcException)
             {
-                // the session already ended (a commit ends it)
+                // the session already ended
             }
         }
     }
