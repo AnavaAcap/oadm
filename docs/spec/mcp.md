@@ -49,7 +49,7 @@ preview/run handles and caller rules.
   A channel may name one permission of its own (`ToolCaller.ChannelPermission`): MCP names "Use AI agents" for its access
   keys; the registry only checks it and requires none itself.
 - **MCP is a thin adapter** (`src/Oadm.Server/Mcp/`): the transport and its checks, access keys (which make the
-  `ToolCaller`), its own limits (calls per second, calls at once, runs per minute), the mapping to `tools/list` and
+  `ToolCaller`), its own limits (calls per second, calls at once, changes per minute, per key, per user and for the port), the mapping to `tools/list` and
   `tools/call` (`McpToolAdapter`, also an image result as MCP image content), the file links and the skill resources.
 - **Preview and run stay two tools.** A change is always a preview tool `<name>_preview` (it writes nothing and answers the
   plan and a handle) and a run tool `<name>_run` that takes only the handle: the assistant shows the preview as a card with
@@ -329,7 +329,9 @@ The website gets a user page (Tools > AI agents, `tools/ai-agents`) and a develo
   every check again; batch and task count), `oadm_files_upload_link(name, size)` (a file name without a folder, the exact
   size). Handles and links (`Tools/ToolHandles`): random, bound to the caller's binding key, 10 minutes, once, at most 20
   of a kind per caller, in memory only; another key's handle answers like an ended one.
-- **MCP** (`Mcp/McpFiles`, `McpEndpoint`): `PUT /files/<token>` with the same key: the link's caller only, exactly its size
+- **MCP** (`Mcp/McpFiles`, `McpEndpoint`): the link is the server's own name (the AI agents certificate's first DNS name,
+  else its first address) and the MCP port, never the request's `Host`; a file name has letters, digits, spaces and
+  `. - _ ( )` only. `PUT /files/<token>` with the same key: the link's caller only, exactly its size
   (400 otherwise), through `FileService.Upload` in process (its limits; the tasks of the same key read the file), answers
   `file_id`, `name`, `size`, `sha256`, audited "Uploaded file" as "<user> via access key <name>"; a Read only key gets 403
   also with a link. Every change an agent causes is audited as "<user> via access key <name>"
