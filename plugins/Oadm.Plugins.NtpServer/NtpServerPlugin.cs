@@ -1,4 +1,5 @@
 using Oadm.Plugins.NtpServer.Tasks;
+using Oadm.Plugins.NtpServer.Tools;
 using Oadm.Sdk.Plugins;
 
 namespace Oadm.Plugins.NtpServer;
@@ -58,7 +59,13 @@ public sealed class NtpServerPlugin : ICorePlugin, IAsyncDisposable
     }
 
     /// <summary>Reading the state is for everyone; Save changes the server (Admin, audited).</summary>
-    public UserRole RequiredRole(string method) => method == NtpServerMethods.GetState ? UserRole.Operator : UserRole.Admin;
+    public UserRole RequiredRole(string method) => method == NtpServerMethods.GetState || method == NtpTools.Status.Method ? UserRole.Operator : UserRole.Admin;
+
+    /// <summary>The status tool (docs/spec/mcp.md "Plugins"): the page's state, for the caller's devices.</summary>
+    public IReadOnlyList<PluginTool> Tools => NtpTools.All;
+
+    /// <summary>The tools of this plugin are named <c>oadm_ntp_*</c>.</summary>
+    public string? ToolArea => "ntp";
 
     /// <summary>Changing the server is one right ("manage", the Admin methods); the page itself is "show".</summary>
     public IReadOnlyList<PermissionDefinition> Permissions { get; } =
@@ -74,6 +81,14 @@ public sealed class NtpServerPlugin : ICorePlugin, IAsyncDisposable
     {
         ArgumentNullException.ThrowIfNull(caller);
         var service = _service ?? throw new InvalidOperationException("The NTP server plugin is not running.");
+        if (method == NtpTools.Status.Method)
+        {
+            // Read only, with the page's own rules: the requests and sites of the caller's devices.
+            return NtpTools.Answer(caller.HasAllDevices
+                ? service.GetState(full: true)
+                : service.GetState(Serving.NtpGroupView.From(await caller.Devices.ListAsync(ct).ConfigureAwait(false))));
+        }
+
         if (caller.HasAllDevices)
         {
             return await InvokeAsync(method, payloadJson, ct).ConfigureAwait(false);

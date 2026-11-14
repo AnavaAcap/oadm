@@ -3,6 +3,7 @@ using Oadm.Plugins.Pki.Certificates;
 using Oadm.Plugins.Pki.Device;
 using Oadm.Plugins.Pki.Policies;
 using Oadm.Plugins.Pki.Tasks;
+using Oadm.Plugins.Pki.Tools;
 using Oadm.Plugins.Shared;
 using Oadm.Sdk.Certificates;
 using Oadm.Sdk.Events;
@@ -194,10 +195,18 @@ public sealed class PkiPlugin : ICorePlugin, ICorePluginDownloads, IEventSource,
     /// </summary>
     public UserRole RequiredRole(string method) => IsRead(method) ? UserRole.Operator : UserRole.Admin;
 
-    private static bool IsRead(string method) => method is PkiMethods.GetState or PkiMethods.GetCertificates or PkiMethods.GetCertificate or PolicyMethods.GetPolicies;
+    private static bool IsRead(string method) =>
+        method is PkiMethods.GetState or PkiMethods.GetCertificates or PkiMethods.GetCertificate or PolicyMethods.GetPolicies || PkiTools.IsRead(method);
 
-    /// <summary>Admin methods (the Certificates card's Create, Sign request, Import, Delete and Export too) are audited by the host; the count of a revoke policy only reads.</summary>
-    public bool IsAudited(string method) => RequiredRole(method) == UserRole.Admin;
+    /// <summary>
+    /// The tools (docs/spec/mcp.md "Plugins"): the certificate list and the issuing policies read like the page; Create certificate
+    /// changes like the page's Create (Admin with "Manage the certificate authority", all devices, audited), and its preview only
+    /// checks, so it needs the same rights but leaves no audit entry.
+    /// </summary>
+    public IReadOnlyList<PluginTool> Tools => PkiTools.All;
+
+    /// <summary>Admin methods (the Certificates card's Create, Sign request, Import, Delete and Export too) are audited by the host; the count of a revoke policy only reads, and so does a preview of a tool.</summary>
+    public bool IsAudited(string method) => RequiredRole(method) == UserRole.Admin && !PluginTool.IsPreviewMethod(method);
 
     /// <summary>The certificate authority ("manage") and the server's trust in it ("trustServer") are rights of their own.</summary>
     public IReadOnlyList<PermissionDefinition> Permissions { get; } =
@@ -230,6 +239,11 @@ public sealed class PkiPlugin : ICorePlugin, ICorePluginDownloads, IEventSource,
                 throw new DeviceAccessRefusedException(); // the host refuses these first (RequiresAllDevices); fail closed
             }
 
+            if (PkiTools.CertificateCreate.Calls(method))
+            {
+                return await PkiTools.InvokeAsync(service, caller, method, payloadJson, ct).ConfigureAwait(false);
+            }
+
             return method switch
             {
                 PolicyMethods.SavePolicy => PkiJson.Serialize(await service.SavePolicyAsync(PkiJson.Deserialize<PkiPolicy>(payloadJson), caller.UserName, ct).ConfigureAwait(false)),
@@ -238,6 +252,11 @@ public sealed class PkiPlugin : ICorePlugin, ICorePluginDownloads, IEventSource,
                     await CertificateActionAsync(service, method, payloadJson, caller.UserName, ct).ConfigureAwait(false),
                 _ => await InvokeAsync(method, payloadJson, ct).ConfigureAwait(false),
             };
+        }
+
+        if (PkiTools.IsRead(method))
+        {
+            return await PkiTools.InvokeAsync(service, caller, method, payloadJson, ct).ConfigureAwait(false);
         }
 
         service.Viewers.Seen(caller);
