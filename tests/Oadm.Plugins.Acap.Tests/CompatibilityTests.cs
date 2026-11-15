@@ -70,6 +70,9 @@ public sealed class CompatibilityTests
     [InlineData("1.11.0", "12.10.40", false)]
     [InlineData("1.11.0", "12.11.77", true)]
     [InlineData("1.3", "10.9.0", true)]
+    [InlineData("1.7.5", "11.11.238", true)]
+    [InlineData("1.7.5", "11.10.40", false)]
+    [InlineData("1.7.5", "12.2.10", true)]
     [InlineData("2.0.0", "12.10.1", true)]
     public void Schema_version_implies_minimum_firmware(string schema, string firmware, bool ok)
     {

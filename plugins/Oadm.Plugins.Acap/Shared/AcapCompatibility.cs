@@ -70,12 +70,16 @@ public sealed record AcapInstallPreview(
 /// </summary>
 public static class AcapCompatibility
 {
-    /// <summary>Manifest schema version -> minimum AXIS OS (developer.axis.com, manifest schemas), for packages that state no AXIS OS range.</summary>
+    /// <summary>
+    /// Manifest schema version -> minimum AXIS OS (developer.axis.com, manifest schemas), for packages that state no AXIS OS range.
+    /// 1.7.5 is not in Axis's table: ACAP Native SDK 1.15.4 (the AXIS OS 11.11 LTS track) writes it, and AXIS OS 11.11 installs
+    /// and runs it (measured on ARTPEC-7 and ARTPEC-8, AXIS OS 11.11.238). Without the entry it took 1.7.4's 12.4.
+    /// </summary>
     public static readonly IReadOnlyList<(string Schema, string MinOs)> SchemaMinimumOs =
     [
         ("1.0", "10.7"), ("1.1", "10.7"), ("1.2", "10.7"), ("1.3", "10.9"), ("1.3.1", "11.0"),
         ("1.4.0", "11.7"), ("1.5.0", "11.8"), ("1.6.0", "11.9"), ("1.7.0", "11.10"), ("1.7.1", "12.0"),
-        ("1.7.2", "12.1"), ("1.7.3", "12.2"), ("1.7.4", "12.4"), ("1.8.0", "12.6"), ("1.9.0", "12.8"),
+        ("1.7.2", "12.1"), ("1.7.3", "12.2"), ("1.7.4", "12.4"), ("1.7.5", "11.11"), ("1.8.0", "12.6"), ("1.9.0", "12.8"),
         ("1.10.0", "12.10"), ("1.11.0", "12.11"), ("2.0.0", "12.10"), ("2.1.0", "12.11"), ("2.2.0", "12.11"),
     ];
 

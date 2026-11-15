@@ -43,6 +43,7 @@ Each entry is one short line in plain words (what the user gets, not how); no ne
 
 ### Fixed
 
+- Applications (ACAP): a package built with ACAP Native SDK 1.15.4 installs again on AXIS OS 11.11 to 12.3; it was refused as needing 12.4.
 - A pasted password that starts with a line break no longer leaves the password field empty.
 - Text recognition: the package for Intel Macs has its recognition library, it was missing since 4.10.0.
 - After a logout the next user no longer sees the last user's devices, tasks or page values.
