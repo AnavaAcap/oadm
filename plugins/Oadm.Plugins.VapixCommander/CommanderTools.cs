@@ -275,13 +275,13 @@ internal static class CommanderTools
         return Serialize(new RunAnswer(reply.TaskIds.Count, [.. reply.TaskIds.Take(ListedDevices).Select(t => t.ToString())], plan.Skipped.Count));
     }
 
-    private sealed record Plan(IReadOnlyList<IDeviceInfo> Run, IReadOnlyList<(IDeviceInfo Device, string Reason)> Skipped);
+    internal sealed record Plan(IReadOnlyList<IDeviceInfo> Run, IReadOnlyList<(IDeviceInfo Device, string Reason)> Skipped);
 
     /// <summary>
     /// Which devices run the command, from the cached data only (no device request): the caller's view (an id outside it refuses
     /// the call like an unknown one), then the device's state and its APIs. Every device re-checks its APIs before a write.
     /// </summary>
-    private static async Task<Plan> PlanAsync(ICallContext caller, CommandDefinition command, List<Guid> ids, CancellationToken ct)
+    internal static async Task<Plan> PlanAsync(ICallContext caller, CommandDefinition command, List<Guid> ids, CancellationToken ct)
     {
         var found = new Dictionary<Guid, IDeviceInfo>();
         if (ids.Count > 16)
@@ -342,7 +342,7 @@ internal static class CommanderTools
         return new Plan(run, skipped);
     }
 
-    private static string DeviceName(IDeviceInfo device) =>
+    internal static string DeviceName(IDeviceInfo device) =>
         string.IsNullOrWhiteSpace(device.HostName) ? device.Address : device.HostName!;
 
     // ---- the list ----

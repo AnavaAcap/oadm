@@ -462,6 +462,7 @@ public sealed class McpPluginToolTests
                      "oadm_pki_certificates", "oadm_pki_policies", "oadm_pki_certificate_create_preview", "oadm_pki_certificate_create_run",
                      "oadm_ntp_status", "oadm_dhcp_status", "oadm_dhcp_leases", "oadm_hardening_results",
                      "oadm_vapix_commands", "oadm_vapix_command_preview", "oadm_vapix_command_run",
+                     "oadm_device_request_preview", "oadm_device_request_run", // VAPIX Commander's request, its own area (decision 2026-11-15)
                      "oadm_edge_storage_cards", "oadm_app_management_applications", "oadm_est_enrollments", "oadm_radius_log",
                      "oadm_device_rules_list", "oadm_device_triggers_list", "oadm_device_triggers_devices",
                      "oadm_config_parameters", "oadm_config_action_rules", "oadm_config_stream_profiles",
@@ -533,6 +534,43 @@ public sealed class McpPluginToolTests
         Assert.Empty(radius["entries"]!.AsArray());
         var badCards = await server.CallToolAsync(key, "oadm_edge_storage_cards", new JsonObject { ["state"] = "melted" });
         Assert.True(badCards["isError"]!.GetValue<bool>());
+    }
+
+    [Fact]
+    public async Task TheDeviceRequestNeedsSendAndTheDangerousRightForALockOutRequest()
+    {
+        // VAPIX Commander's request over MCP (decision 2026-11-15): "send" lists it, a Viewer does not get it, and a request that
+        // can lock OADM out needs "dangerous", which the built-in Operator role does not get.
+        await using var server = await StartBundledAsync();
+        var device = new Oadm.Core.Devices.Device { Serial = "B8A44F000777", Address = "192.0.2.77", Model = "P3265-V", Status = Oadm.Sdk.Devices.DeviceStatus.Ok };
+        await server.Host.Get<Oadm.Core.Devices.DeviceRepository>().AddAsync(device, CancellationToken.None);
+        var admin = await server.CreateKeyAsync(name: "admin-bot");
+        var op = await server.CreateKeyAsync(name: "op-bot", roleId: BuiltInRoles.OperatorId.ToString());
+        var viewer = await server.CreateKeyAsync(name: "look-bot", roleId: BuiltInRoles.ViewerId.ToString());
+        Assert.DoesNotContain("oadm_device_request_preview", await server.ToolNamesAsync(viewer));
+        Assert.Contains("oadm_device_request_preview", await server.ToolNamesAsync(op));
+
+        var filter = new JsonObject { ["ids"] = new JsonArray(device.Id.ToString()) };
+        var read = await server.ToolAsync(op, "oadm_device_request_preview", new JsonObject
+        {
+            ["method"] = "GET", ["path"] = "/axis-cgi/param.cgi", ["filter"] = filter.DeepClone(),
+            ["query"] = new JsonArray(new JsonObject { ["name"] = "action", ["value"] = "list" }),
+        });
+        Assert.Equal("read", read["kind"]!.GetValue<string>());
+        Assert.Equal(1, read["will_run"]!.GetValue<int>());
+        Assert.False(string.IsNullOrEmpty(read["handle"]!.GetValue<string>()));
+
+        JsonObject LockOut() => new()
+        {
+            ["method"] = "POST", ["path"] = "/axis-cgi/pwdgrp.cgi", ["body"] = "action=remove&user=root",
+            ["content_type"] = "application/x-www-form-urlencoded", ["filter"] = filter.DeepClone(),
+        };
+        var refused = await server.CallToolAsync(op, "oadm_device_request_preview", LockOut());
+        Assert.True(refused["isError"]!.GetValue<bool>());
+        Assert.Contains(Oadm.Plugins.VapixCommander.DeviceRequestTool.DangerousRefused, ErrorText(refused), StringComparison.Ordinal);
+        var allowed = await server.ToolAsync(admin, "oadm_device_request_preview", LockOut());
+        Assert.True(allowed["dangerous"]!.GetValue<bool>());
+        Assert.Contains(Oadm.Plugins.VapixCommander.DeviceRequestTool.DangerousWarning, allowed["warnings"]!.AsArray().Select(w => w!.GetValue<string>()));
     }
 
     [Fact]
