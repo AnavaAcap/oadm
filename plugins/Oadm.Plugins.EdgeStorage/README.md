@@ -87,6 +87,14 @@ One table per device scope (`DeviceSweeps<StorageRow>`): the users of a device g
   Image Health Dashboard (one sweep at a time, ordered events, a late read never overwrites a newer row, a failed sweep is
   logged). Also used: `DeviceMessages.Refusal` (SDK) and `PluginEventWatch.RunAsync` (client SDK).
 
+## MCP
+
+`Tools/EdgeStorageTools` (`ICorePlugin.Tools`, area `edge_storage`, docs/spec/mcp.md): the read-only tool
+`oadm_edge_storage_cards` answers the caller's table as the page shows it, the counts by state first, then one row per
+camera (state, text, size in GB, used %, wear, wear alert, encryption, retention, read time), paged by device id, filter
+`state`. It reads no camera: an empty table says "Nothing read yet. Choose the cameras on the Edge storage page.".
+Right "show". Check, repair, format, encryption and retention stay in the page.
+
 ## Tests
 
 `tests/Oadm.Plugins.EdgeStorage.Tests`: `DeviceGroupTests` (the plugin canary, one table per group, runs through the

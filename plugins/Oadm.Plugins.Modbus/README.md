@@ -9,3 +9,8 @@ Id `oadm.modbus`, server only, always on. Event rule action **Write Modbus value
 - A pulse: the off write runs in a `finally`, on its own 10 s, on a session asked for again, tried every second. If it fails the text ends "The coil may still be on." During the wait the session is asked for at least every 60 s, or the pool closes it as unused after 5 minutes.
 - Pulse is a value type: a field shows on one condition or either of two, so Seconds could not hang below a choice that hides itself.
 - Modbus RTU and Modbus Security are left out.
+
+## MCP
+
+Its recipients and their connection are in the host tool `oadm_recipients_list` (docs/spec/mcp.md): target as scheme, host
+and port, "has_password" only, the rules that use them. An action plugin has no tools of its own.
