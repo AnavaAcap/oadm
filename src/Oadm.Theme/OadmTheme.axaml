@@ -471,10 +471,10 @@
   <Style Selector="Border.chatUser SelectableTextBlock">
     <Setter Property="LineHeight" Value="18" />
   </Style>
-  <!-- A result in an answer (c:ResultCard: a device table, a Markdown table, a preview card): raised with a thin border;
+  <!-- A result in an answer (c:ResultCard: a device table, a Markdown table, a preview card): the card colour with a thin border, quieter than the panel (decision 2026-11-15: the raised colour was too bright);
        header line with the accent icon, the title, a dim subtitle and the card's actions on the right; content and footer -->
   <Style Selector=":is(Border).resultCard">
-    <Setter Property="Background" Value="{StaticResource Oadm.SurfaceRaisedBrush}" />
+    <Setter Property="Background" Value="{StaticResource Oadm.CardBackgroundBrush}" />
     <Setter Property="BorderBrush" Value="{StaticResource Oadm.BorderBrush}" />
     <Setter Property="BorderThickness" Value="1" />
     <Setter Property="CornerRadius" Value="{StaticResource Oadm.CardCornerRadius}" />
