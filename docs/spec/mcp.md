@@ -265,7 +265,8 @@ loopback address (`AgentConnections.HostOf`):
 Copy is the last button of every row, so the Copy buttons line up. Download uses the client's save picker
 (`IDialogService.SaveFileAsync`, like Download CA certificate and Download skill, which stay below the rows). Claude
 Desktop is not listed until a bridge is tested with this server (it needs one for a remote server with a header).
-The website gets a user page (Tools > MCP server, `tools/mcp-server`, with the generated `tools/mcp-server/tools`) and a developer page (`dev/plugin-tools`).
+The website gets a user page (Administration > MCP server, `admin/mcp-server`, next to Settings where it is turned on, with the generated
+`admin/mcp-server/tools`) and a developer page (`dev/plugin-tools`).
 
 ## Tests
 
@@ -480,7 +481,7 @@ The website gets a user page (Tools > MCP server, `tools/mcp-server`, with the g
 - **Card**: **Connect an agent** has a row each for Claude Code, `.mcp.json` and VS Code with this
   server's address (the certificate's first name, a DNS name before an address) and port, Copy and for the files Download, while the server
   runs; **Download skill** next to **Download CA certificate**.
-- **Website**: `tools/mcp-server` (turn it on, access keys, connect an agent, the skill, what agents can and cannot do) and
+- **Website**: `admin/mcp-server` (turn it on, access keys, connect an agent, the skill, what agents can and cannot do) and
   `dev/plugin-tools` (how a plugin adds tools).
 - **Tests**: `McpSkillTests` (resources, the ZIP, the tool names the skill uses exist, the Wording rules), client
   `AiAgentsTests` (the configurations, headless screenshots).
