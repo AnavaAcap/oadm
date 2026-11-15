@@ -81,6 +81,9 @@ internal sealed class FakeChatClient : IChatClient
     public FakeChatClient Call(params (string Name, JsonObject? Arguments)[] calls) =>
         Then((_, _) => Updates(this, [.. calls.Select((c, i) => (AIContent)new FunctionCallContent("call-" + Guid.NewGuid().ToString("N")[..8] + i, c.Name, ArgumentsOf(c.Arguments)))]));
 
+    /// <summary>The next answer streams exactly these contents (a provider's own web search steps, text).</summary>
+    public FakeChatClient Stream(params AIContent[] contents) => Then((_, _) => Updates(this, contents));
+
     /// <summary>The next answer streams a piece, then waits until the request is cancelled (Stop, End).</summary>
     public FakeChatClient Hang() => Then(HangAsync);
 
@@ -241,9 +244,9 @@ internal sealed class AssistantTestServer : IAsyncDisposable
 
     /// <summary>One message and every event of its answer.</summary>
     public async Task<List<Proto.AssistantEvent>> ChatAsync(string text, string conversation = "chat-1", CallInvoker? invoker = null,
-        IEnumerable<string>? selected = null, IEnumerable<Proto.AssistantAttachment>? attachments = null, string model = "test-model", bool replaceLast = false)
+        IEnumerable<string>? selected = null, IEnumerable<Proto.AssistantAttachment>? attachments = null, string model = "test-model", bool replaceLast = false, string docsOffer = "")
     {
-        var message = new Proto.AssistantMessage { ConversationId = conversation, Text = text, Model = model, ReplaceLast = replaceLast };
+        var message = new Proto.AssistantMessage { ConversationId = conversation, Text = text, Model = model, ReplaceLast = replaceLast, DocsOfferId = docsOffer };
         message.SelectedDeviceIds.AddRange(selected ?? []);
         message.Attachments.AddRange(attachments ?? []);
         using var call = Service(invoker).Chat(message);

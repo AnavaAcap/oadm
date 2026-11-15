@@ -32,6 +32,12 @@ internal sealed class AssistantConversation(string sessionKey, Guid userId, stri
     /// <summary>What happened outside the model (a Run) for its next message, as data.</summary>
     public List<string> Notes { get; } = [];
 
+    /// <summary>
+    /// The offers of the last answer to look in the Axis docs online (docs/spec/assistant.md "Looking in the Axis docs"): id to
+    /// its end. The next message takes one (Look up online) or drops them all.
+    /// </summary>
+    public Dictionary<string, AssistantDocsOffer> DocsOffers { get; } = new(StringComparer.Ordinal);
+
     public bool NoticeShown { get; set; }
 
     public DateTimeOffset LastUsed { get; set; } = now;
@@ -54,11 +60,15 @@ internal sealed class AssistantConversation(string sessionKey, Guid userId, stri
             Ended = true;
             Previews.Clear();
             Runs.Clear();
+            DocsOffers.Clear();
             Turns.Clear();
             Streaming?.Cancel();
         }
     }
 }
+
+/// <summary>An offer to look in the Axis docs online: what the model would look up and when the offer ends.</summary>
+internal sealed record AssistantDocsOffer(string Topic, DateTimeOffset Ends);
 
 /// <summary>A preview the chat showed: its preview tool and input (again for the failed devices) and its run tool.</summary>
 internal sealed record AssistantPreview(string PreviewTool, string RunTool, System.Text.Json.JsonElement Arguments, DateTimeOffset RanAt = default);

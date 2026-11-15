@@ -51,7 +51,8 @@ public sealed class AssistantChatTests
         Assert.Contains(SelectionTools.Name, offered);
         Assert.Contains(DocsTools.Name, offered);
         var registry = server.Host.Get<ToolRegistry>();
-        foreach (var name in offered)
+        Assert.Contains(AssistantDocsLookup.OfferName, offered); // the assistant's own offer of a lookup, the one tool outside the registry
+        foreach (var name in offered.Where(n => n != AssistantDocsLookup.OfferName))
         {
             Assert.True(registry.TryGet(name, out var tool));
             Assert.True(tool.ReadsOnly && !tool.StartsTasks, name);

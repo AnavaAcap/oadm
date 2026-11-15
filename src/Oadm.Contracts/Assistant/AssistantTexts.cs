@@ -56,6 +56,39 @@ public static class AssistantTexts
     /// <summary>A file of an answer that ended or is another user's (AssistantService.Download).</summary>
     public const string FileEnded = "This file has ended. Ask again.";
 
+    // Looking in the Axis docs (docs/spec/assistant.md "Looking in the Axis docs").
+
+    /// <summary>The question of the offer's card.</summary>
+    public const string DocsOfferQuestion = "OADM has no function for this. Should I look in the Axis VAPIX docs online?";
+
+    /// <summary>The card's button that says yes.</summary>
+    public const string LookUpOnline = "Look up online";
+
+    /// <summary>The card's button that says no (nothing is sent).</summary>
+    public const string NotNow = "Not now";
+
+    /// <summary>The user's message the click sends with the offer's id.</summary>
+    public const string LookUpMessage = "Yes, look it up in the Axis docs online.";
+
+    /// <summary>The card after the click, and after Not now.</summary>
+    public const string LookingOnline = "Looking in the Axis docs.";
+    public const string NotLookedUp = "Not looked up.";
+
+    /// <summary>Chat with an offer that is unknown, used, ended or another chat's.</summary>
+    public const string DocsOfferEnded = "This offer has ended. Ask again.";
+
+    /// <summary>The only sites a lookup may search and read.</summary>
+    public static IReadOnlyList<string> DocsDomains { get; } = ["developer.axis.com", "help.axis.com"];
+
+    /// <summary>The one line of a provider that cannot look online (Ollama, OpenAI-compatible).</summary>
+    public static string CannotLookOnline(string? provider) => $"{ProviderName(provider)} cannot look online, so the Axis docs cannot be read here.";
+
+    /// <summary>A tool line: the lookup could not reach the Axis docs (no internet, the provider's search failed).</summary>
+    public const string DocsNotReached = "The Axis docs could not be read. The server may have no internet.";
+
+    /// <summary>A tool line while the provider searches or reads the Axis docs.</summary>
+    public const string LookingInDocs = "Looking in the Axis docs";
+
     /// <summary>Secrets of one Run at most (AssistantRunRequest.secrets).</summary>
     public const int MaxRunSecrets = 8;
 

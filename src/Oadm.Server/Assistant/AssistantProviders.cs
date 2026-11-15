@@ -13,8 +13,12 @@ using Oadm.Contracts.Assistant;
 
 namespace Oadm.Server.Assistant;
 
-/// <summary>What one call to a provider needs: the provider, its address, the model and the key (in memory for this call only).</summary>
-internal sealed record AssistantConnection(string Provider, string? Address, string Model, string? ApiKey)
+/// <summary>
+/// What one call to a provider needs: the provider, its address, the model and the key (in memory for this call only);
+/// <paramref name="Online"/>: the one answer the user let look in the Axis docs (OpenAI then answers through its Responses API,
+/// whose web search takes a domain filter).
+/// </summary>
+internal sealed record AssistantConnection(string Provider, string? Address, string Model, string? ApiKey, bool Online = false)
 {
     /// <summary>Never the key (records print every property).</summary>
     public override string ToString() => $"{AssistantTexts.ProviderName(Provider)} {Model}";
@@ -75,18 +79,20 @@ internal sealed class AssistantProviders(TimeProvider time, Func<AssistantConnec
         {
             AssistantTexts.Anthropic => new Anthropic.AnthropicClient { ApiKey = connection.ApiKey ?? string.Empty, HttpClient = Http(), MaxRetries = 1 }
                 .AsIChatClient(connection.Model, MaxOutputTokens),
-            AssistantTexts.OpenAi => OpenAi(connection, OpenAiApi),
-            AssistantTexts.OpenAiCompatible => OpenAi(connection, BaseOf(connection.Address)),
+            AssistantTexts.OpenAi => OpenAi(connection, OpenAiApi, connection.Online),
+            AssistantTexts.OpenAiCompatible => OpenAi(connection, BaseOf(connection.Address), responses: false),
             AssistantTexts.Ollama => new OllamaSharp.OllamaApiClient(Http(BaseOf(connection.Address)), connection.Model),
             _ => throw new ArgumentException("Unknown provider.", nameof(connection)),
         };
     }
 
-    private IChatClient OpenAi(AssistantConnection connection, Uri endpoint)
+    private IChatClient OpenAi(AssistantConnection connection, Uri endpoint, bool responses)
     {
         var options = new OpenAI.OpenAIClientOptions { Endpoint = endpoint, Transport = new HttpClientPipelineTransport(Http()), NetworkTimeout = Timeout.InfiniteTimeSpan };
-        return new OpenAI.OpenAIClient(new ApiKeyCredential(string.IsNullOrEmpty(connection.ApiKey) ? "none" : connection.ApiKey), options)
-            .GetChatClient(connection.Model).AsIChatClient();
+        var client = new OpenAI.OpenAIClient(new ApiKeyCredential(string.IsNullOrEmpty(connection.ApiKey) ? "none" : connection.ApiKey), options);
+#pragma warning disable OPENAI001 // The Responses API is marked for evaluation in the OpenAI SDK; only the lookup answer uses it.
+        return responses ? client.GetResponsesClient().AsIChatClient(connection.Model) : client.GetChatClient(connection.Model).AsIChatClient();
+#pragma warning restore OPENAI001
     }
 
     /// <summary>The address as a base URI that ends with a slash (relative paths of the SDKs go below it).</summary>

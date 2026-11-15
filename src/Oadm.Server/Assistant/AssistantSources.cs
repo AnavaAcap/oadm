@@ -44,6 +44,18 @@ internal sealed class AssistantSources
         }
     }
 
+    /// <summary>The chip of the Axis docs online (a lookup the user said yes to read a page).</summary>
+    public const string AxisDocs = "Axis docs";
+
+    /// <summary>An area that is no tool of the registry (the provider's web tools of a lookup).</summary>
+    public void AddArea(string area)
+    {
+        if (!_areas.Contains(area, StringComparer.Ordinal))
+        {
+            _areas.Add(area);
+        }
+    }
+
     /// <summary>The chips; empty when no tool answered.</summary>
     public IReadOnlyList<string> Chips() =>
         [.. _areas.Select(a => a == Devices && _devices is { } n ? DevicesText(n) : a).Take(MaxChips)];

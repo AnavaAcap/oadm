@@ -163,11 +163,23 @@ public sealed partial class AssistantChats
 
         var conversation = _conversations.Open(caller.TokenHash, caller.UserId, message.ConversationId);
         CancellationTokenSource streaming;
+        string? lookupTopic = null;
         lock (conversation.Gate)
         {
             if (conversation.Streaming is not null)
             {
                 throw GrpcGuard.FailedPrecondition(AssistantTexts.Busy);
+            }
+
+            // Look up online: the user's yes to an offer of this chat's last answer, taken once; any message ends the others.
+            var offerId = message.DocsOfferId ?? string.Empty;
+            var offers = new Dictionary<string, AssistantDocsOffer>(conversation.DocsOffers, StringComparer.Ordinal);
+            conversation.DocsOffers.Clear();
+            if (offerId.Length > 0)
+            {
+                lookupTopic = offers.TryGetValue(offerId, out var offer) && offer.Ends > _time.GetUtcNow()
+                    ? offer.Topic
+                    : throw GrpcGuard.FailedPrecondition(AssistantTexts.DocsOfferEnded);
             }
 
             // Try again and Edit: the last user message and its answer go, this message takes their place.
@@ -220,7 +232,8 @@ public sealed partial class AssistantChats
                 await emit(new Proto.AssistantEvent { Notice = AssistantTexts.Notice(settings.Provider) }).ConfigureAwait(false);
             }
 
-            await AnswerAsync(settings, model, conversation, ToolCallerOf(caller, selection), UserMessage(conversation, text, selection, mentioned, files), emit, streaming, spend, ct).ConfigureAwait(false);
+            await AnswerAsync(settings, model, conversation, ToolCallerOf(caller, selection), UserMessage(conversation, text, selection, mentioned, files), emit, streaming, spend,
+                lookupTopic, ct).ConfigureAwait(false);
         }
         finally
         {
@@ -329,16 +342,30 @@ public sealed partial class AssistantChats
     }
 
     private async Task AnswerAsync(AssistantSettings settings, string model, AssistantConversation conversation, ToolCaller caller, ChatMessage user,
-        Func<Proto.AssistantEvent, Task> emit, CancellationTokenSource streaming, Spend spend, CancellationToken ct)
+        Func<Proto.AssistantEvent, Task> emit, CancellationTokenSource streaming, Spend spend, string? lookupTopic, CancellationToken ct)
     {
+        var online = lookupTopic is not null;
+        if (online && !AssistantDocsLookup.Supports(settings.Provider))
+        {
+            // A provider without web tools OADM can restrict: one fixed line, the model is not asked.
+            var line = AssistantTexts.CannotLookOnline(settings.Provider);
+            Commit(conversation, [user, new ChatMessage(ChatRole.Assistant, line)]);
+            await emit(new Proto.AssistantEvent { Text = line }).ConfigureAwait(false);
+            await emit(new Proto.AssistantEvent { Done = new Proto.AssistantDone() }).ConfigureAwait(false);
+            return;
+        }
+
         var apiKey = settings.ApiKey(_protector);
         var offered = AssistantTools.Offered(_tools, caller);
         var byName = offered.ToDictionary(t => t.Name, StringComparer.Ordinal);
         var declarations = offered.Select(AssistantTools.Declare).ToList();
-        var system = new ChatMessage(ChatRole.System, SystemPrompt(caller.User.UserName));
+        // The offer of a lookup in every answer but the one the user said yes to; that one gets the provider's web tools instead.
+        declarations.AddRange(online ? AssistantDocsLookup.ToolsFor(settings.Provider) : [AssistantDocsLookup.Offer]);
+        // The note of the lookup goes with this answer's system prompt only, never into the chat's history.
+        var system = new ChatMessage(ChatRole.System, SystemPrompt(caller.User.UserName) + (online ? "\n" + AssistantDocsLookup.OnlineNote(lookupTopic!) : string.Empty));
         List<ChatMessage> turn = [user];
         var answered = new StringBuilder();
-        var round = new RoundState();
+        var round = new RoundState { Online = online };
         var followUps = new FollowUpFilter();
         long tokens = 0;
         var error = string.Empty;
@@ -348,7 +375,7 @@ public sealed partial class AssistantChats
         var finished = false;
         try
         {
-            using var client = Provider(() => _providers.Create(new AssistantConnection(settings.Provider, settings.Address, model, apiKey)));
+            using var client = Provider(() => _providers.Create(new AssistantConnection(settings.Provider, settings.Address, model, apiKey, online)));
             for (var step = 0; step <= settings.StepsPerAnswer + 1; step++)
             {
                 var messages = Context(system, conversation, turn);
@@ -366,6 +393,11 @@ public sealed partial class AssistantChats
                     {
                         var update = stream.Current;
                         updates.Add(update);
+                        if (online)
+                        {
+                            await WebLinesAsync(update, round, emit).ConfigureAwait(false);
+                        }
+
                         var piece = update.Text;
                         if (!string.IsNullOrEmpty(piece))
                         {
@@ -385,7 +417,7 @@ public sealed partial class AssistantChats
                 tokens += TokensOf(response, messages);
                 spend.Tokens = tokens;
                 turn.AddRange(response.Messages);
-                var requested = response.Messages.SelectMany(m => m.Contents).OfType<FunctionCallContent>().ToList();
+                var requested = response.Messages.SelectMany(m => m.Contents).OfType<FunctionCallContent>().Where(c => !c.InformationalOnly).ToList();
                 if (requested.Count == 0)
                 {
                     break;
@@ -395,6 +427,12 @@ public sealed partial class AssistantChats
                 var extra = new List<AIContent>();
                 foreach (var request in requested)
                 {
+                    if (round.Offered && request.Name == AssistantDocsLookup.OfferName)
+                    {
+                        results.Add(Result(request, new JsonObject { ["offered"] = true, ["note"] = AssistantDocsLookup.OnceNote })); // one card per answer
+                        continue;
+                    }
+
                     if (round.ToolsOff || ++round.ToolCalls > settings.StepsPerAnswer)
                     {
                         round.ToolsOff = true;
@@ -431,7 +469,9 @@ public sealed partial class AssistantChats
         {
             // A model that refuses tools ends the answer with the one text that says to choose another (once, as its error).
             var ex = failure.InnerException!;
-            error = declarations.Count > 0 && AssistantProviderErrors.RejectsTools(ex) ? AssistantTexts.CannotUseTools : AssistantProviderErrors.Plain(ex, apiKey);
+            error = declarations.Count > 0 && AssistantProviderErrors.RejectsTools(ex) ? AssistantTexts.CannotUseTools
+                : online && ex is HttpRequestException { StatusCode: null } ? AssistantTexts.DocsNotReached // no way out of the server
+                : AssistantProviderErrors.Plain(ex, apiKey);
             LogProviderError(AssistantTexts.ProviderName(settings.Provider), error);
         }
         catch (Exception ex) when (ex is not OperationCanceledException && ex is not RpcException && ex is not IOException)
@@ -442,7 +482,7 @@ public sealed partial class AssistantChats
         finally
         {
             spend.Tokens = tokens;
-            Commit(conversation, finished ? turn : [user, new ChatMessage(ChatRole.Assistant, answered.Length > 0 ? answered.ToString() : "(no answer)")]);
+            Commit(conversation, finished ? (online ? WithoutWebTools(turn) : turn) : [user, new ChatMessage(ChatRole.Assistant, answered.Length > 0 ? answered.ToString() : "(no answer)")]);
         }
 
         await EmitEndAsync(round.Sources, followUps, answeredWell: error.Length == 0 && !stopped, emit).ConfigureAwait(false);
@@ -511,9 +551,57 @@ public sealed partial class AssistantChats
 
         public bool ToolsOff { get; set; }
 
+        /// <summary>The one answer the user let look in the Axis docs online.</summary>
+        public bool Online { get; init; }
+
+        /// <summary>The line "Looking in the Axis docs" was shown; the line that the docs could not be read was shown.</summary>
+        public bool WebShown { get; set; }
+
+        public bool WebFailedShown { get; set; }
+
+        /// <summary>This answer showed its offer of a lookup (one card per answer).</summary>
+        public bool Offered { get; set; }
+
         /// <summary>The tools that answered, for the chips below the answer.</summary>
         public AssistantSources Sources { get; } = new();
     }
+
+    /// <summary>
+    /// The provider's web tools of a lookup answer as tool lines: "Looking in the Axis docs" at the first search or read, the
+    /// chip "Axis docs", and a failed line when the provider could not reach the docs (no internet, the search failed).
+    /// </summary>
+    private static async Task WebLinesAsync(ChatResponseUpdate update, RoundState round, Func<Proto.AssistantEvent, Task> emit)
+    {
+        foreach (var content in update.Contents)
+        {
+            if (content is WebSearchToolCallContent && !round.WebShown)
+            {
+                round.WebShown = true;
+                round.Sources.AddArea(AssistantSources.AxisDocs);
+                await emit(Line(AssistantTexts.LookingInDocs, failed: false)).ConfigureAwait(false);
+            }
+            else if (content is WebSearchToolResultContent result && !round.WebFailedShown
+                && result.Outputs is { Count: > 0 } outputs && outputs.All(o => o is ErrorContent))
+            {
+                round.WebFailedShown = true;
+                await emit(Line(AssistantTexts.DocsNotReached, failed: true)).ConfigureAwait(false);
+            }
+        }
+    }
+
+    /// <summary>
+    /// A lookup answer as the chat keeps it: the provider's own search and read steps leave (they are never sent again, the
+    /// next answers have no web tools), the text and OADM's tool calls stay.
+    /// </summary>
+    internal static List<ChatMessage> WithoutWebTools(List<ChatMessage> turn) =>
+    [
+        .. turn
+            .Select(m => m.Contents.Any(IsProviderTool) ? new ChatMessage(m.Role, [.. m.Contents.Where(c => !IsProviderTool(c))]) : m)
+            .Where(m => m.Contents.Count > 0),
+    ];
+
+    private static bool IsProviderTool(AIContent content) =>
+        content is (ToolCallContent or ToolResultContent) and not (FunctionCallContent or FunctionResultContent);
 
     /// <summary>
     /// Keeps the turn (its older tool answers shortened when it is long); a picture stays out of the later context (it was seen
@@ -620,15 +708,63 @@ public sealed partial class AssistantChats
         - The panel already shows the devices a tool found as a table. Never repeat that list in your text; say what it means in one line ("3 of 7 cameras run AXIS OS older than 11.11.").
         - Write a table only when the user asks for one and no tool showed it. At most one table, few columns.
         - Never guess. When no tool gives the data, say so in one sentence.
+        - Never go online without the user's yes. When no OADM tool can do or answer what the user asks, call oadm_docs_lookup_offer instead of guessing, then stop.
         - Answer in the user's language, in Markdown. Name devices by host name or address.
         - End every answer with one last line "<<next>> question 1 | question 2": at most 3 short questions the user may ask next, only when useful. Never mention this line.
         """;
 
     // ---- one tool call -------------------------------------------------------------------------------------------------
 
+    /// <summary>
+    /// The model found no OADM tool (docs/spec/assistant.md "Looking in the Axis docs"): the offer becomes a card with Look up
+    /// online (one per answer, bound to this chat, ended by the next message or after <see cref="AssistantDocsLookup.OfferLifetime"/>);
+    /// a provider that cannot look online gets the fixed line instead. The model then stops: nothing goes online here.
+    /// </summary>
+    private async Task<AIContent> OfferLookupAsync(AssistantSettings settings, AssistantConversation conversation, FunctionCallContent request, RoundState round,
+        Func<Proto.AssistantEvent, Task> emit)
+    {
+        round.ToolsOff = true; // the answer ends with text: the user decides
+        round.Offered = true; // a second call of this answer gets OnceNote (the loop)
+        if (!AssistantDocsLookup.Supports(settings.Provider))
+        {
+            await emit(new Proto.AssistantEvent { Notice = AssistantTexts.CannotLookOnline(settings.Provider) }).ConfigureAwait(false);
+            return Result(request, new JsonObject { ["offered"] = false, ["note"] = AssistantDocsLookup.CannotNote });
+        }
+
+        var topic = request.Arguments?.TryGetValue("topic", out var value) == true ? value?.ToString() ?? string.Empty : string.Empty;
+        topic = new string([.. topic.Where(c => !char.IsControl(c))]).Trim();
+        if (topic.Length > AssistantDocsLookup.MaxTopic)
+        {
+            topic = topic[..AssistantDocsLookup.MaxTopic];
+        }
+
+        var id = Guid.NewGuid().ToString("N");
+        var ends = _time.GetUtcNow() + AssistantDocsLookup.OfferLifetime;
+        lock (conversation.Gate)
+        {
+            conversation.DocsOffers[id] = new AssistantDocsOffer(topic, ends);
+        }
+
+        await emit(new Proto.AssistantEvent
+        {
+            DocsOffer = new Proto.AssistantDocsOffer
+            {
+                OfferId = id,
+                Topic = topic,
+                ExpiresUtc = ends.UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", CultureInfo.InvariantCulture),
+            },
+        }).ConfigureAwait(false);
+        return Result(request, new JsonObject { ["offered"] = true, ["note"] = AssistantDocsLookup.OfferNote });
+    }
+
     private async Task<AIContent> ToolAsync(AssistantSettings settings, AssistantConversation conversation, ToolCaller caller, Dictionary<string, OadmTool> offered,
         FunctionCallContent request, RoundState round, List<AIContent> extra, Func<Proto.AssistantEvent, Task> emit, CancellationToken ct)
     {
+        if (request.Name == AssistantDocsLookup.OfferName && !round.Online)
+        {
+            return await OfferLookupAsync(settings, conversation, request, round, emit).ConfigureAwait(false);
+        }
+
         if (!offered.TryGetValue(request.Name, out var tool))
         {
             await emit(Line(NotOffered, failed: true)).ConfigureAwait(false);
