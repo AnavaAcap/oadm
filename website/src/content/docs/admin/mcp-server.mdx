@@ -99,18 +99,19 @@ Every tool with what it does: [MCP tools](./tools/).
 - See which devices the published Axis CVEs affect, worst first, with the possible ones apart.
 - Read tasks and their results, failures grouped by their error, the server log, the audit log and the event log.
 - Read OADM's own state: OADM PRO, which plugins are on, MCP and the assistant, the date of the vulnerability list.
-- Run tasks on many devices, such as restart, date and time, Upgrade AXIS OS, network settings, applications and their
-  settings, certificates, Configure devices, Import and Export configuration, the SD card tasks of Edge storage and the
+- Run tasks on many devices, such as restart, date and time, Upgrade AXIS OS, network settings, users, applications, their
+  settings and license keys, certificates and CA certificates, Configure devices, Import and Export configuration, the SD card tasks of Edge storage and the
   action rules of the Action Rule Editor. A task shows in the Tasks list like any other. Its owner is "MCP" and the key's name, for example
   "MCP Lobby-bot". Cancel tasks.
 - Refresh, remove and add devices with Discovery, a network range or a list of up to 1,000 addresses, and set their
-  login from the credential list by its name. Agents add only addresses in the networks of the server or a site, at most
+  login from the credential list by its name, or with a user and password you type. Set the first password of devices
+  with factory default settings, and add and remove entries of the credential list. Agents add only addresses in the networks of the server or a site, at most
   200 devices at a time. Read the waiting list and remove entries from it.
 - Add, remove, rename, recolor and delete tags, and rename sites.
 - Delete tasks from the task history, or all of them, and read what a task's dialog reads from a device, such as its
   users or network settings.
 - Create, change, delete, turn on or off, duplicate and test event rules, clear the event log, and create, change, test
-  and delete recipients. Passwords are set in OADM.
+  and delete recipients.
 - Read which devices fail a compliance check, turn Compliance on or off, create, change, turn off and delete checks, and
   check now.
 - Zoom, focus and move a PTZ camera to home, a preset or a point, and set the RTSP port OADM uses.
@@ -130,14 +131,15 @@ Every tool with what it does: [MCP tools](./tools/).
   release one, change the recipients and schedules on the devices. Each needs the same permission as on the page. Live
   video, reports and file exports stay in OADM.
 - Run commands of the [VAPIX Commander](../../tools/vapix-commander/) library and saved commands on many devices, for settings
-  no task covers (siren and light, PTZ and more). Not offered: dangerous commands, commands with a password or
-  a file, and changes OADM's own tasks make. A value that looks like a password in an answer shows as `***`.
+  no task covers (siren and light, PTZ and more). Not offered: dangerous commands, commands with a file, and
+  changes OADM's own tasks make. A value that looks like a password in an answer shows as `***`.
 - Upload files, such as a firmware file, without the file passing through the agent.
 - Fetch files OADM makes: the device list and compliance results as CSV, a task's result, a recording, the snapshot
   report, a certificate (never its key) and the hardening results. The agent gets a one-time download link and saves the
   file from its shell; the file never passes through the agent. Never a backup.
-- Set a password a change needs without the agent seeing it: the agent gives you a command, you run it in your own
-  terminal and type the password there. It goes straight to OADM and is used once.
+- Set a password, passphrase, PKCS#12 password or license key a change needs without the agent seeing it: the agent gives
+  you a command, you run it in your own terminal and type the value there. It goes straight to OADM and is used once.
+  OADM checks it at once; a value it refuses (too short, a wrong PKCS#12 password) is answered in your terminal.
 
 Every change has two steps. The agent asks OADM for a **preview** that checks everything and writes nothing. It answers
 what would run, on which devices, what is skipped and why, and any warning. Only after you agree does the agent run it,
@@ -149,12 +151,11 @@ it. The audit log names the key: "MCP Lobby-bot".
 ## What agents cannot do
 
 - Read passwords, private keys, license keys or tokens, or get one through the chat. A password you type into the
-  agent's command goes to OADM only. A task whose password has no such command yet is not offered: set the password in
-  OADM.
+  agent's command goes to OADM only.
 - Change users, roles, device groups, access keys, the license, plugins or the server settings, restore a backup,
   delete all devices or install a new version.
-- Show live video, pan and tilt a camera continuously, upload or delete Vision Center models, or set a password of a
-  recipient or a saved command.
+- Show live video, pan and tilt a camera continuously, upload or delete Vision Center models, or import devices from an
+  ADM file with their logins.
 - Do more than the role and devices of their key.
 
 Texts that come from devices, such as names, locations and log lines, are data for the agent, never orders.
