@@ -192,6 +192,37 @@ public sealed class McpServerTests
     }
 
     [Fact]
+    public async Task RefusedKeysFromRotatingAddressesNeverFloodTheAuditLog()
+    {
+        await using var host = await TestServerHost.StartAsync();
+        var time = new FakeTimeProvider(DateTimeOffset.UtcNow);
+        var tokens = new AuthTokenStore(host.Get<IDbContextFactory<OadmDbContext>>(), time);
+        using var access = new McpAccess(tokens, host.Get<RoleStore>(), host.Get<DeviceViewFactory>(), host.Get<AccessEpochs>(), host.Get<AuditLog>(), time);
+        async Task<List<Proto.AuditEntry>> RefusedAsync() =>
+            [.. (await host.Audit.ListAsync(new Proto.ListAuditRequest())).Entries.Where(e => e.Action == AuditActions.AccessKeyRefused)];
+
+        // Addresses of one IPv6 /64 are one address: one entry, all refusals counted in it.
+        for (var i = 1; i <= 60; i++)
+        {
+            Assert.Null(await access.AuthenticateAsync("oadm_unknownkey", $"2001:db8:1:2::{i:x}", CancellationToken.None));
+        }
+
+        var single = Assert.Single(await RefusedAsync());
+        Assert.Equal("60 refused calls", single.Detail);
+
+        // Many addresses: at most the port's new entries a minute, the next minute again.
+        for (var i = 1; i <= 2 * McpAccess.MaxRefusalAuditsPerMinute; i++)
+        {
+            Assert.Null(await access.AuthenticateAsync("oadm_unknownkey", $"10.8.0.{i}", CancellationToken.None));
+        }
+
+        Assert.Equal(McpAccess.MaxRefusalAuditsPerMinute, (await RefusedAsync()).Count);
+        time.Advance(McpAccess.RefusalEntry);
+        Assert.Null(await access.AuthenticateAsync("oadm_unknownkey", "10.8.1.1", CancellationToken.None));
+        Assert.Equal(McpAccess.MaxRefusalAuditsPerMinute + 1, (await RefusedAsync()).Count);
+    }
+
+    [Fact]
     public async Task AnEndedKeyIsRefusedAndTheAuditLogNamesItsUserAndKeyUntilTheHourlyCleanup()
     {
         await using var host = await TestServerHost.StartAsync();

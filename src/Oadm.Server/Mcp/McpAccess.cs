@@ -16,8 +16,9 @@ namespace Oadm.Server.Mcp;
 /// budget), at most <see cref="CallsInPort"/> calls waiting at once on the
 /// whole port, file transfers in a pool of their own (<see cref="TransfersAtOnce"/> per key and user, <see cref="TransfersInPort"/> on the port),
 /// a refused call counting against nothing, and every
-/// refused key in the audit log (one entry per address and key a minute, its count in the detail, so a client that retries
-/// never pushes the history out).
+/// refused key in the audit log (one entry per address, IPv6 per /64, and key a minute, its count in the detail, and at most
+/// <see cref="MaxRefusalAuditsPerMinute"/> new entries a minute on the whole port, so neither a client that retries nor one
+/// that rotates its addresses pushes the history out).
 /// </summary>
 public sealed class McpAccess(AuthTokenStore tokens, RoleStore roles, DeviceViewFactory views, AccessEpochs epochs, AuditLog audit, TimeProvider time) : IDisposable
 {
@@ -66,6 +67,9 @@ public sealed class McpAccess(AuthTokenStore tokens, RoleStore roles, DeviceView
     /// <summary>One audit entry per address and refused key within this time; later refusals count into its detail.</summary>
     public static readonly TimeSpan RefusalEntry = TimeSpan.FromMinutes(1);
 
+    /// <summary>New refusal entries a minute on the whole port; beyond it a refused key is not audited (it still counts for its address).</summary>
+    public const int MaxRefusalAuditsPerMinute = 30;
+
     /// <summary>Addresses and keys the refusal entries remember (a flood from many addresses starts new entries).</summary>
     private const int MaxRefusalEntries = 1_000;
 
@@ -80,6 +84,7 @@ public sealed class McpAccess(AuthTokenStore tokens, RoleStore roles, DeviceView
     private readonly AddressRateLimiter _userChanges = new(ChangesPerMinute, total: 0, TimeSpan.FromMinutes(1), time);
     private readonly Lock _budgetGate = new();
     private readonly AddressRateLimiter _refused = new(MaxRefusedPerAddress, total: 0, RefusedWindow, time);
+    private readonly AddressRateLimiter _refusalAudits = new(MaxRefusalAuditsPerMinute, total: 0, RefusalEntry, time, maxAddresses: 1);
     private readonly SemaphoreSlim _refusalGate = new(1, 1);
     private readonly Places _callPlaces = new(CallsAtOnce, CallsInPort);
     private readonly Places _transferPlaces = new(TransfersAtOnce, TransfersInPort);
@@ -89,11 +94,14 @@ public sealed class McpAccess(AuthTokenStore tokens, RoleStore roles, DeviceView
     public const string ReadOnlyKey = "This access key is Read only.";
 
     /// <summary>
-    /// The tool caller of <paramref name="key"/> (its user with the role and devices of now, client machine "MCP &lt;key name&gt;",
-    /// task owner "&lt;user&gt;@MCP &lt;key name&gt;", bound to the key's hash and its user); null when the key is missing, unknown,
+    /// The tool caller of <paramref name="key"/> (its user with the role and devices of now, client machine "AI agent &lt;key name&gt;",
+    /// task owner "&lt;user&gt;@AI agent &lt;key name&gt;", bound to the key's hash and its user); null when the key is missing, unknown,
     /// ended, its user is disabled (audited) or the key or its user is over its calls a second (then <see cref="McpSignIn.Throttled"/>).
     /// The call is counted as soon as the key validates, before the role and the device view are read.
     /// </summary>
+    /// <summary>The client machine of an agent's calls before its key name: a task's owner reads "admin@AI agent Laptop".</summary>
+    public const string AgentMachinePrefix = "AI agent ";
+
     public async Task<McpSignIn> SignInAsync(string? key, string clientAddress, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(clientAddress);
@@ -115,7 +123,7 @@ public sealed class McpAccess(AuthTokenStore tokens, RoleStore roles, DeviceView
         var keyName = AuthTokenStore.CleanAccessKeyName(rawName); // keys made before the name rule may hold anything
         var permissions = await roles.PermissionsOfAsync(session.RoleId, ct).ConfigureAwait(false);
         var devices = await views.CallerDevicesAsync(session.DeviceAccess, ct).ConfigureAwait(false);
-        var caller = new AuthenticatedCaller(session.UserId, session.UserName, session.RoleId, permissions, clientAddress, "MCP " + keyName, session.TokenHash)
+        var caller = new AuthenticatedCaller(session.UserId, session.UserName, session.RoleId, permissions, clientAddress, AgentMachinePrefix + keyName, session.TokenHash)
         {
             Devices = devices,
             AccessEpoch = epoch,
@@ -241,7 +249,7 @@ public sealed class McpAccess(AuthTokenStore tokens, RoleStore roles, DeviceView
         var userName = owner is null ? string.Empty : AuditActions.ViaAccessKey(owner.UserName, AuthTokenStore.CleanAccessKeyName(owner.Name));
         var target = owner is null ? null : AuthTokenStore.CleanAccessKeyName(owner.Name);
         target ??= (string.IsNullOrEmpty(key) ? "No access key" : "Unknown access key");
-        var slot = clientAddress + "|" + userName + "|" + target;
+        var slot = AddressKey(clientAddress) + "|" + userName + "|" + target; // IPv6 per /64, like the refusal count
         await _refusalGate.WaitAsync(ct).ConfigureAwait(false);
         try
         {
@@ -263,6 +271,11 @@ public sealed class McpAccess(AuthTokenStore tokens, RoleStore roles, DeviceView
                 {
                     _refusals.Clear();
                 }
+            }
+
+            if (!_refusalAudits.TryAcquire("port"))
+            {
+                return; // the port's new entries of this minute are used up
             }
 
             _refusals.Remove(slot);

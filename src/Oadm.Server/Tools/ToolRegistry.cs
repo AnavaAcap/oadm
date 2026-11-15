@@ -14,7 +14,7 @@ namespace Oadm.Server.Tools;
 /// parameter. The channel that brings the call makes it: MCP from the access key, a later built-in assistant from the
 /// logged-in user. A tool never reads anything else of the request.
 /// </summary>
-/// <param name="User">The user with the role, the permissions and the device view of now; its client machine names the channel ("MCP laptop").</param>
+/// <param name="User">The user with the role, the permissions and the device view of now; its client machine names the channel ("AI agent laptop").</param>
 /// <param name="BindingKey">What cursors and handles are bound to (never sent anywhere): the access key's hash, a session's token hash.</param>
 public sealed record ToolCaller(AuthenticatedCaller User, string BindingKey)
 {

@@ -96,7 +96,7 @@ public sealed class McpTaskToolTests
         var batch = run["batch"]!.GetValue<string>();
         var listed = await server.ToolAsync(key, "oadm_tasks_list", new JsonObject { ["batch"] = batch });
         Assert.Equal(1, listed["total"]!.GetValue<int>());
-        Assert.Equal("admin@MCP agent", listed["tasks"]![0]!["owner"]!.GetValue<string>());
+        Assert.Equal("admin@AI agent agent", listed["tasks"]![0]!["owner"]!.GetValue<string>());
         var again = await server.CallToolAsync(key, "oadm_task_run", new JsonObject { ["handle"] = handle });
         Assert.True(again["isError"]!.GetValue<bool>());
         Assert.Contains(ToolHandles.Ended, again["content"]![0]!["text"]!.GetValue<string>(), StringComparison.Ordinal);
