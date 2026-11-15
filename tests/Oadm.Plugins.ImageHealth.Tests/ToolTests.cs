@@ -22,7 +22,7 @@ public sealed class ToolTests
         await using var plugin = new ImageHealthPlugin(Fast());
         await plugin.StartAsync(ctx, CancellationToken.None);
         ICorePlugin core = plugin;
-        Assert.Equal("results", Assert.Single(core.Tools).Name);
+        Assert.Equal(["results", "check"], core.Tools.Select(t => t.Name));
         Assert.False(core.IsAudited(ImageHealthTools.Results.Method));
         var admin = ctx.CallAsAllDevices();
 
@@ -105,8 +105,8 @@ public sealed class ToolTests
         var before = Stored(ctx);
 
         ICorePlugin core = plugin;
-        Assert.All(core.Tools, t => Assert.False(t.Changes)); // no change tool here: every tool is a read
-        foreach (var tool in core.Tools)
+        Assert.All(core.Tools, t => Assert.False(t.Changes)); // no change tool here: the page checks without asking
+        foreach (var tool in core.Tools.Where(t => t.Name != "check")) // the page's Check now: PageToolTests
         {
             Assert.NotNull(await ctx.InvokeAsync(plugin, admin, tool.Method, null));
             Assert.NotNull(await ctx.InvokeAsync(plugin, admin, tool.Method, """{"detected":"blur","limit":1}"""));

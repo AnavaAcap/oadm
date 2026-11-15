@@ -40,8 +40,11 @@ public sealed class ImageHealthPlugin : ICorePlugin, IAsyncDisposable
 
     public IReadOnlyList<ITaskPlugin> TaskPlugins => [];
 
-    /// <summary>The read-only tool <c>oadm_image_health_results</c> (docs/spec/mcp.md "Plugins"), with the page's rule.</summary>
-    public IReadOnlyList<PluginTool> Tools => ImageHealthTools.All;
+    /// <summary>
+    /// The tools (docs/spec/mcp.md "Plugins"): <c>oadm_image_health_results</c> (read only) and the page's Check now
+    /// (<c>oadm_image_health_check</c>), each with the rule of its page method (every method has the default rule).
+    /// </summary>
+    public IReadOnlyList<PluginTool> Tools { get; } = [.. ImageHealthTools.All, .. ImageHealthPageTools.Set.Tools];
 
     /// <summary>The monitor while the plugin runs (tests).</summary>
     internal ImageHealthMonitor? Monitor => _monitor;
@@ -76,6 +79,11 @@ public sealed class ImageHealthPlugin : ICorePlugin, IAsyncDisposable
     {
         ArgumentNullException.ThrowIfNull(caller);
         var monitor = _monitor ?? throw new InvalidOperationException(NotRunning);
+        if (ImageHealthPageTools.Set.Handles(method))
+        {
+            return await ImageHealthPageTools.Set.InvokeAsync(monitor, caller, method, payloadJson, ct).ConfigureAwait(false);
+        }
+
         switch (method)
         {
             case ImageHealthMethods.Check:
