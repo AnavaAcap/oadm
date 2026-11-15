@@ -116,7 +116,7 @@ More changes, each a preview and a run like the others:
 - Event rules: on or off `oadm_rules_enable_preview`, copy `oadm_rules_duplicate_preview`, send one action as a test
   `oadm_rules_test_action_preview`, clear the event log `oadm_events_clear_log_preview`.
 - Recipients: `oadm_recipients_types` for the fields, then `oadm_recipients_save_preview`, `oadm_recipients_test_preview`,
-  `oadm_recipients_delete_preview`. Passwords are set in OADM.
+  `oadm_recipients_delete_preview`. Name a password or header in `set_secrets`; the user enters it (see "Passwords").
 - Compliance: on or off `oadm_compliance_enable_preview`; checks with `oadm_compliance_kinds` and
   `oadm_compliance_check_save_preview`, `oadm_compliance_check_enable_preview`, `oadm_compliance_check_delete_preview`;
   Check now `oadm_compliance_check_now_preview`.
@@ -184,7 +184,7 @@ A password, passphrase, PKCS#12 password or license key never goes through you.
 - **Look-only keys.** A key with a look-only role (such as Viewer) lists no tool that changes something.
 - **Limits.** Answers are cut at 32 KB. When an answer says there is more, narrow the filter. A key has call limits per
   second and per minute. On "too many calls", wait.
-- **Not over MCP.** The credential list, live video and continuous pan and tilt are done in OADM only.
+- **Not over MCP.** Live video and continuous pan and tilt are done in OADM only.
 
 ## Workflows
 

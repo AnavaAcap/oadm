@@ -9,6 +9,7 @@ Use it for "which SD cards are full or failed?" and to check, repair or format t
 3. Report: counts per state, then the cards with a problem (camera, the reason), the worn ones (wear percent), the full
    ones, cameras without a card.
 4. A change is the task `oadm.edge-storage.task` (`oadm_task_preview`, `action` `check`, `repair`, `retention` with
-   `retentionDays`, `format` or `encryptionOff`). Format and encryption off **delete every recording** on the cards;
-   check, repair and format stop recording while they run. Say so to the user in plain words, name the cameras, and run
-   only after a clear yes. Turning encryption on needs a passphrase: it stays on the Edge storage page.
+   `retentionDays`, `format`, `encryptionOn` or `encryptionOff`). Format and encryption on or off **delete every
+   recording** on the cards; check, repair and format stop recording while they run. Say so to the user in plain words,
+   name the cameras, and run only after a clear yes. Encryption on needs a passphrase: the user enters it through the
+   secret command of the preview (see "Passwords").
