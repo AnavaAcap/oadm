@@ -19,6 +19,22 @@ environment variable `OADM_CLIENT_VERSION=4.4.0`). For an Administrator of an in
 **Install now** or **Update client** and follows the update to its result ([self-update.md](self-update.md)); while the
 server installs its update the connection banner says "Updating the server to V4.9.0" instead of "unreachable".
 
+**Assistant** ([assistant.md](assistant.md)): a title bar button left of MyAxis and Help (icon `chat`, tooltip "Assistant", class
+`active` while the panel is open; MyAxis stays directly left of Help, Help directly left of the user) opens and closes the panel **Assistant**
+(`Assistant/AssistantPanelView`, `AssistantPanelViewModel`) as a `Border.sidePanel` right of the page area, over every page
+and open while the user moves between pages. Hidden while the assistant is off (`AssistantAvailability`, read with
+`GetSettings` on every connect and after the Settings card saves) or the role lacks `assistant.use`; an open panel stays
+readable when the assistant is turned off meanwhile (its X closes it), a role that lost the permission closes it. A
+conversation id per opened panel and New chat; `End` on close, New chat and sign out. The panel: title with **New chat**
+and Close, the virtualized conversation (the user's messages, the answer as Markdown with Copy, tool lines, preview cards
+with Cancel and **Run** that then follow their tasks in the task mirror with **Show tasks**, pictures that open larger over the
+window, device tables whose row selects the device in the grid and "+N more" with **Select all in the grid**, notices and
+errors), the four start suggestions while empty, and at the bottom the attached files (Attach file uploads through
+FileService), the message box (Enter sends, Shift+Enter a new line, at most 8,000 characters), "12 devices selected" (the
+grid's selection goes with every message; above 10,000 the message below the box and Send off), **Send** / **Stop**. A
+table row or Select all shows the Devices page and selects the devices there (`DevicesViewModel.SelectInGrid`: a search that
+hides some is cleared, the view selects the rows in one step with the ring above 1,000).
+
 Layout, top to bottom:
 1. Title "Devices". Left navigation rail as described in [visual-style.md](visual-style.md).
 2. Toolbar: toolbar plugins (**Add** menu | Remove, Refresh, Export | task plugin actions that declare `ShowInToolbar`,

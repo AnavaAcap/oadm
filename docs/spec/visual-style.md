@@ -342,4 +342,12 @@ Every shared control (Coding Rules: "reuse UI components") and what it is for.
 (every card that folds: the Settings page; closed by default, opens by itself when an input inside shows a validation
 error), `TagChipList` (the tags of a device as chips), `TagColorPicker` (the color of a tag, the tags dialog), `LiveViewPanel` (the live view beside the device grid),
 `SplashLogo` (the animated logo of the start splash), `GridSelection` (a grid's multi-item selection to its view model in
-one step).
+one step), `MarkdownText` over `MarkdownDocument` (Markdown as selectable text: paragraphs, headings, lists, bold, italic,
+inline code, fenced code blocks in a `CodeView`, pipe tables; anything else stays plain; theme `StackPanel.markdown`,
+`SelectableTextBlock.mdHeading`, `Grid.mdList`, `Border.mdCell`; the Assistant's answers).
+
+The Assistant panel ([assistant.md](assistant.md)) uses the theme's `Border.sidePanel` (560 px at the right of every page) and
+`Border.chatUser` (the user's message, raised, right), `Border.chatCard` (a preview card), `Border.chatChip` (an attached
+file), `Border.chatPicture`, `Border.chatComposer` (the bottom with the message box) and `Border.pictureOverlay` (a picture
+shown larger over the window). Its list is a virtualized `ListBox.readOnlyList`; a ready preview card's Run is the panel's
+one accent button and Send turns secondary meanwhile.
