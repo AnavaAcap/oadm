@@ -59,10 +59,20 @@ public sealed class NtpServerPlugin : ICorePlugin, IAsyncDisposable
     }
 
     /// <summary>Reading the state is for everyone; Save changes the server (Admin, audited).</summary>
-    public UserRole RequiredRole(string method) => method == NtpServerMethods.GetState || method == NtpTools.Status.Method ? UserRole.Operator : UserRole.Admin;
+    public UserRole RequiredRole(string method)
+    {
+        method = NtpPageTools.Set.RulesMethodOf(method);
+        return method == NtpServerMethods.GetState || method == NtpTools.Status.Method ? UserRole.Operator : UserRole.Admin;
+    }
+
+    /// <summary>The Admin methods and the run of the settings tool are audited; a preview only reads.</summary>
+    public bool IsAudited(string method) => RequiredRole(method) == UserRole.Admin && !PluginTool.IsPreviewMethod(method);
 
     /// <summary>The status tool (docs/spec/mcp.md "Plugins"): the page's state, for the caller's devices.</summary>
-    public IReadOnlyList<PluginTool> Tools => NtpTools.All;
+    public IReadOnlyList<PluginTool> Tools { get; } = [.. NtpTools.All, .. NtpPageTools.Set.Tools];
+
+    /// <summary>The running service; refuses a call while the plugin is stopped.</summary>
+    internal NtpServerService RunningService => _service ?? throw new InvalidOperationException("The NTP server plugin is not running.");
 
     /// <summary>The tools of this plugin are named <c>oadm_ntp_*</c>.</summary>
     public string? ToolArea => "ntp";
@@ -74,7 +84,7 @@ public sealed class NtpServerPlugin : ICorePlugin, IAsyncDisposable
     ];
 
     /// <summary>The NTP server serves every device: changing it is for users with all devices.</summary>
-    public bool RequiresAllDevices(string method) => method == NtpServerMethods.Save;
+    public bool RequiresAllDevices(string method) => NtpPageTools.Set.RulesMethodOf(method) == NtpServerMethods.Save;
 
     /// <summary>A user's call: users with a device group read the state of their devices (requests, sites).</summary>
     public async Task<string?> InvokeAsync(ICallContext caller, string method, string? payloadJson, CancellationToken ct)
@@ -87,6 +97,16 @@ public sealed class NtpServerPlugin : ICorePlugin, IAsyncDisposable
             return NtpTools.Answer(caller.HasAllDevices
                 ? service.GetState(full: true)
                 : service.GetState(Serving.NtpGroupView.From(await caller.Devices.ListAsync(ct).ConfigureAwait(false))));
+        }
+
+        if (NtpPageTools.Set.Handles(method))
+        {
+            if (!caller.HasAllDevices)
+            {
+                throw new DeviceAccessRefusedException(); // the host refuses it first (RequiresAllDevices)
+            }
+
+            return await NtpPageTools.Set.InvokeAsync(this, caller, method, payloadJson, ct).ConfigureAwait(false);
         }
 
         if (caller.HasAllDevices)

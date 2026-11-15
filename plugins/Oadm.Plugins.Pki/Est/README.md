@@ -101,3 +101,27 @@ A PRO part of the PKI plugin (`../README.md`, `docs/spec/pki.md` "One plugin"). 
 The read-only tool `oadm_est_enrollments` (`Tools/EstTools.cs`, docs/spec/mcp.md "Plugins"): the state, the certificate
 count, Not renewed and the enrollments of the caller's devices, newest first, paged; while the server is off its state
 only. Tests: `ToolTests`.
+
+The task **EST - Certificate Enrollment** is offered to agents through the task tools (SDK 0.13.0): input `EstMcpPayload`
+{`action` Setup or Remove, `replaceDot1x` (Setup only), `profiles` (Remove only, 1 to 10 ids)}, the JSON of `SetupPayload`
+without the clock answer (a camera whose clock is behind refuses, nothing changed). `ValidatePayload`
+(`EstSetupTask.CheckPayload`, also at the start of `ExecuteAsync`, before any request): "Choose a profile to remove.",
+too many or invalid ids at `profiles`, "Profiles are for Remove only.", the replacement at `replaceDot1x`. `PlanAsync`
+from cached data and the EST server's state: Setup skips every camera with the task's refusal while the EST server is off,
+OADM PRO is not active or PKI has no CA, else `CanRun` (AXIS OS 12.10); warnings: cameras with IEEE 802.1X on (cached,
+unknown counts as on) keep their network access certificate, or with `replaceDot1x` get a new one and drop off the network
+if the RADIUS server does not trust its CA; the clock note. Remove: per profile what the cameras lose, the dialog's own
+sentences (`EstTaskIds.RemoveEffect`). The permission stays `enroll` (Set up certificate enrollment, off for Operators).
+Tests: `TaskTests` (the agent input).
+The page's Delete all as `oadm_est_enrollments_clear_preview` / `_run` (`Tools/EstPageTools.cs`, `PluginPageTools`, decision
+2026-11-15): the rights of `clearEnrollments` (Administrator, "manage", users with all devices, the run audited, the preview
+not); the preview counts the entries and deletes nothing, an empty list is refused ("The enrollments list is empty.").
+Tests: `PageToolTests`.
+
+The server's actions (decision 2026-11-15, same file): `oadm_est_enable` (Turn on with OADM PRO, Turn off; audited as
+`turnOn` / `turnOff`), `oadm_est_settings_save` (port, interface, enrollments kept), `oadm_est_profile_save` (adds the
+profile or changes the one with its name: use, issuing policy, on) and `oadm_est_profile_delete`. Each builds the whole
+configuration from the stored one and checks it with `EstService.SaveRefusal` (the checks of Save without saving; the
+page's texts, `profiles[i].x` as `name`, `use`, `policy_id`); while the server is off the settings and profiles are refused
+("The EST server is off. Turn it on first."), like the page. Rights of `save` and the switch (Administrator, "manage", users
+with all devices), the run audited with its page method. Tests: `PageToolTests`.

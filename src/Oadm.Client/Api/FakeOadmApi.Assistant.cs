@@ -187,11 +187,119 @@ public sealed partial class FakeOadmApi
         }
 
         var reply = new AssistantRunReply { BatchId = Guid.NewGuid().ToString(), TaskCount = ids.Count };
+        lock (_gate)
+        {
+            if (AssistantRunFiles.TryGetValue(handle, out var file))
+            {
+                reply.Files.Add(file); // a run that makes a file (Back up now)
+            }
+        }
+
         reply.TaskIds.AddRange(ids);
+        lock (_gate)
+        {
+            if (_assistantRunSecrets.Remove(handle, out var secret))
+            {
+                reply.Secret = secret;
+            }
+        }
+
         return reply;
     }
 
     private readonly HashSet<string> _assistantRan = new(StringComparer.Ordinal);
+
+    /// <summary>The file a preview's Run offers, by handle (tests: Back up now).</summary>
+    public Dictionary<string, AssistantFile> AssistantRunFiles { get; } = new(StringComparer.Ordinal);
+
+    /// <summary>The secrets a preview's Run needs, by handle (tests: <see cref="AddAssistantPreview(IEnumerable{string}, string[])"/>).</summary>
+    private readonly Dictionary<string, string[]> _assistantSecrets = new(StringComparer.Ordinal);
+
+    /// <summary>The files the answers offered, by reference (tests: <see cref="AddAssistantFile"/>).</summary>
+    private readonly Dictionary<string, (string Name, byte[] Content)> _assistantFiles = new(StringComparer.Ordinal);
+
+    /// <summary>A preview whose Run needs the secrets <paramref name="secrets"/> (by name); its handle.</summary>
+    public string AddAssistantPreview(IEnumerable<string> deviceIds, params string[] secrets)
+    {
+        var handle = AddAssistantPreview(deviceIds);
+        lock (_gate)
+        {
+            _assistantSecrets[handle] = secrets;
+        }
+
+        return handle;
+    }
+
+    private readonly Dictionary<string, AssistantSecretCard> _assistantRunSecrets = new(StringComparer.Ordinal);
+    private readonly HashSet<string> _oneTimeFiles = new(StringComparer.Ordinal);
+
+    /// <summary>A preview whose Run makes a secret (a new access key): the reply's card, whose Copy fetches it once; its handle.</summary>
+    public string AddAssistantSecretPreview(IEnumerable<string> deviceIds, string title, string secret)
+    {
+        var handle = AddAssistantPreview(deviceIds);
+        var reference = AddAssistantFile("oadm-key.txt", System.Text.Encoding.UTF8.GetBytes(secret));
+        lock (_gate)
+        {
+            _oneTimeFiles.Add(reference);
+            _assistantRunSecrets[handle] = new AssistantSecretCard { Title = title, FileRef = reference };
+        }
+
+        return handle;
+    }
+
+    /// <summary>A file an answer offers (its card's Save fetches it); its reference.</summary>
+    public string AddAssistantFile(string name, byte[] content)
+    {
+        var reference = Guid.NewGuid().ToString("N");
+        lock (_gate)
+        {
+            _assistantFiles[reference] = (name, content);
+        }
+
+        return reference;
+    }
+
+    public Task<AssistantRunReply> AssistantRunAsync(AssistantRunRequest request, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        lock (_gate)
+        {
+            ThrowIfOffline();
+            if (_assistantSecrets.TryGetValue(request.Handle, out var needed)
+                && needed.FirstOrDefault(n => !request.Secrets.TryGetValue(n, out var value) || value.Length == 0) is { } missing)
+            {
+                AssistantRuns.Add(request.Clone());
+                throw new RpcException(new Status(StatusCode.FailedPrecondition, Contracts.Assistant.AssistantTexts.EnterSecret("password")),
+                    new Metadata { { Contracts.Assistant.AssistantTexts.FieldTrailer, missing } });
+            }
+
+            AssistantSecretRuns.Add(request.Clone());
+        }
+
+        return AssistantRunAsync(request.ConversationId, request.Handle, ct);
+    }
+
+    /// <summary>The runs with their secrets as the server got them (tests: the values went with Run, nowhere else).</summary>
+    public List<AssistantRunRequest> AssistantSecretRuns { get; } = [];
+
+    public Task<Oadm.Sdk.Plugins.PluginDownload> AssistantDownloadAsync(string conversationId, string fileRef, CancellationToken ct)
+    {
+        lock (_gate)
+        {
+            ThrowIfOffline();
+            if (!_assistantFiles.TryGetValue(fileRef, out var file))
+            {
+                throw new RpcException(new Status(StatusCode.NotFound, Contracts.Assistant.AssistantTexts.FileEnded));
+            }
+
+            if (_oneTimeFiles.Remove(fileRef))
+            {
+                _assistantFiles.Remove(fileRef); // a secret: fetched once
+            }
+
+            return Task.FromResult(new Oadm.Sdk.Plugins.PluginDownload(new MemoryStream(file.Content), file.Name, file.Content.Length));
+        }
+    }
 
     /// <summary>The Try the failed devices again calls (tests).</summary>
     public List<AssistantRetryRequest> AssistantRetries { get; } = [];

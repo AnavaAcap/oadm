@@ -2,6 +2,8 @@ using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
+using Oadm.Sdk.Tasks;
+
 namespace Oadm.Plugins.DeviceConfig;
 
 /// <summary>Ids, names and limits of Configure devices and Create configuration file.</summary>
@@ -271,6 +273,9 @@ public sealed record ConfigurePayload
 {
     private static readonly JsonSerializerOptions Options = new(JsonSerializerDefaults.Web);
 
+    /// <summary>The names the payload is read with (the agents' schema of <see cref="ConfigureMcpPayload"/> is exported with them).</summary>
+    public static JsonSerializerOptions JsonOptions => Options;
+
     public IReadOnlyList<NameValue> Parameters { get; init; } = [];
 
     public IReadOnlyList<ConfigActionRule> Rules { get; init; } = [];
@@ -279,6 +284,22 @@ public sealed record ConfigurePayload
     public IReadOnlyList<ConfigSchedule> Schedules { get; init; } = [];
 
     public IReadOnlyList<ConfigStreamProfile> StreamProfiles { get; init; } = [];
+
+    /// <summary>The parameters in an agent's payload (<see cref="ConfigureMcpPayload.Settings"/>); <see cref="Check"/> moves them to <see cref="Parameters"/>.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<NameValue>? Settings { get; init; }
+
+    /// <summary>The action rules in an agent's payload (<see cref="ConfigureMcpPayload.ActionRules"/>); <see cref="Check"/> moves them to <see cref="Rules"/>.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<ConfigActionRule>? ActionRules { get; init; }
+
+    /// <summary>
+    /// The payload came in the agent's form (<see cref="Settings"/>, <see cref="ActionRules"/>): its secret values are the ones
+    /// the person entered through the secret channel (<see cref="SecretsOf"/>, docs/spec/mcp.md "Secrets"); the task never
+    /// writes a device password parameter of it whose name is no secret name (that value would be the agent's own).
+    /// </summary>
+    [JsonIgnore]
+    public bool FromAgent { get; init; }
 
     /// <summary>"10.0.0.48 (AXIS P3265-V)" or the file name; for the log.</summary>
     public string? Source { get; init; }
@@ -300,83 +321,370 @@ public sealed record ConfigurePayload
     /// <summary>Most parameters of one action.</summary>
     public const int MaxActionParameters = 100;
 
-    /// <summary>Reads and checks the payload; throws <see cref="ArgumentException"/> with a user text.</summary>
+    public const string NothingToApply = "Nothing to apply.";
+
+    public const string TooMany = "Too many settings in one run.";
+
+    public const string BadParameter = "A parameter has no name or is listed twice.";
+
+    public const string BadRule = "An action rule has no name, no action or an incomplete event.";
+
+    public const string SameRuleName = "Two action rules have the same name.";
+
+    public const string BadSchedule = "A schedule is incomplete.";
+
+    public const string BadProfile = "A stream profile has no name or a name longer than 64 characters.";
+
+    public const string SameProfileName = "Two stream profiles have the same name.";
+
+    public const string BadText = "A value is too long or has control characters.";
+
+    /// <summary>A device password parameter of an agent's payload whose name is no secret name: its value would be the agent's own.</summary>
+    public const string SetPasswordInOadm = "Set the password in OADM.";
+
+    /// <summary>A secret value of an agent's payload the person has not entered (at the run: never, the host hands every one).</summary>
+    public const string EnterPassword = "Enter the password.";
+
+    /// <summary>Most secret values of one agent's run (the secret channel's slots of one preview).</summary>
+    public const int MaxSecretValues = 8;
+
+    public const string TooManySecrets = "Set at most 8 passwords in one run.";
+
+    /// <summary>
+    /// The secrets of an agent's payload (<see cref="Oadm.Sdk.Plugins.ITaskPlugin.SecretsOf"/>): every setting and action parameter with a secret
+    /// name (pass, secret, community), whose value the person enters: <c>setting_&lt;i&gt;</c> at <c>settings[i].value</c>,
+    /// <c>rule_&lt;i&gt;_parameter_&lt;j&gt;</c> at <c>actionRules[i].action.parameters[j].value</c>. The dialog's form has none
+    /// (the person typed its values). Empty for a payload that cannot be read.
+    /// </summary>
+    public static IReadOnlyList<TaskSecret> SecretsOf(string? json)
+    {
+        ConfigurePayload? read;
+        try
+        {
+            read = string.IsNullOrWhiteSpace(json) ? null : JsonSerializer.Deserialize<ConfigurePayload>(json, Options);
+        }
+        catch (JsonException)
+        {
+            return [];
+        }
+
+        if (read is null || (read.Settings is null && read.ActionRules is null))
+        {
+            return [];
+        }
+
+        var secrets = new List<TaskSecret>();
+        var settings = read.Settings ?? [];
+        for (var i = 0; i < settings.Count; i++)
+        {
+            if (settings[i] is { Name: { Length: > 0 } name } && SecretNames.IsSecret(name))
+            {
+                secrets.Add(new TaskSecret(string.Create(CultureInfo.InvariantCulture, $"setting_{i}"), SecretLabel(name), At("settings", i, "value")));
+            }
+        }
+
+        var rules = read.ActionRules ?? [];
+        for (var i = 0; i < rules.Count; i++)
+        {
+            var parameters = rules[i]?.Action?.Parameters ?? [];
+            for (var j = 0; j < parameters.Count; j++)
+            {
+                if (parameters[j] is { Name: { Length: > 0 } name } && SecretNames.IsSecret(name))
+                {
+                    secrets.Add(new TaskSecret(string.Create(CultureInfo.InvariantCulture, $"rule_{i}_parameter_{j}"), SecretLabel(name),
+                        string.Create(CultureInfo.InvariantCulture, $"actionRules[{i}].action.parameters[{j}].value")));
+                }
+            }
+        }
+
+        return secrets;
+    }
+
+    /// <summary>"password for root.Mqtt.Password" (the last part of the name when that is too long; at most 64 characters).</summary>
+    public static string SecretLabel(string name)
+    {
+        ArgumentNullException.ThrowIfNull(name);
+        const string Prefix = "password for ";
+        var label = Prefix + name;
+        if (label.Length > 64)
+        {
+            label = Prefix + name[(name.LastIndexOf('.') + 1)..];
+        }
+
+        return label.Length > 64 ? label[..64] : label;
+    }
+
+    /// <summary>A payload with both forms.</summary>
+    public const string BothForms = "Send settings and actionRules, or parameters and rules, not both.";
+
+    /// <summary>"An action rule uses a schedule that is not included (com.axis.schedules.genid.id-0)."</summary>
+    public static string MissingSchedule(string id) => $"An action rule uses a schedule that is not included ({id}).";
+
+    /// <summary>Reads and checks the payload; throws <see cref="ArgumentException"/> with the first problem's text.</summary>
     public static ConfigurePayload Parse(string? json)
+    {
+        var (payload, errors) = Check(json);
+        return errors.Count > 0 ? throw new ArgumentException(errors[0].Message) : payload!;
+    }
+
+    /// <summary>
+    /// Reads and checks the payload of the dialog or of an agent (<see cref="ConfigureMcpPayload"/>): the problems of the first
+    /// check that fails, each at its JSON field (<c>settings[2].name</c>), with the texts <see cref="Parse"/> throws. The agent's
+    /// form also refuses device addresses (<see cref="DangerousParameters.AddressNote"/>) and values no parameter takes; a
+    /// secret's value is the person's (<see cref="SecretsOf"/>), an empty one is refused ("Enter the password."). Reads only
+    /// the payload, never a device.
+    /// </summary>
+    public static (ConfigurePayload? Payload, IReadOnlyList<PayloadError> Errors) Check(string? json) => Check(json, requireSecrets: true);
+
+    /// <summary>
+    /// <see cref="Check(string?)"/>; with <paramref name="requireSecrets"/> false an agent's empty secret value is no problem (the
+    /// plan of a preview, before the person entered it). With it, an empty one is refused at its field ("Enter the password."),
+    /// after every other check passed, so a preview that ignores those fields still sees every other problem.
+    /// </summary>
+    public static (ConfigurePayload? Payload, IReadOnlyList<PayloadError> Errors) Check(string? json, bool requireSecrets)
     {
         if (string.IsNullOrWhiteSpace(json))
         {
-            throw new ArgumentException("Nothing to apply.");
+            return Fail(string.Empty, NothingToApply);
         }
 
-        ConfigurePayload payload;
+        ConfigurePayload? read;
         try
         {
-            payload = JsonSerializer.Deserialize<ConfigurePayload>(json, Options) ?? throw new ArgumentException("Nothing to apply.");
+            read = JsonSerializer.Deserialize<ConfigurePayload>(json, Options);
         }
-        catch (JsonException ex)
+        catch (JsonException)
         {
-            throw new ArgumentException("The settings could not be read.", ex);
+            return Fail(string.Empty, "The settings could not be read.");
         }
 
+        if (read is null)
+        {
+            return Fail(string.Empty, NothingToApply);
+        }
+
+        var agent = read.Settings is not null || read.ActionRules is not null;
+        if (agent && (read.Parameters is { Count: > 0 } || read.Rules is { Count: > 0 } || read.Source is not null || read.SourceDeviceId is not null))
+        {
+            return Fail(string.Empty, BothForms);
+        }
+
+        var payload = read with
+        {
+            Parameters = (agent ? read.Settings : read.Parameters) ?? [],
+            Rules = (agent ? read.ActionRules : read.Rules) ?? [],
+            Schedules = read.Schedules ?? [],
+            StreamProfiles = read.StreamProfiles ?? [],
+            Settings = null,
+            ActionRules = null,
+            FromAgent = agent,
+        };
         if (payload.IsEmpty)
         {
-            throw new ArgumentException("Nothing to apply.");
+            return Fail(string.Empty, NothingToApply);
         }
 
-        if (payload.Parameters.Count > ConfigureIds.MaxParameters || payload.Rules.Count > ConfigureIds.MaxRules || payload.StreamProfiles.Count > ConfigureIds.MaxStreamProfiles)
+        var parameters = agent ? "settings" : "parameters";
+        var rules = agent ? "actionRules" : "rules";
+        var errors = new List<PayloadError>();
+        if (payload.Parameters.Count > ConfigureIds.MaxParameters)
         {
-            throw new ArgumentException("Too many settings in one run.");
+            errors.Add(new(parameters, TooMany));
         }
 
-        if (payload.Parameters.Any(p => string.IsNullOrWhiteSpace(p.Name) || p.Value is null)
-            || payload.Parameters.Select(p => p.Name).Distinct(StringComparer.Ordinal).Count() != payload.Parameters.Count)
+        if (payload.Rules.Count > ConfigureIds.MaxRules)
         {
-            throw new ArgumentException("A parameter has no name or is listed twice.");
+            errors.Add(new(rules, TooMany));
         }
 
-        if (payload.Rules.Any(r => r is null || string.IsNullOrWhiteSpace(r.Name) || string.IsNullOrWhiteSpace(r.Action?.Template)
+        if (payload.StreamProfiles.Count > ConfigureIds.MaxStreamProfiles)
+        {
+            errors.Add(new("streamProfiles", TooMany));
+        }
+
+        if (errors.Count > 0)
+        {
+            return (null, errors);
+        }
+
+        var names = new HashSet<string>(StringComparer.Ordinal);
+        for (var i = 0; i < payload.Parameters.Count; i++)
+        {
+            var p = payload.Parameters[i];
+            if (p is null || string.IsNullOrWhiteSpace(p.Name) || p.Value is null || !names.Add(p.Name))
+            {
+                errors.Add(new(At(parameters, i, "name"), BadParameter));
+            }
+        }
+
+        if (errors.Count > 0)
+        {
+            return (null, errors);
+        }
+
+        var missing = new List<PayloadError>();
+        if (agent)
+        {
+            if (payload.Parameters.Count(p => SecretNames.IsSecret(p.Name)) + payload.Rules.Sum(r => r?.Action?.Parameters?.Count(p => p is not null && SecretNames.IsSecret(p.Name ?? string.Empty)) ?? 0) > MaxSecretValues)
+            {
+                return Fail(parameters, TooManySecrets);
+            }
+
+            for (var i = 0; i < payload.Parameters.Count; i++)
+            {
+                var p = payload.Parameters[i];
+                if (DangerousParameters.IsAddress(p.Name))
+                {
+                    errors.Add(new(At(parameters, i, "name"), DangerousParameters.AddressNote));
+                }
+                else if (SecretNames.IsSecret(p.Name) && p.Value.Length == 0)
+                {
+                    missing.Add(new(At(parameters, i, "value"), EnterPassword)); // the person enters it (SecretsOf)
+                }
+                else if (ValueProblem(p.Value) is { } problem)
+                {
+                    errors.Add(new(At(parameters, i, "value"), problem));
+                }
+            }
+
+            if (errors.Count > 0)
+            {
+                return (null, errors);
+            }
+        }
+
+        for (var i = 0; i < payload.Rules.Count; i++)
+        {
+            var r = payload.Rules[i];
+            if (r is null || string.IsNullOrWhiteSpace(r.Name) || string.IsNullOrWhiteSpace(r.Action?.Template)
                 || r.Conditions is null || r.Action.Parameters is null || r.Action.Parameters.Count > MaxActionParameters
                 || r.Action.Parameters.Any(p => p is null || string.IsNullOrWhiteSpace(p.Name) || p.Value is null)
-                || new[] { r.StartEvent }.Concat(r.Conditions).Any(f => f is not null && string.IsNullOrWhiteSpace(f.Topic))))
-        {
-            throw new ArgumentException("An action rule has no name, no action or an incomplete event.");
+                || new[] { r.StartEvent }.Concat(r.Conditions).Any(f => f is not null && string.IsNullOrWhiteSpace(f.Topic)))
+            {
+                errors.Add(new(At(rules, i), BadRule));
+            }
         }
 
-        if (payload.Rules.Select(r => r.Name).Distinct(StringComparer.Ordinal).Count() != payload.Rules.Count)
+        if (errors.Count > 0)
         {
-            throw new ArgumentException("Two action rules have the same name.");
+            return (null, errors);
         }
 
-        if (payload.Schedules.Count > ConfigureIds.MaxRules
-            || payload.Schedules.Any(s => s is null || string.IsNullOrWhiteSpace(s.Id) || string.IsNullOrWhiteSpace(s.Definition) || s.Name is null))
+        var ruleNames = new HashSet<string>(StringComparer.Ordinal);
+        for (var i = 0; i < payload.Rules.Count; i++)
         {
-            throw new ArgumentException("A schedule is incomplete.");
+            if (!ruleNames.Add(payload.Rules[i].Name))
+            {
+                errors.Add(new(At(rules, i, "name"), SameRuleName));
+            }
+        }
+
+        if (errors.Count > 0)
+        {
+            return (null, errors);
+        }
+
+        for (var i = 0; agent && i < payload.Rules.Count; i++)
+        {
+            var actionParameters = payload.Rules[i].Action.Parameters;
+            for (var j = 0; j < actionParameters.Count; j++)
+            {
+                if (SecretNames.IsSecret(actionParameters[j].Name) && actionParameters[j].Value.Length == 0)
+                {
+                    // A password of an action (a recipient's): the person enters it (SecretsOf).
+                    missing.Add(new(string.Create(CultureInfo.InvariantCulture, $"{rules}[{i}].action.parameters[{j}].value"), EnterPassword));
+                }
+            }
+        }
+
+        if (errors.Count > 0)
+        {
+            return (null, errors);
+        }
+
+        if (payload.Schedules.Count > ConfigureIds.MaxRules)
+        {
+            return Fail("schedules", BadSchedule);
+        }
+
+        for (var i = 0; i < payload.Schedules.Count; i++)
+        {
+            var s = payload.Schedules[i];
+            if (s is null || string.IsNullOrWhiteSpace(s.Id) || string.IsNullOrWhiteSpace(s.Definition) || s.Name is null)
+            {
+                errors.Add(new(At("schedules", i), BadSchedule));
+            }
+        }
+
+        if (errors.Count > 0)
+        {
+            return (null, errors);
         }
 
         // Every own schedule a rule uses must come along: a rule never points to an id the device may not have.
         var known = payload.Schedules.Select(s => s.Id).ToHashSet(StringComparer.Ordinal);
-        if (payload.Rules.SelectMany(r => r.ScheduleIds).FirstOrDefault(id => !known.Contains(id)) is { } missing)
+        for (var i = 0; i < payload.Rules.Count; i++)
         {
-            throw new ArgumentException($"An action rule uses a schedule that is not included ({missing}).");
+            if (payload.Rules[i].ScheduleIds.FirstOrDefault(id => !known.Contains(id)) is { } unknownSchedule)
+            {
+                errors.Add(new(At(rules, i), MissingSchedule(unknownSchedule)));
+            }
         }
 
-        if (payload.StreamProfiles.Any(p => p is null || string.IsNullOrWhiteSpace(p.Name) || p.Name.Length > ConfigureIds.MaxStreamProfileName || p.Parameters is null))
+        if (errors.Count > 0)
         {
-            throw new ArgumentException("A stream profile has no name or a name longer than 64 characters.");
+            return (null, errors);
         }
 
-        if (payload.StreamProfiles.Select(p => p.Name).Distinct(StringComparer.Ordinal).Count() != payload.StreamProfiles.Count)
+        for (var i = 0; i < payload.StreamProfiles.Count; i++)
         {
-            throw new ArgumentException("Two stream profiles have the same name.");
+            var p = payload.StreamProfiles[i];
+            if (p is null || string.IsNullOrWhiteSpace(p.Name) || p.Name.Length > ConfigureIds.MaxStreamProfileName || p.Parameters is null)
+            {
+                errors.Add(new(At("streamProfiles", i, "name"), BadProfile));
+            }
+        }
+
+        if (errors.Count > 0)
+        {
+            return (null, errors);
+        }
+
+        var profileNames = new HashSet<string>(StringComparer.Ordinal);
+        for (var i = 0; i < payload.StreamProfiles.Count; i++)
+        {
+            if (!profileNames.Add(payload.StreamProfiles[i].Name))
+            {
+                errors.Add(new(At("streamProfiles", i, "name"), SameProfileName));
+            }
+        }
+
+        if (errors.Count > 0)
+        {
+            return (null, errors);
         }
 
         if (Texts(payload).Any(t => t.Length > MaxTextLength || t.Any(c => char.IsControl(c) && c is not ('\n' or '\r' or '\t'))))
         {
-            throw new ArgumentException("A value is too long or has control characters.");
+            return Fail(string.Empty, BadText);
         }
 
-        return payload;
+        return requireSecrets && missing.Count > 0 ? (null, missing) : (payload, []);
     }
+
+    private static (ConfigurePayload?, IReadOnlyList<PayloadError>) Fail(string field, string message) => (null, [new(field, message)]);
+
+    private static string At(string list, int index, string? field = null) =>
+        string.Create(CultureInfo.InvariantCulture, $"{list}[{index}]") + (field is null ? string.Empty : "." + field);
+
+    /// <summary>
+    /// What no parameter of a device takes, checked without its definition (<see cref="ParamRules.Problem"/> checks the rest on
+    /// each device when the task runs): too long, line breaks and control characters. The dialog's texts.
+    /// </summary>
+    internal static string? ValueProblem(string value) =>
+        value.Length > ParamRules.MaxTextLength
+            ? string.Create(CultureInfo.InvariantCulture, $"At most {ParamRules.MaxTextLength} characters.")
+            : value.Any(c => char.IsControl(c) && c != '\t') ? "Line breaks and control characters are not allowed." : null;
 
     /// <summary>Every text of the rules, schedules and profiles (for the length and character check).</summary>
     private static IEnumerable<string> Texts(ConfigurePayload payload) =>

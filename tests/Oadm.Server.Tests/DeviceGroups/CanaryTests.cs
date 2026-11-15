@@ -51,6 +51,34 @@ public sealed partial class CanaryTests
                 },
                 SettingsJson = "{}",
             }),
+        ["/oadm.v1.ComplianceService/ListResults"] = async (c, id) =>
+        {
+            // A check of the caller's group, so that only the device ids decide.
+            var check = await new Proto.ComplianceService.ComplianceServiceClient(c.Invoker).SaveCheckAsync(new Proto.ComplianceCheckDetail
+            {
+                Summary = new Proto.ComplianceCheckSummary
+                {
+                    Name = "Canary results " + Guid.NewGuid().ToString("N")[..8],
+                    TypeId = Core.Compliance.BuiltInComplianceTypes.ReachableId,
+                    Enabled = true,
+                    Devices = new Proto.ComplianceDevices { DeviceIds = { c.Inside.ToString() } },
+                },
+                SettingsJson = "{}",
+            });
+            await new Proto.ComplianceService.ComplianceServiceClient(c.Invoker).ListResultsAsync(new Proto.ListComplianceResultsRequest { CheckId = check.Id, Filter = new Proto.DeviceFilter { Ids = { c.Inside.ToString(), id.ToString() } } });
+        },
+        ["/oadm.v1.ComplianceService/PlanCheck"] = async (c, id) =>
+            await new Proto.ComplianceService.ComplianceServiceClient(c.Invoker).PlanCheckAsync(new Proto.ComplianceCheckDetail
+            {
+                Summary = new Proto.ComplianceCheckSummary
+                {
+                    Name = "Canary plan",
+                    TypeId = Core.Compliance.BuiltInComplianceTypes.ReachableId,
+                    Enabled = true,
+                    Devices = new Proto.ComplianceDevices { DeviceIds = { c.Inside.ToString(), id.ToString() } },
+                },
+                SettingsJson = "{}",
+            }),
         ["/oadm.v1.ComplianceService/CheckNow"] = async (c, id) =>
             await new Proto.ComplianceService.ComplianceServiceClient(c.Invoker).CheckNowAsync(new Proto.ComplianceCheckNowRequest { DeviceIds = { c.Inside.ToString(), id.ToString() } }),
         ["/oadm.v1.ComplianceService/ListChoices"] = async (c, id) =>
@@ -304,7 +332,7 @@ public sealed partial class CanaryTests
         ["/oadm.v1.ComplianceService/SetCheckEnabled"] = async c =>
             await HiddenAsync(() => new Proto.ComplianceService.ComplianceServiceClient(c.Invoker).SetCheckEnabledAsync(new Proto.SetComplianceCheckEnabledRequest { Id = HiddenCheck }).ResponseAsync),
         ["/oadm.v1.DiscoveryService/StartZeroConf"] = async c =>
-            await CannotAddAsync(() => c.Discovery.StartZeroConfAsync(new Proto.Empty()).ResponseAsync),
+            await CannotAddAsync(() => c.Discovery.StartZeroConfAsync(new Proto.ZeroConfRequest()).ResponseAsync),
         ["/oadm.v1.DiscoveryService/StartRangeScan"] = async c =>
             await CannotAddAsync(() => c.Discovery.StartRangeScanAsync(new Proto.RangeScanRequest { From = "10.9.0.2", To = "10.9.0.2" }).ResponseAsync),
         ["/oadm.v1.DiscoveryService/ProbeAddress"] = async c =>
@@ -403,6 +431,9 @@ public sealed partial class CanaryTests
         ["/oadm.v1.AssistantService/Stop"] = "the caller's own chat, no device",
         ["/oadm.v1.AssistantService/End"] = "the caller's own chat, no device",
         ["/oadm.v1.AssistantService/ListModels"] = "the provider's model names, no device",
+        ["/oadm.v1.AssistantService/Download"] = "a file of the caller's own chat, made in process with the caller's view (AssistantTransferTests)",
+        ["/oadm.v1.TaskService/GetResultFile"] = "the result file of the caller's own task in the view, every other case NOT_FOUND alike (McpTransferTests)",
+        ["/oadm.v1.TaskService/DownloadResult"] = "the result file of the caller's own task in the view, every other case NOT_FOUND alike (McpTransferTests)",
         ["/oadm.v1.AssistantService/Run"] = "the run tool of the caller's own preview, in process with the caller's view",
         ["/oadm.v1.AssistantService/RetryFailed"] = "the preview tool of the caller's own run, the devices cut to the caller's view (AssistantChatTests)",
         ["/oadm.v1.AssistantService/GetSettings"] = "the Assistant section of the card AI: on, provider, model, limits, no device",

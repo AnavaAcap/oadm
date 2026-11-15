@@ -71,12 +71,12 @@ public sealed partial class ActionRulesPlugin : ICorePlugin, IAsyncDisposable
     internal DeviceSweeps<DeviceRulesRow>? Sweeps => _sweeps;
 
     /// <summary>The read tool (docs/spec/mcp.md "Plugins"): the rules the editor read last, "show" like the page; it reads no device.</summary>
-    public IReadOnlyList<PluginTool> Tools => ActionRuleTools.All;
+    public IReadOnlyList<PluginTool> Tools { get; } = [.. ActionRuleTools.All, .. ActionRulePageTools.Set.Tools];
 
     /// <summary>The tool is named <c>oadm_device_rules_list</c>: the rules on the devices, apart from OADM's own event rules (<c>oadm_rules_*</c>).</summary>
     public string? ToolArea => "device_rules";
 
-    public string? RequiredPermission(string method) => method switch
+    public string? RequiredPermission(string method) => ActionRulePageTools.Set.RulesMethodOf(method) switch
     {
         ActionRulesMethods.Read or ActionRulesMethods.GetState or ActionRulesMethods.GetProgress or ActionRulesMethods.Templates or ActionRulesMethods.UndoRuns
             or ActionRulesMethods.Events => PermissionKeys.Show,
@@ -88,7 +88,7 @@ public sealed partial class ActionRulesPlugin : ICorePlugin, IAsyncDisposable
     };
 
     /// <summary>Every run is in the audit log.</summary>
-    public bool IsAudited(string method) => RequiredPermission(method) is ActionRulesMethods.ManagePermission or ActionRulesMethods.DeletePermission;
+    public bool IsAudited(string method) => !PluginTool.IsPreviewMethod(method) && RequiredPermission(method) is ActionRulesMethods.ManagePermission or ActionRulesMethods.DeletePermission;
 
     public async Task StartAsync(ICorePluginContext ctx, CancellationToken ct)
     {
@@ -128,6 +128,11 @@ public sealed partial class ActionRulesPlugin : ICorePlugin, IAsyncDisposable
     {
         ArgumentNullException.ThrowIfNull(caller);
         var sweeps = _sweeps ?? throw new InvalidOperationException(NotRunning);
+        if (ActionRulePageTools.Set.Handles(method))
+        {
+            return await ActionRulePageTools.Set.InvokeAsync(this, caller, method, payloadJson, ct).ConfigureAwait(false);
+        }
+
         switch (method)
         {
             case ActionRulesMethods.Read:
@@ -140,7 +145,8 @@ public sealed partial class ActionRulesPlugin : ICorePlugin, IAsyncDisposable
                 sweeps.For(caller)?.Start(readIds);
                 return ActionRulesJson.Serialize(await StateAsync(caller, ct).ConfigureAwait(false));
             case var _ when method == ActionRuleTools.Rules.Method:
-                return ActionRuleTools.Answer(await StateAsync(caller, ct).ConfigureAwait(false), payloadJson);
+                var changes = (await Undo.ListAsync(ct).ConfigureAwait(false)).Where(r => Sees(caller, r)).ToList();
+                return ActionRuleTools.Answer(await StateAsync(caller, ct).ConfigureAwait(false), changes, payloadJson);
             case ActionRulesMethods.GetState:
                 return ActionRulesJson.Serialize(await StateAsync(caller, ct).ConfigureAwait(false));
             case ActionRulesMethods.GetProgress:
@@ -381,28 +387,7 @@ public sealed partial class ActionRulesPlugin : ICorePlugin, IAsyncDisposable
     private async Task<RunStarted> UndoAsync(ICallContext caller, UndoRequest request, CancellationToken ct)
     {
         var ctx = _ctx ?? throw new InvalidOperationException(NotRunning);
-        var run = await Undo.FindAsync(request.RunId, ct).ConfigureAwait(false) is { } found && Sees(caller, found) ? found
-            : throw new ArgumentException("This change can no longer be undone.", nameof(request));
-        if (await IsRunningAsync(caller, run.RunId, ct).ConfigureAwait(false))
-        {
-            throw new ArgumentException("This change is still running. Undo it when its tasks are finished.", nameof(request));
-        }
-
-        var devices = Undo.DevicesOf(run.RunId);
-        if (devices.Count == 0)
-        {
-            throw new ArgumentException("This change wrote nothing that can be undone.", nameof(request));
-        }
-
-        // A device of the run that left the caller's devices refuses the whole undo before it is marked.
-        await CallDevices.RequireAsync(caller, devices, ct).ConfigureAwait(false);
-
-        if (!await Undo.TryMarkUndoneAsync(run.RunId, true, ct).ConfigureAwait(false))
-        {
-            throw new ArgumentException("This change was undone already.", nameof(request));
-        }
-
-        var payload = new RuleTaskPayload(RuleTaskActions.Undo, Guid.NewGuid(), "Undo action rule change", [], null, run.RunId);
+        var (payload, devices) = await MarkUndoAsync(caller, request.RunId, ct).ConfigureAwait(false);
         LogRun(ctx.Logger, RuleTaskActions.Undo, devices.Count);
         try
         {
@@ -411,9 +396,39 @@ public sealed partial class ActionRulesPlugin : ICorePlugin, IAsyncDisposable
         }
         catch
         {
-            await Undo.TryMarkUndoneAsync(run.RunId, false, CancellationToken.None).ConfigureAwait(false);
+            await Undo.TryMarkUndoneAsync(request.RunId, false, CancellationToken.None).ConfigureAwait(false);
             throw;
         }
+    }
+
+    /// <summary>
+    /// The checks of an undo (a run the caller sees, not running, something saved, every device of it in the caller's view)
+    /// and the undone mark, set once; shared by the page and the agents. The payload and the devices the undo runs on.
+    /// </summary>
+    internal async Task<(RuleTaskPayload Payload, IReadOnlyList<Guid> Devices)> MarkUndoAsync(ICallContext caller, Guid runId, CancellationToken ct)
+    {
+        var run = await Undo.FindAsync(runId, ct).ConfigureAwait(false) is { } found && Sees(caller, found) ? found
+            : throw new ArgumentException("This change can no longer be undone.", nameof(runId));
+        if (await IsRunningAsync(caller, run.RunId, ct).ConfigureAwait(false))
+        {
+            throw new ArgumentException("This change is still running. Undo it when its tasks are finished.", nameof(runId));
+        }
+
+        var devices = Undo.DevicesOf(run.RunId);
+        if (devices.Count == 0)
+        {
+            throw new ArgumentException(RuleTexts.NothingToUndo, nameof(runId));
+        }
+
+        // A device of the run that left the caller's devices refuses the whole undo before it is marked.
+        await CallDevices.RequireAsync(caller, devices, ct).ConfigureAwait(false);
+
+        if (!await Undo.TryMarkUndoneAsync(run.RunId, true, ct).ConfigureAwait(false))
+        {
+            throw new ArgumentException("This change was undone already.", nameof(runId));
+        }
+
+        return (new RuleTaskPayload(RuleTaskActions.Undo, Guid.NewGuid(), "Undo action rule change", [], null, run.RunId), devices);
     }
 
     /// <summary>Copies a rule of one device to the chosen devices (read with its passwords now, kept in the run's memory).</summary>
@@ -425,23 +440,39 @@ public sealed partial class ActionRulesPlugin : ICorePlugin, IAsyncDisposable
             throw new ArgumentException(problem, nameof(request));
         }
 
+        var (rule, schedules) = await ReadSourceRuleAsync(vapix, request.SourceId, request.Version, request.Patch, ct).ConfigureAwait(false);
+        var payload = CopyPayload(rule, schedules, request.Patch, devices);
+        return await StartAsync(caller, payload, devices, ct).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// The rule to copy as the source device has it now (with its passwords), only while it is at the version the page read,
+    /// and the schedules it uses. Shared by the page's copy and the agents' copy.
+    /// </summary>
+    internal static async Task<(DeviceRule Rule, IReadOnlyList<DeviceSchedule> Schedules)> ReadSourceRuleAsync(Sdk.Vapix.IVapixClient vapix, string sourceId, string version, RulePatch? patch, CancellationToken ct)
+    {
         var set = await SoapActionEngine.ReadAsync(vapix, ct).ConfigureAwait(false);
-        var rule = set.Rules.FirstOrDefault(r => r.Id == request.SourceId && RuleView.VersionOf(r) == request.Version)
-            ?? throw new ArgumentException(RuleTexts.ChangedSinceRead, nameof(request));
-        if (ActionNames.IsRefused(rule.Action.Template) && request.Patch?.Template is null)
+        var rule = set.Rules.FirstOrDefault(r => r.Id == sourceId && RuleView.VersionOf(r) == version)
+            ?? throw new ArgumentException(RuleTexts.ChangedSinceRead, nameof(sourceId));
+        if (ActionNames.IsRefused(rule.Action.Template) && patch?.Template is null)
         {
-            throw new ArgumentException(ActionNames.RefusedText, nameof(request));
+            throw new ArgumentException(ActionNames.RefusedText, nameof(sourceId));
         }
 
         var used = rule.Conditions.Prepend(rule.StartEvent).OfType<EventFilter>().Select(RuleText.ScheduleId).OfType<string>().ToHashSet(StringComparer.Ordinal);
-        var name = request.Patch?.Name ?? rule.Name;
-        var prepared = request.Patch is { } p ? PreparePatch(p, devices) : null;
-        var payload = new RuleTaskPayload(RuleTaskActions.Deploy, Guid.NewGuid(), Shorten("Copy action rule " + name), [], prepared)
+        return (rule, [.. set.Schedules.Where(s => used.Contains(s.Id))]);
+    }
+
+    /// <summary>The run of a copy: the rule, its schedules and the patch for the copies (prepared for <paramref name="devices"/>).</summary>
+    internal RuleTaskPayload CopyPayload(DeviceRule rule, IReadOnlyList<DeviceSchedule> schedules, RulePatch? patch, IEnumerable<Guid> devices)
+    {
+        var name = patch?.Name ?? rule.Name;
+        var prepared = patch is { } p ? PreparePatch(p, devices) : null;
+        return new RuleTaskPayload(RuleTaskActions.Deploy, Guid.NewGuid(), Shorten("Copy action rule " + name), [], prepared)
         {
             Rule = rule,
-            Schedules = [.. set.Schedules.Where(s => used.Contains(s.Id))],
+            Schedules = schedules,
         };
-        return await StartAsync(caller, payload, devices, ct).ConfigureAwait(false);
     }
 
     private async Task<RunStarted> DeployRecipientAsync(ICallContext caller, DeployRequest request, CancellationToken ct)
@@ -460,6 +491,13 @@ public sealed partial class ActionRulesPlugin : ICorePlugin, IAsyncDisposable
 
     /// <summary>A new recipient, created on each device by the same task as a copied one.</summary>
     private async Task<RunStarted> NewRecipientAsync(ICallContext caller, NewRecipientRequest request, CancellationToken ct)
+    {
+        var (payload, devices) = await PrepareNewRecipientAsync(caller, request, ct).ConfigureAwait(false);
+        return await StartAsync(caller, payload, devices, ct).ConfigureAwait(false);
+    }
+
+    /// <summary>The page's checks of a new recipient and the run it starts; reads and writes nothing (also the preview of a tool).</summary>
+    internal async Task<(RuleTaskPayload Payload, IReadOnlyList<Guid> Devices)> PrepareNewRecipientAsync(ICallContext caller, NewRecipientRequest request, CancellationToken ct)
     {
         var devices = DeviceIds(request.DeviceIds);
         await CallDevices.RequireAsync(caller, devices, ct).ConfigureAwait(false);
@@ -489,10 +527,17 @@ public sealed partial class ActionRulesPlugin : ICorePlugin, IAsyncDisposable
         {
             Recipient = new DeviceRecipient(string.Empty, name, request.Template, [.. parameters.Select(p => new NameValue(p.Key, p.Value))]),
         };
-        return await StartAsync(caller, payload, devices, ct).ConfigureAwait(false);
+        return (payload, devices);
     }
 
     private async Task<RunStarted> RecipientsAsync(ICallContext caller, string method, RecipientRunRequest request, CancellationToken ct)
+    {
+        var (payload, devices) = await PrepareRecipientsAsync(caller, method, request, ct).ConfigureAwait(false);
+        return await StartAsync(caller, payload, devices, ct).ConfigureAwait(false);
+    }
+
+    /// <summary>The page's checks of a recipient change or delete and the run it starts; reads and writes nothing.</summary>
+    internal async Task<(RuleTaskPayload Payload, IReadOnlyList<Guid> Devices)> PrepareRecipientsAsync(ICallContext caller, string method, RecipientRunRequest request, CancellationToken ct)
     {
         var delete = method == ActionRulesMethods.RecipientDelete;
         var targets = Targets(request.Targets);
@@ -516,10 +561,17 @@ public sealed partial class ActionRulesPlugin : ICorePlugin, IAsyncDisposable
         {
             RecipientPatch = delete ? null : request.Patch,
         };
-        return await StartAsync(caller, payload, [.. targets.Select(t => t.DeviceId)], ct).ConfigureAwait(false);
+        return (payload, [.. targets.Select(t => t.DeviceId)]);
     }
 
     private async Task<RunStarted> SchedulesAsync(ICallContext caller, string method, ScheduleRunRequest request, CancellationToken ct)
+    {
+        var (payload, devices) = await PrepareSchedulesAsync(caller, method, request, ct).ConfigureAwait(false);
+        return await StartAsync(caller, payload, devices, ct).ConfigureAwait(false);
+    }
+
+    /// <summary>The page's checks of a schedule change or delete and the run it starts; reads and writes nothing.</summary>
+    internal static async Task<(RuleTaskPayload Payload, IReadOnlyList<Guid> Devices)> PrepareSchedulesAsync(ICallContext caller, string method, ScheduleRunRequest request, CancellationToken ct)
     {
         var delete = method == ActionRulesMethods.ScheduleDelete;
         var targets = Targets(request.Targets);
@@ -535,7 +587,7 @@ public sealed partial class ActionRulesPlugin : ICorePlugin, IAsyncDisposable
             SchedulePatch = delete ? null : request.Patch,
             Rules = rules,
         };
-        return await StartAsync(caller, payload, [.. targets.Select(t => t.DeviceId)], ct).ConfigureAwait(false);
+        return (payload, [.. targets.Select(t => t.DeviceId)]);
     }
 
     /// <summary>A new schedule (OADM's own id from its name, the same on every device) or one copied from a device.</summary>
@@ -546,12 +598,7 @@ public sealed partial class ActionRulesPlugin : ICorePlugin, IAsyncDisposable
         DeviceSchedule schedule;
         if (request.New is { } created)
         {
-            if (string.IsNullOrWhiteSpace(created.Name) || created.Definition is null || ScheduleProblem(created) is { } problem)
-            {
-                throw new ArgumentException(string.IsNullOrWhiteSpace(created.Name) ? "Enter a name." : ScheduleProblem(created) ?? "Enter the schedule.", nameof(request));
-            }
-
-            schedule = new DeviceSchedule(ScheduleText.OwnId(created.Name), created.Name.Trim(), ScheduleText.Normalize(created.Definition));
+            schedule = NewSchedule(created);
         }
         else
         {
@@ -571,6 +618,48 @@ public sealed partial class ActionRulesPlugin : ICorePlugin, IAsyncDisposable
         };
         return await StartAsync(caller, payload, devices, ct).ConfigureAwait(false);
     }
+
+    /// <summary>The page's checks of a new schedule: the schedule with OADM's own id from its name.</summary>
+    internal static DeviceSchedule NewSchedule(SchedulePatch created)
+    {
+        ArgumentNullException.ThrowIfNull(created);
+        if (string.IsNullOrWhiteSpace(created.Name) || created.Definition is null || ScheduleProblem(created) is not null)
+        {
+            throw new ArgumentException(string.IsNullOrWhiteSpace(created.Name) ? "Enter a name." : ScheduleProblem(created) ?? "Enter the schedule.", nameof(created));
+        }
+
+        return new DeviceSchedule(ScheduleText.OwnId(created.Name), created.Name.Trim(), ScheduleText.Normalize(created.Definition));
+    }
+
+    /// <summary>The page's run of a payload checked before (<see cref="PrepareNewRecipientAsync"/> and the others): saved for undo, one task per device.</summary>
+    internal Task<RunStarted> StartPreparedAsync(ICallContext caller, RuleTaskPayload payload, IReadOnlyList<Guid> devices, CancellationToken ct) =>
+        StartAsync(caller, payload, devices, ct);
+
+    /// <summary>The page's copy of a recipient (it reads the source with its passwords).</summary>
+    internal Task<RunStarted> CopyRecipientAsync(ICallContext caller, DeployRequest request, CancellationToken ct) => DeployRecipientAsync(caller, request, ct);
+
+    /// <summary>The page's new schedule or copy of a schedule.</summary>
+    internal Task<RunStarted> PutScheduleAsync(ICallContext caller, ScheduleDeployRequest request, CancellationToken ct) => DeployScheduleAsync(caller, request, ct);
+
+    /// <summary>The page's Read: the chosen devices (null: every device of the caller), each in the caller's view; answers the progress.</summary>
+    internal async Task<RulesState> StartReadAsync(ICallContext caller, IReadOnlyList<Guid>? deviceIds, CancellationToken ct)
+    {
+        var sweeps = _sweeps ?? throw new InvalidOperationException(NotRunning);
+        HashSet<Guid>? readIds = deviceIds is null ? null : DeviceIds(deviceIds).ToHashSet();
+        if (readIds is not null)
+        {
+            await CallDevices.RequireAsync(caller, readIds, ct).ConfigureAwait(false);
+        }
+
+        sweeps.For(caller)?.Start(readIds);
+        return await StateAsync(caller, ct).ConfigureAwait(false) with { Rows = [] };
+    }
+
+    /// <summary>The caller's table as the page reads it.</summary>
+    internal Task<RulesState> CallerStateAsync(ICallContext caller, CancellationToken ct) => StateAsync(caller, ct);
+
+    /// <summary>The template set of a row; null when it is not known (any more).</summary>
+    internal TemplateSet? TemplateSetOf(string? id) => id is not null && _templateSets.TryGetValue(id, out var set) ? set : null;
 
     /// <summary>
     /// The source of a copy and the chosen devices, both in the caller's view (checked before the source is read): a removed

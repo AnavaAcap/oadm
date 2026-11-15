@@ -506,8 +506,9 @@ what each version added is `website/src/content/docs/dev/compatibility.md`.
   packages keep their own hand-written `plugin.json`: 0.4.0, or the version of the newest member a package uses at run time
   (0.13.0, the members for MCP: Applications (ACAP), Upgrade AXIS OS, Network, DHCP server, NTP server, Hardening
   scan (payload schemas or plugin tools), PKI with the EST and 802.1X servers (also `IServerCertificates`), Date and time
-  (`ValidatePayload`) and Users (`Secret`); 0.12.0: `PluginJson` or `ByteSize` in Action Rule Editor, Application
-  management, the configuration tasks, Dashboards, Device triggers, Edge recording export, Edge storage, Image Health, I/O
+  (`ValidatePayload`), Users (`Secret`), Action Rule Editor, Device configuration and Edge storage (task inputs for agents,
+  `PagePermissions`); 0.12.0: `PluginJson` or `ByteSize` in Application
+  management, Dashboards, Device triggers, Edge recording export, Image Health, I/O
   monitor, Live view, Load test, Metadata monitor, Snapshot report, System report, Text recognition, VAPIX commander and
   Vision Center; PKI also
   `IRecipientCertificates` and `IRecipientCertificateUse`; Modbus, MQTT and OPC UA `RecipientType.Sessions`; 0.11.0:
@@ -640,9 +641,16 @@ box back with the error below the list (`PluginsViewModel.SwitchAsync`).
   bound get the host's: 4,096 characters, the 32-bit range, 100,000 items), `ValidatePayload(payloadJson, caller)`
   (`PayloadError` per JSON field with the dialog's text; `TaskService.Run` and `Plan` call it, a throwing check refuses the
   run), `PlanAsync(payloadJson, devices, ct)` (`TaskPlan`: per device run or skip with a reason, warnings; default
-  `TaskPlan.ByCanRun`; an overload with `IUploadedFiles` lets a plan name the uploads it uses, `TaskPlan.Files`). A task without a payload type, with a `[Secret]` property anywhere in it, or with a value of any
-  type is not offered to the tools. Bundled: Restart and Use OADM NTP server (empty records), Date and time
-  (`DateTimePayload`, `PayloadValidator`), Users (its password is `[Secret]`: not offered).
+  `TaskPlan.ByCanRun`; an overload with `IUploadedFiles` lets a plan name the uploads it uses, `TaskPlan.Files`, read them and answer what only they show: `TaskPlan.Errors` per JSON field, answered like `ValidatePayload`, and `TaskPlan.Details`, plain lines of what the run does). A task without a payload type, with a `[Secret]` property anywhere in it, or with a value of any
+  type is not offered to the tools; a `[Secret]` property (`Label`) is left out of its schema, and `SecretsOf(payloadJson)`
+  (`TaskSecret`: name, label, field; default the top-level `[Secret]` properties) names what the person enters for a run
+  (docs/spec/mcp.md "Secrets"). A plugin tool's plan names its secrets with `PluginToolPlan.SecretsNeeded`
+  (`PluginToolSecret`), the run reads `PluginToolInput.Secret(name)`. `PagePermissions(payloadJson)`: a page task (hidden from the menus, no permissions of
+  its own) names the keys of its package's core plugin one run needs; `TaskService.Plan` and `Run` then run it with those
+  rights (`TaskRunPermissions.RequireOutsidePage`) and the tools' catalog lists it, the client's menus never; null (the
+  default): only its page starts it. Bundled: Restart and Use OADM NTP server (empty records), Date and time
+  (`DateTimePayload`, `PayloadValidator`), Users (its password is `[Secret]`: a slot of the preview); the full list in
+  `docs/spec/mcp.md` "Offered tasks".
 - **Plugin tools** (SDK 0.13.0, `docs/spec/mcp.md` "Stage 3 as built", `website/src/content/docs/dev/plugin-tools.md`):
   `ICorePlugin.Tools` (`PluginTool`: name, title, description, input and output schema, read only or change, permission)
   and `ICorePlugin.ToolArea` (default: the plugin id without `oadm.`); the host calls `InvokeAsync` with the caller as
@@ -651,9 +659,18 @@ box back with the error below the list (`PluginsViewModel.SwitchAsync`).
   the input and hands the plugin `device_ids` (the caller's view, by address, at most `PluginTool.MaxDevices` = 500) and
   `devices_total` (`PluginToolDevices.Of`); `PluginTool.TaskPlugin`: listed only for a role with a permission of that
   task of the same package (another package's task: never listed), the plugin checks it again for page calls. Nothing
-  names MCP: the same tools serve any channel. Bundled: PKI (`certificates`, `policies`, `certificate_create`), NTP server
+  names MCP: the same tools serve any channel. `PluginPageTools<TOwner>` (decision 2026-11-15: agents do on the plugin
+  pages what a user can) wraps declared page methods, never any method: `Read` (one tool: a read, or a start the page does
+  without asking) and `Change` (the preview calls the page's validation and never writes, the run validates again and calls
+  the page's code with the caller); typed strict input (`PluginToolInput<TArgs>`: the arguments checked against their
+  validation attributes, `Devices`, `Page`), field errors by `PluginToolInputException`, `RulesMethodOf(method)` gives a
+  tool method the role, permission, device group and audit rules of its page method; a plan derives from `PluginToolPlan`
+  (`will_change`, `unit`) so the Assistant's card counts it ("1 reader"). Bundled: PKI (`certificates`, `policies`, `certificate_create`), NTP server
   (`status`), DHCP server (`status`, `leases`), Hardening scan (`results`), Device configuration (`parameters`,
-  `action_rules`, `stream_profiles`).
+  `action_rules`, `stream_profiles`). `PluginTool.Secrets` (`PluginToolSecret`: the secrets a change's run gets once through
+  the host's secret channel, `PluginToolInput.Secret`, `IsRun`; the plan chooses them with `PluginToolPlan.SecretsNeeded`) and
+  `ICallContext.Uploads` (the caller's own uploads for a `file_id` argument; `FakeUploadedFiles` in `Oadm.Sdk.Testing`), both
+  SDK 0.13.0 default members (decision 2026-11-15, `docs/spec/mcp.md` "SDK").
 - **Protected tags** (`ICorePluginContext.ProtectedTags`, `Oadm.Sdk.Devices.IProtectedTags.Protect(names, refusal)`;
   server `ProtectedTagRegistry`): a core plugin whose settings act on devices by tag names those tags; only users with all
   devices then add them to or remove them from devices (`docs/spec/tags.md` "Protected tags"). Each call replaces the

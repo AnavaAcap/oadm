@@ -13,7 +13,7 @@ namespace Oadm.Plugins.SnapshotReport;
 /// Page backend methods: <see cref="SnapshotReportMethods"/>. Device groups (SDK 0.4.0): every method works on the devices
 /// of the user's view, reports are jobs of their user (<see cref="ICorePluginContext.Jobs"/>).
 /// </summary>
-public sealed class SnapshotReportPlugin : ICorePlugin, IDisposable
+public sealed class SnapshotReportPlugin : ICorePlugin, ICorePluginDownloads, IDisposable
 {
     private SnapshotService? _snapshots;
     private ReportJobs? _reports;
@@ -143,9 +143,67 @@ public sealed class SnapshotReportPlugin : ICorePlugin, IDisposable
             case SnapshotReportMethods.DeleteReport:
                 reports.Delete(caller, jobs, SnapshotReportJson.Deserialize<ReportJobRequest>(payloadJson).JobId);
                 return null;
+            case var _ when method == SnapshotTools.Report.PreviewMethod:
+            {
+                var (request, errors) = SnapshotTools.ReportRequestOf(payloadJson);
+                return request is null ? errors : SnapshotTools.PlanOf(request); // reads no camera
+            }
+
+            case var _ when method == SnapshotTools.Report.RunMethod:
+            {
+                var (request, errors) = SnapshotTools.ReportRequestOf(payloadJson);
+                return request is null ? errors : SnapshotTools.FileAnswerOf(await reports.StartAsync(caller, jobs, request, HostVersion, ct).ConfigureAwait(false));
+            }
+
+            case var _ when method == SnapshotTools.ReportFile.Method:
+            {
+                var (jobId, errors) = SnapshotTools.JobOf(payloadJson);
+                if (jobId is null)
+                {
+                    return errors;
+                }
+
+                try
+                {
+                    return SnapshotTools.FileAnswerOf(reports.Status(caller, jobs, jobId));
+                }
+                catch (KeyNotFoundException)
+                {
+                    return PluginToolErrors.Answer([new("job_id", ReportJobs.NotFound)]);
+                }
+            }
+
             default:
                 throw new ArgumentException($"Unknown method '{method}'.", nameof(method));
         }
+    }
+
+    /// <summary>Only through the user's call (<see cref="OpenDownloadAsync(ICallContext, string, string?, CancellationToken)"/>).</summary>
+    public Task<PluginDownload> OpenDownloadAsync(string method, string? payloadJson, CancellationToken ct) =>
+        throw new NotSupportedException("Call the snapshot report plugin with the user's call.");
+
+    /// <summary>The PDF of the user's finished report as one file (the tools' file); the report stays until it ends.</summary>
+    public Task<PluginDownload> OpenDownloadAsync(ICallContext caller, string method, string? payloadJson, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(caller);
+        var reports = _reports ?? throw new InvalidOperationException("The snapshot report plugin is not running.");
+        var jobs = _ctx?.Jobs ?? throw new InvalidOperationException("This OADM server cannot run reports.");
+        if (method != SnapshotReportMethods.DownloadReport)
+        {
+            throw new ArgumentException($"Unknown download '{method}'.", nameof(method));
+        }
+
+        byte[] pdf;
+        try
+        {
+            pdf = reports.Pdf(caller, jobs, SnapshotReportJson.Deserialize<ReportJobRequest>(payloadJson).JobId);
+        }
+        catch (KeyNotFoundException)
+        {
+            throw new InvalidOperationException(ReportJobs.NotFound);
+        }
+
+        return Task.FromResult(new PluginDownload(new MemoryStream(pdf, writable: false), "Snapshot report.pdf", pdf.Length));
     }
 
     private static SnapshotRequest SnapshotRequestOf(string? payloadJson)

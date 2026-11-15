@@ -20,6 +20,12 @@ public sealed record PluginTool(string Name, string Title, string Description)
     /// <summary>The longest name.</summary>
     public const int MaxNameLength = 40;
 
+    /// <summary>
+    /// The area of this tool's name instead of the plugin's <see cref="ICorePlugin.ToolArea"/>, lower case words with underscores:
+    /// VAPIX Commander's request tool is <c>oadm_device_request</c>. Null: the plugin's area. A name a host tool has is never taken over.
+    /// </summary>
+    public string? Area { get; init; }
+
     /// <summary>Rows of a list by default (<see cref="Paged"/>).</summary>
     public const int DefaultRows = 50;
 
@@ -101,6 +107,27 @@ public sealed record PluginTool(string Name, string Title, string Description)
     public string? TaskPlugin { get; init; }
 
     /// <summary>
+    /// The answer may hand the caller a file (SDK 0.13.0): a property <c>file</c> of type <see cref="PluginToolFile"/> (null when
+    /// there is none) names one of the plugin's downloads (<see cref="ICorePluginDownloads"/>) and its payload. The host never
+    /// passes the bytes through the answer: it replaces <c>file</c> with a file reference the caller turns into a one-time
+    /// download link (an agent) or a file card with Save (the assistant). The bytes are read only then, through
+    /// <c>PluginService.Download</c> as the caller (the download's permission, device group and audit). Never a backup, a
+    /// private key or a PKCS#12 file, except a key backup protected with a password from the secret channel (PKI's CA key backup).
+    /// </summary>
+    public bool ReturnsFile { get; init; }
+
+    /// <summary>
+    /// Secrets the run of a change may need (SDK 0.13.0, docs/spec/mcp.md "Secrets"): a password, a shared secret. They never
+    /// pass through a model or an argument. The preview's plan chooses which the run needs with
+    /// <see cref="PluginToolPlan.SecretsNeeded"/> (some of these, or secrets it names itself, such as one per saved command);
+    /// a plan that names none needs all of these. The host declares them on the preview's handle, the person enters them in
+    /// their own shell or the assistant's card, the preview method checks each entered value (a field error at
+    /// <c>secrets.&lt;name&gt;</c> refuses it), and the run gets them in <see cref="PluginToolInput{TArgs}.Secrets"/>. A change
+    /// only; at most 8 per preview.
+    /// </summary>
+    public IReadOnlyList<PluginToolSecret> Secrets { get; init; } = [];
+
+    /// <summary>
     /// New serializer options in the style of the host's own tools: names in snake_case ("next_cursor"), enums by their snake_case
     /// name, nulls written, names read in any case. Keep them in a static field of the plugin (<see cref="PluginJson.CreateOptions"/>).
     /// </summary>
@@ -132,6 +159,27 @@ public sealed record PluginTool(string Name, string Title, string Description)
 
     /// <summary>True when <paramref name="method"/> only reads or previews (never writes): every tool method but the run of a change.</summary>
     public static bool IsPreviewMethod(string? method) => method is not null && method.EndsWith(".preview", StringComparison.Ordinal) && IsToolMethod(method);
+}
+
+/// <summary>
+/// The file a tool's answer hands the caller (<see cref="PluginTool.ReturnsFile"/>): which of the plugin's downloads makes it,
+/// with which payload, and what the caller is told before it fetches it. Put it into the answer's <c>file</c> property; the
+/// host turns it into a file reference. The names of the JSON fields are fixed, whatever the plugin's serializer options.
+/// </summary>
+/// <param name="Method">The download method (<see cref="ICorePluginDownloads.OpenDownloadAsync(ICallContext, string, string?, CancellationToken)"/>), e.g. "export".</param>
+/// <param name="PayloadJson">Its payload as JSON; the download checks it again with the caller's rights.</param>
+/// <param name="FileName">The file name the caller is told (no folder); the download's own name wins when the file is fetched.</param>
+/// <param name="ContentType">The media type, e.g. "application/pdf", "text/csv", "application/x-pem-file".</param>
+/// <param name="Size">The size in bytes when known before the download (an estimate is not a size: leave it null).</param>
+public sealed record PluginToolFile(
+    [property: System.Text.Json.Serialization.JsonPropertyName("method")] string Method,
+    [property: System.Text.Json.Serialization.JsonPropertyName("payload_json")] string? PayloadJson,
+    [property: System.Text.Json.Serialization.JsonPropertyName("file_name")] string FileName,
+    [property: System.Text.Json.Serialization.JsonPropertyName("content_type")] string ContentType,
+    [property: System.Text.Json.Serialization.JsonPropertyName("size")] long? Size = null)
+{
+    /// <summary>The property of the answer that holds the file.</summary>
+    public const string Property = "file";
 }
 
 /// <summary>
@@ -269,5 +317,63 @@ public static class PluginToolErrors
         {
             ["errors"] = new JsonArray([.. errors.Select(e => (JsonNode)new JsonObject { ["field"] = e.Key, ["error"] = e.Value })]),
         }.ToJsonString();
+    }
+}
+
+/// <summary>
+/// A secret the run of a plugin tool's change needs (SDK 0.13.0, docs/spec/mcp.md "Secrets"): a password, a passphrase, a key.
+/// The caller never sends it as an argument: the tool declares it (<see cref="PluginTool.Secrets"/>) or the preview's plan names
+/// it (<see cref="PluginToolPlan.SecretsNeeded"/>), the person enters the value in their own shell or the assistant's card, and
+/// the host hands it to a check of the value and to the run in the payload's <see cref="PluginToolSecrets.ValuesProperty"/>.
+/// Never echo a value in an answer, an audit detail or a log line.
+/// </summary>
+/// <param name="Name">Lower case words with underscores ("password", "pkcs12_password"); read it with <see cref="PluginToolInput{TArgs}.Secret"/>.</param>
+/// <param name="Label">What the person is asked for, in lower case ("password", "PKCS#12 password"); the refusal reads "Enter the &lt;label&gt;.".</param>
+/// <param name="MaxLength">The longest value in characters.</param>
+public sealed record PluginToolSecret(
+    [property: System.Text.Json.Serialization.JsonPropertyName("name")] string Name,
+    [property: System.Text.Json.Serialization.JsonPropertyName("label")] string Label,
+    [property: System.Text.Json.Serialization.JsonPropertyName("max_length")] int MaxLength = 1024);
+
+/// <summary>The secrets of a plugin tool's change (<see cref="PluginToolSecret"/>) as the host passes them.</summary>
+public static class PluginToolSecrets
+{
+    /// <summary>The property of a preview's answer that names the secrets the run needs (a list of <see cref="PluginToolSecret"/>); the host takes it out.</summary>
+    public const string Property = "secrets_needed";
+
+    /// <summary>The property of the payload that holds the values by name: all of them for the run, one when the host checks a value the person entered.</summary>
+    public const string ValuesProperty = "secrets";
+
+    /// <summary>
+    /// The secret values of a payload by name; empty for a preview, all of the preview's for a run, the one value being checked
+    /// when the host asks the preview method whether an entered value fits (answer a field error at <c>secrets.&lt;name&gt;</c>).
+    /// </summary>
+    public static IReadOnlyDictionary<string, string> Of(string? payloadJson)
+    {
+        var values = new Dictionary<string, string>(StringComparer.Ordinal);
+        if (string.IsNullOrWhiteSpace(payloadJson))
+        {
+            return values;
+        }
+
+        try
+        {
+            if (JsonNode.Parse(payloadJson) is JsonObject payload && payload[ValuesProperty] is JsonObject secrets)
+            {
+                foreach (var (name, value) in secrets)
+                {
+                    if (value is JsonValue text && text.TryGetValue<string>(out var secret))
+                    {
+                        values[name] = secret;
+                    }
+                }
+            }
+        }
+        catch (JsonException)
+        {
+            // no secrets
+        }
+
+        return values;
     }
 }

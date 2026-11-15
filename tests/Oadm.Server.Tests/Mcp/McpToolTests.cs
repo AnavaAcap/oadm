@@ -6,6 +6,7 @@ using Oadm.Core.Devices;
 using Oadm.Core.Persistence;
 using Oadm.Core.Plugins;
 using Oadm.Plugins.Restart;
+using Oadm.Server.Auth;
 using Oadm.Server.Mcp;
 using Oadm.Server.Tools;
 using Oadm.Server.Tests.Support;
@@ -29,28 +30,29 @@ public sealed partial class McpToolTests
         "oadm_files_upload_link", "oadm_logs_audit", "oadm_logs_search", "oadm_server_info", "oadm_settings_get",
         "oadm_task_preview", "oadm_task_run", "oadm_tasks_cancel_preview", "oadm_tasks_cancel_run", "oadm_tasks_catalog",
         "oadm_tasks_get", "oadm_tasks_list", "oadm_tasks_summary", "oadm_selection", "oadm_docs_search", "oadm_server_status",
+        "oadm_files_download_link", "oadm_devices_export", "oadm_compliance_export",
     ];
 
     /// <summary>The tools of the areas stage 3 (tags, sites, compliance, event rules, the event log): <see cref="McpAreaToolTests"/>.</summary>
-    private static readonly string[] AreaTools = McpAreaToolTests.ToolNames;
+    private static readonly string[] AreaTools = [.. McpAreaToolTests.ToolNames, .. McpHostActionTests.ToolNames, .. McpAdminToolTests.ToolNames, .. McpAccessToolTests.ToolNames, .. McpServerChangeTests.ToolNames];
 
     /// <summary>The tools that change something (rule 2: each with its preview).</summary>
     private static readonly string[] WriteTools =
     [
         "oadm_devices_add_run", "oadm_devices_credentials_run", "oadm_devices_refresh_run", "oadm_devices_remove_run", "oadm_files_delete_run",
         "oadm_files_upload_link", "oadm_task_run", "oadm_tasks_cancel_run",
-        .. McpAreaToolTests.RunTools,
+        .. McpAreaToolTests.RunTools, .. McpHostActionTests.RunTools, .. McpAdminToolTests.RunTools, .. McpAccessToolTests.RunTools, .. McpServerChangeTests.RunTools,
     ];
 
     /// <summary>The runs that replace, stop or remove something (<c>destructiveHint</c>): a task run, a cancel, a file delete, credentials, a removal, tag removal, a replaced or deleted rule. Add only adds, Refresh only reads again.</summary>
     private static readonly string[] DestructiveTools =
     [
         "oadm_devices_credentials_run", "oadm_devices_remove_run", "oadm_files_delete_run", "oadm_task_run", "oadm_tasks_cancel_run",
-        .. McpAreaToolTests.RunTools,
+        .. McpAreaToolTests.RunTools, .. McpHostActionTests.RunTools.Except(McpHostActionTests.AddingRuns), .. McpAdminToolTests.RunTools.Except(McpAdminToolTests.AddingRuns), .. McpAccessToolTests.RunTools.Except(McpAccessToolTests.AddingRuns), .. McpServerChangeTests.RunTools.Except(McpServerChangeTests.AddingRuns),
     ];
 
     /// <summary>Previews that act outside OADM (the add scan): no plain read, so not announced as one.</summary>
-    private static readonly string[] ActsOutsideTools = ["oadm_devices_add_preview"];
+    private static readonly string[] ActsOutsideTools = ["oadm_devices_add_preview", .. McpHostActionTests.ActsOutside, .. McpAdminToolTests.ActsOutside, .. McpServerChangeTests.ActsOutside];
 
     [GeneratedRegex("^oadm_[a-z0-9_]+$")]
     private static partial Regex ToolName();
@@ -85,7 +87,8 @@ public sealed partial class McpToolTests
     {
         switch (schema["type"]?.GetValue<string>())
         {
-            case "object" when where is "oadm_task_preview.input" or "oadm_rules_save_preview.rule.actions[].settings":
+            case "object" when where is "oadm_task_preview.input" or "oadm_rules_save_preview.rule.actions[].settings" or "oadm_task_query.input"
+                or "oadm_recipients_save_preview.settings" or "oadm_compliance_check_save_preview.settings":
                 // The task's input and an action's settings: their own strict schema comes with oadm_tasks_catalog and oadm_rules_catalog
                 // (the action's fields), and the preview checks the input against it.
                 Assert.True(schema["additionalProperties"]!.GetValue<bool>());
@@ -105,7 +108,7 @@ public sealed partial class McpToolTests
             case "string":
                 Assert.True(schema["maxLength"] is not null || schema["enum"] is not null, where);
                 break;
-            case "integer":
+            case "integer" or "number":
                 Assert.NotNull(schema["minimum"]);
                 Assert.NotNull(schema["maximum"]);
                 break;
@@ -128,18 +131,20 @@ public sealed partial class McpToolTests
         "/oadm.v1.FileService/List", "/oadm.v1.FileService/Upload", "/oadm.v1.LicenseService/GetLicense", "/oadm.v1.LiveViewService/GetSnapshot",
         "/oadm.v1.McpService/Get", "/oadm.v1.PluginService/ListPackages", "/oadm.v1.VulnerabilityService/Get",
         "/oadm.v1.ServerLogService/List", "/oadm.v1.SettingsService/Get", "/oadm.v1.SettingsService/ListCredentials",
-        "/oadm.v1.TaskService/Cancel", "/oadm.v1.TaskService/GetLog", "/oadm.v1.TaskService/List",
+        "/oadm.v1.TaskService/Cancel", "/oadm.v1.TaskService/GetLog", "/oadm.v1.TaskService/List", "/oadm.v1.TaskService/GetResultFile",
+        "/oadm.v1.ComplianceService/WatchResults", "/oadm.v1.ComplianceService/ListChecks",
         "/oadm.v1.TaskService/ListTaskPlugins", "/oadm.v1.TaskService/Plan", "/oadm.v1.TaskService/Run",
         "/oadm.v1.WaitingDeviceService/Add", "/oadm.v1.WaitingDeviceService/List", "/oadm.v1.WaitingDeviceService/TryNow",
     ];
 
     /// <summary>The gRPC methods the tools of the areas call (<see cref="McpAreaToolTests.Methods"/>).</summary>
-    private static readonly string[] AreaMethods = McpAreaToolTests.Methods;
+    private static readonly string[] AreaMethods = [.. McpAreaToolTests.Methods, .. McpHostActionTests.Methods, .. McpAdminToolTests.Methods, .. McpAccessToolTests.Methods, .. McpServerChangeTests.Methods];
 
     [Fact]
-    public async Task NoToolReachesUsersRolesDeviceGroupsAccessKeysLicensePluginsSettingsChangesBackupsOrResets()
+    public async Task AccessIsReachedOnlyThroughItsAdministratorToolsAndNoToolRevealsAStoredCredential()
     {
-        // Rule 5: an agent can never raise rights; these stay GUI only (docs/spec/mcp.md "Not over MCP").
+        // Decision 2026-11-15: agents do everything a user can (docs/spec/mcp.md rule 5). Users, roles, device groups and access
+        // keys only through their Administrator-only tools; a stored credential's password is never read back.
         await using var server = await McpTestServer.StartAsync(turnOn: false);
         var tools = server.Host.Get<ToolRegistry>().All;
         Assert.Equal(Stage1Tools.Length + AreaTools.Length, tools.Count);
@@ -147,15 +152,13 @@ public sealed partial class McpToolTests
         var methods = tools.SelectMany(t => t.Methods).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToList();
         Assert.Equal(Stage1Methods.Union(AreaMethods).Order(StringComparer.Ordinal), methods);
 
-        string[] guiOnly =
-        [
-            "UserService", "RoleService", "DeviceGroupService", "AccessKeyService", "LicenseService", "PluginService", "McpService",
-            "BackupService", "UpdateService", "SupportService",
-        ];
-        // License, plugins and MCP: only the reads of oadm_server_status (what every signed-in user sees), never a change.
-        string[] readsOfGuiServices = ["/oadm.v1.LicenseService/GetLicense", "/oadm.v1.PluginService/ListPackages", "/oadm.v1.McpService/Get"];
-        Assert.DoesNotContain(methods, m => !readsOfGuiServices.Contains(m) && guiOnly.Any(s => m.StartsWith("/oadm.v1." + s + "/", StringComparison.Ordinal)));
-        Assert.DoesNotContain(methods, m => m is "/oadm.v1.SettingsService/Set" or "/oadm.v1.TaskService/DeleteAll" or "/oadm.v1.DeviceService/RemoveAll");
+        string[] access = ["UserService", "RoleService", "DeviceGroupService", "AccessKeyService"];
+        Assert.Equal(McpAccessToolTests.Methods.Order(StringComparer.Ordinal),
+            methods.Where(m => access.Any(s => m.StartsWith("/oadm.v1." + s + "/", StringComparison.Ordinal))).Order(StringComparer.Ordinal));
+        Assert.All(tools.Where(t => t.Methods.Any(m => access.Any(s => m.StartsWith("/oadm.v1." + s + "/", StringComparison.Ordinal)))),
+            t => Assert.All(t.Methods.Where(m => access.Any(s => m.StartsWith("/oadm.v1." + s + "/", StringComparison.Ordinal))),
+                m => Assert.Equal(AccessRule.Admin, AccessPolicy.For(m))));
+        Assert.DoesNotContain(methods, m => m is "/oadm.v1.SettingsService/RevealCredential");
     }
 
     [Fact]

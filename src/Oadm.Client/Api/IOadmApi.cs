@@ -441,6 +441,16 @@ public interface IOadmApi
     /// <summary>Runs a preview the model asked for (the user's click on Run).</summary>
     Task<AssistantRunReply> AssistantRunAsync(string conversationId, string handle, CancellationToken ct) => throw NoAssistant();
 
+    /// <summary>
+    /// Runs a preview with the values of its card's secret fields (<c>AssistantRunRequest.secrets</c>): they go straight to the
+    /// server, never into the chat. Default: the run without secrets.
+    /// </summary>
+    Task<AssistantRunReply> AssistantRunAsync(AssistantRunRequest request, CancellationToken ct) =>
+        AssistantRunAsync(request?.ConversationId ?? string.Empty, request?.Handle ?? string.Empty, ct);
+
+    /// <summary>A file a tool answer of the conversation offered (its card's Save); the caller disposes it.</summary>
+    Task<Oadm.Sdk.Plugins.PluginDownload> AssistantDownloadAsync(string conversationId, string fileRef, CancellationToken ct) => throw NoAssistant();
+
     /// <summary>Try the failed devices again: a new preview card of the same change for them (a card that ran).</summary>
     Task<AssistantPreviewCard> AssistantRetryFailedAsync(string conversationId, string handle, IReadOnlyList<string> failedDeviceIds, CancellationToken ct) => throw NoAssistant();
 

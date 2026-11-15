@@ -99,3 +99,13 @@ Open: the hardware runs on the development cameras; the reader setting "Accurate
 The read-only tools `oadm_ocr_readers` and `oadm_ocr_reads` (`Api/OcrTools.cs`, docs/spec/mcp.md "Plugins"): the page's
 reader list and the recent reads of one reader as text (at most 50), through the page's own methods; never a cut-out.
 Tests: `ToolTests`.
+
+The page's actions (`Api/OcrPageTools.cs`, `PluginPageTools`, decision 2026-11-15), each a preview and a run with the right
+"change" and the page's audit (never of a preview): `oadm_ocr_reader_save` (a new reader, or a change with `reader_id`:
+left-out fields keep their value, `areas` replace all; the preview runs every check of the page's Save through
+`ReaderStore.CheckSaveAsync` and stores nothing; page field names become the tool's: `camera` is `device_id`,
+`areas[0].box` is `areas.0.box`), `oadm_ocr_reader_delete` and `oadm_ocr_reader_read_now` (an On action reader; it fires
+the reader's events, so it is a change; the answer is the text of each area, never a picture). Every run calls the page's
+method with the caller, so device groups are the page's. `oadm_ocr_use_gpu` sets Use GPU like the page (users with all
+devices; the preview reads the engine and warns when the card is tried or the readers move to the processor). Tests:
+`PageToolTests`.

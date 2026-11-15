@@ -49,6 +49,9 @@ public static class SnapshotReportMethods
 
     /// <summary><see cref="ReportJobRequest"/> -> null: forgets (and cancels) a report.</summary>
     public const string DeleteReport = "deleteReport";
+
+    /// <summary>Download (<c>PluginService.Download</c>) of <see cref="ReportJobRequest"/>: the finished PDF as one file (the tools' file).</summary>
+    public const string DownloadReport = "downloadReport";
 }
 
 /// <summary>JSON of all payloads: camelCase, enums as strings.</summary>

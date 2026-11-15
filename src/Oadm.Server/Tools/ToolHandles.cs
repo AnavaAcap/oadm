@@ -3,7 +3,14 @@ using System.Security.Cryptography;
 namespace Oadm.Server.Tools;
 
 /// <summary>What a preview fixed for its run: the task, the devices and the payload (in memory only, like every payload).</summary>
-internal sealed record PlannedRun(string PluginId, IReadOnlyList<string> DeviceIds, string? PayloadJson, string TaskName);
+internal sealed record PlannedRun(string PluginId, IReadOnlyList<string> DeviceIds, string? PayloadJson, string TaskName)
+{
+    /// <summary>The secrets the person enters for the run (name and payload field; never a value).</summary>
+    public IReadOnlyList<TaskSecretField> Secrets { get; init; } = [];
+}
+
+/// <summary>A secret of a task run: its slot's name and where the value goes in the payload ("settings[2].value").</summary>
+internal sealed record TaskSecretField(string Name, string Field);
 
 /// <summary>The tasks a cancel preview fixed (the ones that were waiting or running); the run asks exactly these to stop.</summary>
 internal sealed record PlannedCancel(IReadOnlyList<string> TaskIds);
@@ -15,7 +22,21 @@ internal sealed record PlannedUpload(string Name, long Size);
 /// <param name="Name">The file name the answer suggests (no folder).</param>
 /// <param name="ContentType">The media type of the answer.</param>
 /// <param name="Open">Makes the file as the caller of the link (the same rules as in the client); its stream is closed by the channel.</param>
-internal sealed record PlannedDownload(string Name, string ContentType, Func<CancellationToken, Task<Stream>> Open);
+internal sealed record PlannedDownload(string Name, string ContentType, Func<CancellationToken, Task<Stream>> Open)
+{
+    /// <summary>The size in bytes when known before the file is made.</summary>
+    public long? Size { get; init; }
+
+    /// <summary>The source writes the "Downloaded file" entry itself (a task's result file): the channel writes none of its own.</summary>
+    public bool AuditedBySource { get; init; }
+}
+
+/// <summary>
+/// A file a tool answer offered (docs/spec/mcp.md "Files"): its reference stays good for <see cref="ToolHandles.Lifetime"/> and
+/// can make several one-time links (an agent's <c>oadm_files_download_link</c>, the assistant's Save); the bytes are made only
+/// when a link is fetched, with the caller's rights of then.
+/// </summary>
+internal sealed record OfferedFile(PlannedDownload File);
 
 /// <summary>
 /// What the preview of a change (devices, tags, rules, plugin tools) fixed for its run: the run tool that may take it and the
@@ -68,6 +89,7 @@ internal sealed class ToolHandles(TimeProvider time)
             return value switch
             {
                 PlannedDownload => 256,
+                OfferedFile => 256,
                 PlannedUpload => 256,
                 PlannedChange c => 256 + System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(c.Plan, c.Plan.GetType(), SizeOptions).LongLength,
                 _ => 256 + System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(value, value.GetType(), SizeOptions).LongLength,
@@ -105,6 +127,24 @@ internal sealed class ToolHandles(TimeProvider time)
 
     /// <summary>The download of <paramref name="token"/>, taken; null when it is unknown, ended or of another caller.</summary>
     public PlannedDownload? TakeDownload(string bindingKey, string? token) => Take(bindingKey, token, v => v is PlannedDownload) as PlannedDownload;
+
+    /// <summary>A new file reference for <paramref name="bindingKey"/> (an offer of a tool answer).</summary>
+    public string AddOffer(string bindingKey, PlannedDownload file) => Add(bindingKey, new OfferedFile(file));
+
+    /// <summary>The file of <paramref name="fileRef"/>, left in place (it may make several links); null when it is unknown, ended or of another caller.</summary>
+    public PlannedDownload? FindOffer(string bindingKey, string? fileRef)
+    {
+        if (string.IsNullOrEmpty(fileRef))
+        {
+            return null;
+        }
+
+        lock (_gate)
+        {
+            return _entries.TryGetValue(fileRef, out var entry) && string.Equals(entry.BindingKey, bindingKey, StringComparison.Ordinal)
+                && entry.Value is OfferedFile offer && entry.Ends > time.GetUtcNow() ? offer.File : null;
+        }
+    }
 
     /// <summary>A new handle of a change preview for <paramref name="bindingKey"/>.</summary>
     public string AddChange(string bindingKey, PlannedChange change) => Add(bindingKey, change);

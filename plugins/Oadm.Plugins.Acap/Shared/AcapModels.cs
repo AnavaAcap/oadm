@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using System.ComponentModel.DataAnnotations;
+using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
@@ -44,27 +45,72 @@ public sealed record AcapPackageFile(
     [property: Description("The SHA-256 the upload answered."), MaxLength(64)] string? Sha256 = null,
     [property: Description("Several packages: the architecture of this one (aarch64, armv7hf, ...)."), MaxLength(32)] string? Architecture = null);
 
-/// <summary>What the Applications task may do for AI agents: not license keys and not settings (they can carry secrets).</summary>
+/// <summary>What the Applications task may do for AI agents; passwords and license keys are entered by the person.</summary>
 public enum AcapMcpAction
 {
     Install = 0,
     Remove = 1,
     Start = 2,
     Stop = 3,
+
+    /// <summary>Install a license key the person enters (<see cref="AcapAction.InstallLicense"/>), for one device.</summary>
+    InstallLicense = 4,
+
+    /// <summary>Change settings (<see cref="AcapAction.Settings"/>); a password setting is refused.</summary>
+    Settings = 5,
 }
 
 /// <summary>
 /// The input of "Applications (ACAP)" for AI agents (docs/spec/mcp.md): install or upgrade from uploaded packages, remove,
-/// start and stop. License keys and application settings are done in OADM. The payload of the dialog without those fields;
-/// the task reads the same text as an <see cref="AcapPayload"/>.
+/// start, stop, change settings and install a license key. A password setting goes in <see cref="Passwords"/> by name and a
+/// license key is a secret: the person enters both (docs/spec/mcp.md "Secrets", <see cref="AcapTaskPlugin.SecretsOf"/>). This
+/// record has no <see cref="AcapPayload.PasswordsAllowed"/>, so the task refuses a value in <see cref="Values"/> for a
+/// setting the application declares as a password, and <see cref="AppSettings.OfflineProblems"/> refuses a name there that
+/// points to a secret. The task reads the same text as an <see cref="AcapPayload"/>.
 /// </summary>
-[Description("Install, upgrade, remove, start or stop an application.")]
+[Description("Install, upgrade, remove, start or stop an application, change its settings, or install its license key.")]
 public sealed record AcapMcpPayload(
-    [property: Description("Install also upgrades.")] AcapMcpAction Action,
-    [property: Description("Remove, Start and Stop: the package name of the application (as oadm_devices_get lists it). Install: leave it out."), MaxLength(64)] string? Application = null,
-    [property: Description("Install: the uploaded .eap package, or one per architecture."), MaxLength(AcapPayload.MaxFiles)] IReadOnlyList<AcapPackageFile>? Files = null,
+    [property: Description("Install also upgrades. Settings changes values of one installed application.")] AcapMcpAction Action,
+    [property: Description("Remove, Start, Stop and Settings: the package name of the application (as oadm_devices_get lists it). Install: leave it out."), MaxLength(64)] string? Application = null,
+    [property: Description("Install: the uploaded .eap packages of one application: one, or several builds (per architecture and AXIS OS, also of other versions). Each device group gets one. Leave it out with zipFileId."), MaxLength(AcapPayload.MaxFiles)] IReadOnlyList<AcapPackageFile>? Files = null,
     [property: Description("Install: allow an older version than the installed one.")] bool AllowDowngrade = false,
-    [property: Description("Install: start the application afterwards.")] bool StartAfterInstall = false);
+    [property: Description("Install: start the application afterwards.")] bool StartAfterInstall = false,
+    [property: Description("Settings: the new values by setting name, as text (at most 200). Each device checks them against the application's settings before anything is written. Passwords go in passwords.")] IReadOnlyDictionary<string, string>? Values = null,
+    [property: Description("Settings: the password settings to set, by name; the user enters each value (at most 8)."), MaxLength(AcapPayload.MaxPasswords)] IReadOnlyList<AcapPasswordSetting>? Passwords = null,
+    [property: Description("Install: the file id of one uploaded ZIP of a vendor with the .eap builds (also in subfolders) and an optional oadm-packages.json. Leave files out then."), MaxLength(64)] string? ZipFileId = null,
+    [property: Description("Install with files: optional mapping rows like oadm-packages.json, each naming a file id of files. With zipFileId the ZIP's own oadm-packages.json applies."), MaxLength(AcapPackageRules.MaxRows)] IReadOnlyList<AcapPackageRule>? Rules = null,
+    [property: Description("Install: the package of each device group the preview says OADM cannot choose (it names the groups and the candidates)."), MaxLength(AcapPayload.MaxMapping)] IReadOnlyList<AcapPackageMapping>? Mapping = null,
+    [property: Oadm.Sdk.Tasks.Secret(Label = "license key")] string? LicenseKey = null);
+
+/// <summary>A password setting of an agent's Settings change: its name; the value is the person's (<see cref="AcapTaskPlugin.SecretsOf"/>).</summary>
+[Description("A password setting; the user enters its value.")]
+public sealed record AcapPasswordSetting(
+    [property: Description("The setting's name, as for values."), MinLength(1), MaxLength(128)] string Name,
+    [property: Oadm.Sdk.Tasks.Secret] string? Value = null);
+
+/// <summary>A refused payload with the JSON field it is about ("files", "zipFileId", "rules", "mapping").</summary>
+public sealed class AcapPayloadException : ArgumentException
+{
+    public AcapPayloadException()
+    {
+    }
+
+    public AcapPayloadException(string message)
+        : base(message)
+    {
+    }
+
+    public AcapPayloadException(string message, Exception innerException)
+        : base(message, innerException)
+    {
+    }
+
+    public AcapPayloadException(string field, string message)
+        : base(message) => Field = field;
+
+    /// <summary>The field, empty for the whole payload.</summary>
+    public string Field { get; } = string.Empty;
+}
 
 /// <summary>Task payload produced by the dialog. Contains no passwords; license keys are kept in memory like every payload.</summary>
 public sealed record AcapPayload
@@ -87,10 +133,65 @@ public sealed record AcapPayload
     public IReadOnlyList<AcapPackageFile>? Files { get; init; }
 
     /// <summary>
+    /// Install from one uploaded ZIP of a vendor instead of <see cref="Files"/> (agents, the Assistant): the task reads its .eap
+    /// builds and its <c>oadm-packages.json</c> on the server (<see cref="EapZip"/>), never unpacked to disk.
+    /// </summary>
+    public string? ZipFileId { get; init; }
+
+    /// <summary>Install with <see cref="Files"/>: the mapping rows (the dialog's from the ZIP's mapping file), each naming a file id.</summary>
+    public IReadOnlyList<AcapPackageRule>? Rules { get; init; }
+
+    /// <summary>Install: the build a person or an agent chose for a group OADM cannot decide (a file id, or an .eap name in the ZIP).</summary>
+    public IReadOnlyList<AcapPackageMapping>? Mapping { get; init; }
+
+    /// <summary>At most this many entries in <see cref="Mapping"/>.</summary>
+    public const int MaxMapping = 1000;
+
+    /// <summary>
     /// Settings: the new values by name below the application's group ("ONVIFEvents"). Kept in memory only like every
     /// payload; never in a log, a step text or the task name.
     /// </summary>
     public IReadOnlyDictionary<string, string>? Values { get; init; }
+
+    /// <summary>
+    /// Settings of an agent: password settings by name whose values the person entered through the secret channel
+    /// (<see cref="AcapTaskPlugin.SecretsOf"/>); written like <see cref="Values"/>, these names also when they are passwords.
+    /// </summary>
+    public IReadOnlyList<AcapPasswordSetting>? Passwords { get; init; }
+
+    /// <summary>InstallLicense of an agent: the text of one license key file the person entered; added to <see cref="LicenseKeys"/> by <see cref="Parse(string?, bool)"/>.</summary>
+    [System.Text.Json.Serialization.JsonPropertyName("licenseKey")]
+    public string? AgentLicenseKey { get; init; }
+
+    /// <summary>Most password settings of one agent's change (the secret channel's slots of one preview).</summary>
+    public const int MaxPasswords = 8;
+
+    public const string EnterPassword = "Enter the password.";
+    public const string EnterLicenseKey = "Enter the license key.";
+    public const string BadLicenseKey = "This is not a license key file.";
+
+    /// <summary>The values to write: <see cref="Values"/> and the entered <see cref="Passwords"/>.</summary>
+    public IReadOnlyDictionary<string, string> AllValues()
+    {
+        var all = new Dictionary<string, string>(Values ?? new Dictionary<string, string>(), StringComparer.Ordinal);
+        foreach (var password in Passwords ?? [])
+        {
+            all[password.Name] = password.Value ?? string.Empty;
+        }
+
+        return all;
+    }
+
+    /// <summary>The names of <see cref="Passwords"/>: the person entered their values, so they may be passwords.</summary>
+    public IReadOnlySet<string> EnteredPasswords() => (Passwords ?? []).Select(p => p.Name).ToHashSet(StringComparer.Ordinal);
+
+    /// <summary>
+    /// Settings: a person typed the values in OADM's Change settings dialog, so password settings may be among them. False (the
+    /// default, and always for AI agents: <see cref="AcapMcpPayload"/> has no such field, and the tools refuse unknown fields)
+    /// refuses a value for a setting the application declares as a password, and a name that points to a secret, before
+    /// anything is written.
+    /// </summary>
+    public bool PasswordsAllowed { get; init; }
 
     /// <summary>At most this many packages in one install.</summary>
     public const int MaxFiles = 16;
@@ -209,7 +310,13 @@ public sealed record AcapPayload
     }
 
     /// <summary>Parses and validates a payload. Throws <see cref="ArgumentException"/> for invalid input; nothing has been changed then.</summary>
-    public static AcapPayload Parse(string? json)
+    public static AcapPayload Parse(string? json) => Parse(json, requireSecrets: true);
+
+    /// <summary>
+    /// <see cref="Parse(string?)"/>; with <paramref name="requireSecrets"/> false an agent's password and license key may still be
+    /// empty (the plan of a preview, before the person entered them).
+    /// </summary>
+    public static AcapPayload Parse(string? json, bool requireSecrets)
     {
         if (string.IsNullOrWhiteSpace(json))
         {
@@ -232,17 +339,47 @@ public sealed record AcapPayload
         }
 
         payload = payload with { LicenseKeys = payload.LicenseKeys ?? [] };
+        if (!string.IsNullOrEmpty(payload.AgentLicenseKey))
+        {
+            LicenseKey key;
+            try
+            {
+                key = LicenseKey.Parse(payload.AgentLicenseKey);
+            }
+            catch (FormatException)
+            {
+                throw new ArgumentException(BadLicenseKey + " Nothing was changed.", nameof(json));
+            }
+
+            payload = payload with { LicenseKeys = [.. payload.LicenseKeys, new LicenseKeyEntry(key.DeviceId, payload.AgentLicenseKey)], LicenseApplicationId = payload.LicenseApplicationId ?? key.ApplicationId };
+        }
+
+        if (payload.Passwords is { Count: > 0 } passwords)
+        {
+            if (payload.Action != AcapAction.Settings || passwords.Count > MaxPasswords
+                || passwords.Any(p => p is null || !AppSettings.IsValidName(p.Name))
+                || passwords.Select(p => p.Name).Distinct(StringComparer.Ordinal).Count() != passwords.Count
+                || passwords.Any(p => payload.Values?.ContainsKey(p.Name) == true))
+            {
+                throw new ArgumentException("The password settings of the task are not valid. Nothing was changed.", nameof(json));
+            }
+
+            if (requireSecrets && passwords.Any(p => string.IsNullOrEmpty(p.Value)))
+            {
+                throw new ArgumentException(EnterPassword + " Nothing was changed.", nameof(json));
+            }
+        }
 
         if (payload.Action == AcapAction.Install)
         {
-            ValidateFiles(payload, json);
+            ValidateFiles(payload);
         }
         else if (!EapReader.IsValidAppName(payload.Application))
         {
             throw new ArgumentException("The application name is not valid. Nothing was changed.", nameof(json));
         }
 
-        if (payload.Action == AcapAction.InstallLicense && payload.LicenseKeys.Count == 0)
+        if (payload.Action == AcapAction.InstallLicense && payload.LicenseKeys.Count == 0 && requireSecrets)
         {
             throw new ArgumentException("Choose the license key files. Nothing was changed.", nameof(json));
         }
@@ -255,7 +392,7 @@ public sealed record AcapPayload
 
         if (payload.Action == AcapAction.Settings)
         {
-            if (payload.Values is not { Count: > 0 } values)
+            if (payload.AllValues() is not { Count: > 0 } values)
             {
                 throw new ArgumentException("Choose at least one setting to change. Nothing was changed.", nameof(json));
             }
@@ -271,28 +408,50 @@ public sealed record AcapPayload
     }
 
     /// <summary>
-    /// An install names one package, or several of one architecture each (16 at most); a package for any architecture
-    /// cannot be combined with others.
+    /// An install names one package or several builds of one application (16 at most, each file once), or one ZIP; the mapping
+    /// rows and the choices name files of the install and are bounded.
     /// </summary>
-    private static void ValidateFiles(AcapPayload payload, string json)
+    private static void ValidateFiles(AcapPayload payload)
     {
         var files = payload.AllFiles();
-        if (files.Count == 0 || files.Any(f => f is null || string.IsNullOrWhiteSpace(f.FileId)))
+        var zip = !string.IsNullOrWhiteSpace(payload.ZipFileId);
+        if (zip && files.Count > 0)
         {
-            throw new ArgumentException("Install needs an uploaded package. Nothing was changed.", nameof(json));
+            throw new AcapPayloadException("zipFileId", "Give either files or zipFileId, not both. Nothing was changed.");
         }
 
-        if (files.Count == 1)
+        if (!zip && (files.Count == 0 || files.Any(f => f is null || string.IsNullOrWhiteSpace(f.FileId))))
         {
-            return;
+            throw new AcapPayloadException("files", "Install needs an uploaded package. Nothing was changed.");
         }
 
-        if (files.Count > MaxFiles
-            || files.Any(f => AcapCompatibility.IsArchitectureIndependent(f.Architecture))
-            || files.Select(f => AcapCompatibility.NormalizeArchitecture(f.Architecture!)).Distinct(StringComparer.Ordinal).Count() != files.Count
-            || files.Select(f => f.FileId).Distinct(StringComparer.Ordinal).Count() != files.Count)
+        if (files.Count > MaxFiles || files.Select(f => f.FileId).Distinct(StringComparer.Ordinal).Count() != files.Count)
         {
-            throw new ArgumentException("The packages of the task are not valid: one package per architecture. Nothing was changed.", nameof(json));
+            throw new AcapPayloadException("files", string.Create(CultureInfo.InvariantCulture, $"The packages of the task are not valid: at most {MaxFiles} files, each once. Nothing was changed."));
+        }
+
+        var ids = files.Select(f => f.FileId).ToHashSet(StringComparer.Ordinal);
+        if (payload.Rules is { } rules)
+        {
+            if (zip)
+            {
+                throw new AcapPayloadException("rules", "Leave rules out with zipFileId: the mapping file in the ZIP applies. Nothing was changed.");
+            }
+
+            if (rules.Count > AcapPackageRules.MaxRows || rules.Any(r => r is null || !ids.Contains(r.File ?? string.Empty)
+                || r.Models?.Count > AcapPackageRules.MaxValues || r.Soc?.Count > AcapPackageRules.MaxValues))
+            {
+                throw new AcapPayloadException("rules", "Each mapping row names a file id of files. Nothing was changed.");
+            }
+        }
+
+        if (payload.Mapping is { } mapping)
+        {
+            if (mapping.Count > MaxMapping || mapping.Any(m => m is null || string.IsNullOrWhiteSpace(m.AxisOs) || string.IsNullOrWhiteSpace(m.Architecture)
+                || string.IsNullOrWhiteSpace(m.File) || (!zip && !ids.Contains(m.File))))
+            {
+                throw new AcapPayloadException("mapping", "Each choice names the AXIS OS, the architecture and a package of this install. Nothing was changed.");
+            }
         }
     }
 }
@@ -310,6 +469,15 @@ public sealed record AcapDeviceFacts
 
     /// <summary>config.cgi AllowUnsigned; null when the device does not offer it (before AXIS OS 11.2).</summary>
     public bool? AllowUnsigned { get; init; }
+
+    /// <summary>basicdeviceinfo ProdNbr ("P3265-V"); null when not read.</summary>
+    public string? Model { get; init; }
+
+    /// <summary>basicdeviceinfo ProdShortName ("AXIS P3265-V"); null when not read.</summary>
+    public string? ShortName { get; init; }
+
+    /// <summary>basicdeviceinfo Soc ("Axis Artpec-8"); null when not read.</summary>
+    public string? Soc { get; init; }
 }
 
 /// <summary>One entry of applications/list.cgi.</summary>

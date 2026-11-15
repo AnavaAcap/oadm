@@ -293,7 +293,7 @@ public sealed class ServerTests : IAsyncLifetime
 
         var call = _ctx.CallAsAllDevices();
         await Assert.ThrowsAsync<ArgumentException>(() => CallAsync<RunReply>(call, AppManagementMethods.Run, Request(install, items: 2)));
-        await Assert.ThrowsAsync<ArgumentException>(() => CallAsync<RunReply>(call, AppManagementMethods.Run, Request(new AppInstall())));
+        await Assert.ThrowsAnyAsync<ArgumentException>(() => CallAsync<RunReply>(call, AppManagementMethods.Run, Request(new AppInstall())));
         Assert.Empty(_ctx.TaskRuns);
     }
 

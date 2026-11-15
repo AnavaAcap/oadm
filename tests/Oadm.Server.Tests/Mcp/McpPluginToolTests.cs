@@ -1,6 +1,7 @@
 extern alias actionrules;
 extern alias appmanagement;
 extern alias devicetriggers;
+extern alias liveview;
 
 using System.ComponentModel;
 using System.ComponentModel.DataAnnotations;
@@ -275,7 +276,7 @@ public sealed class McpPluginToolTests
     }
 
     /// <summary>The bundled plugins started in the server, like the host starts them; PKI keeps the fake certificate of the MCP server.</summary>
-    private static async Task<McpTestServer> StartBundledAsync()
+    internal static async Task<McpTestServer> StartBundledAsync()
     {
         var server = await McpTestServer.StartAsync();
         var registry = server.Host.Get<PluginRegistry>();
@@ -291,6 +292,7 @@ public sealed class McpPluginToolTests
         registry.RegisterCorePlugin(new appmanagement::Oadm.Plugins.AppManagement.AppManagementPlugin(), new PluginOrigin(appmanagement::Oadm.Plugins.AppManagement.AppManagementInfo.PluginId, "1.0.0", null) { DisplayName = "Application management" });
         registry.RegisterCorePlugin(new actionrules::Oadm.Plugins.ActionRules.ActionRulesPlugin(), new PluginOrigin(actionrules::Oadm.Plugins.ActionRules.ActionRulesInfo.PluginId, "1.0.0", null) { DisplayName = "Action Rule Editor" });
         registry.RegisterCorePlugin(new devicetriggers::Oadm.Plugins.DeviceTriggers.DeviceTriggersPlugin(), new PluginOrigin(devicetriggers::Oadm.Plugins.DeviceTriggers.DeviceTriggersPluginInfo.PluginId, "1.0.0", null) { DisplayName = "Device triggers" });
+        registry.RegisterCorePlugin(new liveview::Oadm.Plugins.LiveView.LiveViewPlugin(), new PluginOrigin("oadm.live-view", "1.0.0", null) { DisplayName = "Live View" });
         var deviceConfig = new PluginOrigin(Oadm.Plugins.DeviceConfig.DeviceConfigIds.PackageId, "1.0.0", null) { DisplayName = "Device configuration", AlwaysOn = true };
         registry.RegisterCorePlugin(new Oadm.Plugins.DeviceConfig.Tools.DeviceConfigToolsPlugin(), deviceConfig);
         registry.RegisterTaskPlugin(new Oadm.Plugins.DeviceConfig.Configure.ConfigureDevicesTask(), deviceConfig);
@@ -314,6 +316,30 @@ public sealed class McpPluginToolTests
 
     /// <summary>The page of the user docs that lists every tool an agent can be offered (website/src/content/docs/admin/mcp-server/tools.mdx).</summary>
     private static readonly string ToolsPage = Oadm.Tests.Shared.TestRepository.Path("website", "src", "content", "docs", "admin", "mcp-server", "tools.mdx");
+
+    [Fact]
+    public async Task APluginsFileIsAReferenceWhoseLinkFetchesThePluginsDownloadAsTheKey()
+    {
+        // The plugin's answer names its download; the caller gets a file reference, and the bytes come only through the link
+        // (PluginService.Download in process as the key: its rights of then and the plugin's own audit).
+        await using var server = await StartBundledAsync();
+        var key = await server.CreateKeyAsync(name: "csv-bot");
+        var answer = await server.ToolAsync(key, "oadm_hardening_results_csv", new JsonObject());
+        var file = Assert.IsType<JsonObject>(answer["file"]);
+        Assert.Null(file["method"]); // never the plugin's method or payload
+        Assert.Null(file["payload_json"]);
+        Assert.Equal("text/csv", file["content_type"]!.GetValue<string>());
+        var link = await server.ToolAsync(key, ToolFiles.LinkTool, new JsonObject { ["file_ref"] = file["file_ref"]!.GetValue<string>() });
+        using var client = server.Http();
+        using var request = new HttpRequestMessage(HttpMethod.Get, new Uri(link["url"]!.GetValue<string>()).PathAndQuery);
+        request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", key);
+        using var fetched = await client.SendAsync(request);
+        Assert.Equal(System.Net.HttpStatusCode.OK, fetched.StatusCode);
+        var csv = System.Text.Encoding.UTF8.GetString(await fetched.Content.ReadAsByteArrayAsync());
+        Assert.Contains("Address", csv, StringComparison.Ordinal);
+        var audit = (await server.Host.Audit.ListAsync(new Proto.ListAuditRequest())).Entries;
+        Assert.Contains(audit, e => e.Action == AuditActions.FileDownloaded && e.UserName == AccessKeyStore.AgentNameOf("csv-bot"));
+    }
 
     [Fact]
     public async Task TheToolsPageOfTheDocsListsEveryToolAsTheServerOffersIt()
@@ -380,6 +406,9 @@ public sealed class McpPluginToolTests
                 "edge" => "Edge storage",
                 "device" when name.StartsWith("oadm_device_rules_", StringComparison.Ordinal) => "Action Rule Editor",
                 "device" when name.StartsWith("oadm_device_triggers_", StringComparison.Ordinal) => "Device triggers",
+                "device" when name.StartsWith("oadm_device_groups_", StringComparison.Ordinal) => "Device groups",
+                "users" or "roles" => "Users and roles",
+                "access" => "Access keys",
                 "ntp" => "NTP server",
                 "dhcp" => "DHCP server",
                 "hardening" => "Hardening scan",
@@ -392,6 +421,7 @@ public sealed class McpPluginToolTests
                 "metadata" => "Metadata Monitor",
                 "load" => "Load test",
                 "snapshot" => "Snapshot report",
+                "live" => "Live View",
                 _ => char.ToUpperInvariant(word[0]) + word[1..],
             };
         }
@@ -402,7 +432,7 @@ public sealed class McpPluginToolTests
             : tool["annotations"]?["readOnlyHint"]?.GetValue<bool>() == true ? "Read" : "Change";
 
         var order = new[] { "Server", "Devices", "Tasks", "Files", "Tags", "Sites", "Compliance", "Vulnerabilities", "Event rules", "Logs", "PKI", "EST server", "802.1X server", "NTP server", "DHCP server", "Hardening scan", "Application management", "Edge storage", "Action Rule Editor", "Device triggers", "VAPIX Commander", "Device configuration",
-            "Edge Recording Export", "Image Health Dashboard", "I/O Monitor", "Metadata Monitor", "Dashboards", "Load test", "Snapshot report" };
+            "Edge Recording Export", "Image Health Dashboard", "I/O Monitor", "Metadata Monitor", "Dashboards", "Load test", "Snapshot report", "Live View" };
         var text = new System.Text.StringBuilder();
         foreach (var line in Intro)
         {
@@ -435,9 +465,22 @@ public sealed class McpPluginToolTests
                      "oadm_pki_certificates", "oadm_pki_policies", "oadm_pki_certificate_create_preview", "oadm_pki_certificate_create_run",
                      "oadm_ntp_status", "oadm_dhcp_status", "oadm_dhcp_leases", "oadm_hardening_results",
                      "oadm_vapix_commands", "oadm_vapix_command_preview", "oadm_vapix_command_run",
+                     "oadm_device_request_preview", "oadm_device_request_run", // VAPIX Commander's request, its own area (decision 2026-11-15)
                      "oadm_edge_storage_cards", "oadm_app_management_applications", "oadm_est_enrollments", "oadm_radius_log",
                      "oadm_device_rules_list", "oadm_device_triggers_list", "oadm_device_triggers_devices",
                      "oadm_config_parameters", "oadm_config_action_rules", "oadm_config_stream_profiles",
+                     // The page actions (decision 2026-11-15): reads and starts as one tool, changes as a preview and a run.
+                     "oadm_hardening_scan_start", "oadm_hardening_scan_stop", "oadm_hardening_detail",
+                     "oadm_image_health_check", "oadm_edge_storage_read", "oadm_app_management_read", "oadm_app_management_log", "oadm_app_management_settings",
+                     "oadm_device_rules_read", "oadm_device_rules_recipient_create_preview", "oadm_device_rules_schedule_delete_run",
+                     "oadm_device_triggers_events_read", "oadm_device_triggers_save_preview", "oadm_device_triggers_delete_run",
+                     "oadm_dashboards_save_preview", "oadm_dashboards_press_preview", "oadm_dashboards_press_run",
+                     "oadm_load_test_plan", "oadm_load_test_start_preview", "oadm_load_test_cancel", "oadm_load_test_check_delete_run",
+                     "oadm_dhcp_static_lease_save_preview", "oadm_dhcp_lease_release_run", "oadm_dhcp_settings_save_preview", "oadm_dhcp_settings_save_run",
+                     "oadm_ntp_settings_save_preview", "oadm_ntp_settings_save_run",
+                     "oadm_est_enrollments_clear_preview", "oadm_radius_sessions", "oadm_radius_log_delete_run",
+                     "oadm_vapix_saved_save_preview", "oadm_vapix_saved_export",
+                     "oadm_live_view_views", "oadm_live_view_view_save_preview", "oadm_live_view_view_delete_run",
                  })
         {
             Assert.Contains(expected, names);
@@ -495,6 +538,43 @@ public sealed class McpPluginToolTests
         Assert.Empty(radius["entries"]!.AsArray());
         var badCards = await server.CallToolAsync(key, "oadm_edge_storage_cards", new JsonObject { ["state"] = "melted" });
         Assert.True(badCards["isError"]!.GetValue<bool>());
+    }
+
+    [Fact]
+    public async Task TheDeviceRequestNeedsSendAndTheDangerousRightForALockOutRequest()
+    {
+        // VAPIX Commander's request over MCP (decision 2026-11-15): "send" lists it, a Viewer does not get it, and a request that
+        // can lock OADM out needs "dangerous", which the built-in Operator role does not get.
+        await using var server = await StartBundledAsync();
+        var device = new Oadm.Core.Devices.Device { Serial = "B8A44F000777", Address = "192.0.2.77", Model = "P3265-V", Status = Oadm.Sdk.Devices.DeviceStatus.Ok };
+        await server.Host.Get<Oadm.Core.Devices.DeviceRepository>().AddAsync(device, CancellationToken.None);
+        var admin = await server.CreateKeyAsync(name: "admin-bot");
+        var op = await server.CreateKeyAsync(name: "op-bot", roleId: BuiltInRoles.OperatorId.ToString());
+        var viewer = await server.CreateKeyAsync(name: "look-bot", roleId: BuiltInRoles.ViewerId.ToString());
+        Assert.DoesNotContain("oadm_device_request_preview", await server.ToolNamesAsync(viewer));
+        Assert.Contains("oadm_device_request_preview", await server.ToolNamesAsync(op));
+
+        var filter = new JsonObject { ["ids"] = new JsonArray(device.Id.ToString()) };
+        var read = await server.ToolAsync(op, "oadm_device_request_preview", new JsonObject
+        {
+            ["method"] = "GET", ["path"] = "/axis-cgi/param.cgi", ["filter"] = filter.DeepClone(),
+            ["query"] = new JsonArray(new JsonObject { ["name"] = "action", ["value"] = "list" }),
+        });
+        Assert.Equal("read", read["kind"]!.GetValue<string>());
+        Assert.Equal(1, read["will_run"]!.GetValue<int>());
+        Assert.False(string.IsNullOrEmpty(read["handle"]!.GetValue<string>()));
+
+        JsonObject LockOut() => new()
+        {
+            ["method"] = "POST", ["path"] = "/axis-cgi/pwdgrp.cgi", ["body"] = "action=remove&user=root",
+            ["content_type"] = "application/x-www-form-urlencoded", ["filter"] = filter.DeepClone(),
+        };
+        var refused = await server.CallToolAsync(op, "oadm_device_request_preview", LockOut());
+        Assert.True(refused["isError"]!.GetValue<bool>());
+        Assert.Contains(Oadm.Plugins.VapixCommander.DeviceRequestTool.DangerousRefused, ErrorText(refused), StringComparison.Ordinal);
+        var allowed = await server.ToolAsync(admin, "oadm_device_request_preview", LockOut());
+        Assert.True(allowed["dangerous"]!.GetValue<bool>());
+        Assert.Contains(Oadm.Plugins.VapixCommander.DeviceRequestTool.DangerousWarning, allowed["warnings"]!.AsArray().Select(w => w!.GetValue<string>()));
     }
 
     [Fact]

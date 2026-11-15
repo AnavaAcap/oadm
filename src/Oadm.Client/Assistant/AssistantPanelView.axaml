@@ -339,6 +339,47 @@
               </c:ResultCard>
             </StackPanel>
           </DataTemplate>
+          <!-- A file a tool offered (an export, a report, a task's result): a result card with its name and size and Save; the
+               file is fetched when the user saves it, never passed to the model. -->
+          <DataTemplate x:DataType="a:AssistantFileItem">
+            <c:ResultCard x:Name="FileCard" Icon="{StaticResource Icon.file}" Title="{Binding Name}" Subtitle="{Binding SizeText}">
+              <c:ResultCard.Actions>
+                <ui:ToolbarButton x:Name="SaveFile" Text="{x:Static a:AssistantTexts.SaveFile}" IconKey="download" IsEnabled="{Binding !IsSaving}"
+                                  Command="{Binding $parent[a:AssistantPanelView].((a:AssistantPanelViewModel)DataContext).SaveFileCommand}" CommandParameter="{Binding}" />
+              </c:ResultCard.Actions>
+              <ui:StatusChip HorizontalAlignment="Left" Text="{Binding StatusText}" IsVisible="{Binding HasStatus}" IsAccent="{Binding IsSaving}"
+                             IsOk="{Binding IsSaved}" IsError="{Binding HasFailed}" MaxLines="2" />
+            </c:ResultCard>
+          </DataTemplate>
+          <!-- OADM has no function for the request: the model asks to look in the Axis docs online. Only Look up online sends
+               the lookup (docs/spec/assistant.md "Looking in the Axis docs"). -->
+          <DataTemplate x:DataType="a:AssistantDocsOfferItem">
+            <c:ResultCard x:Name="DocsOfferCard" Icon="{StaticResource Icon.globe}" Title="{x:Static a:AssistantTexts.DocsOfferTitle}" Subtitle="{Binding Topic}">
+              <StackPanel Spacing="8">
+                <TextBlock Text="{x:Static a:AssistantTexts.DocsOfferQuestion}" TextWrapping="Wrap" />
+                <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right" IsVisible="{Binding IsReady}">
+                  <Button x:Name="NotNow" Classes="secondary" Content="{x:Static a:AssistantTexts.NotNow}"
+                          Command="{Binding $parent[a:AssistantPanelView].((a:AssistantPanelViewModel)DataContext).DeclineLookUpCommand}" CommandParameter="{Binding}" />
+                  <Button x:Name="LookUpOnline" Classes.primary="{Binding LookUpIsPrimary}" Classes.secondary="{Binding LookUpIsSecondary}"
+                          Content="{x:Static a:AssistantTexts.LookUpOnline}"
+                          Command="{Binding $parent[a:AssistantPanelView].((a:AssistantPanelViewModel)DataContext).LookUpCommand}" CommandParameter="{Binding}" />
+                </StackPanel>
+                <ui:StatusChip HorizontalAlignment="Left" Text="{Binding StatusText}" IsVisible="{Binding HasStatus}" />
+              </StackPanel>
+            </c:ResultCard>
+          </DataTemplate>
+          <!-- A secret a run made (a new access key): a result card with Copy, which fetches it once to the clipboard; it is
+               never shown in the panel or sent into the chat. -->
+          <DataTemplate x:DataType="a:AssistantSecretItem">
+            <c:ResultCard x:Name="SecretCard" Icon="{StaticResource Icon.key}" Title="{Binding Title}" Subtitle="{x:Static a:AssistantTexts.CopyOnce}">
+              <c:ResultCard.Actions>
+                <ui:ToolbarButton x:Name="CopySecret" Text="{x:Static a:AssistantTexts.Copy}" IconKey="copy" IsEnabled="{Binding CanCopy}"
+                                  Command="{Binding $parent[a:AssistantPanelView].((a:AssistantPanelViewModel)DataContext).CopySecretCommand}" CommandParameter="{Binding}" />
+              </c:ResultCard.Actions>
+              <ui:StatusChip HorizontalAlignment="Left" Text="{Binding StatusText}" IsVisible="{Binding HasStatus}" IsAccent="{Binding IsCopying}"
+                             IsOk="{Binding IsCopied}" IsError="{Binding HasFailed}" MaxLines="2" />
+            </c:ResultCard>
+          </DataTemplate>
           <!-- A plan the model prepared: a result card with its title and count, what Run does, the devices, the skipped ones and
                the warnings; Cancel and Run, then the state of its tasks. -->
           <DataTemplate x:DataType="a:AssistantPreviewItem">
@@ -369,11 +410,22 @@
                     </DataTemplate>
                   </ItemsControl.ItemTemplate>
                 </ItemsControl>
+                <!-- A secret the run needs (a password): typed here and sent with Run, never into the chat or to the model. -->
+                <ItemsControl ItemsSource="{Binding Secrets}" IsVisible="{Binding ShowsSecrets}">
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="a:AssistantSecretFieldItem">
+                      <ui:FormField Label="{Binding Label}">
+                        <ui:PasswordBox x:Name="SecretField" Text="{Binding Value}" />
+                      </ui:FormField>
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
                 <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right" IsVisible="{Binding IsReady}">
                   <Button Classes="secondary" Content="{x:Static a:AssistantTexts.Cancel}"
                           Command="{Binding $parent[a:AssistantPanelView].((a:AssistantPanelViewModel)DataContext).CancelPreviewCommand}" CommandParameter="{Binding}" />
                   <Button x:Name="RunPreview" Classes.primary="{Binding RunIsPrimary}" Classes.secondary="{Binding RunIsSecondary}"
-                          Classes.danger="{Binding IsDestructive}" Content="{x:Static a:AssistantTexts.Run}"
+                          Classes.danger="{Binding IsDestructive}" Content="{x:Static a:AssistantTexts.Run}" IsEnabled="{Binding CanRun}"
+                          ToolTip.Tip="{Binding RunBlockedReason}" ToolTip.ShowOnDisabled="True"
                           Command="{Binding $parent[a:AssistantPanelView].((a:AssistantPanelViewModel)DataContext).RunPreviewCommand}" CommandParameter="{Binding}" />
                 </StackPanel>
                 <DockPanel IsVisible="{Binding HasStatus}">

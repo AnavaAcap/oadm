@@ -52,6 +52,51 @@ public static class AssistantTexts
     public const string NothingToRetry = "There is nothing to try again.";
     public const string DailyLimit = "The assistant reached today's limit. It works again tomorrow.";
     public const string PreviewEnded = "This preview has ended. Ask again.";
+
+    /// <summary>A file of an answer that ended or is another user's (AssistantService.Download).</summary>
+    public const string FileEnded = "This file has ended. Ask again.";
+
+    // Looking in the Axis docs (docs/spec/assistant.md "Looking in the Axis docs").
+
+    /// <summary>The question of the offer's card.</summary>
+    public const string DocsOfferQuestion = "OADM has no function for this. Should I look in the Axis VAPIX docs online?";
+
+    /// <summary>The card's button that says yes.</summary>
+    public const string LookUpOnline = "Look up online";
+
+    /// <summary>The card's button that says no (nothing is sent).</summary>
+    public const string NotNow = "Not now";
+
+    /// <summary>The user's message the click sends with the offer's id.</summary>
+    public const string LookUpMessage = "Yes, look it up in the Axis docs online.";
+
+    /// <summary>The card after the click, and after Not now.</summary>
+    public const string LookedUpOnline = "Looked up online.";
+    public const string NotLookedUp = "Not looked up.";
+
+    /// <summary>Chat with an offer that is unknown, used, ended or another chat's.</summary>
+    public const string DocsOfferEnded = "This offer has ended. Ask again.";
+
+    /// <summary>The only sites a lookup may search and read.</summary>
+    public static IReadOnlyList<string> DocsDomains { get; } = ["developer.axis.com", "help.axis.com"];
+
+    /// <summary>The one line of a provider that cannot look online (Ollama, OpenAI-compatible).</summary>
+    public static string CannotLookOnline(string? provider) => $"{ProviderName(provider)} cannot look online, so the Axis docs cannot be read here.";
+
+    /// <summary>A tool line: the lookup could not reach the Axis docs (no internet, the provider's search failed).</summary>
+    public const string DocsNotReached = "The Axis docs could not be read. The server may have no internet.";
+
+    /// <summary>A tool line while the provider searches or reads the Axis docs.</summary>
+    public const string LookingInDocs = "Looking in the Axis docs";
+
+    /// <summary>Secrets of one Run at most (AssistantRunRequest.secrets).</summary>
+    public const int MaxRunSecrets = 8;
+
+    /// <summary>The label of a secret field: "password" is "Password".</summary>
+    public static string SecretLabel(string label) => string.IsNullOrEmpty(label) ? label : char.ToUpperInvariant(label[0]) + label[1..];
+
+    /// <summary>The error below an empty secret field: "Enter the password." (the server's refusal of Run says the same).</summary>
+    public static string EnterSecret(string label) => "Enter the " + label + ".";
     public const string NoAnswer = "The provider did not answer. Try again.";
     public const string TooManySelected = "Select at most 10,000 devices for the assistant.";
     public const string EmptyMessage = "Write a message.";

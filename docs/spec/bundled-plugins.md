@@ -37,7 +37,8 @@ change a password or role, or remove users on every selected device.
 - Rules that must hold: never removes, demotes or changes the password of the account OADM uses, never removes or demotes
   the last administrator, never removes `root` before AXIS OS 11.5, and changes nothing while the OADM account is not
   known ("Nothing was changed"); passwords only in memory and the POST body, never in a step, log, warning, error or URL;
-  every change is read back.
+  every change is read back; AI agents never send the password: the person enters it through the secret channel
+  (docs/spec/mcp.md "Secrets"), only for Add and a password change.
 
 ## Upgrade AXIS OS
 
@@ -143,14 +144,20 @@ command**. Command format: `Schema/command-format.md` + `command.schema.json` (t
 - Saved commands: plugin setting `savedCommands`, at most 500, shared by all clients, export / import as library files.
 - MCP (`docs/spec/mcp.md` "Plugins"): `oadm_vapix_commands` and `oadm_vapix_command_preview` / `_run`, only library
   and saved commands that are not dangerous, have no password or file field and change nothing OADM's own tasks change;
-  every run goes preview then run and is the page's rollout.
-- Roles: methods are Operator; `tryRequest` and `rollout` are audited. Scale: target devices at the device limit, every list action
+  every run goes preview then run and is the page's rollout. `oadm_device_request_preview` / `_run` (decision 2026-11-15): a
+  request of the agent's own on the page's request code (paths under `/axis-cgi/`, `/config/rest/`, `/vapix/` only, no
+  password in it, "send"); a request that can lock OADM out or break a device needs the right "dangerous" (not an
+  Operator default; a restart does not); a change reaches more than one device only after the same request succeeded on
+  one device for the same caller (24 h, plugin memory); at most 100 devices, answers cut and secret values as `***`;
+  the audit names method, path and device count, never the query values or the body.
+- Roles: methods are Operator; `tryRequest`, `rollout` and the run of the device request are audited. Scale: target devices at the device limit, every list action
   under 1 s (Perf test).
 - Device groups: devices, clients and tasks only through the call (`tryRequest`, `checkCompatibility`, `rollout`: an id
   outside the user's view refuses the request like an unknown one); `save`, `delete` and `import` only for users with
   all devices (`RequiresAllDevices`; the page hides New command, Import, Edit, Delete and Save with values); a saved
   command's stored passwords only for users with all devices (others get `CommanderTexts.SavedPasswordsRefused` and
   enter the passwords); the task owner is the caller.
+- Page actions as tools (decision 2026-11-15, [mcp.md](mcp.md) "Page actions"), with the page's rights: saved commands `oadm_vapix_saved_save`, `_delete`, `_import` (changes; a password to store is named in `set_passwords` and entered by the user through the secret channel, stored encrypted) and `oadm_vapix_saved_export` (the command file, secret values masked, no password value). A command with password fields runs over `oadm_vapix_command_preview` / `_run` with each password entered by the user (never a stored one).
 
 ## NTP server (core plugin)
 
@@ -165,7 +172,7 @@ contributes the task **Use OADM as NTP server**.
   in plain words (`NtpStatusTexts`: port in use, permission, interface missing, upstream not answering); tests never use
   port 123 on a real interface.
 - Roles: `save` is Admin and audited. The Windows service opens UDP 123 in the firewall while enabled.
-- MCP ([mcp.md](mcp.md)): the read-only tool `oadm_ntp_status`.
+- MCP ([mcp.md](mcp.md)): the read-only tool `oadm_ntp_status`; the page's Save as `oadm_ntp_settings_save` (a preview with the warnings, a run through `save`; decision 2026-11-15).
 - Device groups: `save` only for users with all devices (the form is read-only for the others); users with a group see
   the requests and sites of their own devices, live through their group's scope. NTP and DHCP: a publish round never
   reads the device table (each group's view is kept, built again when the group's devices change or after 5 minutes); a
@@ -192,6 +199,7 @@ devices that get an address. Per-OS setup and the manual test plan: plugin `READ
 - Device groups: every change only for users with all devices; users with a group see the leases of their own devices
   (by MAC address = serial only, never by address), live through their group's scope. A change and a removal of one batch
   go in one event (parts of one version only beyond 2,000 leases; the page applies every part of a version).
+- Page actions as tools (decision 2026-11-15, [mcp.md](mcp.md) "Page actions"), with the page's rights: `oadm_dhcp_static_lease_save`, `_delete`, `oadm_dhcp_lease_make_static`, `oadm_dhcp_lease_release` (changes with the page's checks), and the page's Save as `oadm_dhcp_settings_save` (the preview warns that a DHCP server hands out addresses to every device that asks; the run stops when another DHCP server answers unless the user accepted it).
 
 ## PKI (core plugin)
 
@@ -224,7 +232,14 @@ IEEE 802.1X, Renew certificates, View, Delete and Install certificates, Install 
   answer refuses; only OADM's own certificates that nothing uses are removed; passwords of imports and backups are never
   stored or logged; nothing in tests touches a real trust store; View and Delete certificates read at most 5,000 devices
   per window (each device is read, 4 at a time; a larger selection gets "Choose at most 5,000 devices."), the other tasks
-  take any number; while it runs it offers its CAs to other plugins (`IDeviceCertificateAuthority`,
+  take any number; AI agents run View certificates as a read task and Delete certificates by name per device (never an
+  Axis factory or an in-use certificate), Install certificates with the PKCS#12 password entered by the person (never
+  sent by the agent; the task checks that each certificate names its device) and Install CA certificates with each CA
+  listed in the plan; Import certificate and Sign certificate request are tools (the PKCS#12 password through the secret
+  channel, the file through an upload link); the page actions as tools (decision 2026-11-15: Create, Import, Delete, Back
+  up and Install in the server's trust of a CA, the policies' Save and Delete) have the page's checks, rights and audit,
+  passwords only through the secret channel, a key backup only as a one-time file; while it runs it offers its CAs to
+  other plugins (`IDeviceCertificateAuthority`,
   `docs/spec/plugins.md` "Plugin services"), which signs the same way; every certificate a CA of PKI issues for a device
   (tasks and the service) goes into the list of issued certificates with its DER; a certificate deleted while valid,
   replaced or unused goes on the internal list of certificates no longer accepted (written before the call returns, never
@@ -265,7 +280,13 @@ server** of the PKI page, its own source-available `Est/LICENSE`. Off by default
   enrollments, Not renewed, certificates and listeners (this server, sites) of the group's devices only, never refusals
   of cameras OADM does not manage. Host names never go into certificates of a device a user with a group added.
 - MCP ([mcp.md](mcp.md)): the read-only tool `oadm_est_enrollments` (the state and the enrollments of the caller's
-  devices; while the server is off its state only).
+  devices; while the server is off its state only). The task EST - Certificate Enrollment is offered through the task
+  tools (Set up or Remove, the permission `enroll`; no clock answer: a camera whose clock is behind refuses); its plan
+  skips every camera while the EST server, OADM PRO or the CA is missing and says what cameras with IEEE 802.1X on and a
+  removed profile lose.
+- Page actions as tools (decision 2026-11-15, [mcp.md](mcp.md) "Page actions"), with the page's rights: `oadm_est_enrollments_clear`,
+  `oadm_est_enable` (Turn on with OADM PRO, Turn off), `oadm_est_settings_save`, `oadm_est_profile_save` and
+  `oadm_est_profile_delete` (changes; the server must be on for the settings and profiles, as on the page).
 
 ## 802.1X server (core plugin of PKI, OADM PRO)
 
@@ -291,6 +312,10 @@ certificate, TLS, trusted CAs, VLAN, Block) are PKI's policies (`docs/spec/pki.m
   (rows without a managed device never), no server-wide settings and only the switches of the group's routes.
 - MCP ([mcp.md](mcp.md)): the read-only tool `oadm_radius_log` (the state and the log of the caller's devices; never a
   shared secret or a certificate).
+- Page actions as tools (decision 2026-11-15, [mcp.md](mcp.md) "Page actions"), with the page's rights: `oadm_radius_sessions` and
+  `oadm_radius_switches` (reads), `oadm_radius_log_delete`, `oadm_radius_enable`, `oadm_radius_settings_save`,
+  `oadm_radius_switch_save` and `oadm_radius_switch_delete` (changes). A shared secret only through the secret channel, or
+  generated by the run and handed out once as a file; never in an answer.
 
 ## Metadata Monitor (core plugin)
 
@@ -328,6 +353,7 @@ that has the app, with five count cards (Good, Detected, Pending, Detection off,
 - MCP ([mcp.md](mcp.md)): the read-only tool `oadm_image_health_results` (the last check, counts first, by page).
 - Device groups: one table per device scope; a group user checks and sees only the group's cameras, chosen ids outside it
   are refused whole (NOT_FOUND).
+- Page actions as tools (decision 2026-11-15, [mcp.md](mcp.md) "Page actions"), with the page's rights: `oadm_image_health_check` (Check now, one tool).
 
 ## Application management (core plugin)
 
@@ -346,6 +372,7 @@ Details: [Application management](app-management.md) and the plugin's README.
 - Device groups: every read and run is the caller's; ids outside the group refuse the whole request (NOT_FOUND).
 - MCP ([mcp.md](mcp.md)): the read-only tool `oadm_app_management_applications` (what the page read last in the
   caller's login session, of the devices the caller sees; it reads no device).
+- Page actions as tools (decision 2026-11-15, [mcp.md](mcp.md) "Page actions"), with the page's rights: `oadm_app_management_read`, `oadm_app_management_log`, `oadm_app_management_settings` (reads; changes stay tasks).
 
 ## Load test (core plugin)
 
@@ -368,6 +395,7 @@ one row per camera stream. Details: [Load test](load-test.md) and the plugin's R
   only on the starter's devices as they are now, a camera that leaves the group is dropped, live rows only of cameras
   the group still has, ended by the host when the group's rules change ("The check stopped when its device group
   changed").
+- Page actions as tools (decision 2026-11-15, [mcp.md](mcp.md) "Page actions"), with the page's rights: `oadm_load_test_plan`, `oadm_load_test_start` (a change with the page's limits; the exposure always goes back), `oadm_load_test_cancel`, `oadm_load_test_check_delete`.
 
 ## I/O Monitor (core plugin)
 
@@ -406,6 +434,7 @@ event of the event rules, plus "<Trigger>: connection lost".
   group's devices ("All devices" and tags = the group's), so its events come only from them; group users see and change
   only their group's triggers; a deleted group's triggers watch nothing; the editor's reads are the user's jobs.
 - MCP ([mcp.md](mcp.md)): the read-only tools `oadm_device_triggers_list` and `oadm_device_triggers_devices`.
+- Page actions as tools (decision 2026-11-15, [mcp.md](mcp.md) "Page actions"), with the page's rights: `oadm_device_triggers_events_read` and `_events` (the editor's read), `_save`, `_set_enabled`, `_copy`, `_delete` (changes).
 
 ## Action Rule Editor (core plugin)
 
@@ -436,7 +465,10 @@ many devices. Every settings form uses the bundled action catalog (`Catalog/acti
 - Device groups: one table per device scope; every device id of a request in the caller's devices or the whole request
   is refused (NOT_FOUND) before anything is read, saved or started; undo runs per group.
 - MCP ([mcp.md](mcp.md)): the read-only tool `oadm_device_rules_list` (the rules the editor read last for the caller's
-  device scope; it reads no device).
+  device scope and its recent changes; it reads no device); the task takes the agents' input `RuleAgentPayload` (change,
+  on / off, delete, copy, create, undo; rules by name as the editor read them last; no password; the page's rights through
+  `PagePermissions`), run like the page's own runs (saved for undo, the copy read on the server).
+- Page actions as tools (decision 2026-11-15, [mcp.md](mcp.md) "Page actions"), with the page's rights: `oadm_device_rules_read` (Refresh), `_recipients`, `_schedules`, `_recipient_kinds`, and the recipient and schedule changes (create, change, copy, delete; a recipient password is named in `set_passwords` and entered by the user through the secret channel, never an argument); rule deploy, delete and undo stay the editor's task, an action password of its task is sent empty and entered by the user the same way.
 
 ## System report (core plugin without a page)
 
@@ -472,6 +504,7 @@ plugin `README.md`.
   and devices of the user's view only; the scans of all scopes share one limit (16 devices at once for the plugin, the
   setting `parallelism`). The same for the shared `DeviceSweep` of Image Health Dashboard, Edge storage and Action Rule
   Editor: one limit per plugin, never per device scope.
+- Page actions as tools (decision 2026-11-15, [mcp.md](mcp.md) "Page actions"), with the page's rights: `oadm_hardening_scan_start`, `oadm_hardening_scan_stop` ("Run scans") and `oadm_hardening_detail`.
 
 ## Web View (core plugin)
 
@@ -513,6 +546,7 @@ also on Dashboards.
   1a2b3c4d".
 - Roles: "show" (Operator and Viewer), "Change views" (`manage`, Operator yes, Viewer no; save and delete audited); the
   pictures need "Live view".
+- Page actions as tools (decision 2026-11-15, [mcp.md](mcp.md) "Page actions"), with the page's rights: `oadm_live_view_views`, `oadm_live_view_view_save`, `oadm_live_view_view_delete` (saved views; video stays in the client).
 
 ## Dashboards (core plugin)
 
@@ -570,6 +604,7 @@ triggers**) and no dashboard.
 - Roles: "show" (Operator and Viewer), **Change dashboards** (`manage`, Operator yes, Viewer no; save and delete
   audited), **Press dashboard buttons** (`press`, Operator yes, Viewer no; every press audited; without it the button is
   disabled with the reason); video needs "Live view". A group user presses the buttons of the group's dashboards only.
+- Page actions as tools (decision 2026-11-15, [mcp.md](mcp.md) "Page actions"), with the page's rights: `oadm_dashboards_get`, `_events` (reads), `_save`, `_delete`, `_press` (changes; a press sends its event to the event rules).
 
 ## Edge Recording Export (core plugin)
 
@@ -616,6 +651,12 @@ only while Edge storage is on.
   (removed ones are skipped; runs stay refused as a whole).
 - MCP ([mcp.md](mcp.md)): the read-only tool `oadm_edge_storage_cards` (the table the page read last for the caller's
   device scope, with its counts; it reads no camera).
+- AI agents: the hidden task is offered to the task tools with `StorageMcpPayload` (check, repair, retention, format,
+  encryption on and off; Encrypt's passphrase is entered by the user through the secret channel, never by the agent), the
+  page method's rules in `ValidatePayload`, the page's rights
+  through `PagePermissions` (check and retention `manage`, the others `format`) and a plan that says format and encryption
+  off delete every recording.
+- Page actions as tools (decision 2026-11-15, [mcp.md](mcp.md) "Page actions"), with the page's rights: `oadm_edge_storage_read` (the page's Read; check, repair and format stay the storage task).
 
 ## Date and time
 
@@ -646,8 +687,8 @@ import, `/config/rest/$export`, `$import`, like its web interface), **Configure 
   imported, never accounts (no lock-out); only the seven areas OADM knows are imported, any other
   area of a file and the left-out part of the password policy area are shown as not imported and never sent; the same model only
   ("Nothing was changed" otherwise); no backup by OADM (export first); the device validates and OADM shows its answer per
-  area, one failed area does not stop the others; a ZIP entry must carry the device's MAC address; Export is a dialog,
-  never a task.
+  area, one failed area does not stop the others; a ZIP entry must carry the device's MAC address; Export is a dialog
+  in the client (an agent's run is a read-only task whose result is the export in its log).
 - **Configure devices** rules that must hold: values come from the source (a device or an ADM `.cfg` file), definitions
   are read once per model and AXIS OS (one `listdefinitions` request while it stays below the 1 MB XML limit, else per
   group); internal, hidden, read-only, constant, write-only and write-level-7 parameters are never offered; each device
@@ -660,13 +701,18 @@ import, `/config/rest/$export`, `$import`, like its web interface), **Configure 
   same name is replaced, a schedule with the same name and recurrence used again (applying twice changes nothing more);
   ADM files are read and written byte for byte (format 3, known from files only, ADM is never decompiled), passwords in
   them like ADM; password values never reach a log or an error text. **Create configuration file** is a dialog for one
-  device, never a task.
+  device in the client (an agent's run is a read-only task, the file in its log, without passwords).
 - MCP and Assistant ([mcp.md](mcp.md)): the read-only tools `oadm_config_parameters`, `oadm_config_action_rules` and
   `oadm_config_stream_profiles` of the package's core plugin without a page (`Tools/DeviceConfigToolsPlugin`). Rules that
   must hold: read only, with the dialog's read code (`DeviceSettingsReader`), never a second VAPIX implementation; only
   devices of the caller's view; Configure devices' permissions (`configure` or `dangerous`); passwords, secrets,
   community strings and tokens are never answered; bounded (8 devices at a time, 40 s, then the rest counts as not read;
-  at most 20 rows, about 30 KB).
+  at most 20 rows, about 30 KB). The four tasks have agent inputs (`AgentPayloads.cs`, decision 2026-11-15), offered by
+  the host's task tools: an agent never sends a password or a secret value (a setting or action parameter with a secret
+  name is a slot of the secret channel the user fills; a password parameter whose name is no secret name is skipped on the
+  device) and never a device address; Configure devices' `dangerous` and
+  Import's `connection` rights hold as in the dialogs; Import takes one uploaded `.json` for every device of its model
+  (no ZIP); the plans come from the cached devices and the uploaded file only and carry the dialogs' warnings.
 - Device groups: the source device of Configure devices and Create configuration file is read with the user's query
   (only devices of the user's view); configuration files stay on the client (an import uploads its file for its own
   run), so the server keeps no shared file with saved passwords that a group user could use.
@@ -675,8 +721,9 @@ import, `/config/rest/$export`, `$import`, like its web interface), **Configure 
 
 `plugins/Oadm.Plugins.Acap` (+ `.Client`), id `oadm.acap`, always on, context menu (Applications) **Applications
 (ACAP)**: lists the installed applications, starts, stops and removes them (remove confirmed) and installs or upgrades
-an uploaded `.eap` on all selected devices (classic Application API 1.x; several `.eap` files of one application and
-version at once, one per architecture, each device gets its own; also a ZIP of them, unpacked on the client), installs license key files (with the package or on
+an uploaded `.eap` on all selected devices (classic Application API 1.x; several builds of one application at once, per
+architecture and AXIS OS track, each device group gets its own; also a vendor's ZIP of them with an optional mapping
+file `oadm-packages.json`), installs license key files (with the package or on
 their own, matched by the MAC address in the key), and changes the settings an application registered (action
 `settings`, started from the Applications page, `docs/spec/app-management.md`). Compliance check type **Application running**
 (`ApplicationRunningCheck`, `docs/spec/compliance.md`): the application is installed / running, optionally at least a
@@ -686,14 +733,22 @@ version and a valid license; the choices are read from one device.
   architecture, an AXIS OS outside the package's range (without a range: below its schema minimum), root apps on AXIS OS 12+ and a
   downgrade without the explicit option; a license key is sent only to the device whose MAC address it names, for the
   installed application's id and not expired (a device without a key: Done with warnings, nothing sent); activation with
-  a license code is not offered (the device has no API for it, its web page asks Axis online). Several packages: same
-  application and version, one per architecture, refused in the dialog before any upload otherwise; the task picks the
-  file again from a fresh basicdeviceinfo, a device without one is Done with warnings "No package for armv7hf.", nothing
-  changed. A ZIP stays on the client: `EapPackageFiles` unpacks its `.eap` files into a private temp folder with limits
-  (16 files, 2 GB, counted while writing), entry names are never paths, then the checks and the upload of loose files run
-  unchanged (`docs/spec/app-management.md` "A ZIP of packages"). Change settings: every name must be a setting of the installed application and every value fit its type and
+  a license code is not offered (the device has no API for it, its web page asks Axis online). Several builds: one
+  application, at most 16 files; one pure function (`AcapBuildChooser`) picks the build per device group in the dialog,
+  the plan and the task (a person's or agent's choice, then the mapping file's rows, then automatic: architecture and
+  AXIS OS range fit, the newest version, the narrower range); a choice never overrides the architecture and AXIS OS
+  checks; a group two builds fit equally is never decided by OADM (the dialog's table, `mapping` for agents; Install
+  disabled until chosen); the task picks again from a fresh basicdeviceinfo, a device without a build is Done with
+  warnings "No package for armv7hf.", nothing changed. A ZIP follows the shared rules of `EapZip` (only `.eap` and
+  `oadm-packages.json`, no path outside the ZIP, no duplicate names, 16 files, 2 GB, 10,000 entries, a ratio limit,
+  counted while reading): the client unpacks it to a private temp folder, the server (agents, `zipFileId`) reads it as a
+  stream and never writes it to disk (`docs/spec/app-management.md` "Several builds per install", "A ZIP of packages"). Change settings: every name must be a setting of the installed application and every value fit its type and
   range before the one write, read back afterwards (passwords never read back); setting values never appear in a log,
-  step text, task name or the audit log.
+  step text, task name or the audit log. AI agents change settings through the task tools and never send a password: a
+  value in `values` for a setting the application declares as a password, or whose name points to a secret, is refused
+  before any write; a password setting the agent lists in `passwords` gets its value from the user through the secret
+  channel (docs/spec/mcp.md "Secrets"); only the Applications page sends typed ones (`passwordsAllowed`). An agent's
+  license key (`installLicense`) is one key file the user enters, for one device.
 
 ## Outputs, Notifications, Modbus, MQTT and OPC UA (event rule actions)
 

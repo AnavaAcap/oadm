@@ -26,7 +26,8 @@ internal static class AssistantCards
     /// <summary>Fields of an answer the card shows elsewhere (or never).</summary>
     private static readonly HashSet<string> Shown = new(StringComparer.Ordinal)
     {
-        "handle", "expires", "note", "warnings", "skipped", "cannot", "first", "devices", "will_run", "will_change", "will_cancel", "will_try",
+        "handle", "expires", "note", "warnings", "skipped", "cannot", "first", "devices", "will_run", "will_change", "will_cancel", "will_try", "unit",
+        "needs_secrets", "secret_links",
     };
 
     public static Proto.AssistantPreviewCard Build(OadmTool preview, OadmTool? run, string handle, JsonObject answer, JsonElement arguments)
@@ -56,6 +57,12 @@ internal static class AssistantCards
                 foreach (var file in (answer["files"] as JsonArray ?? []).OfType<JsonObject>())
                 {
                     Add(details, "File", Text(file["name"]));
+                }
+
+                // What the plan says per group, such as the package each group of devices gets.
+                foreach (var line in (answer["details"] as JsonArray ?? []).Select(Text).OfType<string>().Where(l => l.Length > 0))
+                {
+                    details.Add(Cut(line.ReplaceLineEndings(" ")));
                 }
 
                 break;
@@ -117,11 +124,375 @@ internal static class AssistantCards
                     Add(details, "Keeps on the waiting list", waiting.ToString("N0", CultureInfo.InvariantCulture));
                 }
 
+                if (arguments.TryGetProperty("user_name", out var typed) && typed.ValueKind == JsonValueKind.String)
+                {
+                    Add(details, "Also tries the user", typed.GetString());
+                }
+
+                Add(details, "First password rules", Text(answer["first_password_rules"]));
                 count = Number(answer["will_try"]) ?? Number(answer["keep_waiting"]) ?? 0;
+                break;
+            case "oadm_devices_login_preview":
+                Add(details, "Logs in as", Text(answer["user_name"]));
+                Add(details, "Stores the login where it works", Count(count, "device"));
+                card.Destructive = true;
+                break;
+            case "oadm_devices_first_password_preview":
+                Add(details, "Sets the first root password of", Count(count, "device"));
+                Add(details, "Password rules", Text(answer["rules"]));
+                card.Destructive = true;
+                break;
+            case "oadm_credentials_add_preview":
+                Add(details, "Adds to the credential list", Text(answer["user_name"]));
+                (count, unit) = (1, "credential");
+                break;
+            case "oadm_credentials_remove_preview":
+                Add(details, "Removes from the credential list", Text(answer["user_name"]));
+                (count, unit) = (1, "credential");
+                card.Destructive = true;
                 break;
             case "oadm_tasks_cancel_preview":
                 (count, unit) = (Number(answer["will_cancel"]) ?? 0, "task");
                 Add(details, "Cancels", Count(count, "task"));
+                card.Destructive = true;
+                break;
+            case "oadm_tasks_delete_preview":
+                (count, unit) = (Number(answer["will_delete"]) ?? 0, "task");
+                Add(details, "Deletes from the task history", Count(count, "task"));
+                if (Number(answer["running"]) is > 0 and var running)
+                {
+                    Add(details, "Cancels first", Count(running, "task"));
+                }
+
+                card.Destructive = true;
+                break;
+            case "oadm_tasks_delete_all_preview":
+                (count, unit) = (Number(answer["will_delete"]) ?? 0, "task");
+                Add(details, "Deletes the whole task history", Count(count, "task"));
+                card.Destructive = true;
+                break;
+            case "oadm_tags_update_preview":
+                Add(details, "Tag", Text(answer["tag"]));
+                Add(details, "New name", Text(answer["new_name"]) is { } renamed && renamed != Text(answer["tag"]) ? renamed : null);
+                Add(details, "Color", Text(answer["color"]));
+                Add(details, "Used by device groups", Joined(answer["device_groups"]));
+                break;
+            case "oadm_tags_delete_preview":
+                Add(details, "Deletes the tag", Text(answer["tag"]));
+                Add(details, "Used by device groups", Joined(answer["device_groups"]));
+                card.Destructive = true;
+                break;
+            case "oadm_waiting_remove_preview":
+                (count, unit) = (Number(answer["will_remove"]) ?? 0, "address");
+                Add(details, "Removes from the waiting list", Count(count, unit));
+                foreach (var entry in (answer["first"] as JsonArray ?? []).OfType<JsonObject>())
+                {
+                    Add(details, "Address", Text(entry["address"]));
+                }
+
+                card.Destructive = true;
+                break;
+            case "oadm_rules_enable_preview":
+                Add(details, Flag(answer["enabled"]) == true ? "Turns on the rule" : "Turns off the rule", Text(answer["name"]));
+                Add(details, "Watches", Text(answer["watches"]));
+                Add(details, "Does", Text(answer["does"]));
+                (count, unit) = (1, "rule");
+                break;
+            case "oadm_rules_duplicate_preview":
+                Add(details, "Copies the rule", Text(answer["name"]));
+                Add(details, "Copy", Text(answer["copy_name"]) + ", off");
+                (count, unit) = (1, "rule");
+                break;
+            case "oadm_rules_test_action_preview":
+                Add(details, "Rule", Text(answer["name"]));
+                Add(details, "Sends once now", Text(answer["action"]));
+                Add(details, "Sends to", Joined(answer["sends_to"]));
+                (count, unit) = (1, "action");
+                break;
+            case "oadm_events_clear_log_preview":
+                (count, unit) = (Number(answer["will_delete"]) ?? 0, "entry");
+                Add(details, "Deletes from the event log", Count(count, unit));
+                card.Destructive = true;
+                break;
+            case "oadm_recipients_save_preview":
+                Add(details, Text(answer["change"]) == "create" ? "Creates the recipient" : "Changes the recipient", Text(answer["name"]));
+                Add(details, "Type", Text(answer["type"]));
+                Add(details, "Sends to", Text(answer["target"]));
+                Add(details, "Used by", Joined(answer["used_by"]));
+                Add(details, "You enter", Joined(answer["secrets"])); // the labels of the secrets, never a value
+                (count, unit) = (1, "recipient");
+                break;
+            case "oadm_recipients_delete_preview":
+                Add(details, "Deletes the recipient", Text(answer["name"]));
+                Add(details, "Sends to", Text(answer["target"]));
+                (count, unit) = (1, "recipient");
+                card.Destructive = true;
+                break;
+            case "oadm_recipients_test_preview":
+                Add(details, "Tests the recipient", Text(answer["name"]));
+                Add(details, "Sends to", Text(answer["target"]));
+                (count, unit) = (1, "recipient");
+                break;
+            case "oadm_compliance_enable_preview":
+                Add(details, Flag(answer["enabled"]) == true ? "Turns on" : "Turns off", "Compliance for the server");
+                (count, unit) = (Number(answer["checks_on"]) ?? 0, "check");
+                card.Destructive = Flag(answer["enabled"]) != true;
+                break;
+            case "oadm_compliance_check_save_preview":
+                Add(details, Text(answer["change"]) == "create" ? "Creates the check" : "Changes the check", Text(answer["name"]));
+                Add(details, "Kind", Text(answer["kind"]));
+                Add(details, "Asks for", Text(answer["setting"]));
+                Add(details, "Severity", Text(answer["severity"]));
+                Add(details, "State", Flag(answer["enabled"]) == true ? "on" : "off");
+                (count, unit) = (1, "check");
+                break;
+            case "oadm_compliance_check_delete_preview":
+                Add(details, "Deletes the check", Text(answer["name"]));
+                (count, unit) = (1, "check");
+                card.Destructive = true;
+                break;
+            case "oadm_compliance_check_enable_preview":
+                Add(details, Flag(answer["enabled"]) == true ? "Turns on the check" : "Turns off the check", Text(answer["name"]));
+                (count, unit) = (1, "check");
+                break;
+            case "oadm_compliance_check_now_preview":
+                Add(details, "Checks again now", Joined(answer["checks"]));
+                (count, unit) = (Number(answer["devices"]) ?? 0, "device");
+                break;
+            case "oadm_sites_rename_preview":
+                Add(details, "Renames the site", Text(answer["name"]));
+                Add(details, "New name", Text(answer["new_name"]));
+                (count, unit) = (1, "site");
+                break;
+            case "oadm_devices_optics_preview":
+            case "oadm_devices_ptz_preview":
+                Add(details, "Moves", Text(answer["change"]));
+                (count, unit) = (1, "device");
+                break;
+            case "oadm_devices_rtsp_port_preview":
+                Add(details, "RTSP port now", Number(answer["port_now"])?.ToString(CultureInfo.InvariantCulture) ?? "different");
+                Add(details, "RTSP port after the run", Number(answer["port"])?.ToString(CultureInfo.InvariantCulture));
+                break;
+            case "oadm_vulnerabilities_update_preview":
+                Add(details, "Fetches", "the newest list of Axis vulnerabilities");
+                Add(details, "List of", Text(answer["updated"]));
+                (count, unit) = (1, "list");
+                break;
+            case "oadm_license_import_preview":
+                Add(details, "Imports", "the OADM PRO license key you enter here");
+                Add(details, "License now", Text(answer["text"]));
+                (count, unit) = (1, "license");
+                break;
+            case "oadm_license_remove_preview":
+                Add(details, "Removes", "the OADM PRO license key");
+                Add(details, "License now", Text(answer["text"]));
+                (count, unit) = (1, "license");
+                card.Destructive = true;
+                break;
+            case "oadm_license_trial_preview":
+                Add(details, "Starts", "the 30-day trial of OADM PRO");
+                (count, unit) = (1, "license");
+                break;
+            case "oadm_plugins_enable_preview":
+                Add(details, Flag(answer["enabled"]) == true ? "Turns on" : "Turns off", Text(answer["name"]));
+                (count, unit) = (1, "plugin");
+                card.Destructive = Flag(answer["enabled"]) != true;
+                break;
+            case "oadm_plugins_license_preview":
+                Add(details, "Sets the license of", Text(answer["name"]));
+                Add(details, "License now", Text(answer["license"]));
+                (count, unit) = (1, "plugin");
+                break;
+            case "oadm_plugins_license_remove_preview":
+                Add(details, "Removes the license of", Text(answer["name"]));
+                Add(details, "License now", Text(answer["license"]));
+                (count, unit) = (1, "plugin");
+                card.Destructive = true;
+                break;
+            case "oadm_plugins_optional_install_preview":
+                Add(details, "Installs", Text(answer["name"]));
+                Add(details, "File", Text(answer["file"]?["name"]));
+                Add(details, "SHA-256", Text(answer["file"]?["sha256"]));
+                (count, unit) = (1, "plugin");
+                break;
+            case "oadm_plugins_optional_remove_preview":
+                Add(details, "Removes", Text(answer["name"]));
+                (count, unit) = (1, "plugin");
+                card.Destructive = true;
+                break;
+            case "oadm_plugins_optional_restart_preview":
+                Add(details, "Restarts the server for", Joined(answer["waiting"]));
+                (count, unit) = (1, "server");
+                card.Destructive = true;
+                break;
+            case "oadm_backups_schedule_preview":
+                Add(details, "Automatic backups", Flag(answer["enabled"]) == true
+                    ? string.Create(CultureInfo.InvariantCulture, $"on, daily at {Text(answer["time_of_day"])}, keep {Number(answer["keep"]) ?? 0:N0}")
+                    : "off");
+                Add(details, "New password", Flag(answer["new_password"]) == true ? "yes" : null);
+                Add(details, "Deletes", Number(answer["deleted"]) is > 0 and var gone ? Count(gone, "automatic backup") : null);
+                (count, unit) = (1, "schedule");
+                card.Destructive = Number(answer["deleted"]) is > 0;
+                break;
+            case "oadm_backups_create_preview":
+                Add(details, "Makes", "a backup of this server, encrypted with the password you enter here");
+                (count, unit) = (1, "backup");
+                break;
+            case "oadm_backups_delete_preview":
+                Add(details, "Deletes the backup", Text(answer["name"]));
+                (count, unit) = (1, "backup");
+                card.Destructive = true;
+                break;
+            case "oadm_backups_restore_preview":
+                Add(details, "Restores", Text(answer["source"]));
+                Add(details, "Replaces", "everything on this server");
+                (count, unit) = (1, "backup");
+                card.Destructive = true;
+                break;
+            case "oadm_update_install_preview":
+                Add(details, "Installs", Text(answer["version"]));
+                Add(details, "Replaces", Text(answer["server_version"]));
+                (count, unit) = (1, "server");
+                card.Destructive = true;
+                break;
+            case "oadm_users_add_preview":
+                Add(details, "Adds the user", Text(answer["user_name"]));
+                Add(details, "Role", Text(answer["role"]));
+                Add(details, "Devices", Text(answer["devices"]));
+                (count, unit) = (1, "user");
+                break;
+            case "oadm_users_update_preview":
+                Add(details, "Changes the user", Text(answer["user_name"]));
+                foreach (var change in (answer["changes"] as JsonArray ?? []).Select(Text).OfType<string>())
+                {
+                    details.Add(Cut(change));
+                }
+
+                (count, unit) = (1, "user");
+                break;
+            case "oadm_users_delete_preview":
+                Add(details, "Deletes the user", Text(answer["user_name"]));
+                Add(details, "Role", Text(answer["role"]));
+                Add(details, "Devices", Text(answer["devices"]));
+                (count, unit) = (1, "user");
+                card.Destructive = true;
+                break;
+            case "oadm_users_password_preview":
+                Add(details, "Sets a new password for", Text(answer["user_name"]));
+                (count, unit) = (1, "user");
+                break;
+            case "oadm_roles_save_preview":
+                Add(details, Text(answer["change"]) == "create" ? "Creates the role" : "Changes the role", Text(answer["name"]));
+                Add(details, "Gains", Joined(answer["gains"]));
+                Add(details, "Loses", Joined(answer["loses"]));
+                Add(details, "Users with this role", Number(answer["users"]) is > 0 and var roleUsers ? roleUsers.ToString("N0", CultureInfo.InvariantCulture) : null);
+                Add(details, "Access keys with this role", Number(answer["access_keys"]) is > 0 and var roleKeys ? roleKeys.ToString("N0", CultureInfo.InvariantCulture) : null);
+                (count, unit) = (1, "role");
+                break;
+            case "oadm_roles_delete_preview":
+                Add(details, "Deletes the role", Text(answer["name"]));
+                (count, unit) = (1, "role");
+                card.Destructive = true;
+                break;
+            case "oadm_device_groups_save_preview":
+                Add(details, Text(answer["change"]) == "create" ? "Creates the device group" : "Changes the device group", Text(answer["name"]));
+                Add(details, "Rules", Text(answer["rules"]));
+                Add(details, "Devices", (Number(answer["devices_before"]) is { } before ? before.ToString("N0", CultureInfo.InvariantCulture) + " to " : string.Empty)
+                    + (Number(answer["devices"]) ?? 0).ToString("N0", CultureInfo.InvariantCulture));
+                Add(details, "Users whose devices change", Joined(answer["users"]));
+                (count, unit) = (1, "device group");
+                break;
+            case "oadm_device_groups_delete_preview":
+                Add(details, "Deletes the device group", Text(answer["name"]));
+                Add(details, "Users with no devices afterwards", Joined(answer["users"]));
+                (count, unit) = (1, "device group");
+                card.Destructive = true;
+                break;
+            case "oadm_access_keys_create_preview":
+                Add(details, "Creates the access key", Text(answer["name"]));
+                Add(details, "Role", Text(answer["role"]));
+                Add(details, "Devices", Text(answer["devices"]));
+                Add(details, "Ends", Text(answer["expires"]));
+                (count, unit) = (1, "access key");
+                break;
+            case "oadm_access_keys_delete_preview":
+                Add(details, "Deletes the access key", Text(answer["name"]));
+                Add(details, "Role", Text(answer["role"]));
+                Add(details, "Devices", Text(answer["devices"]));
+                (count, unit) = (1, "access key");
+                card.Destructive = true;
+                break;
+            case "oadm_settings_set_preview":
+                foreach (var change in (answer["changes"] as JsonArray ?? []).OfType<JsonObject>())
+                {
+                    Add(details, Text(change["label"]) ?? "Setting", Arrow(Text(change["old"]), Text(change["new"])));
+                }
+
+                (count, unit) = (Number(answer["will_change"]) ?? 0, "setting");
+                break;
+            case "oadm_mcp_set_preview":
+            case "oadm_assistant_settings_preview":
+                var title = preview.Name == "oadm_mcp_set_preview" ? "MCP server" : "Assistant";
+                if (answer["now"] is JsonObject now && answer["after"] is JsonObject after)
+                {
+                    foreach (var (name, value) in after.Where(p => !JsonNode.DeepEquals(p.Value, now[p.Key])))
+                    {
+                        Add(details, name == "has_api_key" ? "API key" : Label(name), name == "has_api_key" ? (Flag(value) == true ? "a new one, entered here" : "none") : Arrow(Plain(now[name]), Plain(value)));
+                    }
+
+                    if (Flag(now["enabled"]) == true && Flag(after["enabled"]) == false)
+                    {
+                        card.Destructive = true; // Turn off
+                        Add(details, "Turns off", title);
+                    }
+                }
+
+                if ((answer["needs_secrets"] as JsonArray)?.Count > 0 && !details.Any(d => d.StartsWith("API key", StringComparison.Ordinal)))
+                {
+                    Add(details, "API key", "a new one, entered here");
+                }
+
+                (count, unit) = (Number(answer["will_change"]) ?? 0, "setting");
+                break;
+            case "oadm_sites_accept_preview":
+                Add(details, "Accept site nodes", Flag(answer["accept"]) == true ? "on" : "off");
+                Add(details, "Devices at sites", Number(answer["devices"])?.ToString("N0", CultureInfo.InvariantCulture));
+                (count, unit) = (Number(answer["sites"]) ?? 0, "site");
+                card.Destructive = Flag(answer["accept"]) == false;
+                break;
+            case "oadm_sites_bind_preview":
+                Add(details, "Binds the site node at", Text(answer["address"]));
+                Add(details, "Fingerprint", Text(answer["fingerprint"]));
+                Add(details, "Site name", Text(answer["name"]));
+                (count, unit) = (1, "site");
+                break;
+            case "oadm_sites_replace_preview":
+                Add(details, "Moves the devices of", Text(answer["site"]));
+                Add(details, "To", Text(answer["new_site"]));
+                (count, unit) = (Number(answer["devices"]) ?? 0, "device");
+                break;
+            case "oadm_sites_remove_preview":
+                Add(details, "Removes the site", Text(answer["site"]));
+                Add(details, Flag(answer["keep_devices"]) == true ? "Keeps as Site offline" : "Removes from OADM", Count(Number(answer["devices"]) ?? 0, "device"));
+                Add(details, "Used by device groups", Joined(answer["device_groups"]));
+                (count, unit) = (1, "site");
+                card.Destructive = true;
+                break;
+            case "oadm_devices_certificate_trust_preview":
+                foreach (var device in (answer["devices"] as JsonArray ?? []).OfType<JsonObject>().Where(d => Text(d["new_fingerprint"]) is { Length: > 0 }))
+                {
+                    Add(details, Text(device["address"]) ?? "Device", "trusted " + Text(device["trusted_fingerprint"]) + ", new " + Text(device["new_fingerprint"]));
+                }
+
+                (count, unit) = (Number(answer["will_change"]) ?? 0, "device");
+                break;
+            case "oadm_devices_remove_all_preview":
+                Add(details, "Removes from OADM", Count(count, "device") + " with their stored logins");
+                foreach (var site in (answer["at_sites"] as JsonArray ?? []).OfType<JsonObject>())
+                {
+                    Add(details, "At " + Text(site["site"]), Count(Number(site["devices"]) ?? 0, "device"));
+                }
+
                 card.Destructive = true;
                 break;
             default:
@@ -147,6 +518,11 @@ internal static class AssistantCards
                 }
 
                 card.Destructive = run?.Destructive ?? false;
+                if (Text(answer["unit"]) is { Length: > 0 } pluginUnit && Number(answer["will_change"]) is { } pluginCount)
+                {
+                    (count, unit) = (pluginCount, pluginUnit); // a plan of PluginToolPlan: "1 reader", "3 leases"
+                }
+
                 break;
         }
 
@@ -175,9 +551,20 @@ internal static class AssistantCards
         return card;
     }
 
-    /// <summary>"3 devices", "1 rule".</summary>
+    /// <summary>"3 devices", "1 rule", "2 entries", "4 addresses".</summary>
     public static string Count(int count, string unit) =>
-        string.Create(CultureInfo.InvariantCulture, $"{count:N0} {unit}{(count == 1 ? string.Empty : "s")}");
+        string.Create(CultureInfo.InvariantCulture, $"{count:N0} {(count == 1 ? unit : PluralOf(unit))}");
+
+    private static string PluralOf(string unit) =>
+        unit.EndsWith('y') ? unit[..^1] + "ies" : unit.EndsWith('s') ? unit + "es" : unit + "s";
+
+    /// <summary>"32 → 64" of a value before and after.</summary>
+    private static string Arrow(string? before, string? after) =>
+        (string.IsNullOrEmpty(before) ? "(empty)" : before) + " → " + (string.IsNullOrEmpty(after) ? "(empty)" : after);
+
+    /// <summary>A list of texts of an answer joined, null when empty.</summary>
+    private static string? Joined(JsonNode? list) =>
+        list is JsonArray array && array.Count > 0 ? string.Join(", ", array.Select(Text).OfType<string>()) : null;
 
     /// <summary>"Ping: run" of a plugin's run tool becomes "Ping".</summary>
     public static string TitleOf(string runTitle) => runTitle.EndsWith(": run", StringComparison.Ordinal) ? runTitle[..^": run".Length] : runTitle;

@@ -79,8 +79,10 @@ public sealed class ComplianceService(
     /// <see cref="UnauthorizedAccessException"/> (another owner without the right). A caller without devices (no group, or
     /// the group was deleted) saves nothing (<see cref="DeviceAccessRefusedException"/>, <see cref="DeviceGroupTexts.NoDevicesRefusal"/>).
     /// </summary>
+    /// <remarks><paramref name="checkOnly"/>: every check of a save, nothing stored (the tools' preview); the limit of checks and
+    /// the version are checked by the store, so only the save itself refuses them.</remarks>
     public async Task<(ComplianceCheck Check, bool Created)> SaveAsync(
-        ComplianceCheck check, DeviceView caller, DeviceScope? owner, bool mayChooseOwner, CancellationToken ct)
+        ComplianceCheck check, DeviceView caller, DeviceScope? owner, bool mayChooseOwner, CancellationToken ct, bool checkOnly = false)
     {
         ArgumentNullException.ThrowIfNull(check);
         ArgumentNullException.ThrowIfNull(caller);
@@ -120,6 +122,11 @@ public sealed class ComplianceService(
 
         await RequireOwnersDevicesAsync(check.Devices, target, caller.UserName, ct).ConfigureAwait(false);
         check.Owner = target;
+        if (checkOnly)
+        {
+            return (check, existing is null);
+        }
+
         var stored = await store.SaveCheckAsync(check, ct).ConfigureAwait(false);
         engine.ApplySaved(stored);
         return (stored, existing is null);

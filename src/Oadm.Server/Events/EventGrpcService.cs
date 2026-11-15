@@ -284,6 +284,24 @@ public sealed class EventGrpcService(
         }
     }
 
+    /// <summary>The checks of <see cref="SaveRecipient"/> without saving or auditing: the recipient as it would be saved.</summary>
+    public override async Task<Proto.RecipientEntry> CheckRecipient(Proto.SaveRecipientRequest request, ServerCallContext context)
+    {
+        Guid? id = string.IsNullOrEmpty(request.Id) ? null : GrpcGuard.ParseId(request.Id, "recipient id");
+        try
+        {
+            return ToProto(await rules.CheckRecipientAsync(id, request.Name, request.TypeId, ParseSettings(request.SettingsJson), context.CancellationToken).ConfigureAwait(false));
+        }
+        catch (RecipientValidationException ex)
+        {
+            throw new RpcException(new Status(StatusCode.InvalidArgument, ex.Message), new Metadata { { RecipientField, ex.Field } });
+        }
+        catch (KeyNotFoundException ex)
+        {
+            throw GrpcGuard.NotFound(ex.Message);
+        }
+    }
+
     public override async Task<Proto.Empty> DeleteRecipient(Proto.RecipientId request, ServerCallContext context)
     {
         var id = GrpcGuard.ParseId(request.Id, "recipient id");

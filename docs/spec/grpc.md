@@ -125,7 +125,8 @@ used again.
     another certificate than shown. Nothing was changed."; another serial: "Another device answers at this address.".
     Reply `results` {device_id, ok, message} in request order; audit "Trusted new device certificate" {"3 devices",
     "2 trusted"}; INVALID_ARGUMENT without devices.
-- **`DiscoveryService`** (`discovery.proto`): `StartZeroConf`, `StartRangeScan(from, to)`, `ProbeAddress(address,
+- **`DiscoveryService`** (`discovery.proto`): `StartZeroConf(no_logins)` (`ZeroConfRequest` replaced `Empty`, wire compatible;
+  `no_logins` as for the range scan: the AI agents' add preview only looks), `StartRangeScan(from, to)`, `ProbeAddress(address,
   user_name = 2, password = 3, expected_serial = 4)` (one IP or host name, optional port and scheme; INVALID_ARGUMENT for an
   unusable or unresolvable address, only one of user name (1..64) and password (1..256), or an expected serial that is not
   12 hex). The credentials of an imported line belong to that session only: tried first, then the credential list, server
@@ -188,7 +189,9 @@ used again.
     only**; the preview of the tools, `docs/spec/mcp.md` "Tasks"): NOT_FOUND unknown plugin, PERMISSION_DENIED page task or what the run needs; the
     payload's `errors` {field, message} (then nothing else), else the filter's devices in the caller's view in address order
     (NOT_FOUND for an id outside it), `run_device_ids` (`PlanAsync`, cached data only), `skipped` {reason, count},
-    `task_name`, `device_count`, `warnings`.
+    `task_name`, `device_count`, `warnings`, `files`, `details` (`TaskPlan.Details`: what the run does, such as the package each
+    device group gets). A plan that finds problems only it can see (`TaskPlan.Errors`: an upload it read, a choice the user
+    must make) answers them as `errors` like the payload check.
   - `List(ListTasksRequest)`: newest first, `limit` / `offset` paging, `TaskList.total_count = 2`, limit 0 = all.
     `Watch(WatchTasksRequest)`: every active task plus the newest `snapshot_limit` (0 = all), `SNAPSHOT_END` (kind 4, no
     task) when `snapshot_end_marker`, then live changes. For a user with a group both are filtered in the query
@@ -199,13 +202,21 @@ used again.
     active tasks, then one bulk delete.
   - `TaskInfo`: `repeated TaskStep steps = 13` (index, name, `TaskStepState`, detail, progress, started, finished) and
     `current_step_index = 14` (-1 none).
+  - `GetResultFile(TaskIdRequest)` and `DownloadResult(TaskIdRequest)` (server-streaming `DownloadChunk`: the name and
+    length first, then data, uncompressed): the result file a task kept (`ITaskExecutionContext.SaveResultFileAsync`,
+    `TaskResultFiles`, docs/spec/mcp.md "Files"), only for the user or access key that started the task and administrators,
+    in the caller's view; NOT_FOUND "This task has no result file (it is kept for a day)." for every other case alike.
+    `DownloadResult` is audited "Downloaded file". Signed in.
   - `Query(pluginId, deviceId, method, payloadJson)`: read-only `ITaskPluginQuery` for task dialogs, 30 s timeout;
     NOT_FOUND, UNIMPLEMENTED, FAILED_PRECONDITION for an incompatible device, changed certificate or rejected
     credentials, UNAVAILABLE, DEADLINE_EXCEEDED, INVALID_ARGUMENT; the status detail is the user message.
   - `Run` and `Query` answer a task plugin their permission lookup does not find with NOT_FOUND "Unknown task plugin 'x'."
     at once (one turned on meanwhile never runs unchecked). `Run` refuses a page task (hidden from the menus, no
     permissions of its own) for every caller: PERMISSION_DENIED "This task starts only from its page."
-  - `Plan` answers `files` (`PlanFile`: name and SHA-256 of each upload the plan uses, from the caller's uploads).
+  - `Plan` answers `files` (`PlanFile`: name and SHA-256 of each upload the plan uses, from the caller's uploads) and
+    `secrets` (`TaskSecretSlot`: name, label, field of each secret the run needs, `ITaskPlugin.SecretsOf`; never a value);
+    the payload's errors at those fields are left out. `check_only` answers only the payload's errors, those fields
+    included, and reads no device (the check of a value a person entered, docs/spec/mcp.md "Secrets").
 - **`FileService`** (`files.proto`): `Upload` (client stream: header {name, size}, then 256 KB data chunks; returns id,
   name, size, SHA-256; INVALID_ARGUMENT; RESOURCE_EXHAUSTED over `Uploads.MaxMegabytes`, over the 10 GB of all uploads
   together or when less than 1 GB of disk would stay free, `docs/spec/security.md` "Limits"), `Delete(fileId)`. Uploads
@@ -247,7 +258,7 @@ used again.
     4.10.0; `AddOnList` of `AddOnInfo` {id, display_name, description, state, percent, message, version, can_install,
     client_digest = 10, download_url = 11, update_available = 12, update_waits = 13; field 4 reserved}, every add-on of the server's version from `AddOnCatalog`;
     `client_digest` while installed; `download_url` the ZIP of this version and system, empty in a build without the
-    hash), `UploadAddOn(stream AddOnUploadChunk)` (Admin; bidirectional; first message `AddOnUploadHeader` {id, file_name, size},
+    hash), `UploadAddOn(stream AddOnUploadChunk)` (Admin; bidirectional; first message `AddOnUploadHeader` {id, file_name, size, file_id: instead of data chunks the caller's upload of `FileService.Upload`, an agent's upload link, NOT_FOUND when it is gone, deleted once installed; decision 2026-11-15},
     then data chunks of 256 KB; answers a stream of `AddOnProgress` {step Upload, Check or Install, percent, done, error},
     the last message has done or error set, error also for a refused file; the server may answer before it has read
     the whole file; INVALID_ARGUMENT no header or a second one; NOT_FOUND unknown add-on; FAILED_PRECONDITION already installed,
@@ -300,7 +311,9 @@ used again.
   used, `docs/spec/recipient-sessions.md`), `ListRecipientCertificates` (like `SaveRule`: the certificates of PKI for the recipient dialog, both
   lists empty while PKI is not running; ids and texts only, never a key). `GetCatalog` also gives `recipient_types` (`persistent`: one shared connection).
   - `CheckRule(SaveRuleRequest)` (like `SaveRule`): the rule editor's checks, answers the rule's summary or INVALID_ARGUMENT
-    with the first problem; nothing is saved. `ListLog` takes `before_id` (the page before that entry) and `skip_total`.
+    with the first problem; nothing is saved. `CheckRecipient(SaveRecipientRequest)` (like `SaveRecipient`): the recipient
+    dialog's checks (the type's fields, the stored values, the name, the count), answers the recipient as it would be saved
+    (its target, never a password) or the errors of `SaveRecipient`; nothing is saved or audited (the tools' preview). `ListLog` takes `before_id` (the page before that entry) and `skip_total`.
 - **`ServerLogService`** (`logs.proto`, permission `logs.server`, users with all devices): `List` (the server's log
   files, a page newest first; `not_after = 5`: only lines at or before that ISO 8601 time, the page after a line, which new
   lines never move; INVALID_ARGUMENT for another text), see `docs/spec/main-window.md` "Logs page".
@@ -322,6 +335,12 @@ used again.
   empty lists = the view.
   - `Summarize(filter)` (like `ListChecks`): every check with the pass, fail and unknown counts of the filter's devices in
     the caller's view.
+  - `ListResults(check_id, outcomes, filter, after_device_id, limit)` (like `ListChecks`): one check's results of the
+    filter's devices in the caller's view, a page (1 to 500, default 50) in device id order after `after_device_id`, and the
+    `total`; the filter's ids are checked first (NOT_FOUND "1 device is no longer available."), then the check (NOT_FOUND for
+    one the caller does not see). The tools' "which devices fail a check".
+  - `PlanCheck(ComplianceCheckDetail)` (like `SaveCheck`): every check of `SaveCheck` except the limit of 50 checks and the
+    version, answers the check as it would be saved (its summary, no results); nothing is saved (the tools' preview).
 - **`TagService`** (`tags.proto`, `docs/spec/tags.md`): `List` (every definition sorted by name with its `device_count`
   in the caller's view and, for users with all devices, the `group_names` that use it; then names used on devices of the
   view without a definition, `defined = false`), `Watch` (the whole `TagList` on subscribe and after every change of the
@@ -365,7 +384,9 @@ used again.
   a device group; INVALID_ARGUMENT with the field's text and the trailer `oadm-field` = `name`, `role`, `devices` or `days`;
   RESOURCE_EXHAUSTED at 100 keys; an Administrator key gets all devices; the reply holds the key once; audited "Created
   access key"), `Delete` (ends the key at once, audited "Deleted access key"; NOT_FOUND "The access key no longer exists.";
-  answers every key). No answer holds a key or its hash; the id is the key's identity.
+  answers every key). No answer holds a key or its hash; the id is the key's identity. Called by an access key (an
+  Administrator's agent): `Delete` of its own key is FAILED_PRECONDITION "An agent cannot delete its own access key. Delete
+  it in OADM.", and `Create` ends the new key at the latest with the caller's own key.
 - **`AssistantService`** (`assistant.proto`, `docs/spec/assistant.md`): `Chat`, `Stop`, `Run`, `End` and `ListModels`
   need "Use the assistant" (`assistant.use`); FAILED_PRECONDITION "The assistant is off." while it is off.
   `Chat` (server-streaming; the model the user chose, 1 to 200 characters, else INVALID_ARGUMENT "Choose a model." with
@@ -376,7 +397,11 @@ used again.
   model cannot use tools. Choose another one." when the chosen model refuses the tools). The model may change between
   messages; the chat stays. `replace_last` (Try again, Edit): the server drops the conversation's last user message and
   everything after it before it adds this one; FAILED_PRECONDITION "There is nothing to try again." when it has none.
-  `mentioned_device_ids` (devices chosen with @, at most 10,000, cut to the caller's view). `RetryFailed` (handle of a card
+  `mentioned_device_ids` (devices chosen with @, at most 10,000, cut to the caller's view). `docs_offer_id` (Look up
+  online, decision 2026-11-15, docs/spec/assistant.md "Looking in the Axis docs"): the id of an `AssistantEvent.docs_offer`
+  of this chat's last answer; only this answer gets the provider's web tools for developer.axis.com and help.axis.com;
+  taken once, any other message ends the chat's offers; FAILED_PRECONDITION "This offer has ended. Ask again." for an
+  unknown, used, ended (10 minutes) or another chat's offer. `RetryFailed` (handle of a card
   the caller ran in this chat, the failed device ids, 1 to 10,000): the same preview tool with the same input for those
   devices as a new card; NOT_FOUND "This preview has ended. Ask again." for a card of another chat or one that never ran,
   FAILED_PRECONDITION with the preview's own warning or "These devices cannot be tried again. Ask again.".
@@ -385,11 +410,19 @@ used again.
   `Stop` ends the answer that streams (`done.stopped`), `End` forgets the chat, both always succeed. `Run` (the chat's
   preview handle, once): the run tool of the preview as the caller; NOT_FOUND "This preview has ended. Ask again." for a
   handle of another chat, session or user, one that ran or ended; FAILED_PRECONDITION with the run's refusal; the reply
-  names the batch and the first 10,000 task ids. `GetSettings` (signed in: the settings without the key and without a
+  names the batch and the first 10,000 task ids, `files`: the files the run offers (Back up now, decision 2026-11-15),
+  saved with `Download` like a tool answer's, and `secret` when the run made one (a new access key: its card's title and
+  the `file_ref` that `Download` serves once; NOT_FOUND "This access key was fetched already. ..." afterwards). `GetSettings` (signed in: the settings without the key and without a
   model, `has_api_key`, the tokens of today, the status On or Off). `SetSettings` and `Test` (Admin,
   all devices; INVALID_ARGUMENT with the trailer `oadm-field` = `provider`, `address`, `api_key`, `daily_limit` or
   `user_daily_limit`; an empty `api_key` keeps the saved one only for the same provider and address, else `api_key` "Enter the API key."). `SetSettings` is audited "Changed
   assistant" (never the key) and ends every chat when the assistant is turned off or its provider or address changes.
+  `Run` takes `secrets` (the card's secret fields by name, at most 8, each at most 4,096 bytes; docs/spec/mcp.md "Secrets"):
+  INVALID_ARGUMENT with `oadm-field` for a name the preview did not declare or a value too long, FAILED_PRECONDITION "Enter
+  the password." with `oadm-field` = the name while one is missing (the card stays). `Download(conversation_id, file_ref)`
+  ("Use the assistant", server-streaming `DownloadChunk`): a file a tool answer of the caller's own chat offered
+  (`AssistantEvent.file`), made now with the caller's rights and audited "Downloaded file"; NOT_FOUND "This file has ended.
+  Ask again." for a reference of another chat, session or user or one that ended.
   `Test` reads the provider's model list (no model needed; an OpenAI-compatible server without a list counts as an
   answer) and says "The provider answered." or the error in plain words; it never saves.
 - **`SupportService`** (`support.proto`, `docs/spec/settings-backup.md` "Support report"): `CreateReport` (Admin, audited

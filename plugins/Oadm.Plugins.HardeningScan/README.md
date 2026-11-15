@@ -156,7 +156,12 @@ scanned) and the value found. Built on the client from the loaded results (the s
 ## Methods
 
 `HardeningMethods` (camelCase JSON, `Shared/HardeningModels.cs`); events `progress`, `results`. AI agents
-(docs/spec/mcp.md): the read-only tool `oadm_hardening_results`.
+(docs/spec/mcp.md): the read-only tools `oadm_hardening_results` and `oadm_hardening_results_csv` (the same filters;
+the CSV as a file, `ReturnsFile`: the download `resultsCsv`, made from the caller's devices when it is fetched, in the
+columns of the page's Export plus the host name and the level) (right "show"),
+and the page's actions (`Tools/HardeningPageTools.cs`,
+`PluginPageTools`) `oadm_hardening_scan_start` (the device filter or `all_devices`; "scan"), `oadm_hardening_scan_stop`
+("scan") and `oadm_hardening_detail` (one device's checks with the guide's recommendation; "show"). Tests: `PageToolTests`.
 
 | Method | Payload | Answer | Permission |
 |---|---|---|---|

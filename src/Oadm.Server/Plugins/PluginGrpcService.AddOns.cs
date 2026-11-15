@@ -42,8 +42,45 @@ public sealed partial class PluginGrpcService
 
         var header = requestStream.Current.Header;
         var entry = AddOnOf(header.Id);
-        var upload = new AddOnUpload(entry.Id, header.FileName, header.Size, ChunksAsync(requestStream));
-        await RunInstallAsync(entry, responseStream, progress => _addOns.InstallFileAsync(upload, progress, ct)).ConfigureAwait(false);
+        if (header.FileId.Length == 0)
+        {
+            var upload = new AddOnUpload(entry.Id, header.FileName, header.Size, ChunksAsync(requestStream));
+            await RunInstallAsync(entry, responseStream, progress => _addOns.InstallFileAsync(upload, progress, ct)).ConfigureAwait(false);
+            return;
+        }
+
+        // A file the caller sent before (an AI agent's upload link): the same check of the bytes as they are read.
+        var owner = Core.Uploads.UploadOwner.Of(Auth.AuthInterceptor.CallerOf(context));
+        var sent = await uploads.FindAsync(header.FileId, owner, ct).ConfigureAwait(false) ?? throw GrpcGuard.NotFound(AddOnFileGone);
+        var installed = false;
+        await RunInstallAsync(entry, responseStream, async progress =>
+        {
+            var status = await _addOns.InstallFileAsync(new AddOnUpload(entry.Id, sent.Name, sent.Size, UploadChunksAsync(header.FileId, owner)), progress, ct).ConfigureAwait(false);
+            installed = true;
+            return status;
+        }).ConfigureAwait(false);
+        if (installed)
+        {
+            await uploads.DeleteAsync(header.FileId, owner, CancellationToken.None).ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>The refusal of an upload by id that is not (or no longer) on the server.</summary>
+    public const string AddOnFileGone = "The uploaded file is no longer on the server. Send it again.";
+
+    /// <summary>The bytes of the caller's upload in chunks of 256 KB.</summary>
+    private async IAsyncEnumerable<ReadOnlyMemory<byte>> UploadChunksAsync(string fileId, Core.Uploads.UploadOwner owner, [EnumeratorCancellation] CancellationToken ct = default)
+    {
+        var stream = await uploads.OpenReadAsync(fileId, owner, ct).ConfigureAwait(false);
+        await using (stream.ConfigureAwait(false))
+        {
+            var buffer = new byte[256 * 1024];
+            int read;
+            while ((read = await stream.ReadAsync(buffer, ct).ConfigureAwait(false)) > 0)
+            {
+                yield return buffer.AsMemory(0, read).ToArray();
+            }
+        }
     }
 
     /// <summary>The data chunks after the header. A connection that breaks is an upload that stopped, not a disk error.</summary>

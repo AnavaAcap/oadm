@@ -185,10 +185,11 @@ the run from the filled-in request). Available while the plugin is on. Spec:
 ## Permissions
 
 `oadm.vapix-commander:show` (library, saved commands, compatibility), `:send` "Send to one device" (`tryRequest`),
-`:rollout` "Run on many devices" (`rollout`) and `:saved` "Change saved commands" (`save`, `delete`, `import`). Send and
-rollout are full device control. The page hides Send, Run, New command (unless send or saved), Import, Edit and Delete of
-saved commands and Save with values accordingly; the request builder hides Send and Save. Operator default: all. The
-event rule action runs as the server and follows "Change event rules".
+`:rollout` "Run on many devices" (`rollout`), `:saved` "Change saved commands" (`save`, `delete`, `import`) and
+`:dangerous` "Send dangerous requests" (the agents' device request that can lock OADM out, see "MCP"). Send, rollout and
+dangerous are full device control. The page hides Send, Run, New command (unless send or saved), Import, Edit and Delete of
+saved commands and Save with values accordingly; the request builder hides Send and Save. Operator default: all but
+dangerous. The event rule action runs as the server and follows "Change event rules".
 
 ## Device groups
 
@@ -211,13 +212,56 @@ Page methods get the user's call (`InvokeAsync(caller, ...)`); see [device group
 
 `CommanderTools` (`ICorePlugin.Tools`, area `vapix`): `oadm_vapix_commands` lists the library and saved commands an agent may
 run (paged by id, with their fields); `oadm_vapix_command_preview` / `_run` runs one of them on device ids from
-`oadm_devices_search`. Left out: dangerous commands, commands with a password or a file field, and changes OADM's own tasks
+`oadm_devices_search`. Left out: dangerous commands, commands with a file field (or more than 8 password fields), and changes OADM's own tasks
 make (`CommanderTools.OwnTaskPaths`: time, NTP, applications, AXIS OS, restart, users, network). Values come as
 `{field, value}` text pairs, converted by the field's type and checked by `CommandRenderer`. The run calls `RolloutAsync`
 with `Confirmed` (the user's OK of the preview), never `ConfirmedDangerous`, and `MaskSecrets`: the steps, the log and
 the answer show `***` for a value whose label, parameter or path names a secret (`SecretValues`, never a yes/no value);
-it needs `rollout` and is audited. Tests:
-`ToolTests`.
+it needs `rollout` and is audited. A password field is never a value of the agent ("Leave the password out. The user
+enters it."): the preview renders without it and names a slot per password field (`secrets_needed`, the field's name and
+its label in lower case); the host's check of an entered value runs the field's own rules (`FieldValues.Convert`, at
+`secrets.<name>`); the run takes the entered values, never a stored password of a saved command and never a stand-in
+(`CommanderTools.SecretSlots`). Tests: `ToolTests`.
+
+The device request (`DeviceRequestTool`, decision 2026-11-15): `oadm_device_request_preview` / `_run` (its own area
+`device`, `PluginTool.Area`) sends one request the agent writes itself to the devices of the host's device filter, as an
+inline command through `CommandRenderer`, `RequestSafety`, `Compatibility` and `SendCheckedAsync` (Send's code: a fresh API
+list before a write). The API is the known path's (`RequestDefaults`, shared with the request builder), else `param-cgi`
+any version.
+
+- Input: method GET, POST, PUT, PATCH or DELETE; a path under `/axis-cgi/`, `/config/rest/` or `/vapix/` (`IsDevicePath`,
+  no `?`, no `{{...}}`); query pairs; a body (at most 64 KB, none for GET; JSON checked) and its media type (default
+  `application/json` for `{` or `[`, else `text/plain`; sent as Content-Type); a wait of 1 to 60 s. Right: `send`.
+- No password in the request: a name that points to a secret (`SecretValues.IsSecretName`, `pwd`, `pass`, `pin`) with a
+  value other than yes/no refuses it ("This request carries a password or another secret. Set passwords in OADM.").
+- Lock-out: `RequestSafety` Dangerous, or any change of a path whose words name accounts, the network, HTTP(S), TLS,
+  certificates, 802.1X, AXIS OS or a reset (`IsLockOutPath`), needs `dangerous`, else "This request can lock OADM out of the
+  device or break it (accounts, network, HTTPS, 802.1X, AXIS OS, factory default). It needs the right Send dangerous
+  requests."; with it the plan has `dangerous` and the warning. `restart.cgi` needs no `dangerous` ("The devices restart and
+  are offline for a few minutes.").
+- One device first: a change on more than one device is refused ("Run this request on one device first. When it succeeded
+  there, run it on more devices.") until the same request (method, path as the device reads it, query, media type, body)
+  succeeded on exactly one device for the same caller (`ICallContext.UserName`), kept 24 h in memory
+  (`DeviceRequestTrials`, at most 1,000, `VapixCommanderPlugin.Time`). Reads run on many devices.
+- At most 100 devices ("N devices match. Choose at most 100 devices for one request."), 8 at a time. Plan: kind, the
+  request line and body with secret values as `***`, `will_run`, `will_change`, `unit`, the first 20 devices, skipped by
+  reason, warnings. Run: per device status, ok, error (first 50), bodies of the first 10, cut so the answer stays under
+  28 KB, secret values as `***` (`DeviceRequestTool.MaskText`: JSON, `name=value`, XML elements and attributes).
+- Audit: "Device request POST /axis-cgi/param.cgi on 3 devices" (`AuditDetail`), never the query values or the body; the
+  server log names the masked request line per device. Tests: `DeviceRequestToolTests`, server `McpPluginToolTests`.
+
+The saved commands (`CommanderPageTools`, `PluginPageTools`, decision 2026-11-15), each with the rights of its page method:
+`oadm_vapix_saved_save_preview` / `_run` (a command as JSON in the command file format; the store's preparation and
+`CommandValidator`, the 500 limit, `previous_id` to replace one), `oadm_vapix_saved_delete_preview` / `_run` and
+`oadm_vapix_saved_import_preview` / `_run` (a command file; the preview names the commands, the ones replaced and the ones
+left out) need "saved" and all devices like the page; `oadm_vapix_saved_export` ("show") answers the export file (at most
+24 KB, else "Choose fewer commands"), without password values and with every value whose name points to a secret as `***`
+(`SecretValues.IsSecretName`: field defaults, query, headers, body). No password passes a tool as an argument: a password
+field with a value refuses the command (`CommanderPageTools.NoPasswords`; a stored password stays when its field is empty).
+`set_passwords` (save: field names; import: command id and field) names the password fields to store: the plan has a slot
+each, the person enters the value, the run puts it into the field and the store encrypts it like the page's
+(`SavedCommandStore`); without a master key protector: "OADM cannot store passwords for saved commands here.". Tests:
+`PageToolTests`, host `McpCommanderSecretTests`.
 
 ## Tests
 

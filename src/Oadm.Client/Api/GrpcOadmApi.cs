@@ -399,7 +399,7 @@ public sealed class GrpcOadmApi : IOadmApi, IDisposable
         (await C.Devices.GetWebUiUrlAsync(new DeviceId { Id = deviceId }, cancellationToken: ct)).Url;
 
     public async Task<string> StartZeroConfAsync(CancellationToken ct) =>
-        (await C.Discovery.StartZeroConfAsync(new Empty(), cancellationToken: ct)).SessionId;
+        (await C.Discovery.StartZeroConfAsync(new ZeroConfRequest(), cancellationToken: ct)).SessionId;
 
     public async Task<string> StartRangeScanAsync(string firstAddress, string lastAddress, CancellationToken ct) =>
         (await C.Discovery.StartRangeScanAsync(new RangeScanRequest { From = firstAddress, To = lastAddress }, cancellationToken: ct)).SessionId;
@@ -733,6 +733,12 @@ public sealed class GrpcOadmApi : IOadmApi, IDisposable
 
     public async Task<AssistantRunReply> AssistantRunAsync(string conversationId, string handle, CancellationToken ct) =>
         await C.Assistant.RunAsync(new AssistantRunRequest { ConversationId = conversationId, Handle = handle }, cancellationToken: ct);
+
+    public async Task<AssistantRunReply> AssistantRunAsync(AssistantRunRequest request, CancellationToken ct) =>
+        await C.Assistant.RunAsync(request, cancellationToken: ct);
+
+    public Task<Oadm.Sdk.Plugins.PluginDownload> AssistantDownloadAsync(string conversationId, string fileRef, CancellationToken ct) =>
+        OpenDownloadAsync(C.Assistant.Download(new AssistantDownloadRequest { ConversationId = conversationId, FileRef = fileRef }, cancellationToken: CancellationToken.None), ct);
 
     public async Task<AssistantPreviewCard> AssistantRetryFailedAsync(string conversationId, string handle, IReadOnlyList<string> failedDeviceIds, CancellationToken ct)
     {

@@ -105,8 +105,25 @@ Open gate on Gate house"). Video needs "Live view"; without it the widget says "
 `oadm_dashboards_list` (the caller's dashboards by name with the widget counts per kind, paged, `search`) and
 `oadm_dashboards_values` (one dashboard's widgets in order with the value each shows now from the value store: on,
 the field's value cut at 200 characters, unit, time, why it may be old). A group user gets the group's dashboards with the
-group's devices, never a value of an event the group does not see. Nothing is watched; saving and pressing stay in the
-page. Right "show".
+group's devices, never a value of an event the group does not see. Nothing is watched. Right "show".
+
+The page's actions (`Tools/DashboardPageTools`, `PluginPageTools`, decision 2026-11-15), each through the page method it wraps
+and with its right (`RulesMethodOf` in `RequiredPermission`, `IsAudited`, `AuditDetail`; a preview is never audited):
+
+| Tool | Kind | Page method | Right |
+| --- | --- | --- | --- |
+| `oadm_dashboards_get` | Read (one dashboard's widgets with every setting, paged) | `list` | show |
+| `oadm_dashboards_events` | Read (the catalog: events, values, split choices, paged) | `catalog` | show |
+| `oadm_dashboards_save_preview` / `_run` | Change | `save` | manage |
+| `oadm_dashboards_delete_preview` / `_run` | Change (destructive) | `delete` | manage |
+| `oadm_dashboards_press_preview` / `_run` | Change (sends the button's event to the event rules) | `press` | press |
+
+Save creates a dashboard or changes one (`dashboard_id`; `widgets` replaces all, left out they stay; the stored version
+is taken at the preview, so a change by another user in between is refused with the page's text). The preview runs the
+page's save checks without storing (`CheckSaveAsync`, the same `PrepareSaveAsync` as `save`); its refusals go below
+`name` or `widgets`. Press checks the button like the page (`CheckPressAsync`, shared with `press`) and says whether a rule
+uses it; the run is the page's press (its rate limit, its audit entry "Pressed <label> on <dashboard>"). Tests:
+`PageToolTests`.
 
 ## Tests
 

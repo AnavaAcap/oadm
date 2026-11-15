@@ -109,8 +109,13 @@ internal sealed class ConfigureCamera : IVapixClient
 
     public Task RestartAsync(CancellationToken ct) => throw new InvalidOperationException("not used");
 
-    public Task<IReadOnlyList<DeviceApi>> GetApiListAsync(CancellationToken ct) =>
-        Task.FromResult<IReadOnlyList<DeviceApi>>([new DeviceApi("param-cgi", "1.0"), new DeviceApi("stream-profiles", "1.0")]);
+    /// <summary>The device's API list (<c>apidiscovery.cgi</c>).</summary>
+    public IReadOnlyList<DeviceApi> ApiList { get; set; } = [new DeviceApi("param-cgi", "1.0"), new DeviceApi("stream-profiles", "1.0")];
+
+    /// <summary>The recorded parameter definitions; a test may rename a parameter in them.</summary>
+    public XDocument DefinitionsXml => _definitions;
+
+    public Task<IReadOnlyList<DeviceApi>> GetApiListAsync(CancellationToken ct) => Task.FromResult(ApiList);
 
     public async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
     {

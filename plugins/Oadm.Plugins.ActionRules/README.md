@@ -105,4 +105,64 @@ says the device's reason.
 
 The read-only tool `oadm_device_rules_list` (`Tools/ActionRuleTools.cs`, docs/spec/mcp.md "Plugins"; area `device_rules`,
 apart from OADM's own event rules): the table the editor read last for the caller's device scope, a summary per rule
-name and one row per device and rule, paged. It reads no device. Tests: `ToolTests`.
+name and one row per device and rule (with the start event's `event_topic`), paged, and the editor's recent changes of the
+caller's devices (`changes`, the newest 20, their ids for undo). It reads no device. Tests: `ToolTests`.
+
+### Agents run the editor's task (SDK 0.13.0)
+
+The task `oadm.action-rules.task` takes `RuleAgentPayload` (`Agent/`) as its `PayloadType`, so the host's task tools
+(`oadm_tasks_catalog`, `oadm_task_preview`, `oadm_task_run`) offer the editor's rule operations. No tool of its own.
+
+- `action`: `change` (`ruleName` + `change`: `name`, `enabled`, `timeoutSeconds`, `parameters`, `recipientName`; on and
+  off is `enabled` only), `delete` (`ruleName`), `copy` (`sourceDeviceId`, `sourceRuleId`, optional `change` for the
+  copies), `create` (`rule`: the rule builder's `NewRule`: name, event topic and values, `whileActive`, conditions, a
+  built-in `scheduleId`, timeout, template, parameters, recipient), `undo` (`undoOf`: an id of `changes`). Events, schedules
+  of a change, recipients and schedules themselves stay in the editor.
+- Rules are matched by name on each device as the editor read them last (every table, the newest row), at that version;
+  a device the editor has not read is skipped ("Not read in the Action Rule Editor. Read the rules there first.").
+- `ValidatePayload` runs the page methods' checks that read no device, at the input's fields with the page's texts
+  (`RulePatch.Problem`, `BuildProblem`, `UnknownSetting`, the copy's source rule in the last read, the undo's saved
+  devices); a field not used by the action is refused. Passwords (the secret channel, docs/spec/mcp.md "Secrets"): the
+  agent sends a setting `RuleText.IsSecret` names empty in `change.parameters` or `rule.parameters`; `SecretsOf`
+  (`RuleAgentCheck.SecretsOf`) makes it a slot (the setting's name, label "password", "proxy password", "HTTP headers"),
+  the person enters it and the run's payload has it at its field. Empty at a run: "Enter the password."; a name that is no
+  plain word (letters, digits, `_`, `-`) or more than 8: "Set passwords in the Action Rule Editor.". The value goes to
+  the device like the page's, never into a step, the log or the task name; the undo store keeps it encrypted.
+- `PlanAsync` from the last read only: skipped "No rule with this name.", "Already on." / "Already off.", "The rule is
+  copied from this device.", "Not changed by this change."; warnings: a delete counts the rules and devices, a copy takes
+  the rule's stored passwords along, an undo names devices of the change outside the choice, a password slot "The action
+  gets a new password. The user enters it." (never the value).
+- `PagePermissions`: `delete` for delete, `manage` for the others (as the page's methods); a payload of the page (it has
+  `runId`) answers null and starts only from the page.
+- The run: the first task of a run does the page method's part once for the whole run (the run saved for undo with the
+  caller's device scope, the copy's source read with its passwords on the server, the undo checked and marked; by the
+  payload string, which the engine hands every task of a run), then each task gets the editor's own payload for its
+  device and runs unchanged (fresh read, version check, undo saves). A failure of that part fails every task with "Nothing
+  was changed."; a task of an agent's run counts as running while it runs, and one that starts after its run was undone
+  refuses. Tests: `AgentTaskTests`.
+
+The page's actions as tools (`Tools/ActionRulePageTools.cs`, `PluginPageTools`, decision 2026-11-15), each with the rights
+of the page method it wraps (a preview is never audited):
+
+| Tool | Kind | Permission | Page method |
+|---|---|---|---|
+| `read` | start (no confirmation, like Refresh) | show | `read` |
+| `recipients`, `schedules` | read of the last read, by name (and kind); `device_id`: one device's settings | show | `getState` |
+| `recipient_kinds` | read: the kinds the chosen devices offer, with their settings | show | `templates` |
+| `recipient_create`, `recipient_change`, `recipient_copy` | preview / run | manage | `recipientNew`, `recipientEdit`, `recipientDeploy` |
+| `schedule_create`, `schedule_change`, `schedule_copy` | preview / run | manage | `scheduleDeploy`, `scheduleEdit`, `scheduleDeploy` |
+| `recipient_delete`, `schedule_delete` | preview / run, destructive | delete | `recipientDelete`, `scheduleDelete` |
+
+- Devices by the host's filter (at most 500 a call), each in the caller's view (`CallDevices.RequireAsync`, like the page).
+- Recipients and schedules are chosen like the page's groups: by name (and kind) on the chosen devices the editor read, at
+  the version read; devices without one are counted in `skipped`. Built-in schedules are never targets; a schedule rules
+  use is deleted only with them (`delete_rules`).
+- The preview runs the page's checks (`PrepareNewRecipientAsync`, `PrepareRecipientsAsync`, `PrepareSchedulesAsync`,
+  `NewSchedule`) and starts nothing; the run checks again and starts the page's run (saved for undo, one task per device).
+- No password is taken as a setting or shown: a password in `settings` answers "Leave passwords out of settings. Name
+  them in set_passwords; the user enters them.", a login inside an address "Set this in OADM.". `recipient_create` and
+  `recipient_change` take `set_passwords` (password settings of the kind or of the recipients read): the plan names a
+  slot each (`PluginToolPlan.SecretsNeeded`), the host's check of an entered value calls the preview with it (too long:
+  `secrets.<name>`), the run puts it into the page's run (in memory; the undo store encrypts it). A plan without the value
+  holds an empty stand-in and never runs. A copy takes the source's password on the server, like the page.
+- Rule changes, copies, deletes and undo are the editor's task, not these tools. Tests: `PageToolTests`.

@@ -24,7 +24,7 @@ public sealed class SettingsTaskTests
     }
 
     private static string Payload(Dictionary<string, string> values, string app = "demo") =>
-        new AcapPayload { Action = AcapAction.Settings, Application = app, AppDisplayName = "Demo App", Values = values }.ToJson();
+        new AcapPayload { Action = AcapAction.Settings, Application = app, AppDisplayName = "Demo App", Values = values, PasswordsAllowed = true }.ToJson();
 
     private static Task Run(RecordingContext ctx, string payload) =>
         StepRun.RunAsync(ctx.NewRun(), () => Plugin.ExecuteAsync(ctx, new FakeDevice(), payload, CancellationToken.None));

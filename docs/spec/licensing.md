@@ -96,6 +96,10 @@ start the trial in the app once.
 - Issuing: the page `oadm.app/activate/` (`docs/spec/packaging.md` "Activation page") sends the server ID with a bought
   license code, and the support forum returns the signed key as a `.oadmlicense` file (a code works for one server; the
   same server can fetch it again). The forum's own rules are documented in its repository; it issues no trials.
+- AI agents (decision 2026-11-15, `docs/spec/mcp.md` "Administration as built"): an administrator's agent imports a key,
+  removes it and starts the trial as previews and runs of these methods; the key goes only through the secret channel
+  (never through the model), the plugin licenses the same way (`SetPackageLicense`). The import preview names the page of
+  Activate license with this server's ID.
 - Fake mode: keys signed with `FakeOadmApi.SampleLicenseKeys` for `FakeOadmApi.FakeServerId`; Start 30-day trial runs
   once like on a server.
 - Tests: `tests/Oadm.Core.Tests/Licensing/ProLicenseTests` and `ProTrialTests`, `tests/Oadm.Server.Tests/ProLicenseServiceTests`,

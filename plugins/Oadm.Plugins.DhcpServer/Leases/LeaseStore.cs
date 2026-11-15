@@ -461,32 +461,9 @@ public sealed class LeaseStore
     /// </summary>
     public Dictionary<string, string> SetStatic(ulong mac, uint address, string? name, ulong? originalMac, DateTime now)
     {
-        var errors = new Dictionary<string, string>(StringComparer.Ordinal);
         lock (_sync)
         {
-            if (originalMac is { } original && (!_byMac.TryGetValue(original, out var edited) || !edited.IsStatic))
-            {
-                errors["Mac"] = "This static lease no longer exists.";
-                return errors;
-            }
-
-            if (_byMac.TryGetValue(mac, out var own) && own.IsStatic && mac != originalMac)
-            {
-                errors["Mac"] = $"This device already has a static lease ({Ip4.Format(own.Address)}).";
-            }
-
-            if (_byAddress.TryGetValue(address, out var holder) && holder.Mac != mac && holder.Mac != originalMac)
-            {
-                if (holder.IsStatic)
-                {
-                    errors["Address"] = $"Already reserved for {MacAddress.Format(holder.Mac)}.";
-                }
-                else if (holder.State == LeaseState.Bound || holder.OfferExpiresUtc > now)
-                {
-                    errors["Address"] = $"In use by {MacAddress.Format(holder.Mac)}.";
-                }
-            }
-
+            var errors = StaticErrors(mac, address, originalMac, now);
             if (errors.Count > 0)
             {
                 return errors;
@@ -516,6 +493,43 @@ public sealed class LeaseStore
             }
 
             _conflicts.Remove(address);
+            return errors;
+        }
+    }
+
+    /// <summary>The errors <see cref="SetStatic"/> would answer, without changing anything (the preview of a tool).</summary>
+    public Dictionary<string, string> CheckStatic(ulong mac, uint address, ulong? originalMac, DateTime now)
+    {
+        lock (_sync)
+        {
+            return StaticErrors(mac, address, originalMac, now);
+        }
+    }
+
+    private Dictionary<string, string> StaticErrors(ulong mac, uint address, ulong? originalMac, DateTime now)
+    {
+        var errors = new Dictionary<string, string>(StringComparer.Ordinal);
+        if (originalMac is { } original && (!_byMac.TryGetValue(original, out var edited) || !edited.IsStatic))
+        {
+            errors["Mac"] = "This static lease no longer exists.";
+            return errors;
+        }
+
+        if (_byMac.TryGetValue(mac, out var own) && own.IsStatic && mac != originalMac)
+        {
+            errors["Mac"] = $"This device already has a static lease ({Ip4.Format(own.Address)}).";
+        }
+
+        if (_byAddress.TryGetValue(address, out var holder) && holder.Mac != mac && holder.Mac != originalMac)
+        {
+            if (holder.IsStatic)
+            {
+                errors["Address"] = $"Already reserved for {MacAddress.Format(holder.Mac)}.";
+            }
+            else if (holder.State == LeaseState.Bound || holder.OfferExpiresUtc > now)
+            {
+                errors["Address"] = $"In use by {MacAddress.Format(holder.Mac)}.";
+            }
         }
 
         return errors;

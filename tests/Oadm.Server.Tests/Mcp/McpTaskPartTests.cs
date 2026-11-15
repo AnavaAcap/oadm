@@ -89,15 +89,14 @@ public sealed class McpTaskPartTests
         string[] offered =
         [
             FirmwareTaskPlugin.PluginId, NetworkSettingsTaskPlugin.PluginId, AssignIpTaskPlugin.PluginId, AcapTaskId, PkiTaskIds.HttpsEnable, PkiTaskIds.HttpsDisable,
-            PkiTaskIds.Dot1xEnable, PkiTaskIds.Dot1xDisable, PkiTaskIds.Renew,
+            PkiTaskIds.Dot1xEnable, PkiTaskIds.Dot1xDisable, PkiTaskIds.Renew, PkiTaskIds.Delete, PkiTaskIds.View,
         ];
         Assert.All(offered, id => Assert.Contains(id, tasks));
 
-        // A password (users, install certificates), a choice only the dialog makes (what to delete, what to view) or a new
-        // trust anchor on the devices (install CA certificates: the dialog shows each one to the person) stays in OADM.
-        string[] notOffered = [UsersTaskPlugin.PluginId, PkiTaskIds.Install, PkiTaskIds.Delete, PkiTaskIds.View, PkiTaskIds.InstallCa];
-        Assert.All(notOffered, id => Assert.DoesNotContain(id, tasks));
-        Assert.All(notOffered, id => Assert.Null(TaskPayloadSchemas.Of(server.Host.Get<PluginRegistry>().TryGetTaskPlugin(id, out var plugin) ? plugin.Plugin : throw new InvalidOperationException(id))));
+        // A password (users, install certificates) comes through the secret channel, never as an input; install CA
+        // certificates lists each CA in its plan for the person to confirm (decision 2026-11-15).
+        Assert.All([UsersTaskPlugin.PluginId, PkiTaskIds.Install, PkiTaskIds.InstallCa], id => Assert.Contains(id, tasks));
+        Assert.DoesNotContain("password", TaskPayloadSchemas.Of(server.Host.Get<PluginRegistry>().TryGetTaskPlugin(PkiTaskIds.Install, out var install) ? install.Plugin : throw new InvalidOperationException())!["properties"]!.AsObject().Select(p => p.Key));
 
         var firmware = TaskPayloadSchemas.Of(new FirmwareTaskPlugin())!;
         Assert.Equal(["files"], firmware["required"]!.AsArray().Select(r => r!.GetValue<string>()));
@@ -105,8 +104,12 @@ public sealed class McpTaskPartTests
         Assert.DoesNotContain("online", firmware["properties"]!.AsObject().Select(p => p.Key)); // axis.com needs the user's own sign-in
 
         var acap = TaskPayloadSchemas.Of(new AcapTaskPlugin())!;
-        Assert.Equal(["install", "remove", "start", "stop"], acap["properties"]!["action"]!["enum"]!.AsArray().Select(v => v!.GetValue<string>()));
-        Assert.DoesNotContain(acap["properties"]!.AsObject().Select(p => p.Key), name => name is "licenseKeys" or "values"); // keys and settings can hold secrets
+        Assert.Equal(["install", "remove", "start", "stop", "installLicense", "settings"], acap["properties"]!["action"]!["enum"]!.AsArray().Select(v => v!.GetValue<string>()));
+        Assert.DoesNotContain(acap["properties"]!.AsObject().Select(p => p.Key), name => name is "licenseKeys" or "passwordsAllowed" or "licenseKey"); // the license key and passwords are the person's
+        Assert.Equal("string", acap["properties"]!["values"]!["additionalProperties"]!["type"]!.GetValue<string>());
+
+        var delete = TaskPayloadSchemas.Of(new DeleteCertificatesTask(() => null))!;
+        Assert.Equal("uuid", delete["properties"]!["devices"]!["propertyNames"]!["format"]!.GetValue<string>());
 
         var network = TaskPayloadSchemas.Of(new NetworkSettingsTaskPlugin())!;
         var devices = network["properties"]!["devices"]!;
@@ -240,8 +243,89 @@ public sealed class McpTaskPartTests
         Assert.Equal(ToolInputTexts.Unknown, assign["input.hostName"]);
     }
 
+    private static byte[] Build(string arch, string version, string? min, string? max = null) =>
+        Oadm.Plugins.Acap.Tests.EapBuilder.FromManifest(Oadm.Plugins.Acap.Tests.EapBuilder.Manifest(appName: "lpr", version: version, architecture: arch, osMin: min, osMax: max));
+
+    private static async Task<Device> AddBuiltAsync(TestServerHost host, string address, int serial, string model, string firmware, string architecture, string soc)
+    {
+        var device = await host.Get<DeviceRepository>().AddAsync(
+            new Device
+            {
+                Serial = FakeSerials.Make(serial), Address = address, Scheme = DeviceScheme.Http, Status = DeviceStatus.Ok, Model = model, FirmwareVersion = firmware,
+                Architecture = architecture, Soc = soc, Apis = [Application],
+            },
+            CancellationToken.None);
+        await host.Get<CredentialStore>().SetAsync(device.Id, "root", "pw", CancellationToken.None);
+        return device;
+    }
+
     [Fact]
-    public async Task ApplicationsTakesPackagesAndNamesButNeitherLicenseKeysNorSettings()
+    public async Task AnAgentInstallsFromAVendorsZipWithItsMappingFileAndChoosesWhereOadmCannot()
+    {
+        await using var server = await StartAsync();
+        var p3265 = await AddBuiltAsync(server.Host, "10.27.0.1", 5701, "P3265-V", "12.11.77", "aarch64", "Axis Artpec-8");
+        var lts = await AddBuiltAsync(server.Host, "10.27.0.2", 5702, "M3086-V", "10.12.3", "aarch64", "Axis Artpec-7");
+        var v7 = await AddBuiltAsync(server.Host, "10.27.0.3", 5703, "M1075-L", "12.11.77", "armv7hf", "Axis Artpec-6");
+        var old = await AddBuiltAsync(server.Host, "10.27.0.4", 5704, "M3045-V", "9.80.3", "aarch64", "Axis Artpec-7");
+        var key = await server.CreateKeyAsync();
+
+        // The vendor's ZIP as it comes: the builds per AXIS OS track and architecture in a folder, the mapping file next to them.
+        // Each build made once: a package carries the time it was made, so a second Build could differ (its SHA-256 too).
+        var ltsBuild = Build("aarch64", "2.4.0", "10.0", "10.12");
+        var zip = Oadm.Plugins.Acap.Tests.EapBuilder.Zip(
+            ("lpr/lpr_2.4_aarch64.eap", ltsBuild),
+            ("lpr/lpr_2.6_aarch64.eap", Build("aarch64", "2.6.0", "11.0")),
+            ("lpr/lpr_2.6_armv7hf.eap", Build("armv7hf", "2.6.0", "11.0")),
+            ("lpr/oadm-packages.json", System.Text.Encoding.UTF8.GetBytes("""{"packages":[{"file":"lpr_2.6_aarch64.eap","models":["AXIS P3265-V"]}]}""")));
+        var zipId = await UploadAsync(server, key, "lpr.zip", zip);
+
+        var preview = await PreviewAsync(server, key, AcapTaskId, Filter(p3265, lts, v7, old), new JsonObject { ["action"] = "install", ["zipFileId"] = zipId });
+
+        Assert.Equal(3, preview["will_run"]!.GetValue<int>());
+        Assert.Equal("Install application", preview["task_name"]!.GetValue<string>()); // the name needs no read of the ZIP
+        Assert.Equal("No package for AXIS OS 9.80.3.", Assert.Single(preview["skipped"]!.AsArray())!["reason"]!.GetValue<string>());
+        Assert.Equal(["lpr.zip", "lpr.zip: lpr_2.4_aarch64.eap", "lpr.zip: lpr_2.6_aarch64.eap", "lpr.zip: lpr_2.6_armv7hf.eap"], preview["files"]!.AsArray().Select(f => f!["name"]!.GetValue<string>()));
+        Assert.Equal(Convert.ToHexString(SHA256.HashData(ltsBuild)), preview["files"]![1]!["sha256"]!.GetValue<string>());
+        var details = preview["details"]!.AsArray().Select(d => d!.GetValue<string>()).ToList();
+        Assert.Contains("P3265-V, AXIS OS 12.11.77, aarch64 (1 device): lpr_2.6_aarch64.eap (row 1 of the mapping file)", details);
+        Assert.Contains("M3086-V, AXIS OS 10.12.3, aarch64 (1 device): lpr_2.4_aarch64.eap", details);
+        Assert.Contains("M1075-L, AXIS OS 12.11.77, armv7hf (1 device): lpr_2.6_armv7hf.eap", details);
+
+        // The Assistant's card of this preview lists what each group gets.
+        var tool = new OadmTool("oadm_task_preview", "Preview a task", "D.", ToolSchema.Object(null, []), ToolSchema.OutObject(null, []), [], _ => Task.FromResult(new JsonObject()));
+        var card = Oadm.Server.Assistant.AssistantCards.Build(tool, null, "h", preview, System.Text.Json.JsonDocument.Parse(new JsonObject { ["input"] = new JsonObject { ["action"] = "install", ["zipFileId"] = zipId } }.ToJsonString()).RootElement);
+        Assert.Contains("M3086-V, AXIS OS 10.12.3, aarch64 (1 device): lpr_2.4_aarch64.eap", card.Details);
+        Assert.Contains("No package for AXIS OS 9.80.3.", string.Join(" ", card.Skipped), StringComparison.Ordinal);
+
+        // Two builds OADM cannot tell apart: the preview asks at mapping with the groups and the files, then takes the choice.
+        var twins = await UploadAsync(server, key, "twins.zip", Oadm.Plugins.Acap.Tests.EapBuilder.Zip(("a.eap", Build("aarch64", "2.6.0", "11.0")), ("b.eap", Build("aarch64", "2.6.0", "11.0"))));
+        var unclear = await RefusedAsync(server, key, AcapTaskId, Filter(p3265), new JsonObject { ["action"] = "install", ["zipFileId"] = twins });
+        Assert.Equal("Choose the package for P3265-V, AXIS OS 12.11.77, aarch64: a.eap or b.eap. Several packages fit: a.eap, b.eap.", unclear["input.mapping"]);
+        var chosen = await PreviewAsync(server, key, AcapTaskId, Filter(p3265), new JsonObject
+        {
+            ["action"] = "install",
+            ["zipFileId"] = twins,
+            ["mapping"] = new JsonArray(new JsonObject { ["axisOs"] = "12.11.77", ["architecture"] = "aarch64", ["file"] = "b.eap" }),
+        });
+        Assert.Equal(["P3265-V, AXIS OS 12.11.77, aarch64 (1 device): b.eap (chosen)"], chosen["details"]!.AsArray().Select(d => d!.GetValue<string>()));
+
+        // A broken ZIP is answered at its field; files and a ZIP together are refused.
+        var broken = await UploadAsync(server, key, "broken.zip", [1, 2, 3]);
+        Assert.Equal("broken.zip is damaged or not a ZIP file. Nothing was changed.", (await RefusedAsync(server, key, AcapTaskId, Filter(p3265), new JsonObject { ["action"] = "install", ["zipFileId"] = broken }))["input.zipFileId"]);
+        Assert.Contains("input.zipFileId", (await RefusedAsync(server, key, AcapTaskId, Filter(p3265), new JsonObject
+        {
+            ["action"] = "install",
+            ["zipFileId"] = zipId,
+            ["files"] = new JsonArray(new JsonObject { ["fileId"] = zipId }),
+        })).Keys);
+
+        // The run: one task per device the preview named, owned by the key.
+        var run = await server.ToolAsync(key, "oadm_task_run", new JsonObject { ["handle"] = preview["handle"]!.GetValue<string>() });
+        Assert.Equal(3, run["tasks"]!.GetValue<int>());
+    }
+
+    [Fact]
+    public async Task ApplicationsTakesPackagesAndNamesAndLeavesSecretsToTheUser()
     {
         await using var server = await StartAsync();
         var device = await AddAsync(server.Host, "10.22.0.1", 5201, "M3085-V", "12.8.0", DeviceStatus.Ok, Application);
@@ -264,7 +348,7 @@ public sealed class McpTaskPartTests
         Assert.Equal("The package runs on the devices. Check that it is the one you want.", Assert.Single(named["warnings"]!.AsArray())!.GetValue<string>());
         Assert.Empty(stop["files"]!.AsArray());
 
-        // The dialog's rules at their fields; the schema leaves license keys and settings out.
+        // The dialog's rules at their fields; the schema leaves the key files, the entered key and the page's password switch out.
         var install = await RefusedAsync(server, key, AcapTaskId, Filter(device), new JsonObject { ["action"] = "install" });
         Assert.StartsWith("Install needs an uploaded package", install["input.files"], StringComparison.Ordinal);
         var name = await RefusedAsync(server, key, AcapTaskId, Filter(device), new JsonObject { ["action"] = "start", ["application"] = "../x" });
@@ -273,11 +357,30 @@ public sealed class McpTaskPartTests
         {
             ["action"] = "installLicense",
             ["licenseKeys"] = new JsonArray(),
-            ["values"] = new JsonObject { ["a"] = "b" },
+            ["licenseKey"] = "typed",
+            ["passwordsAllowed"] = true,
         });
-        Assert.StartsWith("Use one of: install, remove, start, stop", secret["input.action"], StringComparison.Ordinal);
+        Assert.Equal(ToolInputTexts.Unknown, secret["input.licenseKey"]);
         Assert.Equal(ToolInputTexts.Unknown, secret["input.licenseKeys"]);
-        Assert.Equal(ToolInputTexts.Unknown, secret["input.values"]);
+        Assert.Equal(ToolInputTexts.Unknown, secret["input.passwordsAllowed"]);
+
+        // Settings: plain values plan with the note that each device checks them; a password setting is refused at its field.
+        var settings = await PreviewAsync(server, key, AcapTaskId, Filter(device), new JsonObject
+        {
+            ["action"] = "settings",
+            ["application"] = "vmd",
+            ["values"] = new JsonObject { ["Sensitivity"] = "80" },
+        });
+        Assert.Equal(1, settings["will_run"]!.GetValue<int>());
+        Assert.Equal("Change settings of vmd", settings["task_name"]!.GetValue<string>());
+        Assert.Equal(AcapTaskPlugin.SettingsCheckedOnDeviceWarning, Assert.Single(settings["warnings"]!.AsArray())!.GetValue<string>());
+        var password = await RefusedAsync(server, key, AcapTaskId, Filter(device), new JsonObject
+        {
+            ["action"] = "settings",
+            ["application"] = "vmd",
+            ["values"] = new JsonObject { ["Mqtt.Password"] = "x" },
+        });
+        Assert.Equal("Mqtt.Password is a password. List it in passwords: the user enters it.", password["input.values.Mqtt.Password"]);
     }
 
     [Fact]
@@ -300,12 +403,12 @@ public sealed class McpTaskPartTests
         var clock = await RefusedAsync(server, key, PkiTaskIds.Dot1xEnable, Filter(device), new JsonObject { ["clockConfirmed"] = true });
         Assert.Equal(ToolInputTexts.Unknown, clock["input.clockConfirmed"]);
 
-        // Install CA certificates is not offered: an agent could bring any certificate as a trust anchor.
+        // Install CA certificates checks every certificate before the plan: no certificate, no plan.
         var ca = await RefusedAsync(server, key, PkiTaskIds.InstallCa, Filter(device), new JsonObject
         {
             ["certificates"] = new JsonArray(new JsonObject { ["name"] = "Acme", ["pem"] = "not a certificate" }),
         });
-        Assert.Equal(TaskRunTools.NotOffered, ca["task"]);
+        Assert.Contains("input.certificates", ca.Keys);
     }
 
     [Fact]

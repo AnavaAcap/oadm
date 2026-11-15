@@ -255,7 +255,12 @@ public sealed partial class ModelLibrary : IModelLibrary, IDisposable
     /// </summary>
     /// <exception cref="ClassListFieldException">A field is not allowed (the field and its text).</exception>
     /// <exception cref="ArgumentException">A built-in or unknown list, or too many lists.</exception>
-    public async Task<ClassList> SaveClassListAsync(ClassList incoming, CancellationToken ct)
+    public Task<ClassList> SaveClassListAsync(ClassList incoming, CancellationToken ct) => SaveClassListAsync(incoming, onlyCheck: false, ct);
+
+    /// <summary>Every check of <see cref="SaveClassListAsync(ClassList, CancellationToken)"/> without storing (a tool's preview): the list as it would be stored (a new one without its id).</summary>
+    public Task<ClassList> CheckClassListAsync(ClassList incoming, CancellationToken ct) => SaveClassListAsync(incoming, onlyCheck: true, ct);
+
+    private async Task<ClassList> SaveClassListAsync(ClassList incoming, bool onlyCheck, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(incoming);
         if (Models.ClassLists.BuiltInOf(incoming.Id) is not null)
@@ -322,6 +327,11 @@ public sealed partial class ModelLibrary : IModelLibrary, IDisposable
                 {
                     throw new ArgumentException(ModelTexts.TooManyClassLists);
                 }
+            }
+
+            if (onlyCheck)
+            {
+                return new ClassList { Id = isNew ? string.Empty : incoming.Id, Name = name, Names = names };
             }
 
             var saved = new ClassList { Id = isNew ? Guid.NewGuid().ToString("N") : incoming.Id, Name = name, Names = names };
@@ -393,24 +403,9 @@ public sealed partial class ModelLibrary : IModelLibrary, IDisposable
     /// <exception cref="ArgumentException">The file is not allowed (its kind, its size, the limits); the text says why.</exception>
     public Task<string> BeginUploadAsync(string fileName, long size, string? labels, CancellationToken ct)
     {
-        if (string.IsNullOrWhiteSpace(fileName) || !fileName.EndsWith(".onnx", StringComparison.OrdinalIgnoreCase))
+        if (FileRefusal(fileName, size, labels) is { } refusal)
         {
-            throw new ArgumentException(ModelTexts.NotOnnxFile);
-        }
-
-        if (size <= 0)
-        {
-            throw new ArgumentException(ModelTexts.Empty);
-        }
-
-        if (size > VisionLimits.MaxModelBytes)
-        {
-            throw new ArgumentException(ModelTexts.TooLarge);
-        }
-
-        if (labels is not null && ClassNames.FromLabels(labels) is null)
-        {
-            throw new ArgumentException(ModelTexts.TooManyLabels);
+            throw new ArgumentException(refusal);
         }
 
         Directory.CreateDirectory(_folder);
@@ -418,17 +413,9 @@ public sealed partial class ModelLibrary : IModelLibrary, IDisposable
         lock (_sync)
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
-
-            // Uploads in progress and those being checked count until they are stored; Missing models do not (no file, and
-            // the upload may be the one that brings one back).
-            if (CountInUse() + 1 > VisionLimits.MaxModels)
+            if (LimitRefusal(size) is { } limit)
             {
-                throw new ArgumentException(ModelTexts.TooMany);
-            }
-
-            if (BytesInUse() + size > VisionLimits.MaxAllModelsBytes)
-            {
-                throw new ArgumentException(ModelTexts.TooMuchTogether);
+                throw new ArgumentException(limit);
             }
 
             var part = Path.Combine(_folder, id + PartSuffix);
@@ -439,6 +426,55 @@ public sealed partial class ModelLibrary : IModelLibrary, IDisposable
         }
 
         return Task.FromResult(id);
+    }
+
+    /// <inheritdoc />
+    public string? CheckUpload(string fileName, long size, string? labels)
+    {
+        if (FileRefusal(fileName, size, labels) is { } refusal)
+        {
+            return refusal;
+        }
+
+        lock (_sync)
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            return LimitRefusal(size);
+        }
+    }
+
+    /// <summary>The refusal of a file by its name, size and labels; null when it may be uploaded.</summary>
+    private static string? FileRefusal(string fileName, long size, string? labels)
+    {
+        if (string.IsNullOrWhiteSpace(fileName) || !fileName.EndsWith(".onnx", StringComparison.OrdinalIgnoreCase))
+        {
+            return ModelTexts.NotOnnxFile;
+        }
+
+        if (size <= 0)
+        {
+            return ModelTexts.Empty;
+        }
+
+        if (size > VisionLimits.MaxModelBytes)
+        {
+            return ModelTexts.TooLarge;
+        }
+
+        return labels is not null && ClassNames.FromLabels(labels) is null ? ModelTexts.TooManyLabels : null;
+    }
+
+    /// <summary>The refusal of one more upload of <paramref name="size"/> bytes by the limits; call under the lock.</summary>
+    private string? LimitRefusal(long size)
+    {
+        // Uploads in progress and those being checked count until they are stored; Missing models do not (no file, and
+        // the upload may be the one that brings one back).
+        if (CountInUse() + 1 > VisionLimits.MaxModels)
+        {
+            return ModelTexts.TooMany;
+        }
+
+        return BytesInUse() + size > VisionLimits.MaxAllModelsBytes ? ModelTexts.TooMuchTogether : null;
     }
 
     /// <inheritdoc />
@@ -593,68 +629,7 @@ public sealed partial class ModelLibrary : IModelLibrary, IDisposable
         await _write.WaitAsync(ct).ConfigureAwait(false);
         try
         {
-            var stored = Find(changed.Id) ?? throw new ArgumentException(ModelTexts.Gone);
-            var name = CheckName(changed.Name, stored.Id);
-            if (OutputFormats.KindOf(changed.Format) != stored.Kind)
-            {
-                throw new ArgumentException(ModelTexts.FormatOfOtherKind);
-            }
-
-            if (!Enum.IsDefined(changed.Fit) || !Enum.IsDefined(changed.Scaling) || !Enum.IsDefined(changed.Format))
-            {
-                throw new ArgumentException(ModelTexts.FormatOfOtherKind);
-            }
-
-            if (stored.FixedInput && (changed.InputWidth != stored.InputWidth || changed.InputHeight != stored.InputHeight))
-            {
-                throw new ArgumentException(ModelTexts.InputSizeFixed);
-            }
-
-            if (!stored.FixedInput && (!SideAllowed(changed.InputWidth) || !SideAllowed(changed.InputHeight)))
-            {
-                throw new ArgumentException(ModelTexts.InputSizeRule);
-            }
-
-            // A class list gives the names (its count must be the model's); without one the model's own names, edited as they come.
-            var listId = string.IsNullOrEmpty(changed.ClassListId) ? null : changed.ClassListId;
-            IReadOnlyList<string> names;
-            if (listId is not null)
-            {
-                var list = FindClassList(listId) ?? throw new ArgumentException(ModelTexts.ClassListGone);
-                var classes = stored.ClassNames.Count;
-                if (classes > 0 && list.Names.Count != classes)
-                {
-                    throw new ArgumentException(ModelTexts.ClassListDoesNotFit(list.Names.Count, classes));
-                }
-
-                names = list.Names;
-            }
-            else
-            {
-                if (changed.ClassNames.Count > VisionLimits.MaxClasses)
-                {
-                    throw new ArgumentException(ModelTexts.TooManyLabels);
-                }
-
-                if (changed.ClassNames.Any(n => (n ?? string.Empty).Trim().Length > VisionLimits.MaxNameLength))
-                {
-                    throw new ArgumentException(ModelTexts.ClassNameTooLong);
-                }
-
-                names = [.. changed.ClassNames.Select((n, i) => ClassNames.Clean(n, i))];
-            }
-
-            var saved = stored with
-            {
-                Name = name,
-                Format = changed.Format,
-                Fit = changed.Fit,
-                Scaling = changed.Scaling,
-                InputWidth = changed.InputWidth,
-                InputHeight = changed.InputHeight,
-                ClassListId = listId,
-                ClassNames = names,
-            };
+            var saved = Merged(changed);
             await SaveAsync(saved, ct).ConfigureAwait(false);
             return saved;
         }
@@ -662,6 +637,80 @@ public sealed partial class ModelLibrary : IModelLibrary, IDisposable
         {
             _write.Release();
         }
+    }
+
+    /// <inheritdoc />
+    public VisionModel CheckUpdate(VisionModel changed)
+    {
+        ArgumentNullException.ThrowIfNull(changed);
+        return Merged(changed);
+    }
+
+    /// <summary>The stored model with the changes the user may make, checked; <see cref="ArgumentException"/> with the page's text.</summary>
+    private VisionModel Merged(VisionModel changed)
+    {
+        var stored = Find(changed.Id) ?? throw new ArgumentException(ModelTexts.Gone);
+        var name = CheckName(changed.Name, stored.Id);
+        if (OutputFormats.KindOf(changed.Format) != stored.Kind)
+        {
+            throw new ArgumentException(ModelTexts.FormatOfOtherKind);
+        }
+
+        if (!Enum.IsDefined(changed.Fit) || !Enum.IsDefined(changed.Scaling) || !Enum.IsDefined(changed.Format))
+        {
+            throw new ArgumentException(ModelTexts.FormatOfOtherKind);
+        }
+
+        if (stored.FixedInput && (changed.InputWidth != stored.InputWidth || changed.InputHeight != stored.InputHeight))
+        {
+            throw new ArgumentException(ModelTexts.InputSizeFixed);
+        }
+
+        if (!stored.FixedInput && (!SideAllowed(changed.InputWidth) || !SideAllowed(changed.InputHeight)))
+        {
+            throw new ArgumentException(ModelTexts.InputSizeRule);
+        }
+
+        // A class list gives the names (its count must be the model's); without one the model's own names, edited as they come.
+        var listId = string.IsNullOrEmpty(changed.ClassListId) ? null : changed.ClassListId;
+        IReadOnlyList<string> names;
+        if (listId is not null)
+        {
+            var list = FindClassList(listId) ?? throw new ArgumentException(ModelTexts.ClassListGone);
+            var classes = stored.ClassNames.Count;
+            if (classes > 0 && list.Names.Count != classes)
+            {
+                throw new ArgumentException(ModelTexts.ClassListDoesNotFit(list.Names.Count, classes));
+            }
+
+            names = list.Names;
+        }
+        else
+        {
+            if (changed.ClassNames.Count > VisionLimits.MaxClasses)
+            {
+                throw new ArgumentException(ModelTexts.TooManyLabels);
+            }
+
+            if (changed.ClassNames.Any(n => (n ?? string.Empty).Trim().Length > VisionLimits.MaxNameLength))
+            {
+                throw new ArgumentException(ModelTexts.ClassNameTooLong);
+            }
+
+            names = [.. changed.ClassNames.Select((n, i) => ClassNames.Clean(n, i))];
+        }
+
+        return stored with
+        {
+            Name = name,
+            Format = changed.Format,
+            Fit = changed.Fit,
+            Scaling = changed.Scaling,
+            InputWidth = changed.InputWidth,
+            InputHeight = changed.InputHeight,
+            ClassListId = listId,
+            ClassNames = names,
+        };
     }
 
     /// <inheritdoc />

@@ -59,7 +59,9 @@ public sealed partial class RuleTaskPlugin : ITaskPlugin
     {
         try
         {
-            return ActionRulesJson.Deserialize<RuleTaskPayload>(payloadJson).Description;
+            return Agent.RuleAgentPayload.IsAgent(payloadJson)
+                ? AgentTaskName(Agent.RuleAgentPayload.Parse(payloadJson))
+                : ActionRulesJson.Deserialize<RuleTaskPayload>(payloadJson).Description;
         }
         catch (ArgumentException)
         {
@@ -71,7 +73,11 @@ public sealed partial class RuleTaskPlugin : ITaskPlugin
     {
         ArgumentNullException.ThrowIfNull(ctx);
         ArgumentNullException.ThrowIfNull(device);
-        var parsed = ParsedRun.Of(payloadJson); // one entry per device: parsed, checked and indexed once per run
+        // An agent's input becomes the editor's payload of this device (the run's part done once by its first task).
+        var agent = Agent.RuleAgentPayload.IsAgent(payloadJson);
+        var parsed = !agent ? ParsedRun.Of(payloadJson) // one entry per device: parsed, checked and indexed once per run
+            : _owner is null ? throw new ArgumentException("The Action Rule Editor is not running. Nothing was changed.")
+            : ParsedRun.For(await _owner.AgentPayloadAsync(ctx.Caller, device, payloadJson ?? string.Empty, ct).ConfigureAwait(false));
         var payload = parsed.Payload;
         var gate = _owner?.DeviceGate(device.Id);
         var held = false;
@@ -86,6 +92,10 @@ public sealed partial class RuleTaskPlugin : ITaskPlugin
             }
 
             bound = true;
+            if (agent && payload.Action != RuleTaskActions.Undo)
+            {
+                _owner!.AgentTaskStarted(payload.RunId); // the page counts its runs' tasks when it starts them
+            }
 
             if (gate is not null)
             {
@@ -198,6 +208,9 @@ public sealed partial class RuleTaskPlugin : ITaskPlugin
 
             return run;
         }
+
+        /// <summary>A payload built on the server (an agent's run for one device), checked like a page's.</summary>
+        public static ParsedRun For(RuleTaskPayload payload) => new(Validate(payload));
     }
 
     /// <summary>Everything one task works with; the lists collect what it changed for undo.</summary>
@@ -658,4 +671,7 @@ public static class RuleTexts
 
     /// <summary>A task whose change is not saved for undo (or belongs to another device group).</summary>
     public const string CannotSaveForUndo = "The change cannot be saved for undo. Nothing was changed.";
+
+    /// <summary>An undo of a run whose tasks saved nothing.</summary>
+    public const string NothingToUndo = "This change wrote nothing that can be undone.";
 }

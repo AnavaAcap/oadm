@@ -40,6 +40,11 @@ public sealed partial class VisionPlugin
         var runtime = _runtime ?? throw new InvalidOperationException(PipelineRules.NotRunning);
         var models = _models ?? throw new InvalidOperationException(PipelineRules.NotRunning);
         var owner = OwnerScope.Of(caller.DeviceScopeKey);
+        if (VisionPageTools.Set.Handles(method))
+        {
+            return await VisionPageTools.Set.InvokeAsync(this, caller, method, payloadJson, ct).ConfigureAwait(false);
+        }
+
         if (method == VisionTools.Pipelines.Method)
         {
             // The page's list with its rules (a pipeline of a camera the caller cannot see shows nothing live) and its load.
@@ -348,6 +353,13 @@ public sealed partial class VisionPlugin
     public string? AuditDetail(string method, string? payloadJson)
     {
         // Read once, after the call: the entry goes (the names never pile up).
+        if (VisionPageTools.Set.PageMethodOf(method) is { } page)
+        {
+            // A tool's run: the page's text; the model tools name their model like the page (the run kept the name under the
+            // page method and the id of its arguments), the others without the names (their arguments are no page request).
+            return AuditDetail(page, VisionPageTools.PagePayloadOf(method, payloadJson));
+        }
+
         string? Named(string? id) => id is not null && _auditNames.TryRemove(AuditKey(method, id), out var kept) ? kept.Name : null;
         switch (method)
         {
@@ -431,6 +443,15 @@ public sealed partial class VisionPlugin
 
     /// <summary>An audit name is kept for the call of <paramref name="method"/> on <paramref name="id"/> now (tests).</summary>
     internal bool KeepsAuditName(string method, string id) => _auditNames.ContainsKey(AuditKey(method, id));
+
+    /// <summary>Moves the audit name a page method kept for <paramref name="from"/> to <paramref name="to"/> (an upload tool: from the upload's id to the file's).</summary>
+    internal void MoveAuditName(string method, string from, string to)
+    {
+        if (_auditNames.TryRemove(AuditKey(method, from), out var kept))
+        {
+            KeepAuditName(AuditKey(method, to), kept.Name);
+        }
+    }
 
     /// <summary>The audit names kept now (tests).</summary>
     internal int AuditNamesKept => _auditNames.Count;

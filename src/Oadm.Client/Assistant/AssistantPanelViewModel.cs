@@ -131,23 +131,34 @@ public sealed partial class AssistantPanelViewModel : ObservableObject
     public bool HasAttachments => Attachments.Count > 0;
 
     /// <summary>A preview card waits for Run: its Run is the panel's main button, Send turns secondary.</summary>
-    public bool HasReadyPreview => Items.OfType<AssistantPreviewItem>().Any(p => p.IsReady);
+    public bool HasReadyPreview => Items.Any(i => i is AssistantPreviewItem { IsReady: true } or AssistantDocsOfferItem { IsReady: true });
 
-    /// <summary>Only the newest card that waits for Run has the accent Run; Send turns secondary while one waits.</summary>
+    /// <summary>
+    /// Only the newest card that waits (Run of a preview, Look up online of an offer) has the accent button; Send turns
+    /// secondary while one waits.
+    /// </summary>
     private void OnPreviewsChanged()
     {
-        AssistantPreviewItem? newest = null;
+        AssistantItem? newest = null;
         for (int i = Items.Count - 1; i >= 0 && newest is null; i--)
         {
-            if (Items[i] is AssistantPreviewItem { IsReady: true } ready)
+            if (Items[i] is AssistantPreviewItem { IsReady: true } or AssistantDocsOfferItem { IsReady: true })
             {
-                newest = ready;
+                newest = Items[i];
             }
         }
 
-        foreach (var preview in Items.OfType<AssistantPreviewItem>())
+        foreach (var item in Items)
         {
-            preview.IsNewestReady = ReferenceEquals(preview, newest);
+            switch (item)
+            {
+                case AssistantPreviewItem preview:
+                    preview.IsNewestReady = ReferenceEquals(preview, newest);
+                    break;
+                case AssistantDocsOfferItem offer:
+                    offer.IsNewestReady = ReferenceEquals(offer, newest);
+                    break;
+            }
         }
 
         OnPropertyChanged(nameof(HasReadyPreview));
@@ -529,11 +540,33 @@ public sealed partial class AssistantPanelViewModel : ObservableObject
     [RelayCommand(CanExecute = nameof(CanSendSuggestion))]
     private Task SendSuggestionAsync(string? text) => string.IsNullOrWhiteSpace(text) ? Task.CompletedTask : SendTextAsync(text, [], null, Mentioned);
 
+    private bool CanLookUp(AssistantDocsOfferItem? offer) => offer is { IsReady: true } && CanSendSuggestion(AssistantTexts.LookUpMessage);
+
+    /// <summary>
+    /// Look up online: the user's yes to the offer (docs/spec/assistant.md "Looking in the Axis docs"). Only this click sends
+    /// the offer's id, so only the next answer may read the Axis docs online.
+    /// </summary>
+    [RelayCommand(CanExecute = nameof(CanLookUp))]
+    private Task LookUpAsync(AssistantDocsOfferItem? offer) =>
+        offer is { IsReady: true } ? SendTextAsync(AssistantTexts.LookUpMessage, [], null, [], offer) : Task.CompletedTask;
+
+    /// <summary>Not now: nothing is sent; the offer ends with the next message on the server.</summary>
+    [RelayCommand]
+    private void DeclineLookUp(AssistantDocsOfferItem? offer)
+    {
+        if (offer is { IsReady: true })
+        {
+            offer.MarkDeclined();
+            OnPreviewsChanged();
+        }
+    }
+
     /// <summary>
     /// Sends a message with its files. <paramref name="replace"/> (Try again, Edit): that message and everything after it
     /// leave the list in one step, and the server drops them too when it had them (<c>replace_last</c>).
     /// </summary>
-    private async Task SendTextAsync(string text, IReadOnlyList<AssistantAttachmentItem> files, AssistantUserItem? replace, IReadOnlyList<string> mentioned)
+    private async Task SendTextAsync(string text, IReadOnlyList<AssistantAttachmentItem> files, AssistantUserItem? replace, IReadOnlyList<string> mentioned,
+        AssistantDocsOfferItem? lookUp = null)
     {
         var conversation = ConversationId;
         text = text.Trim();
@@ -553,7 +586,16 @@ public sealed partial class AssistantPanelViewModel : ObservableObject
             return;
         }
 
-        var message = new AssistantMessage { ConversationId = conversation, Text = text, Model = Model.Trim() };
+        var message = new AssistantMessage { ConversationId = conversation, Text = text, Model = Model.Trim(), DocsOfferId = lookUp?.OfferId ?? string.Empty };
+
+        // Any message ends the offers that still wait (the server forgets them); Look up online takes its own.
+        lookUp?.MarkAccepted();
+        foreach (var waiting in Items.OfType<AssistantDocsOfferItem>().Where(o => o.IsReady).ToList())
+        {
+            waiting.MarkDeclined();
+        }
+
+        OnPreviewsChanged();
         if (_devices is not null && SelectionError is null)
         {
             message.SelectedDeviceIds.AddRange(_devices.SelectedDevices.Select(d => d.Id));
@@ -777,6 +819,12 @@ public sealed partial class AssistantPanelViewModel : ObservableObject
             case AssistantEvent.KindOneofCase.Preview:
                 Add(new AssistantPreviewItem(e.Preview));
                 return;
+            case AssistantEvent.KindOneofCase.File:
+                Add(new AssistantFileItem(e.File));
+                return;
+            case AssistantEvent.KindOneofCase.DocsOffer:
+                Add(new AssistantDocsOfferItem(e.DocsOffer));
+                return;
             case AssistantEvent.KindOneofCase.Picture:
                 Add(new AssistantPictureItem(e.Picture.DeviceId, e.Picture.DeviceName, e.Picture.Jpeg.ToByteArray()));
                 return;
@@ -898,16 +946,156 @@ public sealed partial class AssistantPanelViewModel : ObservableObject
             return;
         }
 
+        if (!preview.CanRun)
+        {
+            foreach (var secret in preview.Secrets)
+            {
+                secret.ShowError(); // the empty field says so below itself
+            }
+
+            return;
+        }
+
         preview.MarkStarting();
         OnPreviewsChanged();
         try
         {
-            var reply = await _api.AssistantRunAsync(conversation, preview.Handle, CancellationToken.None).ConfigureAwait(true);
+            // The card's secrets go with Run straight to the server, never into the chat (docs/spec/mcp.md "Secrets").
+            var request = new AssistantRunRequest { ConversationId = conversation, Handle = preview.Handle };
+            request.Secrets.Add(preview.SecretValues());
+            var reply = await _api.AssistantRunAsync(request, CancellationToken.None).ConfigureAwait(true);
+            preview.ClearSecrets();
             preview.Follow([.. reply.TaskIds], _tasks);
+            var at = Items.IndexOf(preview);
+            foreach (var file in reply.Files)
+            {
+                // A file the run made (Back up now): a file card with Save right below its preview card.
+                var card = new AssistantFileItem(file);
+                if (at >= 0)
+                {
+                    Items.Insert(++at, card);
+                }
+                else
+                {
+                    Add(card);
+                }
+            }
+
+            if (reply.Secret is { FileRef.Length: > 0 } secret)
+            {
+                Add(new AssistantSecretItem(secret)); // a new access key: Copy fetches it once, it never enters the chat
+            }
+        }
+        catch (RpcException ex) when (preview.HasSecrets && ex.StatusCode is StatusCode.FailedPrecondition or StatusCode.InvalidArgument
+            && ex.Trailers.GetValue(Contracts.Assistant.AssistantTexts.FieldTrailer) is { Length: > 0 } field)
+        {
+            preview.MarkSecretRefused(field, ex.Status.Detail); // the card stays: the error below its field
+            OnPreviewsChanged();
         }
         catch (RpcException ex)
         {
+            preview.ClearSecrets();
             preview.MarkRefused(ex.Status.Detail);
+        }
+    }
+
+    /// <summary>A file card's Save: where to keep it, then the file fetched now with the user's rights (never through the model).</summary>
+    [RelayCommand]
+    private async Task SaveFileAsync(AssistantFileItem? file)
+    {
+        if (file is null or { IsSaving: true } || ConversationId is not { } conversation || _dialogs is null)
+        {
+            return;
+        }
+
+        var extension = Path.GetExtension(file.Name).TrimStart('.');
+        var type = new Dialogs.FileType(extension.Length > 0 ? extension.ToUpperInvariant() + " file" : "File", extension.Length > 0 ? extension : "*",
+            file.ContentType.Length > 0 ? file.ContentType : "application/octet-stream");
+        var target = await _dialogs.CreateFileAsync(AssistantTexts.SaveFileTitle, file.Name, type).ConfigureAwait(true);
+        if (target is null)
+        {
+            return;
+        }
+
+        file.IsSaving = true;
+        file.HasFailed = false;
+        file.StatusText = AssistantTexts.Saving;
+        var saved = false;
+        try
+        {
+            await using (target.Content.ConfigureAwait(true))
+            {
+                var download = await _api.AssistantDownloadAsync(conversation, file.FileRef, CancellationToken.None).ConfigureAwait(true);
+                await using (download.ConfigureAwait(true))
+                {
+                    await download.Content.CopyToAsync(target.Content).ConfigureAwait(true);
+                }
+            }
+
+            saved = true;
+            file.IsSaved = true;
+            file.StatusText = AssistantTexts.FileSaved;
+        }
+        catch (RpcException ex)
+        {
+            file.HasFailed = true;
+            file.StatusText = ex.Status.Detail;
+        }
+        catch (IOException ex)
+        {
+            file.HasFailed = true;
+            file.StatusText = ex.Message;
+        }
+        finally
+        {
+            file.IsSaving = false;
+            if (!saved && target.Delete is { } delete)
+            {
+                await delete().ConfigureAwait(true); // never a cut file
+            }
+        }
+    }
+
+    /// <summary>A secret card's Copy: the secret fetched now, once, straight to the clipboard (never shown, kept or in the chat).</summary>
+    [RelayCommand]
+    private async Task CopySecretAsync(AssistantSecretItem? secret)
+    {
+        if (secret is not { CanCopy: true } || ConversationId is not { } conversation || _clipboard is null)
+        {
+            return;
+        }
+
+        secret.IsCopying = true;
+        secret.HasFailed = false;
+        try
+        {
+            var download = await _api.AssistantDownloadAsync(conversation, secret.FileRef, CancellationToken.None).ConfigureAwait(true);
+            string text;
+            await using (download.ConfigureAwait(true))
+            {
+                using var reader = new StreamReader(download.Content, System.Text.Encoding.UTF8);
+                text = await reader.ReadToEndAsync().ConfigureAwait(true);
+            }
+
+            if (await _clipboard.SetTextAsync(text).ConfigureAwait(true))
+            {
+                secret.IsCopied = true;
+                secret.StatusText = AssistantTexts.Copied;
+            }
+        }
+        catch (RpcException ex)
+        {
+            secret.HasFailed = true;
+            secret.StatusText = ex.Status.Detail;
+        }
+        catch (IOException ex)
+        {
+            secret.HasFailed = true;
+            secret.StatusText = ex.Message;
+        }
+        finally
+        {
+            secret.IsCopying = false;
         }
     }
 
@@ -1201,6 +1389,7 @@ public sealed partial class AssistantPanelViewModel : ObservableObject
         OnPropertyChanged(nameof(SendTip));
         SendCommand.NotifyCanExecuteChanged();
         SendSuggestionCommand.NotifyCanExecuteChanged();
+        LookUpCommand.NotifyCanExecuteChanged();
         RetryCommand.NotifyCanExecuteChanged();
         UpdateStart();
     }

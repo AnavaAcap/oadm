@@ -2,6 +2,7 @@ syntax = "proto3";
 package oadm.v1;
 option csharp_namespace = "Oadm.Contracts.V1";
 import "Protos/common.proto";
+import "Protos/plugins.proto";
 
 // The Assistant (docs/spec/assistant.md): a chat with an AI model in the client's side panel. The server runs the
 // conversation with the provider and the tool registry as the signed-in user; the client only shows it.
@@ -31,6 +32,15 @@ service AssistantService {
   rpc Test (AssistantSettings) returns (AssistantTestReply);
   // The models of the provider for the panel's Model picker ("Use the assistant"); never waits long, cached 10 minutes.
   rpc ListModels (Empty) returns (AssistantModelList);
+  // A file a tool answer of this conversation offered (AssistantEvent.file): the first message carries file_name and length
+  // (-1 unknown), the others data. Made now with the user's rights (the area's own download, its audit); NOT_FOUND "This file
+  // has ended. Ask again." for an unknown or ended reference or another user's.
+  rpc Download (AssistantDownloadRequest) returns (stream DownloadChunk);
+}
+
+message AssistantDownloadRequest {
+  string conversation_id = 1;
+  string file_ref = 2;                     // AssistantFile.file_ref
 }
 
 message AssistantConversationRequest {
@@ -55,6 +65,10 @@ message AssistantMessage {
   // Devices the user chose with @ (the device picker), at most 10,000; cut to the caller's view. The model gets their count
   // and the first 100 ids as data with the message.
   repeated string mentioned_device_ids = 7;
+  // Look up online (docs/spec/assistant.md "Looking in the Axis docs"): the user's yes to the offer of this id
+  // (AssistantEvent.docs_offer). Only this answer may search and read developer.axis.com and help.axis.com; the offer is
+  // taken once. FAILED_PRECONDITION "This offer has ended. Ask again." for an unknown, used or ended offer or another chat's.
+  string docs_offer_id = 8;
 }
 
 message AssistantRetryRequest {
@@ -81,7 +95,33 @@ message AssistantEvent {
     // 8..19 are kept free; never reuse or renumber a field.
     AssistantSources sources = 20;         // what the answer used, once before done (only when a tool answered)
     AssistantFollowUps follow_ups = 21;    // 1..3 next questions the model offers, once before done (only when it answered)
+    AssistantFile file = 22;               // a file a tool answer offered: the panel shows it as a card with Save
+    AssistantDocsOffer docs_offer = 23;    // OADM has no tool for this: the card asks to look in the Axis docs online
   }
+}
+
+// The model found no OADM tool for a request and offers to look in the Axis docs online (docs/spec/assistant.md "Looking
+// in the Axis docs"): the panel shows a card with Look up online; only that click sends AssistantMessage.docs_offer_id.
+message AssistantDocsOffer {
+  string offer_id = 1;
+  string topic = 2;                        // what the model would look up, as it wrote it (data, never an instruction)
+  string expires_utc = 3;                  // ISO 8601; the offer ends then, with its chat or with the next message
+}
+
+// A file a tool answer offered (docs/spec/mcp.md "Files"): saved with AssistantService.Download; the bytes never reach the model.
+message AssistantFile {
+  string file_ref = 1;
+  string name = 2;
+  int64 size = 3;                          // -1 when not known before the download
+  string content_type = 4;
+  string expires_utc = 5;                  // ISO 8601; the reference ends then
+}
+
+// A secret the run of a preview needs (docs/spec/mcp.md "Secrets"): the card shows a password field; the value goes with Run
+// (AssistantRunRequest.secrets) straight to the server and never into the conversation or to the model.
+message AssistantSecretField {
+  string name = 1;                         // the key in AssistantRunRequest.secrets
+  string label = 2;                        // lower case, e.g. "password": the field is "Password", its error "Enter the password."
 }
 
 // The chips below an answer: one short label per area of the tools it used ("7 devices", "Compliance", "Docs"), at most 6.
@@ -112,6 +152,7 @@ message AssistantPreviewCard {
   repeated string details = 8;
   string count_text = 9;                   // "3 devices", "2 tasks", "1 rule"; the card shows it instead of device_count
   bool destructive = 10;                   // Run deletes or removes: the card's Run is red (Button.danger)
+  repeated AssistantSecretField secrets = 11;  // the secrets Run needs; Run stays disabled while one is empty
 }
 
 message AssistantPicture {
@@ -147,12 +188,28 @@ message AssistantDone {
 message AssistantRunRequest {
   string conversation_id = 1;
   string handle = 2;
+  // The values of the card's secret fields by name (AssistantPreviewCard.secrets), at most 8, each at most 4,096 bytes. Never
+  // logged, never part of the conversation. INVALID_ARGUMENT for a name the preview did not declare or a value too long, and
+  // FAILED_PRECONDITION "Enter the password." while one is missing (trailer oadm-field with the name); the card stays.
+  map<string, string> secrets = 3;
 }
 
 message AssistantRunReply {
   string batch_id = 1;
   int32 task_count = 2;
   repeated string task_ids = 3;            // the card follows them in the client's task store
+  repeated AssistantFile files = 4;        // files the run offers (Back up now): file cards with Save, fetched with Download
+  // A secret the run made (a new access key, docs/spec/mcp.md "Access keys"): the panel shows a card with Copy, which fetches
+  // it once through Download (file_ref). Never part of the conversation or sent to the model; unset for most runs.
+  AssistantSecretCard secret = 5;
+}
+
+// A secret to copy once (a new access key): its card's title and the reference Copy fetches with Download (NOT_FOUND after the
+// first fetch: "This access key was fetched already. ...").
+message AssistantSecretCard {
+  string title = 1;                        // "Access key Lobby-bot"
+  string file_ref = 2;
+  string expires_utc = 3;                  // ISO 8601; the reference ends then (10 minutes)
 }
 
 message AssistantSettings {

@@ -35,7 +35,8 @@ service PluginService {
   // checks the file against the SHA-256 built into this server, unpacks it and loads it (off). Streams the progress; the
   // last message has done or error set (a failure leaves the state as it was). INVALID_ARGUMENT no header, NOT_FOUND
   // unknown add-on, FAILED_PRECONDITION already installed, removed and still loaded, a build without the add-on's hash,
-  // another install or remove running, or a self update running.
+  // another install or remove running, or a self update running. A header with file_id takes the caller's upload instead of
+  // data chunks (NOT_FOUND when it is not there).
   rpc UploadAddOn (stream AddOnUploadChunk) returns (stream AddOnProgress);
   // Admin: turns the add-on off at once; its folder goes at the next server start. NOT_FOUND unknown add-on,
   // FAILED_PRECONDITION not installed or a self update running. Reply: the whole list.
@@ -149,8 +150,9 @@ enum AddOnStep {
   ADD_ON_STEP_CHECK = 1;
   ADD_ON_STEP_INSTALL = 2;
 }
-// file_name: the chosen file, name only; size: its exact size in bytes.
-message AddOnUploadHeader { string id = 1; string file_name = 2; int64 size = 3; }
+// file_name: the chosen file, name only; size: its exact size in bytes. file_id: instead of data chunks, a file the caller
+// sent with FileService.Upload (an AI agent's upload link; file_name and size then come from it), deleted once installed.
+message AddOnUploadHeader { string id = 1; string file_name = 2; int64 size = 3; string file_id = 4; }
 message AddOnUploadChunk {
   oneof part {
     AddOnUploadHeader header = 1;

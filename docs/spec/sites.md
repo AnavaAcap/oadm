@@ -101,6 +101,9 @@ side.
   sites, no waiting nodes); users with all devices see every site and the groups that use it (`Site.group_names`).
 - Audit: Turned on / off site nodes, Bound site, Wrong pairing code, Renamed site, Replaced site, Removed site, Site
   offline / online, Site node was reset (system). Backup: "Sites: N restored".
+- AI agents and the Assistant (decision 2026-11-15, docs/spec/mcp.md "Server settings and services as built"): Accept site
+  nodes, Bind (the pairing code only through the secret channel, the key fingerprint in the plan), Replace with and Remove as
+  previews and runs, Administrator, audited like the page.
 
 ## Client
 

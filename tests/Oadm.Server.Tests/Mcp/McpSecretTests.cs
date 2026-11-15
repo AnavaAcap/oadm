@@ -73,9 +73,16 @@ public sealed class McpSecretTests
             ["oadm_tasks_cancel_run"] = new() { ["handle"] = "ended" },
             ["oadm_selection"] = [],
             ["oadm_docs_search"] = new() { ["query"] = "credentials" },
+            ["oadm_files_download_link"] = new() { ["file_ref"] = "ended" },
+            ["oadm_devices_export"] = new() { ["filter"] = new JsonObject() },
+            ["oadm_compliance_export"] = new() { ["filter"] = new JsonObject() },
         };
         var areaKey = await server.CreateKeyAsync(name: "canary-areas"); // a key allows 20 calls a second: the areas' tools use their own
         var areaCalls = McpAreaToolTests.SecretScanCalls();
+        foreach (var (tool, arguments) in McpHostActionTests.SecretScanCalls(device.Id.ToString()).Concat(McpAdminToolTests.SecretScanCalls()).Concat(McpAccessToolTests.SecretScanCalls()).Concat(McpServerChangeTests.SecretScanCalls(device.Id.ToString())))
+        {
+            areaCalls[tool] = arguments;
+        }
         Assert.Equal(calls.Keys.Concat(areaCalls.Keys).Order(StringComparer.Ordinal), await server.ToolNamesAsync(key));
         // 20 calls a second per key: ten calls with each key.
         var keys = new List<string> { key };
@@ -267,7 +274,7 @@ public sealed class McpSecretTests
         public Task ExecuteAsync(ITaskExecutionContext ctx, IDeviceInfo device, string? payloadJson, CancellationToken ct) => Task.Delay(Timeout.Infinite, ct);
     }
 
-    private static string ReadLogs(string directory)
+    internal static string ReadLogs(string directory)
     {
         var text = new StringBuilder();
         foreach (var file in Directory.Exists(directory) ? Directory.GetFiles(directory) : [])

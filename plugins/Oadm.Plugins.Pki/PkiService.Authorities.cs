@@ -121,6 +121,24 @@ public sealed partial class PkiService
     /// Adds an imported CA with its key to the list (the key encrypted with the master key like the OADM CA's). A CA imported
     /// before without its key gets it; the OADM CA, a previous OADM CA or a CA with its key already listed is refused.
     /// </summary>
+    /// <summary>
+    /// The refusal of <see cref="AddImportedAsync"/> for a CA with <paramref name="id"/> (SHA-256 of its certificate), without
+    /// storing anything (a tool's preview; the run checks again inside the gate); null when it may be added.
+    /// </summary>
+    internal string? ImportRefusal(string id)
+    {
+        var known = _imported.FirstOrDefault(i => string.Equals(i.Id, id, StringComparison.OrdinalIgnoreCase));
+        if (string.Equals(_ca?.Id, id, StringComparison.OrdinalIgnoreCase) || _previous.Any(p => string.Equals(p.Id, id, StringComparison.OrdinalIgnoreCase))
+            || (known is { KeyProtected: not null } && _importedMaterial.GetValueOrDefault(id) is { HasKey: true }))
+        {
+            return "This CA is already in the list.";
+        }
+
+        return known is null && _imported.Count >= PkiPluginInfo.MaxImportedCas
+            ? $"At most {PkiPluginInfo.MaxImportedCas} CAs can be created or imported. Delete one first."
+            : null;
+    }
+
     private async Task<PkiReply> AddImportedAsync(CaMaterial material, CancellationToken ct)
     {
         await _gate.WaitAsync(ct).ConfigureAwait(false);
@@ -310,7 +328,13 @@ public sealed partial class PkiService
     /// Its certificates stay in the list (nothing else is deleted, nothing is blocked). A deleted Axis device ID CA stays
     /// deleted after an update; the first-start root CA is never made again.
     /// </summary>
-    public async Task<PkiReply> DeleteAuthorityAsync(DeleteAuthorityRequest request, CancellationToken ct)
+    public Task<PkiReply> DeleteAuthorityAsync(DeleteAuthorityRequest request, CancellationToken ct) => DeleteAuthorityAsync(request, null, ct);
+
+    /// <summary>
+    /// Delete of a CA row, or with <paramref name="dryRun"/> only its checks (a tool's preview): the same refusals, nothing
+    /// written; the name of the CA goes into <paramref name="dryRun"/>.
+    /// </summary>
+    internal async Task<PkiReply> DeleteAuthorityAsync(DeleteAuthorityRequest request, System.Runtime.CompilerServices.StrongBox<string>? dryRun, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(request);
         var id = request.Id ?? string.Empty;
@@ -327,6 +351,20 @@ public sealed partial class PkiService
                 if (Refusal(authorityId) is { } refused)
                 {
                     return await ErrorAsync(refused, ct).ConfigureAwait(false);
+                }
+
+                if (dryRun is not null)
+                {
+                    var listed = (string.Equals(authorityId, CertificateAuthorityInfo.OadmId, StringComparison.Ordinal) && _caUnreadable)
+                        || (authorityId.StartsWith(ImportedPrefix, StringComparison.OrdinalIgnoreCase)
+                            && _imported.Any(i => string.Equals(ImportedAuthorityId(i.Id), authorityId, StringComparison.OrdinalIgnoreCase) && !_importedMaterial.ContainsKey(i.Id)));
+                    if (!listed)
+                    {
+                        return await ErrorAsync(NoLongerListed, ct).ConfigureAwait(false);
+                    }
+
+                    dryRun.Value = name;
+                    return new PkiReply { Ok = true };
                 }
 
                 if (string.Equals(authorityId, CertificateAuthorityInfo.OadmId, StringComparison.Ordinal) && _caUnreadable)
@@ -383,6 +421,12 @@ public sealed partial class PkiService
                 if (SignedBy(row, index) is { } signed)
                 {
                     return await ErrorAsync($"It signed {signed}. Delete {signed} first.", ct).ConfigureAwait(false);
+                }
+
+                if (dryRun is not null)
+                {
+                    dryRun.Value = name;
+                    return new PkiReply { Ok = true };
                 }
 
                 var fingerprint = Convert.ToHexString(SHA256.HashData(row.Der));

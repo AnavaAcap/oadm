@@ -28,6 +28,7 @@ public sealed partial class McpSkillTests
         "oadm_settings_get", "oadm_tasks_list", "oadm_tasks_get", "oadm_tasks_catalog", "oadm_task_preview", "oadm_task_run",
         "oadm_tasks_cancel_preview", "oadm_tasks_cancel_run", "oadm_files_upload_link", "oadm_files_list",
         "oadm_files_delete_preview", "oadm_files_delete_run", "oadm_backup_download_link", "oadm_logs_search", "oadm_logs_audit",
+        "oadm_files_download_link", "oadm_devices_export", "oadm_compliance_export",
         "oadm_tags_list", "oadm_tags_assign_preview", "oadm_tags_assign_run", "oadm_sites_list", "oadm_compliance_summary",
         "oadm_compliance_checks", "oadm_rules_list", "oadm_rules_get", "oadm_rules_save_preview", "oadm_rules_save_run",
         "oadm_rules_delete_preview", "oadm_rules_delete_run", "oadm_events_log", "oadm_pki_certificates",
@@ -42,12 +43,18 @@ public sealed partial class McpSkillTests
         "oadm_recordings_search", "oadm_image_health_results", "oadm_io_ports", "oadm_metadata_streams",
         "oadm_dashboards_list", "oadm_dashboards_values", "oadm_load_test_checks", "oadm_load_test_check", "oadm_snapshot_report_sources",
         "oadm_recipients_list",
+        "oadm_app_management_read", "oadm_app_management_log", "oadm_app_management_settings", "oadm_edge_storage_read", "oadm_device_rules_read", "oadm_image_health_check",
+        .. McpHostActionTests.ToolNames,
+        .. McpAdminToolTests.ToolNames,
+        "oadm_device_request_preview", "oadm_device_request_run",
+        .. McpAccessToolTests.ToolNames,
+        .. McpServerChangeTests.ToolNames,
     ];
 
     private static readonly string[] Workflows =
     [
-        "applications.md", "certificates.md", "event-rules.md", "failed-tasks.md", "health-check.md", "network-change.md",
-        "rollout-axis-os.md", "sites.md", "storage.md", "troubleshoot-device.md", "vulnerabilities.md",
+        "applications.md", "certificates.md", "configure-devices.md", "event-rules.md", "failed-tasks.md", "health-check.md",
+        "network-change.md", "rollout-axis-os.md", "sites.md", "storage.md", "troubleshoot-device.md", "vulnerabilities.md",
     ];
 
     [GeneratedRegex("oadm_[a-z0-9_]+")]

@@ -253,8 +253,39 @@ public Task<TaskPlan> PlanAsync(string? payloadJson, IReadOnlyList<IDeviceInfo> 
 - `ValidatePayload` holds the dialog's rules, field by field (the payload's JSON names, dots for nested fields). The server
   calls it before every run, also for the client: an invalid payload starts no task. Use it in your dialog too.
 - `PlanAsync` says per device whether the run changes it or why not, from the cached data only (no device request). The
-  default uses `CanRun` and `NotSupportedReason`.
-- Mark a password or key with `[Secret]`: such a task is never offered to agents.
+  default uses `CanRun` and `NotSupportedReason`. The overload with `IUploadedFiles` may read the uploads: name them in
+  `TaskPlan.Files`, answer a problem only they show in `TaskPlan.Errors` (per field, like `ValidatePayload`) and say what
+  the run does in `TaskPlan.Details` (plain lines, such as the package each group of devices gets).
+- Mark a password or key with `[Secret]` (`[Secret(Label = "passphrase")]` names what the person is asked for). The
+  host leaves it out of the agent's schema: a secret never goes through an AI model. The person types it into their own
+  shell or the assistant's card, the host checks it at once with your `ValidatePayload` (the error at that field) and puts
+  it into the run's payload at its field. Your `ValidatePayload` holds the rule for the value too; while the person has not
+  entered it, the preview ignores its errors there.
+- `SecretsOf(payloadJson)` answers the secrets one run needs: by default the top-level `[Secret]` properties. Override it
+  when it depends on the payload (a removal needs no password) or when a secret sits in a list, with the field as
+  `ValidatePayload` names it:
+
+```csharp
+public IReadOnlyList<TaskSecret> SecretsOf(string? payloadJson) =>
+    [.. Settings(payloadJson).Select((s, i) => (s, i)).Where(p => p.s.IsPassword)
+        .Select(p => new TaskSecret($"setting_{p.i}", "password for " + p.s.Name, $"settings[{p.i}].value"))];
+```
+- A task only your page starts (`ShowInMenus` false, no `Permissions`) is offered to agents when `PagePermissions`
+  names the keys of your core plugin's permissions one run needs (`["format"]`). Return null for the page's own payload
+  to keep it on the page.
+
+### A file as the result
+
+A task that makes a file (an exported configuration, a report) keeps it for the user who started it (SDK 0.13.0):
+
+```csharp
+using var content = new MemoryStream(Encoding.UTF8.GetBytes(export));
+await ctx.SaveResultFileAsync("config-" + device.Serial + ".txt", "text/plain", content, ct);
+```
+
+One file per task (a second call replaces it), at most 64 MB, kept a day. The user fetches it with the task: an agent
+gets a one-time download link, the assistant shows a card with Save. Never a private key or a secret the user did not ask
+for. Older hosts and tasks the system started throw `NotSupportedException`.
 
 ## Device safety
 

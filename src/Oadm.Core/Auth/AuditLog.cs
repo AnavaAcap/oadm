@@ -101,6 +101,9 @@ public static class AuditActions
     public const string AssistantChanged = "Changed assistant";
     public const string FileUploaded = "Uploaded file";
     public const string FileDownloaded = "Downloaded file";
+
+    /// <summary>A secret of a preview was set through the secret channel (docs/spec/mcp.md "Secrets"); the entry never holds the value.</summary>
+    public const string SecretSet = "Set secret";
 }
 
 /// <summary>

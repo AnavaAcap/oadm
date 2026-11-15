@@ -39,7 +39,7 @@ public sealed class ToolTests : IAsyncLifetime
     public async Task The_enrollments_come_newest_first_a_page_at_a_time_and_a_group_sees_only_its_devices()
     {
         ICorePlugin core = _plugin;
-        Assert.Equal("enrollments", Assert.Single(core.Tools).Name);
+        Assert.Equal(["enrollments", "enrollments_clear", "enable", "settings_save", "profile_save", "profile_delete"], core.Tools.Select(t => t.Name));
         Assert.Equal(UserRole.Operator, core.RequiredRole(EstTools.Enrollments.Method));
         Assert.False(core.IsAudited(EstTools.Enrollments.Method));
         var store = _plugin.Service!.Store;

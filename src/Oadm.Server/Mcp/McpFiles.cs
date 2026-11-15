@@ -167,7 +167,7 @@ internal sealed class McpFiles(ToolHandles handles, InProcessCalls calls, AuditL
         }
 
         long sent = 0;
-        using var budget = new Budget(http, TransferBudget(stream.CanSeek ? stream.Length : null), time);
+        using var budget = new Budget(http, TransferBudget(download.Size ?? (stream.CanSeek ? stream.Length : null)), time);
         try
         {
             await using (stream.ConfigureAwait(false))
@@ -195,9 +195,12 @@ internal sealed class McpFiles(ToolHandles handles, InProcessCalls calls, AuditL
         }
         finally
         {
-            // Also a download cut off halfway is audited: its bytes left OADM.
-            await audit.WriteAsync(caller.User.AuditUserName ?? caller.User.UserName, caller.User.ClientAddress, AuditActions.FileDownloaded, download.Name,
+            // Also a download cut off halfway is audited: its bytes left OADM (once: a source that audits itself is not audited twice).
+            if (!download.AuditedBySource)
+            {
+                await audit.WriteAsync(caller.User.AuditUserName ?? caller.User.UserName, caller.User.ClientAddress, AuditActions.FileDownloaded, download.Name,
                 string.Create(CultureInfo.InvariantCulture, $"{sent:N0} bytes"), CancellationToken.None).ConfigureAwait(false);
+            }
         }
     }
 

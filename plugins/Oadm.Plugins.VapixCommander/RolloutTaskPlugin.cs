@@ -349,6 +349,9 @@ internal static class SecretValues
 
     private static readonly HashSet<string> Plain = new(StringComparer.OrdinalIgnoreCase) { "yes", "no", "true", "false", "on", "off", "none", "enabled", "disabled" };
 
+    /// <summary>A yes/no or empty value that is never masked (it would hide every setting).</summary>
+    public static bool IsPlain(string value) => value.Length == 0 || Plain.Contains(value);
+
     /// <summary>True when a name points to a secret ("SNMP.V1ReadCommunity", "MQTT.Password", "Read community").</summary>
     public static bool IsSecretName(string? name)
     {

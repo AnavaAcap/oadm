@@ -7,6 +7,7 @@ using Grpc.Core;
 
 using Oadm.Client.Api;
 using Oadm.Client.Discovery;
+using Oadm.Contracts.Devices;
 using Oadm.Contracts.V1;
 using Oadm.Sdk.Client.Validation;
 

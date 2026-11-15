@@ -840,6 +840,7 @@ public sealed partial class TaskEngine : ITaskRunner, IAsyncDisposable
         }
 
         var deleted = await _store.DeleteManyAsync(ids, ct).ConfigureAwait(false);
+        _options.ResultFiles?.Delete(ids);
         foreach (var record in deleted)
         {
             _feed.Publish(new TaskChange(TaskChangeKind.Removed, record));
@@ -859,6 +860,7 @@ public sealed partial class TaskEngine : ITaskRunner, IAsyncDisposable
 
         var existing = await _store.GetAsync(taskId, ct).ConfigureAwait(false);
         var deleted = await _store.DeleteAsync(taskId, ct).ConfigureAwait(false);
+        _options.ResultFiles?.Delete([taskId]);
         if (deleted && existing is not null)
         {
             _feed.Publish(new TaskChange(TaskChangeKind.Removed, existing));
@@ -1098,6 +1100,8 @@ public sealed partial class TaskEngine : ITaskRunner, IAsyncDisposable
                         ? new TaskCallContext(owner, ownerView, _vapix, ForView(ownerView, owner))
                         : null,
                     AxisDownloads = axisDownloads,
+                    ResultFiles = _options.ResultFiles,
+                    OwnerId = task.Caller?.UserId,
                 };
                 steps = context.Steps;
                 task.AttachSteps(steps);

@@ -111,6 +111,9 @@ internal sealed class HostCallContext : ICallContext
 
     public IDeviceEventStreams? EventStreams { get; }
 
+    /// <summary>The uploads of the caller's session (<see cref="Oadm.Core.Uploads.UploadStore.For"/>); none without an upload store.</summary>
+    public IUploadedFiles Uploads { get; init; } = Oadm.Core.Uploads.NoUploadedFiles.Instance;
+
     public bool Has(string permission) => Caller.Caller.Has(permission);
 
     public bool CoversRoute(Guid? siteId) => Caller.View.CoversRoute(siteId);

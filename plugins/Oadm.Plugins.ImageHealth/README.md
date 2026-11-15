@@ -95,6 +95,11 @@ failed, and per detection), then one row per camera with the app state and blur,
 unsuitability (`ok`, `pending`, `detected`, `off`), paged by device id, filter `detected` (one detection or `any`). It
 asks no camera; the page's rule (Operator).
 
+`oadm_image_health_check` (`Tools/ImageHealthPageTools`, `PluginPageTools`, decision 2026-11-15) is the page's Check now
+with the rule of `check`: the host's device filter (at most 500 cameras) or `all_devices` (the caller's video devices), a
+group user's cameras must all be in the view; it answers the progress, the rows follow in `oadm_image_health_results`.
+One tool, no preview: the page checks without asking and only reads. Tests: `PageToolTests`.
+
 ## Tests
 
 `tests/Oadm.Plugins.ImageHealth.Tests`: `DeviceGroupTests` (the plugin canary, one table per group); the three recorded

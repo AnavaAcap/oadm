@@ -32,19 +32,42 @@ is in the context menu under **Applications**.
 
 </Steps>
 
-### One package per processor type
+### Several files of one application
 
-Many applications come as one `.eap` file per processor type, for example `aarch64` and `armv7hf`. Choose all of them
-at once: each device gets the file of its processor type. **Details** shows per device which file it gets ("aarch64
-build"). A device without a fitting file shows **No package**; its task ends with a warning and nothing is changed.
+Many applications come as several `.eap` files: one per processor type (`aarch64`, `armv7hf`), often also one per AXIS
+OS version, for example one for AXIS OS 10 and one for AXIS OS 11 and later, sometimes with other version numbers.
+Choose all of them at once. Each device gets the file that fits its processor type and AXIS OS, the newest version
+first. **Details** shows per device which file it gets. A device without a fitting file shows **No package** with the
+reason; its task ends with a warning and nothing is changed.
 
-The files must be the same application in the same version, one file per processor type. A file that fits every
-processor type is installed on its own.
+When two files fit a group of devices equally, a table above the devices asks: choose the file for each group in
+**Package**. **Install** waits until every group has one.
+
+The files must be the same application. A file that fits every processor type is used only for devices without a file of
+their own.
 
 Some vendors ship these files in one ZIP file. Choose the ZIP, or the ZIP and more `.eap` files together: OADM takes the
 `.eap` files from it, also from subfolders, and ignores the rest. A pick holds at most 16 `.eap` files and 2 GB.
 
 <Image src={severalShot} alt="Two packages of one application, each device with the build of its processor type" class="screen" />
+
+### Mapping file for vendors
+
+A vendor can add a file `oadm-packages.json` to the ZIP, next to the `.eap` files. It says which file each camera gets:
+
+```json
+{ "packages": [
+  { "file": "lpr_2.4_aarch64.eap", "axisOs": { "min": "10.0", "max": "10.12" } },
+  { "file": "lpr_2.6_cv25.eap", "soc": ["CV25"] },
+  { "file": "lpr_2.6_p3265.eap", "models": ["P3265-LVE"] }
+] }
+```
+
+Only `file` is needed. `models` are product names (with or without "AXIS"), `soc` the chip as the **SoC** column shows it,
+`architecture` the processor type, `axisOs` the lowest and highest AXIS OS. When several rows match a camera, the row
+with models wins, then the one with a chip. The file never installs a package on a camera it does not fit: that camera
+shows **No package** with the reason. The package facts then say "Mapping from the package", and the table shows every
+group with its file and the row that chose it.
 
 ## License keys
 

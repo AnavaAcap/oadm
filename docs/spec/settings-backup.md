@@ -45,6 +45,9 @@ for `zero_conf_seconds`). Settings page labels in quotes.
   ("Only administrators can change server settings."). Right: **Backup and restore** (administrators), **License** (every
   user, `docs/spec/licensing.md`), **Support** (administrators). Narrower than 1,100 px (`SettingsView.TwoColumnWidth`) the
   right column moves below the server settings.
+- AI agents and the Assistant change the five server cards with the same checks and texts (`Oadm.Contracts.Settings.ServerSettingsRules`,
+  shared by the page and `oadm_settings_set_preview`/`_run`, Administrator; decision 2026-11-15, docs/spec/mcp.md "Server
+  settings and services as built"); the credential list, backups and the license key stay in the page.
 - Every card folds and starts closed (`Controls/CollapsibleCard`, `docs/spec/visual-style.md`); a card opens by itself
   when an input in it shows a validation error.
 - **Client** (every user, saved at once in the client settings file): Live view "Decode video on the graphics card" with
@@ -116,6 +119,13 @@ Core `Oadm.Core.Backup` (`BackupFile`, `BackupArchive`), server `Oadm.Server.Bac
   from file (uploaded first) or a server backup's Restore (dialog: password, Check shows the counts, Restore after a
   confirmation naming the running tasks), Automatic backups (Save is secondary: one accent button per view), the list with
   Download, Restore, Delete (red, confirmed), the last automatic backup and the last restore report.
+- **AI agents** (decision 2026-11-15, replaces "Backups stay GUI only"; `docs/spec/mcp.md` "Administration as built"): an
+  administrator's agent sets the automatic backups, backs up now, lists, downloads and deletes kept backups and restores one,
+  each change a preview and a run of these methods. Every backup password comes through the secret channel, typed twice
+  where the card asks twice; a backup leaves only as a file of a download link (the Assistant: a file card), a backup to
+  restore comes through an upload link. Back up now's file is made when it is fetched (the password held encrypted in memory
+  until then). The restore's plan warns that everything is replaced, the tasks are cancelled, the server restarts with every
+  client and agent disconnected and every access key ends; its run checks the password with `Inspect` first.
 - **Tests**: `tests/Oadm.Core.Tests/Backup/BackupTests` (format, another server, an older OADM upgraded, rollback, entries
   outside the folder), `tests/Oadm.Server.Tests/BackupServiceTests` (create, check, restore with a restart, automatic,
   schedule), `tests/Oadm.Client.Tests/BackupCardTests` (+ screenshots).
@@ -140,6 +150,8 @@ details for a support request. No passwords are included." and **Create support 
   database file (`SupportReportTests` seeds such values and scans every entry). The summary lists no device addresses or
   serial numbers; the logs are copied as they are and name devices by address and serial number (and the user names OADM
   logs in with), as the Logs page shows them.
+- **AI agents** (decision 2026-11-15): `oadm_support_report` answers the server part as a file of a download link (the
+  Assistant: a file card); the client part is only in the client's report.
 - **Client part**: the client downloads the server's ZIP to a temporary file, then writes the chosen file with every
   entry of it plus this computer's `client-*.log` files under `client-logs/` (same 200 MB cap), off the UI thread; a
   failure removes the cut file.

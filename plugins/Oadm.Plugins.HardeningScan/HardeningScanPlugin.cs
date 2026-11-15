@@ -12,7 +12,7 @@ namespace Oadm.Plugins.HardeningScan;
 /// Page backend methods: <see cref="HardeningMethods"/>. Device groups (SDK 0.4.0): every method works on the user's view,
 /// a scan is a job of its user, one scan at a time per device scope.
 /// </summary>
-public sealed class HardeningScanPlugin : ICorePlugin, IAsyncDisposable
+public sealed class HardeningScanPlugin : ICorePlugin, ICorePluginDownloads, IAsyncDisposable
 {
     private readonly HardeningScanOptions _options;
     private HardeningScanService? _service;
@@ -39,6 +39,12 @@ public sealed class HardeningScanPlugin : ICorePlugin, IAsyncDisposable
 
     /// <summary>The running service (tests).</summary>
     internal HardeningScanService? Service => _service;
+
+    /// <summary>The running service; refuses a call while the plugin is stopped.</summary>
+    internal HardeningScanService RunningService => _service ?? throw new InvalidOperationException("The hardening scan plugin is not running.");
+
+    /// <summary>The jobs of the users' scans.</summary>
+    internal IPluginJobs Jobs => _ctx?.Jobs ?? throw new InvalidOperationException("This OADM server cannot run scans.");
 
     public async Task StartAsync(ICorePluginContext ctx, CancellationToken ct)
     {
@@ -71,13 +77,17 @@ public sealed class HardeningScanPlugin : ICorePlugin, IAsyncDisposable
         new("scan", "Run scans", "Start and stop a scan of the devices (it only reads them)."),
     ];
 
-    /// <summary>The results tool (docs/spec/mcp.md "Plugins"): read only, "show" like the page's state.</summary>
-    public IReadOnlyList<PluginTool> Tools => HardeningTools.All;
+    /// <summary>
+    /// The tools (docs/spec/mcp.md "Plugins"): the results (read only, "show" like the page's state), and the page's Start scan,
+    /// Stop scan and detail with the rights of their page methods.
+    /// </summary>
+    public IReadOnlyList<PluginTool> Tools { get; } = [.. HardeningTools.All, .. HardeningPageTools.Set.Tools];
 
     /// <summary>The tool is named <c>oadm_hardening_results</c>.</summary>
     public string? ToolArea => "hardening";
 
-    public string? RequiredPermission(string method) => method is HardeningMethods.StartScan or HardeningMethods.CancelScan ? "scan" : PermissionKeys.Show;
+    public string? RequiredPermission(string method) =>
+        HardeningPageTools.Set.RulesMethodOf(method) is HardeningMethods.StartScan or HardeningMethods.CancelScan ? "scan" : PermissionKeys.Show;
 
     /// <summary>A user's call: the devices of the user's view; scans are the user's jobs.</summary>
     public async Task<string?> InvokeAsync(ICallContext caller, string method, string? payloadJson, CancellationToken ct)
@@ -91,7 +101,17 @@ public sealed class HardeningScanPlugin : ICorePlugin, IAsyncDisposable
             return HardeningTools.Answer(state, await caller.Devices.ListAsync(ct).ConfigureAwait(false), payloadJson);
         }
 
-        var jobs = _ctx?.Jobs ?? throw new InvalidOperationException("This OADM server cannot run scans.");
+        if (method == HardeningTools.ResultsCsv.Method)
+        {
+            return HardeningTools.CsvAnswerOf(await service.GetStateAsync(caller, ct).ConfigureAwait(false), payloadJson);
+        }
+
+        if (HardeningPageTools.Set.Handles(method))
+        {
+            return await HardeningPageTools.Set.InvokeAsync(this, caller, method, payloadJson, ct).ConfigureAwait(false);
+        }
+
+        var jobs = Jobs;
         return method switch
         {
             HardeningMethods.GetState => HardeningJson.Serialize(await service.GetStateAsync(caller, ct).ConfigureAwait(false)),
@@ -120,6 +140,26 @@ public sealed class HardeningScanPlugin : ICorePlugin, IAsyncDisposable
             default:
                 throw new ArgumentException($"Unknown method '{method}'.", nameof(method));
         }
+    }
+
+    /// <summary>Only through the user's call (<see cref="OpenDownloadAsync(ICallContext, string, string?, CancellationToken)"/>).</summary>
+    public Task<PluginDownload> OpenDownloadAsync(string method, string? payloadJson, CancellationToken ct) =>
+        throw new NotSupportedException("Call the hardening scan plugin with the user's call.");
+
+    /// <summary>The results of the caller's devices as CSV (the tools' file), made when it is fetched.</summary>
+    public async Task<PluginDownload> OpenDownloadAsync(ICallContext caller, string method, string? payloadJson, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(caller);
+        var service = _service ?? throw new InvalidOperationException("The hardening scan plugin is not running.");
+        if (method != HardeningTools.CsvDownload)
+        {
+            throw new ArgumentException($"Unknown download '{method}'.", nameof(method));
+        }
+
+        var state = await service.GetStateAsync(caller, ct).ConfigureAwait(false);
+        var csv = HardeningTools.Csv(state, await caller.Devices.ListAsync(ct).ConfigureAwait(false), payloadJson);
+        var bytes = new System.Text.UTF8Encoding(false).GetBytes(csv);
+        return new PluginDownload(new MemoryStream(bytes, writable: false), "Hardening results.csv", bytes.Length);
     }
 
     public async ValueTask DisposeAsync() => await StopAsync(CancellationToken.None).ConfigureAwait(false);

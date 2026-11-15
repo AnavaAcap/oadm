@@ -15,9 +15,9 @@ public sealed class ToolTests
     {
         await using var ocr = await OcrHarness.StartAsync();
         ICorePlugin core = ocr.Plugin;
-        Assert.Equal(["readers", "reads"], core.Tools.Select(t => t.Name));
-        Assert.All(core.Tools, t => Assert.Equal(PermissionKeys.Show, core.RequiredPermission(t.Method)));
-        Assert.All(core.Tools, t => Assert.False(core.IsAudited(t.Method)));
+        Assert.Equal(["readers", "reads", "reader_save", "reader_delete", "reader_read_now", "use_gpu"], core.Tools.Select(t => t.Name));
+        Assert.All(OcrTools.All, t => Assert.Equal(PermissionKeys.Show, core.RequiredPermission(t.Method)));
+        Assert.All(OcrTools.All, t => Assert.False(core.IsAudited(t.Method)));
         var key = ocr.Context.FakeScopes.Add("Building B", [ocr.Inside.Id]);
         var group = FakeCallContext.WithGroup(ocr.Context, [ocr.Inside.Id], "operator", key);
         var lobby = await ocr.SaveAsync(ocr.NewReader("Lobby"));

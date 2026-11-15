@@ -257,7 +257,7 @@ public sealed partial class VisionPlugin : ICorePlugin, IDynamicEventSource, IAc
     }
 
     /// <summary>The read tool (docs/spec/mcp.md "Plugins"): the pipelines and the load, "show" like the page.</summary>
-    public IReadOnlyList<PluginTool> Tools => VisionTools.All;
+    public IReadOnlyList<PluginTool> Tools { get; } = [.. VisionTools.All, .. VisionPageTools.Set.Tools];
 
     public IReadOnlyList<PermissionDefinition> Permissions { get; } =
     [
@@ -270,22 +270,22 @@ public sealed partial class VisionPlugin : ICorePlugin, IDynamicEventSource, IAc
     public UserRole RequiredRole(string method) => UserRole.Operator;
 
     /// <summary>Pipelines: "change"; models: "models"; the rest (the page's preview too): "show".</summary>
-    public string? RequiredPermission(string method) => method switch
+    public string? RequiredPermission(string method) => VisionPageTools.Set.RulesMethodOf(method) switch
     {
         VisionMethods.SavePipeline or VisionMethods.CopyPipeline or VisionMethods.DeletePipeline or VisionMethods.SetUseGpu => VisionInfo.ChangePermission,
-        _ when IsModelMethod(method) => VisionInfo.ModelsPermission,
+        var page when IsModelMethod(page) => VisionInfo.ModelsPermission,
         _ => PermissionKeys.Show,
     };
 
     /// <summary>"Use GPU" and the models are server-wide: only users with all devices.</summary>
-    public bool RequiresAllDevices(string method) => method is VisionMethods.SetUseGpu || IsModelMethod(method);
+    public bool RequiresAllDevices(string method) => VisionPageTools.Set.RulesMethodOf(method) is var page && (page is VisionMethods.SetUseGpu || IsModelMethod(page));
 
     /// <summary>A save counts the watching pipelines per site over every pipeline's camera, showing no device data.</summary>
-    public string? SystemAccessReason(string method) => method is VisionMethods.SavePipeline
+    public string? SystemAccessReason(string method) => VisionPageTools.Set.RulesMethodOf(method) is VisionMethods.SavePipeline
         ? "counts the watching pipelines per site (a limit of the site node), shows no device data"
         : null;
 
-    public bool IsAudited(string method) => method is VisionMethods.SavePipeline or VisionMethods.CopyPipeline or VisionMethods.DeletePipeline or VisionMethods.SetUseGpu
+    public bool IsAudited(string method) => !PluginTool.IsPreviewMethod(method) && VisionPageTools.Set.RulesMethodOf(method) is VisionMethods.SavePipeline or VisionMethods.CopyPipeline or VisionMethods.DeletePipeline or VisionMethods.SetUseGpu
         or VisionMethods.FinishUpload or VisionMethods.UpdateModel or VisionMethods.DeleteModel
         or VisionMethods.SaveClassList or VisionMethods.DeleteClassList;
 

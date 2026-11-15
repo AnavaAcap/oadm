@@ -29,8 +29,8 @@ public sealed class ToolTests
         await using var plugin = new DeviceTriggersPlugin(Options());
         await plugin.StartAsync(ctx, CancellationToken.None);
         ICorePlugin core = plugin;
-        Assert.Equal(["list", "devices"], core.Tools.Select(t => t.Name));
-        Assert.All(core.Tools, t => Assert.Equal(UserRole.Operator, core.RequiredRole(t.Method)));
+        Assert.Equal(["list", "devices"], TriggerTools.All.Select(t => t.Name));
+        Assert.All(TriggerTools.All, t => Assert.Equal(UserRole.Operator, core.RequiredRole(t.Method)));
         var anna = Testing.FakeCallContext.WithGroup(ctx, [a.Id], "anna", keyA);
         var ben = Testing.FakeCallContext.WithGroup(ctx, [b.Id], "ben", keyB);
         var admin = ctx.CallAsAllDevices();

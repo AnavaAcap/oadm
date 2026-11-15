@@ -115,6 +115,10 @@ public sealed partial class InstallAppsViewModel : ObservableObject, IDisposable
     private readonly ICorePluginClientContext _ctx;
     private readonly EapPackageFiles _files = new();
     private IReadOnlyList<EapManifest> _packages = [];
+
+    /// <summary>The file names of <see cref="_packages"/> and the rows of the package's mapping file.</summary>
+    private IReadOnlyList<string> _names = [];
+    private IReadOnlyList<AcapPackageRule> _rules = [];
     private CancellationTokenSource? _upload;
     private int _version;
 
@@ -234,6 +238,8 @@ public sealed partial class InstallAppsViewModel : ObservableObject, IDisposable
         }
 
         _packages = [];
+        _names = [];
+        _rules = [];
         FileError = null;
         ErrorText = null;
         FileName = EapPackageFiles.Describe(paths, null);
@@ -250,15 +256,16 @@ public sealed partial class InstallAppsViewModel : ObservableObject, IDisposable
                 var read = await Task.Run(async () =>
                 {
                     var list = new List<(string FileName, EapManifest Package)>(files.Count);
-                    foreach (var path in files)
+                    for (var i = 0; i < files.Count; i++)
                     {
+                        var name = i < _files.Names.Count ? _files.Names[i] : Path.GetFileName(files[i]);
                         try
                         {
-                            list.Add((Path.GetFileName(path), await EapReader.ReadAsync(path, CancellationToken.None).ConfigureAwait(false)));
+                            list.Add((name, await EapReader.ReadAsync(files[i], CancellationToken.None).ConfigureAwait(false)));
                         }
                         catch (Exception ex) when (several && ex is InvalidEapException or IOException or UnauthorizedAccessException)
                         {
-                            throw new InvalidEapException(Path.GetFileName(path) + ": " + ex.Message, ex);
+                            throw new InvalidEapException(name + ": " + ex.Message, ex);
                         }
                     }
 
@@ -271,6 +278,9 @@ public sealed partial class InstallAppsViewModel : ObservableObject, IDisposable
                 }
                 else
                 {
+                    // The vendor's mapping file of a ZIP decides the build per device group like in the Applications dialog.
+                    _rules = _files.RulesJson is { } json ? AcapPackageRules.Parse(json, [.. read.Select(r => r.FileName)]) : [];
+                    _names = [.. read.Select(r => r.FileName)];
                     _packages = [.. read.Select(r => r.Package)];
                     FileDetails = Describe(_packages, files);
                 }
@@ -363,7 +373,8 @@ public sealed partial class InstallAppsViewModel : ObservableObject, IDisposable
         IsChecking = true;
         try
         {
-            var rows = await Task.Run(() => Check(Devices, packages, allowDowngrade)).ConfigureAwait(true);
+            var (names, rules) = (_names, _rules);
+            var rows = await Task.Run(() => Check(Devices, packages, allowDowngrade, names, rules)).ConfigureAwait(true);
             if (version != _version)
             {
                 return;
@@ -392,21 +403,38 @@ public sealed partial class InstallAppsViewModel : ObservableObject, IDisposable
     }
 
     /// <summary>The rows of <paramref name="devices"/> against the packages (tests call it directly).</summary>
-    internal static InstallDeviceRow[] Check(IReadOnlyList<DeviceApps> devices, IReadOnlyList<EapManifest> packages, bool allowDowngrade)
+    internal static InstallDeviceRow[] Check(IReadOnlyList<DeviceApps> devices, IReadOnlyList<EapManifest> packages, bool allowDowngrade,
+        IReadOnlyList<string>? names = null, IReadOnlyList<AcapPackageRule>? rules = null)
     {
         var rows = new InstallDeviceRow[devices.Count];
+        var builds = AcapCompatibility.Builds(packages, names);
+
+        // One choice per group (model, AXIS OS, architecture), not per device.
+        var choices = new Dictionary<string, AcapBuildChoice>(StringComparer.Ordinal);
         for (var i = 0; i < rows.Length; i++)
         {
             var device = devices[i];
-            var preview = device.Error is null
-                ? AcapCompatibility.Preview(packages, new AcapDeviceFacts
+            AcapInstallPreview? preview = null;
+            if (device.Error is null)
+            {
+                var facts = new AcapDeviceFacts
                 {
                     Architecture = device.Architecture,
                     FirmwareVersion = device.Firmware,
                     AllowUnsigned = device.AllowUnsigned,
                     EmbeddedDevelopmentVersion = device.EmbeddedDevelopmentVersion,
-                }, device.Applications, allowDowngrade)
-                : null;
+                    Model = device.Model,
+                    Soc = device.Soc,
+                };
+                var group = AcapDeviceGroup.Of(facts);
+                if (!choices.TryGetValue(group.Key, out var choice))
+                {
+                    choices[group.Key] = choice = AcapBuildChooser.Choose(builds, group, rules);
+                }
+
+                preview = AcapCompatibility.Preview(builds, choice, facts, device.Applications, allowDowngrade);
+            }
+
             rows[i] = new InstallDeviceRow(device, preview);
         }
 
@@ -421,6 +449,20 @@ public sealed partial class InstallAppsViewModel : ObservableObject, IDisposable
     }
 
     private bool CanInstall => !IsBusy && !IsChecking && _packages.Count > 0 && FitCount > 0;
+
+    /// <summary>The upload's file id of the package with this file name (a mapping row names it); the name itself when none.</summary>
+    private string FileIdOf(string name, List<AcapPackageFile> files)
+    {
+        for (var i = 0; i < files.Count && i < _names.Count; i++)
+        {
+            if (string.Equals(_names[i], name, StringComparison.OrdinalIgnoreCase))
+            {
+                return files[i].FileId;
+            }
+        }
+
+        return name;
+    }
 
     /// <summary>Uploads every file (one bar), then starts the Install tasks for the devices that fit through the server part.</summary>
     [RelayCommand(CanExecute = nameof(CanInstall))]
@@ -459,6 +501,7 @@ public sealed partial class InstallAppsViewModel : ObservableObject, IDisposable
                 Install = new AppInstall
                 {
                     Files = files,
+                    Rules = _rules.Count == 0 || files.Count < 2 ? null : [.. _rules.Select(r => r with { File = FileIdOf(r.File, files) })],
                     Version = package.Version,
                     AllowDowngrade = AllowDowngrade && MayDowngrade,
                     StartAfterInstall = StartAfterInstall,

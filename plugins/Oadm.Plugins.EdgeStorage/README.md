@@ -75,6 +75,30 @@ disk lists).
 
 "show" (Operator, Viewer); "Change storage settings" (`manage`: check, retention; Operator yes); "Format and encrypt storage" (`format`: format, repair, encryption on / off; deletes recordings, full device control, Operator no). The page hides the tools the role lacks; the server checks the method's right, and an action sent through the other method is refused. Both methods are audited.
 
+## AI agents
+
+The task is offered to the agents' task tools (`oadm_tasks_catalog`, `oadm_task_preview`, `oadm_task_run`; docs/spec/mcp.md
+"Tasks") although it is hidden from the menus:
+
+- Input `StorageMcpPayload` (`PayloadType`): `action` (`check`, `repair`, `retention`, `format`, `encryptionOff`,
+  `encryptionOn`) and `retentionDays` (0 to 7,000, retention only). The task reads the same JSON as its `TaskPayload`.
+- Encrypt: the passphrase is `[Secret(Label = "passphrase")]`, so it is no input; `SecretsOf` declares the slot
+  `passphrase` for `encryptionOn` only (docs/spec/mcp.md "Secrets"), the user enters it through the secret link or the
+  Assistant's card, the page's rule (`PassphraseProblem`) checks it when entered and again in `ValidatePayload` at Run, and
+  the run's payload has it (memory and the POST body only). The plan says "Encrypts the SD cards with the passphrase the
+  user enters." and that every recording is deleted; the page's right "Format and encrypt storage".
+- `ValidatePayload` holds every rule the page method checks before it starts tasks (`StoragePayloadRules.Problems`, also
+  used by the page method and the task): a known action ("Unknown action.", field `action`), the days ("Enter 0 to 7,000
+  days.", field `retentionDays`).
+- `PagePermissions`: the page's rights of the action, like the methods: check and retention `manage`, repair, format and
+  encryption `format`; an unreadable payload needs both. The task declares no rights of its own.
+- `PlanAsync` from the cached status and API list (no slot: "The camera has no SD card management"); whether a card is in
+  the slot or encrypted is read when the task runs. Warnings: format and encryption off "The SD cards are formatted: every
+  recording on them is deleted.", repair "Damaged recordings can be lost.", check, repair, format and encryption off
+  "Recording stops until the task is finished.".
+
+Tests: `PayloadTests`.
+
 ## Device groups
 
 One table per device scope (`DeviceSweeps<StorageRow>`): the users of a device group share the table of their group's cameras, `rows` and `state` reach only them (`PluginEventAudience.DeviceScope`). `read` with ids from a user limited to a device group and the runs (`change`, `format`) refuse the whole request when any camera is outside the caller's devices (NOT_FOUND "1 device is no longer available.", like an unknown id; nothing read, no task); a user with all devices gets the cameras that still exist (`CallDevices.KnownAsync`: removed ones are skipped); `read` without ids = the caller's cameras; runs start through the caller's task runner. After a task the camera is read again in every table that has its row. A deleted group has no table. `read` and `getState` answer only rows of cameras the caller sees now (`DeviceSweep.SnapshotAsync`): a camera that left the group (tag or site change, before the group's rows are pruned) drops out of the table at once and its removal goes out with the next batch; reading a camera again after a task removes the row of a camera no longer in the scope. When the caller's cameras cannot be listed the state comes without rows. See [Device groups](../../docs/spec/device-scope.md).
@@ -83,7 +107,12 @@ One table per device scope (`DeviceSweeps<StorageRow>`): the users of a device g
 
 The read-only tool `oadm_edge_storage_cards` (`Tools/StorageTools.cs`, docs/spec/mcp.md "Plugins"): the table the page
 read last for the caller's device scope, with the five counts, filtered by state or used share, paged by device id. It
-never reads a camera: Refresh stays in the page. Tests: `ToolTests`.
+never reads a camera. Tests: `ToolTests`.
+
+`oadm_edge_storage_read` (`Tools/StoragePageTools.cs`, `PluginPageTools`, decision 2026-11-15) is the page's Read with the
+rule of `read` ("show"): the host's device filter (at most 500 cameras) or `all_devices`, a group user's cameras must all
+be in the view; it answers the progress, the rows follow in `oadm_edge_storage_cards`. One tool, no preview: the page reads
+without asking. Check, repair, format, encryption and retention stay the storage task (the task tools). Tests: `PageToolTests`.
 
 ## Shared code
 

@@ -146,6 +146,7 @@ public sealed class LogAndSettingsTests : IAsyncLifetime
         Assert.Equal(AcapAction.Settings, payload.Action);
         Assert.Equal("demo", payload.Application);
         Assert.Equal("55", payload.Values!["Threshold"]);
+        Assert.True(payload.PasswordsAllowed); // a person typed the values: passwords may be among them
         Assert.Equal([a.Id, b.Id], run.DeviceIds);
         Assert.All(_ctx.Cameras.Values, c => Assert.Empty(c.Requests));
 

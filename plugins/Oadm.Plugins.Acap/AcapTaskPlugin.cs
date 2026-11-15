@@ -66,7 +66,7 @@ public sealed class AcapTaskPlugin : ITaskPlugin, ITaskPluginQuery
     /// <summary>The permission of the run's action; an install with "Allow downgrade" also needs "downgrade".</summary>
     public IReadOnlyList<string>? RequiredPermissions(string? payloadJson)
     {
-        var payload = AcapPayload.Parse(payloadJson);
+        var payload = AcapPayload.Parse(payloadJson, requireSecrets: false); // an agent's preview: before the person entered them
         var license = payload.LicenseKeys.Count > 0 ? new[] { AcapPermissions.License } : [];
         return payload.Action switch
         {
@@ -85,7 +85,7 @@ public sealed class AcapTaskPlugin : ITaskPlugin, ITaskPluginQuery
     {
         try
         {
-            return AcapPayload.Parse(payloadJson).TaskName();
+            return AcapPayload.Parse(payloadJson, requireSecrets: false).TaskName();
         }
         catch (ArgumentException)
         {
@@ -111,34 +111,154 @@ public sealed class AcapTaskPlugin : ITaskPlugin, ITaskPluginQuery
     }
 
     /// <summary>
-    /// The input for AI agents (SDK 0.13.0): install, remove, start and stop. License keys and settings can hold secrets, so
-    /// they are done in OADM.
+    /// The input for AI agents (SDK 0.13.0): install, remove, start, stop, settings and a license key. Password settings and the
+    /// license key are entered by the person (<see cref="SecretsOf"/>).
     /// </summary>
     public Type? PayloadType => typeof(AcapMcpPayload);
+
+    /// <summary>
+    /// The secrets of an agent's payload (docs/spec/mcp.md "Secrets"): one per password setting (<c>password_&lt;i&gt;</c> at
+    /// <c>passwords[i].value</c>, "password for MQTT.Password") and the license key of InstallLicense (<c>license_key</c>).
+    /// </summary>
+    public IReadOnlyList<TaskSecret> SecretsOf(string? payloadJson)
+    {
+        if (TryRead(payloadJson) is not { } payload)
+        {
+            return [];
+        }
+
+        var secrets = new List<TaskSecret>();
+        var passwords = payload.Passwords ?? [];
+        for (var i = 0; i < passwords.Count && i < AcapPayload.MaxPasswords; i++)
+        {
+            if (passwords[i] is { Name: { Length: > 0 } name })
+            {
+                var label = "password for " + name;
+                secrets.Add(new TaskSecret(string.Create(CultureInfo.InvariantCulture, $"password_{i}"), label.Length > 64 ? label[..64] : label,
+                    string.Create(CultureInfo.InvariantCulture, $"passwords[{i}].value")));
+            }
+        }
+
+        if (payload.Action == AcapAction.InstallLicense && payload.LicenseKeys is not { Count: > 0 })
+        {
+            secrets.Add(new TaskSecret(LicenseKeySlot, "license key", LicenseKeyField));
+        }
+
+        return secrets;
+    }
+
+    /// <summary>The slot and field of an agent's license key.</summary>
+    public const string LicenseKeySlot = "license_key";
+    public const string LicenseKeyField = "licenseKey";
+
+    /// <summary>The plan of an agent's InstallLicense on several devices: a key file fits one device.</summary>
+    public const string OneDeviceForAKey = "A license key fits one device. Choose one device.";
+
+    public const string LicenseKeyNote = "Installs the license key the user enters.";
+
+    /// <summary>"Sets MQTT.Password with the value the user enters." (never the value).</summary>
+    public static string PasswordsNote(IReadOnlyList<string> names) =>
+        "Sets " + string.Join(", ", names) + (names.Count == 1 ? " with the value the user enters." : " with the values the user enters.");
 
     /// <summary>The names and enum texts the task reads.</summary>
     public System.Text.Json.JsonSerializerOptions? PayloadJsonOptions => AcapPlugin.Json;
 
-    /// <summary>The dialog's payload rules before any task starts: the action, the package or the application name.</summary>
+    /// <summary>
+    /// The dialog's payload rules before any task starts: the action, the package or the application name, and the settings
+    /// that need no device (<see cref="AppSettings.OfflineProblems"/>, at <c>values</c> or <c>values.&lt;name&gt;</c>).
+    /// </summary>
     public IReadOnlyList<PayloadError> ValidatePayload(string? payloadJson, ICallContext caller)
     {
         try
         {
-            AcapPayload.Parse(payloadJson);
-            return [];
+            var read = TryRead(payloadJson);
+
+            // The secrets the person enters, each at its field (the preview checks an entered value there).
+            var secretErrors = new List<PayloadError>();
+            for (var i = 0; read?.Passwords is { } passwords && i < passwords.Count; i++)
+            {
+                var field = string.Create(CultureInfo.InvariantCulture, $"passwords[{i}].value");
+                if (passwords[i] is { } password && string.IsNullOrEmpty(password.Value))
+                {
+                    secretErrors.Add(new(field, AcapPayload.EnterPassword));
+                }
+                else if (passwords[i] is { Name: { } name } entered
+                    && AppSettings.OfflineProblems(new Dictionary<string, string> { [name] = entered.Value! }, passwordsAllowed: true) is [var problem, ..])
+                {
+                    return [new(field, problem.Message)]; // the text rules of every setting (a person's value too)
+                }
+            }
+
+            if (read is { Action: AcapAction.InstallLicense, LicenseKeys: not { Count: > 0 } })
+            {
+                if (string.IsNullOrEmpty(read.AgentLicenseKey))
+                {
+                    secretErrors.Add(new(LicenseKeyField, AcapPayload.EnterLicenseKey));
+                }
+                else
+                {
+                    try
+                    {
+                        LicenseKey.Parse(read.AgentLicenseKey);
+                    }
+                    catch (FormatException)
+                    {
+                        return [new(LicenseKeyField, AcapPayload.BadLicenseKey)];
+                    }
+                }
+            }
+
+            // The settings first, each at its own field (the parser below names only the first problem of the list).
+            if (read is { Action: AcapAction.Settings } settings && (settings.Values is { Count: > 0 } || settings.Passwords is not { Count: > 0 })
+                && AppSettings.OfflineProblems(settings.Values, settings.PasswordsAllowed) is { Count: > 0 } problems)
+            {
+                return [.. problems.Select(p => new PayloadError(p.Name is null ? "values" : "values." + p.Name, p.Message))];
+            }
+
+            AcapPayload.Parse(payloadJson, requireSecrets: false);
+            return secretErrors;
+        }
+        catch (AcapPayloadException ex)
+        {
+            return [new(ex.Field, ex.Message)];
         }
         catch (ArgumentException ex)
         {
             var cut = ex.Message.IndexOf(" (Parameter '", StringComparison.Ordinal);
             var message = cut < 0 ? ex.Message : ex.Message[..cut];
-            return [new(message.StartsWith("Install needs", StringComparison.Ordinal) || message.StartsWith("The packages", StringComparison.Ordinal) ? "files"
-                : message.StartsWith("The application name", StringComparison.Ordinal) ? "application" : string.Empty, message)];
+            return [new(message.StartsWith("The application name", StringComparison.Ordinal) ? "application" : string.Empty, message)];
+        }
+    }
+
+    /// <summary>The payload as written, before the parser's rules; null when it is no payload at all.</summary>
+    private static AcapPayload? TryRead(string? payloadJson)
+    {
+        if (string.IsNullOrWhiteSpace(payloadJson))
+        {
+            return null;
+        }
+
+        try
+        {
+            return System.Text.Json.JsonSerializer.Deserialize<AcapPayload>(payloadJson, AcapPlugin.Json);
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            return null;
         }
     }
 
     /// <summary>
+    /// The warning of a settings change: the installed applications and their settings are not in the cached data, so each
+    /// device checks the values before its write.
+    /// </summary>
+    public const string SettingsCheckedOnDeviceWarning =
+        "Each device checks the values first. A device without the application, or where a value does not fit, is not changed.";
+
+    /// <summary>
     /// The devices the task can run on; what a package or an application needs is checked per device when its task runs (the
-    /// package and the installed applications are not in the cached data). Removing says that the settings are lost.
+    /// package and the installed applications are not in the cached data). Removing says that the settings are lost, a settings
+    /// change that each device checks the values first (<see cref="SettingsCheckedOnDeviceWarning"/>).
     /// </summary>
     public Task<TaskPlan> PlanAsync(string? payloadJson, IReadOnlyList<IDeviceInfo> devices, CancellationToken ct) =>
         PlanCoreAsync(payloadJson, devices, null, ct);
@@ -161,11 +281,28 @@ public sealed class AcapTaskPlugin : ITaskPlugin, ITaskPluginQuery
 
     private async Task<TaskPlan> PlanCoreAsync(string? payloadJson, IReadOnlyList<IDeviceInfo> devices, IUploadedFiles? files, CancellationToken ct)
     {
-        var payload = AcapPayload.Parse(payloadJson);
+        var payload = AcapPayload.Parse(payloadJson, requireSecrets: false); // an agent's preview: the person enters the secrets later
         var plan = TaskPlan.ByCanRun(this, devices);
+        if (payload.Action == AcapAction.InstallLicense && payload.LicenseKeys.Count == 0)
+        {
+            // An agent's key (entered later) is one file for one device.
+            return devices.Count > 1
+                ? new TaskPlan([.. devices.Select(d => new TaskPlanDevice(d.Id, OneDeviceForAKey))]) { Warnings = [LicenseKeyNote] }
+                : plan with { Warnings = [LicenseKeyNote] };
+        }
         if (payload.Action == AcapAction.Remove)
         {
             return plan with { Warnings = ["The application's settings are lost with it."] };
+        }
+
+        if (payload.Action == AcapAction.Settings)
+        {
+            return plan with
+            {
+                Warnings = payload.Passwords is { Count: > 0 } passwords
+                    ? [PasswordsNote([.. passwords.Select(p => p.Name)]), SettingsCheckedOnDeviceWarning]
+                    : [SettingsCheckedOnDeviceWarning],
+            };
         }
 
         if (payload.Action != AcapAction.Install)
@@ -180,9 +317,10 @@ public sealed class AcapTaskPlugin : ITaskPlugin, ITaskPluginQuery
 
         var named = new List<TaskPlanFile>();
         var missing = false;
-        foreach (var entry in payload.AllFiles())
+        var zip = !string.IsNullOrWhiteSpace(payload.ZipFileId);
+        foreach (var id in zip ? [payload.ZipFileId!] : payload.AllFiles().Select(f => f.FileId))
         {
-            if (await files.FindAsync(entry.FileId, ct).ConfigureAwait(false) is { } file)
+            if (await files.FindAsync(id, ct).ConfigureAwait(false) is { } file)
             {
                 named.Add(new TaskPlanFile(file.Name, file.Sha256));
             }
@@ -192,7 +330,95 @@ public sealed class AcapTaskPlugin : ITaskPlugin, ITaskPluginQuery
             }
         }
 
-        return plan with { Files = named, Warnings = missing ? [PackageWarning, PackageMissingWarning] : [PackageWarning] };
+        if (missing)
+        {
+            return plan with { Files = named, Warnings = [PackageWarning, PackageMissingWarning] };
+        }
+
+        if (!zip && payload.AllFiles().Count == 1)
+        {
+            return plan with { Files = named, Warnings = [PackageWarning] }; // one package: each device checks it when its task runs
+        }
+
+        // Several builds or a ZIP: the server reads them and plans the build of each device group from the cached data.
+        PackageSet set;
+        try
+        {
+            set = await ReadPackagesAsync(files, payload, null, ct).ConfigureAwait(false);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return plan with { Errors = [new PayloadError(zip ? "zipFileId" : "files", ex.Message)] };
+        }
+
+        if (zip)
+        {
+            named.AddRange(set.ZipBuilds.Select(b => new TaskPlanFile($"{set.Zip!.Name}: {b.Name}", b.Sha256)));
+        }
+
+        return PlanBuilds(plan, devices, set, payload.Mapping) with { Files = named, Warnings = [PackageWarning] };
+    }
+
+    /// <summary>At most this many lines of the plan say which build a group gets.</summary>
+    public const int MaxPlanDetails = 50;
+
+    /// <summary>
+    /// The build of every device group from the cached model, AXIS OS and architecture (<see cref="AcapBuildChooser"/>): a line
+    /// per group, "No package" skips its devices, a group OADM cannot decide is an error at <c>mapping</c> with its candidates.
+    /// A device whose architecture or AXIS OS is not known yet runs: its task reads the device and chooses.
+    /// </summary>
+    internal static TaskPlan PlanBuilds(TaskPlan plan, IReadOnlyList<IDeviceInfo> devices, PackageSet set, IReadOnlyList<AcapPackageMapping>? mapping)
+    {
+        var byId = new Dictionary<Guid, IDeviceInfo>(devices.Count);
+        foreach (var device in devices)
+        {
+            byId.TryAdd(device.Id, device);
+        }
+
+        var groups = new Dictionary<string, (AcapDeviceGroup Group, AcapBuildChoice? Choice, int Count)>(StringComparer.Ordinal);
+        var planned = new List<TaskPlanDevice>(plan.Devices.Count);
+        foreach (var entry in plan.Devices)
+        {
+            if (entry.SkipReason is not null || !byId.TryGetValue(entry.DeviceId, out var device) || AcapDeviceGroup.Of(device) is not { IsKnown: true } group)
+            {
+                planned.Add(entry);
+                continue;
+            }
+
+            if (!groups.TryGetValue(group.Key, out var known))
+            {
+                known = (group, AcapBuildChooser.Choose(set.Builds, group, set.Rules, mapping), 0);
+            }
+
+            groups[group.Key] = known with { Count = known.Count + 1 };
+            var choice = known.Choice!;
+            planned.Add(choice.IsChosen || choice.IsUnclear ? entry : new TaskPlanDevice(entry.DeviceId, choice.Reason ?? AcapCompatibility.NoPackageFor(group.Architecture)));
+        }
+
+        var errors = new List<PayloadError>();
+        var details = new List<string>();
+        foreach (var (group, choice, count) in groups.Values.OrderByDescending(g => g.Count).ThenBy(g => g.Group.Label, StringComparer.Ordinal))
+        {
+            var devicesText = string.Create(CultureInfo.InvariantCulture, $"{group.Label} ({count:N0} {(count == 1 ? "device" : "devices")})");
+            if (choice!.IsUnclear)
+            {
+                var candidates = string.Join(" or ", choice.Candidates.Select(i => set.Builds[i]).Select(b => b.Key == b.Name ? b.Name : $"{b.Name} ({b.Key})"));
+                errors.Add(new PayloadError("mapping", $"Choose the package for {group.Label}: {candidates}. {choice.Reason}"));
+            }
+            else if (details.Count < MaxPlanDetails)
+            {
+                details.Add(choice.IsChosen
+                    ? $"{devicesText}: {set.Builds[choice.Index].Name}{(choice.DecidedBy == AcapBuildChoice.Automatic ? string.Empty : " (" + choice.DecidedBy.ToLowerInvariant() + ")")}"
+                    : $"{devicesText}: {choice.Reason}");
+            }
+        }
+
+        if (groups.Count > MaxPlanDetails + errors.Count)
+        {
+            details.Add(string.Create(CultureInfo.InvariantCulture, $"+{groups.Count - errors.Count - MaxPlanDetails:N0} more groups"));
+        }
+
+        return new TaskPlan(planned) { Errors = errors, Details = details };
     }
 
     /// <summary>The user's query (SDK 0.4.0): reads only the queried device, which the host checked against the user's view.</summary>
@@ -298,45 +524,38 @@ public sealed class AcapTaskPlugin : ITaskPlugin, ITaskPluginQuery
 
     private async Task InstallAsync(ITaskExecutionContext ctx, IDeviceInfo device, ApplicationApiClient client, AcapPayload payload, string[] planned, CancellationToken ct)
     {
-        // Every package of the payload is read and checked first: one application and version, one per architecture.
-        var entries = payload.AllFiles();
-        var packages = new List<(UploadedFile File, EapManifest Package)>(entries.Count);
+        // Every package of the payload (or of its ZIP) is read and checked first: one application, each file once.
+        PackageSet set;
         using (var step = ctx.BeginStep(Steps.ReadPackage))
         {
-            foreach (var entry in entries)
-            {
-                packages.Add(await ReadPackageAsync(ctx, entry, payload.Application, ct).ConfigureAwait(false));
-            }
-
-            var first = packages[0].Package;
-            if (packages.Count > 1)
-            {
-                if (AcapCompatibility.CheckPackageSet([.. packages.Select(p => (p.File.Name, p.Package))]) is { } refused)
-                {
-                    throw new InvalidOperationException(refused + " Nothing was changed.");
-                }
-
-                step.Complete($"{first.AppName} {first.Version}, {string.Join(" and ", packages.Select(p => p.Package.Architecture))}");
-            }
-            else
-            {
-                step.Complete($"{first.AppName} {first.Version}, {first.Architecture ?? "any architecture"}");
-            }
+            set = await ReadPackagesAsync(ctx.Files, payload, ctx, ct).ConfigureAwait(false);
+            var first = set.Builds[0].Package;
+            step.Complete(set.Builds.Count > 1
+                ? $"{first.AppName} {AcapCompatibility.VersionsText(set.Builds.Select(b => b.Package))}, {string.Join(" and ", set.Builds.Select(b => b.Package.Architecture ?? "any architecture"))}"
+                : $"{first.AppName} {first.Version}, {first.Architecture ?? "any architecture"}");
         }
 
-        // One step per device request. The package is chosen again from the fresh architecture.
+        // One step per device request. The build is chosen again from the fresh read of the device.
         BasicDeviceInfo info;
-        UploadedFile file;
-        EapManifest package;
+        int chosen;
         using (var step = ctx.BeginStep(Steps.ReadDeviceInfo))
         {
             info = await ctx.Vapix.GetBasicDeviceInfoAsync(ct).ConfigureAwait(false);
-            var index = AcapCompatibility.ChoosePackage([.. packages.Select(p => p.Package.Architecture)], info.Architecture);
-            if (index < 0)
+            var group = new AcapDeviceGroup(string.IsNullOrWhiteSpace(info.ProdNbr) ? device.Model : info.ProdNbr, info.Version, info.Architecture, info.Soc, info.ProdShortName);
+            var choice = AcapBuildChooser.Choose(set.Builds, group, set.Rules, payload.Mapping);
+            if (choice.IsUnclear || (!choice.IsChosen && choice.DecidedBy == AcapBuildChoice.ChosenByPerson))
+            {
+                // Nobody chose for this group, or the choice does not fit what the device is now.
+                var unclear = choice.IsUnclear ? $"{choice.Reason} Choose the package for {group.Label}." : choice.Reason;
+                ctx.Log(TaskLogLevel.Error, unclear!);
+                throw new InvalidOperationException(unclear + " Nothing was changed.");
+            }
+
+            if (!choice.IsChosen)
             {
                 // Several packages, none for this device: skipped, nothing changed.
-                var reason = AcapCompatibility.NoPackageFor(info.Architecture);
-                ctx.Log(TaskLogLevel.Warning, $"{reason} The packages are for {string.Join(", ", packages.Select(p => p.Package.Architecture))}.");
+                var reason = choice.Reason ?? AcapCompatibility.NoPackageFor(info.Architecture);
+                ctx.Log(TaskLogLevel.Warning, $"{reason} The packages are {string.Join(", ", set.Builds.Select(b => b.Name))}.");
                 step.Warn(reason + " Nothing was changed.");
                 foreach (var name in planned.SkipWhile(n => n != Steps.ReadDeviceInfo).Skip(1))
                 {
@@ -346,17 +565,21 @@ public sealed class AcapTaskPlugin : ITaskPlugin, ITaskPluginQuery
                 return;
             }
 
-            (file, package) = packages[index];
-            if (packages.Count > 1)
+            chosen = choice.Index;
+            if (set.Builds.Count > 1)
             {
-                ctx.Log(TaskLogLevel.Info, $"Uses the {package.Architecture} package {file.Name}.");
-                step.Complete($"AXIS OS {info.Version}, {info.Architecture}: {package.Architecture} package");
+                var build = set.Builds[chosen];
+                ctx.Log(TaskLogLevel.Info, $"Uses {build.Name} ({build.Package.Version}, {build.Package.Architecture ?? "any architecture"}; {choice.DecidedBy.ToLowerInvariant()}).");
+                step.Complete($"AXIS OS {info.Version}, {info.Architecture}: {build.Name}");
             }
             else
             {
                 step.Complete($"AXIS OS {info.Version}, {info.Architecture}");
             }
         }
+
+        var package = set.Builds[chosen].Package;
+        var (fileName, fileSize) = set.SizeOf(chosen);
 
         string? embdev;
         using (var step = ctx.BeginStep(Steps.ReadDevelopmentVersion))
@@ -423,25 +646,25 @@ public sealed class AcapTaskPlugin : ITaskPlugin, ITaskPluginQuery
         var answerLost = false;
         using (var step = ctx.BeginStep(Steps.Upload))
         {
-            var upload = await ctx.Files.OpenReadAsync(file.Id, ct).ConfigureAwait(false);
+            var upload = await set.OpenAsync(ctx.Files, chosen, ct).ConfigureAwait(false);
             await using (upload.ConfigureAwait(false))
             {
                 var lastPercent = -1;
                 var progress = new SyncProgress<long>(bytes =>
                 {
-                    var percent = (int)(100 * Math.Min(1.0, file.Size <= 0 ? 0 : (double)bytes / file.Size));
+                    var percent = (int)(100 * Math.Min(1.0, fileSize <= 0 ? 0 : (double)bytes / fileSize));
                     if (percent > lastPercent)
                     {
                         lastPercent = percent;
                         step.ReportProgress(percent, percent >= 100
                             ? "The device installs the package"
-                            : ByteSize.Progress(bytes, file.Size));
+                            : ByteSize.Progress(bytes, fileSize));
                     }
                 });
                 try
                 {
-                    await client.UploadAsync(upload, file.Name, progress, ct).ConfigureAwait(false);
-                    step.Complete(ByteSize.Text(file.Size) + ", installed by the device");
+                    await client.UploadAsync(upload, fileName, progress, ct).ConfigureAwait(false);
+                    step.Complete(ByteSize.Text(fileSize) + ", installed by the device");
                 }
                 catch (Exception ex) when (!ct.IsCancellationRequested && (ex is TaskCanceledException or TimeoutException or HttpRequestException || ex is AcapDeviceException { OutcomeUnknown: true }))
                 {
@@ -537,10 +760,97 @@ public sealed class AcapTaskPlugin : ITaskPlugin, ITaskPluginQuery
         }
     }
 
-    /// <summary>One uploaded package: still there, the SHA-256 the dialog checked, a readable .eap of the expected application.</summary>
-    private static async Task<(UploadedFile File, EapManifest Package)> ReadPackageAsync(ITaskExecutionContext ctx, AcapPackageFile entry, string? expectedName, CancellationToken ct)
+    /// <summary>
+    /// The builds of an install: the uploaded .eap files, or the .eap entries of one uploaded ZIP (read as streams, never
+    /// unpacked to disk), the mapping rows (the payload's, or the ZIP's <c>oadm-packages.json</c>), checked as one set.
+    /// </summary>
+    internal sealed record PackageSet(IReadOnlyList<AcapBuild> Builds, IReadOnlyList<AcapPackageRule> Rules, IReadOnlyList<UploadedFile> Files, UploadedFile? Zip, IReadOnlyList<EapZip.ZipBuild> ZipBuilds)
     {
-        var file = await ctx.Files.FindAsync(entry.FileId, ct).ConfigureAwait(false)
+        /// <summary>The name and size of the file the device gets.</summary>
+        public (string Name, long Size) SizeOf(int index) => Zip is null ? (Files[index].Name, Files[index].Size) : (ZipBuilds[index].Name, ZipBuilds[index].Size);
+
+        /// <summary>The content of a build: the uploaded file, or its entry of the ZIP within its declared size.</summary>
+        public async Task<Stream> OpenAsync(IUploadedFiles files, int index, CancellationToken ct)
+        {
+            if (Zip is null)
+            {
+                return await files.OpenReadAsync(Files[index].Id, ct).ConfigureAwait(false);
+            }
+
+            var stream = await files.OpenReadAsync(Zip.Id, ct).ConfigureAwait(false);
+            try
+            {
+                return await EapZip.OpenBuildAsync(stream, Zip.Name, ZipBuilds[index].EntryName, ct).ConfigureAwait(false);
+            }
+            catch (InvalidEapException ex)
+            {
+                throw new InvalidOperationException(ex.Message + " Nothing was changed.", ex);
+            }
+        }
+    }
+
+    /// <summary>The text when the uploaded ZIP is gone.</summary>
+    public const string ZipGone = "The uploaded ZIP is no longer available on the server. Nothing was changed.";
+
+    /// <summary>Reads every build of the payload and checks them as one set; any problem fails "Nothing was changed".</summary>
+    internal static async Task<PackageSet> ReadPackagesAsync(IUploadedFiles files, AcapPayload payload, ITaskExecutionContext? log, CancellationToken ct)
+    {
+        if (!string.IsNullOrWhiteSpace(payload.ZipFileId))
+        {
+            var zip = await files.FindAsync(payload.ZipFileId, ct).ConfigureAwait(false) ?? throw new InvalidOperationException(ZipGone);
+            EapZip.ZipContents contents;
+            var stream = await files.OpenReadAsync(zip.Id, ct).ConfigureAwait(false);
+            await using (stream.ConfigureAwait(false))
+            {
+                try
+                {
+                    contents = await EapZip.ReadAsync(stream, zip.Name, ct).ConfigureAwait(false);
+                }
+                catch (InvalidEapException ex)
+                {
+                    throw new InvalidOperationException(ex.Message + " Nothing was changed.", ex);
+                }
+            }
+
+            var builds = contents.Builds.Select(b => new AcapBuild(b.Name, b.Name, b.Package)).ToList();
+            CheckSet(builds, payload.Application);
+            foreach (var b in contents.Builds)
+            {
+                log?.Log(TaskLogLevel.Info, $"Package {b.Package.AppName} {b.Package.Version} ({b.Package.Architecture ?? "any architecture"}) from {zip.Name}: {b.Name}, {b.Size} bytes, SHA-256 {b.Sha256}.");
+            }
+
+            return new PackageSet(builds, contents.Rules, [], zip, contents.Builds);
+        }
+
+        var entries = payload.AllFiles();
+        var read = new List<(UploadedFile File, EapManifest Package)>(entries.Count);
+        foreach (var entry in entries)
+        {
+            read.Add(await ReadPackageAsync(files, log, entry, payload.Application, ct).ConfigureAwait(false));
+        }
+
+        var set = read.Select((r, i) => new AcapBuild(entries[i].FileId, r.File.Name, r.Package)).ToList();
+        CheckSet(set, payload.Application);
+        return new PackageSet(set, payload.Rules ?? [], [.. read.Select(r => r.File)], null, []);
+    }
+
+    private static void CheckSet(List<AcapBuild> builds, string? expectedName)
+    {
+        if (AcapCompatibility.CheckPackageSet([.. builds.Select(b => (b.Name, b.Package))]) is { } refused)
+        {
+            throw new InvalidOperationException(refused + " Nothing was changed.");
+        }
+
+        if (expectedName is { Length: > 0 } && !string.Equals(expectedName, builds[0].Package.AppName, StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException($"The package is \"{builds[0].Package.AppName}\", the dialog checked \"{expectedName}\". Nothing was changed.");
+        }
+    }
+
+    /// <summary>One uploaded package: still there, the SHA-256 the dialog checked, a readable .eap of the expected application.</summary>
+    private static async Task<(UploadedFile File, EapManifest Package)> ReadPackageAsync(IUploadedFiles files, ITaskExecutionContext? log, AcapPackageFile entry, string? expectedName, CancellationToken ct)
+    {
+        var file = await files.FindAsync(entry.FileId, ct).ConfigureAwait(false)
             ?? throw new InvalidOperationException("The uploaded package is no longer available on the server. Nothing was changed.");
         if (entry.Sha256 is { Length: > 0 } sha && !string.Equals(sha, file.Sha256, StringComparison.OrdinalIgnoreCase))
         {
@@ -548,7 +858,7 @@ public sealed class AcapTaskPlugin : ITaskPlugin, ITaskPluginQuery
         }
 
         EapManifest package;
-        var read = await ctx.Files.OpenReadAsync(file.Id, ct).ConfigureAwait(false);
+        var read = await files.OpenReadAsync(file.Id, ct).ConfigureAwait(false);
         await using (read.ConfigureAwait(false))
         {
             try
@@ -573,7 +883,7 @@ public sealed class AcapTaskPlugin : ITaskPlugin, ITaskPluginQuery
             throw new InvalidOperationException($"{file.Name} is not the {declared} package the dialog checked. Nothing was changed.");
         }
 
-        ctx.Log(TaskLogLevel.Info, $"Package {package.AppName} {package.Version} ({package.Architecture ?? "any architecture"}) from {file.Name}, {file.Size} bytes, read from {package.Source}.");
+        log?.Log(TaskLogLevel.Info, $"Package {package.AppName} {package.Version} ({package.Architecture ?? "any architecture"}) from {file.Name}, {file.Size} bytes, read from {package.Source}.");
         return (file, package);
     }
 
@@ -593,7 +903,7 @@ public sealed class AcapTaskPlugin : ITaskPlugin, ITaskPluginQuery
             step.Complete($"{app.DisplayName} {app.Version} ({app.Status})");
         }
 
-        var values = payload.Values!;
+        var values = payload.AllValues();
         Dictionary<string, string> changed;
         IReadOnlyList<AppSettingDefinition> definitions;
         HashSet<string> passwordNames;
@@ -605,7 +915,7 @@ public sealed class AcapTaskPlugin : ITaskPlugin, ITaskPluginQuery
                 throw new InvalidOperationException($"{app.DisplayName} has no settings here. Nothing was changed.");
             }
 
-            var problems = AppSettings.Check(definitions, values, app.DisplayName, out var normalized);
+            var problems = AppSettings.Check(definitions, values, app.DisplayName, out var normalized, payload.PasswordsAllowed, payload.EnteredPasswords());
             if (problems.Count > 0)
             {
                 foreach (var problem in problems)

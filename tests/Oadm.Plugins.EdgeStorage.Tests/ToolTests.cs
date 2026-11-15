@@ -24,7 +24,7 @@ public sealed class ToolTests
         await using var plugin = new EdgeStoragePlugin(Options());
         await plugin.StartAsync(ctx, CancellationToken.None);
         ICorePlugin core = plugin;
-        Assert.Equal("cards", Assert.Single(core.Tools).Name);
+        Assert.Equal(["cards", "read"], core.Tools.Select(t => t.Name));
         Assert.Equal(PermissionKeys.Show, core.RequiredPermission(StorageTools.Cards.Method));
         Assert.False(core.IsAudited(StorageTools.Cards.Method));
         var all = ctx.CallAsAllDevices();

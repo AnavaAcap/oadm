@@ -16,7 +16,7 @@ public sealed class ToolTests
     {
         await using var vision = await VisionHarness.StartAsync();
         ICorePlugin core = vision.Plugin;
-        Assert.Equal("pipelines", Assert.Single(core.Tools).Name);
+        Assert.Equal(["pipelines", "pipeline", "pipeline_save", "pipeline_copy", "pipeline_delete", "models", "class_lists", "class_list_save", "model_upload", "model_update", "model_delete", "use_gpu"], core.Tools.Select(t => t.Name));
         Assert.Equal(PermissionKeys.Show, core.RequiredPermission(VisionTools.Pipelines.Method));
         Assert.False(core.IsAudited(VisionTools.Pipelines.Method));
         var key = vision.Context.FakeScopes.Add("Building B", [vision.Inside.Id]);

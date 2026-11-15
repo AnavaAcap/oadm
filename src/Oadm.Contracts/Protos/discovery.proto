@@ -4,7 +4,8 @@ option csharp_namespace = "Oadm.Contracts.V1";
 import "Protos/common.proto";
 
 service DiscoveryService {
-  rpc StartZeroConf (Empty) returns (DiscoverySession);
+  // ZeroConfRequest replaced Empty (wire compatible).
+  rpc StartZeroConf (ZeroConfRequest) returns (DiscoverySession);
   rpc StartRangeScan (RangeScanRequest) returns (DiscoverySession);
   // Streams the devices of a session with the result of the server's automatic login
   // (auth_state). Range scans and address probes send scan_finished when the scan is done and the
@@ -27,6 +28,9 @@ service DiscoveryService {
   // in the credential list, never logged.
   rpc ProbeAddress (ProbeAddressRequest) returns (DiscoverySession);
 }
+
+// no_logins: as for RangeScanRequest (the AI agents' add preview only looks).
+message ZeroConfRequest { bool no_logins = 1; }
 
 message DiscoverySession {
   string session_id = 1;

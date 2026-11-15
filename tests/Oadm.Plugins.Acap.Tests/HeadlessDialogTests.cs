@@ -58,6 +58,18 @@ public sealed class HeadlessDialogTests
         File.WriteAllBytes(longZipPath, EapBuilder.Zip(("Missing_Features_3_9_1_aarch64.eap", File.ReadAllBytes(arm64Path))));
         var emptyZipPath = Path.Combine(dir, "Manual.zip");
         File.WriteAllBytes(emptyZipPath, EapBuilder.Zip(("readme.txt", [1, 2, 3])));
+        var sameAgainPath = Path.Combine(dir, "Missing_Features_3_9_1_aarch64_signed.eap");
+        File.WriteAllBytes(sameAgainPath, File.ReadAllBytes(arm64Path));
+        var otherAppPath = Path.Combine(dir, "Other_App_1_0_aarch64.eap");
+        File.WriteAllBytes(otherAppPath, EapBuilder.FromManifest(EapBuilder.Manifest(appName: "other", friendlyName: "Other App", version: "1.0.0", schema: "1.3", architecture: "aarch64")));
+        byte[] Build(string arch, string version, string min, string? max) =>
+            EapBuilder.FromManifest(EapBuilder.Manifest(appName: "ax_msf", friendlyName: "Missing Features", vendor: "Sample Vendor GmbH", version: version, schema: "1.3", architecture: arch, osMin: min, osMax: max));
+        var mappedZipPath = Path.Combine(dir, "Missing_Features_all_tracks.zip");
+        File.WriteAllBytes(mappedZipPath, EapBuilder.Zip(
+            ("Missing_Features_3_8_4_aarch64_LTS.eap", Build("aarch64", "3.8.4", "10.0", "10.12")),
+            ("Missing_Features_3_9_1_aarch64.eap", Build("aarch64", "3.9.1", "11.0", null)),
+            ("Missing_Features_3_9_1_armv7hf.eap", Build("armv7hf", "3.9.1", "11.0", null)),
+            ("oadm-packages.json", System.Text.Encoding.UTF8.GetBytes("""{"packages":[{"file":"Missing_Features_3_9_1_aarch64.eap","models":["P3265-V"]},{"file":"Missing_Features_3_9_1_armv7hf.eap","architecture":"armv7hf"}]}"""))));
         var keyPath = Path.Combine(Path.GetTempPath(), "oadm-acap-headless-" + Guid.NewGuid().ToString("N") + ".key");
         File.WriteAllText(keyPath, LicenseKeyTests.Key());
 
@@ -96,9 +108,28 @@ public sealed class HeadlessDialogTests
             await vm.LoadPackagesAsync([arm64Path, armv7Path]);
             Pump();
             Capture(window, outDir, "acap-dialog-install-several.png");
-            Assert.Equal(["aarch64 build", "armv7hf build"], vm.Compatibility.Select(r => r.Details));
+            Assert.Equal(["Missing_Features_3_9_1_aarch64.eap", "Missing_Features_3_9_1_armv7hf.eap"], vm.Compatibility.Select(r => r.Details));
+            Assert.False(vm.ShowGroups);
 
-            await vm.LoadPackagesAsync([arm64Path, eapPath]);
+            // Two aarch64 builds OADM cannot tell apart: the table asks, Install waits for the choice.
+            await vm.LoadPackagesAsync([arm64Path, sameAgainPath, armv7Path]);
+            Pump();
+            Capture(window, outDir, "acap-dialog-install-unclear.png");
+            Assert.True(vm.ShowGroups);
+            Assert.False(vm.InstallCommand.CanExecute(null));
+            vm.Groups[0].SelectedChoice = vm.Groups[0].Choices[1];
+            Pump();
+            Capture(window, outDir, "acap-dialog-install-chosen.png");
+            Assert.True(vm.InstallCommand.CanExecute(null));
+
+            // A vendor's ZIP with builds per AXIS OS and its mapping file.
+            await vm.LoadPackagesAsync([mappedZipPath]);
+            Pump();
+            Capture(window, outDir, "acap-dialog-install-mapping.png");
+            Assert.True(vm.HasMappingFile);
+            Assert.Null(vm.PackageError);
+
+            await vm.LoadPackagesAsync([arm64Path, otherAppPath]);
             Pump();
             Capture(window, outDir, "acap-dialog-install-refused.png");
             Assert.NotNull(vm.PackageError);
@@ -108,7 +139,7 @@ public sealed class HeadlessDialogTests
             Pump();
             Capture(window, outDir, "acap-dialog-install-zip.png");
             Assert.Equal("Missing_Features_3_9_1.zip  ·  2 files", vm.PackageFileName);
-            Assert.Equal(["aarch64 build", "armv7hf build"], vm.Compatibility.Select(r => r.Details));
+            Assert.Equal(["Missing_Features_3_9_1_aarch64.eap", "Missing_Features_3_9_1_armv7hf.eap"], vm.Compatibility.Select(r => r.Details));
 
             await vm.LoadPackagesAsync([emptyZipPath]);
             Pump();

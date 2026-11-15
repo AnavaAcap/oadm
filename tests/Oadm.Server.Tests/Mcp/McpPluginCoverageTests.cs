@@ -16,7 +16,6 @@ public sealed partial class McpPluginCoverageTests
     /// <summary>The plugins without read tools, each with why. An entry whose plugin declares tools by now fails: drop it.</summary>
     private static readonly Dictionary<string, string> Exceptions = new(StringComparer.Ordinal)
     {
-        ["oadm.live-view"] = "live video stays in the client (docs/spec/mcp.md \"Not over MCP\"); one picture is oadm_devices_snapshot",
         ["oadm.web-view"] = "the device's own web interface in the client; OADM keeps nothing of it",
         ["oadm.system-report"] = "its reports belong to one user's session and hold the devices' configuration",
         ["oadm.notifications"] = "an action plugin: its recipients are oadm_recipients_list, outputs oadm_io_ports",

@@ -163,10 +163,20 @@ public sealed partial class ActionRulesPlugin
     {
         var devices = DeviceIds(request.DeviceIds);
         await CallDevices.RequireAsync(caller, devices, ct).ConfigureAwait(false);
-        var rule = Normalize(request.Rule ?? throw new ArgumentException("Describe the rule.", nameof(request)));
+        var payload = BuildPayload(request.Rule, devices);
+        return await StartAsync(caller, payload, devices, ct).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// The run of a new rule for <paramref name="devices"/> (their events add the state "active"), checked whole: the page's
+    /// rule builder and the agents' create share it. Throws <see cref="ArgumentException"/> with the builder's text.
+    /// </summary>
+    internal RuleTaskPayload BuildPayload(NewRule? newRule, IReadOnlyCollection<Guid> devices)
+    {
+        var rule = Normalize(newRule ?? throw new ArgumentException("Describe the rule.", nameof(newRule)));
         if (BuildProblem(rule) is { } problem)
         {
-            throw new ArgumentException(problem, nameof(request));
+            throw new ArgumentException(problem, nameof(newRule));
         }
 
         // The devices refuse a filter on an event that is on or off without its state ("property state key's value not
@@ -176,7 +186,7 @@ public sealed partial class ActionRulesPlugin
         {
             if (known.TryGetValue(RuleText.Topic(condition.Topic), out var e) && !e.Stateful)
             {
-                throw new ArgumentException($"\"{e.Title}\" is not on or off, so it cannot be a condition.", nameof(request));
+                throw new ArgumentException($"\"{e.Title}\" is not on or off, so it cannot be a condition.", nameof(newRule));
             }
         }
 
@@ -205,12 +215,11 @@ public sealed partial class ActionRulesPlugin
             Parameters = rule.Parameters,
             RecipientName = string.IsNullOrWhiteSpace(rule.RecipientName) ? null : rule.RecipientName,
         };
-        var payload = new RuleTaskPayload(RuleTaskActions.Deploy, Guid.NewGuid(), Shorten("Create action rule " + rule.Name.Trim()), [], patch)
+        return new RuleTaskPayload(RuleTaskActions.Deploy, Guid.NewGuid(), Shorten("Create action rule " + rule.Name.Trim()), [], patch)
         {
             Rule = device,
             Schedules = schedules,
         };
-        return await StartAsync(caller, payload, devices, ct).ConfigureAwait(false);
     }
 
     /// <summary>The events the devices offered, by topic.</summary>

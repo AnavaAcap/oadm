@@ -3,6 +3,7 @@ package oadm.v1;
 option csharp_namespace = "Oadm.Contracts.V1";
 import "Protos/common.proto";
 import "Protos/devices.proto";
+import "Protos/plugins.proto";
 import "google/protobuf/timestamp.proto";
 
 // ListTaskPluginsRequest, ListTasksRequest and WatchTasksRequest replaced Empty; they are wire compatible
@@ -32,6 +33,21 @@ service TaskService {
   // with a reason (PlanAsync, cached data only), the task name and the warnings. The checks of Run (unknown plugin, page task,
   // the run's permissions); an invalid payload answers its field errors, never an error status.
   rpc Plan (PlanTaskRequest) returns (TaskPlanReply);
+  // The result file a task kept (ITaskExecutionContext.SaveResultFileAsync, docs/spec/mcp.md "Files"): its name, type and size.
+  // Only for the user or access key that started the task, and administrators; NOT_FOUND for a task outside the caller's view,
+  // one of another user and one without a file (the same answer).
+  rpc GetResultFile (TaskIdRequest) returns (TaskResultFile);
+  // The bytes of that file: the first message carries file_name and length, the others data (256 KB at most), uncompressed.
+  // The same rules and answers as GetResultFile; audited "Downloaded file".
+  rpc DownloadResult (TaskIdRequest) returns (stream DownloadChunk);
+}
+
+message TaskResultFile {
+  string task_id = 1;
+  string file_name = 2;
+  string content_type = 3;
+  int64 size = 4;
+  google.protobuf.Timestamp saved = 5;
 }
 
 message TaskPluginInfo {
@@ -106,6 +122,17 @@ message PlanTaskRequest {
   string plugin_id = 1;
   DeviceFilter filter = 2;    // the devices: resolved in the caller's view, sorted by address
   string payload_json = 3;
+  // Only the payload's check, the secrets' fields included (a value the person entered is checked here, in memory only):
+  // the errors and nothing else; no device is read.
+  bool check_only = 4;
+}
+
+// A secret the run needs that an agent never sends (ITaskPlugin.SecretsOf): the person enters it, the run's payload has it
+// at field. Never a value.
+message TaskSecretSlot {
+  string name = 1;   // lower case words with underscores
+  string label = 2;  // what the person is asked for, lower case ("password", "PKCS#12 password")
+  string field = 3;  // where it goes in the payload ("password", "settings[2].value")
 }
 
 message PayloadFieldError {
@@ -121,6 +148,8 @@ message TaskPlanReply {
   repeated NotRunnableGroup skipped = 5;  // the others by reason (count only), most devices first
   repeated string warnings = 6;
   repeated PlanFile files = 7;            // the uploaded files the run would use (name and SHA-256 from the upload store)
+  repeated TaskSecretSlot secrets = 8;    // the secrets the run needs; the payload's errors at their fields are left out
+  repeated string details = 9;            // what the run does in plain lines (the build of each device group), from the plan
 }
 message PlanFile {
   string name = 1;

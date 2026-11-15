@@ -103,6 +103,19 @@ public sealed class AssistantLimitsTests
         Assert.Equal(AssistantCards.MaxLines, plugin.Details.Count);
         Assert.StartsWith("+", plugin.Details[^1], StringComparison.Ordinal);
         Assert.Equal(["1 device: Site offline"], plugin.Skipped);
+
+        // A page action's plan (PluginToolPlan) counts its own things; a delete is red.
+        var reader = AssistantCards.Build(Tool("oadm_ocr_reader_delete_preview"), Tool("oadm_ocr_reader_delete_run", destructive: true) with { Title = "Delete reader: run" }, "h",
+            new JsonObject { ["will_change"] = 1, ["unit"] = "reader", ["name"] = "Dock gate", ["handle"] = "h" }, NoArguments);
+        Assert.Equal("Delete reader", reader.Title);
+        Assert.Equal("1 reader", reader.CountText);
+        Assert.Equal(0, reader.DeviceCount);
+        Assert.True(reader.Destructive);
+        Assert.Equal(["Name: Dock gate"], reader.Details);
+        var leases = AssistantCards.Build(Tool("oadm_dhcp_static_lease_save_preview"), Tool("oadm_dhcp_static_lease_save_run"), "h",
+            new JsonObject { ["will_change"] = 3, ["unit"] = "lease" }, NoArguments);
+        Assert.Equal("3 leases", leases.CountText);
+        Assert.False(leases.Destructive);
     }
 
     // ---- limits ---------------------------------------------------------------------------------------------------------

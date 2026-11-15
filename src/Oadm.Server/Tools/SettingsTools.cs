@@ -12,7 +12,7 @@ namespace Oadm.Server.Tools;
 /// <summary>
 /// The server settings a user may read (docs/spec/mcp.md "Other areas"): what the client's Settings page shows every user,
 /// read only. Through <c>SettingsService.Get</c>. Never a secret: the credential list, the notices of the server, the
-/// server's id and its license stay in OADM; settings are never changed over MCP (rule 5).
+/// server's id and its license stay in OADM; a change is <see cref="ServerChangeTools"/> (decision 2026-11-15).
 /// </summary>
 internal static class SettingsTools
 {
@@ -23,7 +23,7 @@ internal static class SettingsTools
         yield return new OadmTool(
             "oadm_settings_get",
             "Server settings",
-            "The server settings OADM shows every user, read only: how it scans, retries, runs tasks and checks clocks. Change them in OADM.",
+            "The server settings OADM shows every user: how it scans, retries, runs tasks and checks clocks. Administrators change them with oadm_settings_set_preview.",
             Object(null, []),
             OutObject(null,
             [

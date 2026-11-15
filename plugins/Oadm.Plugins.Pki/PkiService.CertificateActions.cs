@@ -130,7 +130,8 @@ public sealed partial class PkiService
     }
 
     /// <summary>The OADM CA signs a request (PKCS#10, PEM or DER) with an issuing policy; names from the request, checked first.</summary>
-    internal async Task<CertificateActionReply> SignCertificateAsync(SignCertificateRequest request, string userName, CancellationToken ct)
+    /// <param name="dryRun">Every check and the signature in memory, nothing stored (the preview of AI agents): the reply has the name, no id.</param>
+    internal async Task<CertificateActionReply> SignCertificateAsync(SignCertificateRequest request, string userName, CancellationToken ct, bool dryRun = false)
     {
         ArgumentNullException.ThrowIfNull(request);
         var errors = new Dictionary<string, string>(StringComparer.Ordinal);
@@ -176,6 +177,11 @@ public sealed partial class PkiService
         using (signed)
         {
             var name = read.Names!.CommonName;
+            if (dryRun)
+            {
+                return new CertificateActionReply { Name = name };
+            }
+
             var (row, error) = await _local.AddAsync(new StoredLocalCertificate
             {
                 Id = Guid.NewGuid().ToString("N"),
@@ -314,7 +320,8 @@ public sealed partial class PkiService
     /// Imports a certificate (PEM or DER, one certificate) or a PKCS#12 file with its password (one certificate with its key;
     /// the key is kept encrypted). CA certificates belong in the Certificate authorities card.
     /// </summary>
-    internal async Task<CertificateActionReply> ImportCertificateAsync(ImportCertificateRequest request, string userName, CancellationToken ct)
+    /// <param name="dryRun">Every check, nothing stored (the preview of AI agents): the reply has the name, no id.</param>
+    internal async Task<CertificateActionReply> ImportCertificateAsync(ImportCertificateRequest request, string userName, CancellationToken ct, bool dryRun = false)
     {
         ArgumentNullException.ThrowIfNull(request);
         if (!TryDecode(request.FileBase64, out var bytes) || bytes.Length == 0)
@@ -404,6 +411,11 @@ public sealed partial class PkiService
                 }
 
                 var name = CaCertificates.CommonName(certificate);
+                if (dryRun)
+                {
+                    return new CertificateActionReply { Name = name };
+                }
+
                 var (row, error) = await _local.AddAsync(new StoredLocalCertificate
                 {
                     Id = Guid.NewGuid().ToString("N"),

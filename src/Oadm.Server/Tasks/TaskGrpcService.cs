@@ -28,8 +28,62 @@ public sealed partial class TaskGrpcService(
     RoleStore roles,
     IHostApplicationLifetime lifetime,
     ILogger<TaskGrpcService> logger,
-    Devices.DeviceFactsSource facts) : Proto.TaskService.TaskServiceBase
+    Devices.DeviceFactsSource facts,
+    TaskResultFiles? results = null) : Proto.TaskService.TaskServiceBase
 {
+    /// <summary>
+    /// The result file of a task for the caller: the task in the caller's view, started by the caller (or the caller is an
+    /// administrator), with a file. Every other case answers NOT_FOUND alike.
+    /// </summary>
+    private async Task<TaskResultFileInfo> ResultFileOfAsync(Proto.TaskIdRequest request, ServerCallContext context)
+    {
+        var id = GrpcGuard.ParseId(request.TaskId, "task id");
+        var caller = AuthInterceptor.CallerOf(context);
+        var view = await views.ForAsync(context).ConfigureAwait(false);
+        if (results?.Find(id) is not { } file || (file.OwnerId != caller.UserId && !caller.IsAdmin)
+            || await engine.GetLogAsync(view, id, context.CancellationToken).ConfigureAwait(false) is null)
+        {
+            throw GrpcGuard.NotFound(NoResultFile);
+        }
+
+        return file;
+    }
+
+    public const string NoResultFile = "This task has no result file (it is kept for a day).";
+
+    public override async Task<Proto.TaskResultFile> GetResultFile(Proto.TaskIdRequest request, ServerCallContext context)
+    {
+        var file = await ResultFileOfAsync(request, context).ConfigureAwait(false);
+        return new Proto.TaskResultFile
+        {
+            TaskId = file.TaskId.ToString(),
+            FileName = file.FileName,
+            ContentType = file.ContentType,
+            Size = file.Size,
+            Saved = Google.Protobuf.WellKnownTypes.Timestamp.FromDateTimeOffset(file.SavedUtc),
+        };
+    }
+
+    public override async Task DownloadResult(Proto.TaskIdRequest request, IServerStreamWriter<Proto.DownloadChunk> responseStream, ServerCallContext context)
+    {
+        ArgumentNullException.ThrowIfNull(responseStream);
+        var file = await ResultFileOfAsync(request, context).ConfigureAwait(false);
+        var content = results!.Open(file.TaskId) ?? throw GrpcGuard.NotFound(NoResultFile);
+        await using (content.ConfigureAwait(false))
+        {
+            await audit.WriteAsync(AuditActions.FileDownloaded, file.FileName,
+                string.Create(System.Globalization.CultureInfo.InvariantCulture, $"{file.Size:N0} bytes, the result of a task"), CancellationToken.None).ConfigureAwait(false);
+            context.WriteOptions = new WriteOptions(WriteFlags.NoCompress);
+            await responseStream.WriteAsync(new Proto.DownloadChunk { FileName = file.FileName, Length = file.Size }).ConfigureAwait(false);
+            var buffer = new byte[Plugins.PluginGrpcService.DownloadChunkBytes];
+            int read;
+            while ((read = await content.ReadAsync(buffer, context.CancellationToken).ConfigureAwait(false)) > 0)
+            {
+                await responseStream.WriteAsync(new Proto.DownloadChunk { Data = Google.Protobuf.ByteString.CopyFrom(buffer, 0, read) }).ConfigureAwait(false);
+            }
+        }
+    }
+
     /// <summary>The task's log, oldest first (live while the task runs).</summary>
     public override async Task<Proto.TaskLog> GetLog(Proto.TaskIdRequest request, ServerCallContext context)
     {
@@ -126,7 +180,13 @@ public sealed partial class TaskGrpcService(
             : null;
         foreach (var entry in await runnable.GetAsync(view, context.CancellationToken).ConfigureAwait(false))
         {
-            if (!caller.Permissions.HasAny(PermissionCatalog.TaskKeys(entry.Plugin.Plugin)))
+            if (!entry.InMenus && !request.WithPayloadSchema)
+            {
+                continue; // a page task that agents may start: never an entry of the client's menus
+            }
+
+            var keys = entry.InMenus ? PermissionCatalog.TaskKeys(entry.Plugin.Plugin) : TaskRunPermissions.PageRunKeys(registry, entry.Plugin, null) ?? [];
+            if (!caller.Permissions.HasAny(keys))
             {
                 continue;
             }
@@ -142,6 +202,10 @@ public sealed partial class TaskGrpcService(
                 if (request.WithPayloadSchema && TaskPayloadSchemas.Of(entry.Plugin.Plugin) is { } schema)
                 {
                     info.PayloadSchemaJson = schema.ToJsonString();
+                }
+                else if (!entry.InMenus)
+                {
+                    continue; // a page task without a schema stays on its page
                 }
 
                 reply.Add(info);
@@ -194,6 +258,43 @@ public sealed partial class TaskGrpcService(
         }
     }
 
+    /// <summary>The most secrets one run takes (the secret channel's slots of one preview).</summary>
+    public const int MaxSecrets = 8;
+
+    /// <summary>The secrets a run of the payload needs (<see cref="Sdk.Plugins.ITaskPlugin.SecretsOf"/>); a plugin's failing answer refuses the plan.</summary>
+    internal IReadOnlyList<Sdk.Tasks.TaskSecret> SecretsOf(Sdk.Plugins.ITaskPlugin plugin, string? payload)
+    {
+        IReadOnlyList<Sdk.Tasks.TaskSecret> secrets;
+        try
+        {
+            secrets = plugin.SecretsOf(payload) ?? [];
+        }
+#pragma warning disable CA1031 // A plugin's failing answer refuses the plan, it never breaks the server.
+        catch (Exception ex)
+#pragma warning restore CA1031
+        {
+            LogPayloadCheckFailed(ex, plugin.Id);
+            throw GrpcGuard.InvalidArgument(PayloadUnreadable);
+        }
+
+        if (secrets.Count > MaxSecrets
+            || secrets.Any(s => !SecretName().IsMatch(s.Name ?? string.Empty) || string.IsNullOrWhiteSpace(s.Label) || s.Label.Length > 64 || string.IsNullOrWhiteSpace(s.Field))
+            || secrets.Select(s => s.Name).Distinct(StringComparer.Ordinal).Count() != secrets.Count)
+        {
+            throw GrpcGuard.InvalidArgument(PayloadUnreadable); // fail closed: the run could not get its secrets
+        }
+
+        return secrets;
+    }
+
+    /// <summary>True when <paramref name="field"/> is <paramref name="secret"/> or inside it ("password", "settings[2].value").</summary>
+    internal static bool IsField(string? field, string secret) =>
+        field is not null && (string.Equals(field, secret, StringComparison.Ordinal)
+            || (field.StartsWith(secret, StringComparison.Ordinal) && field.Length > secret.Length && field[secret.Length] is '.' or '['));
+
+    [System.Text.RegularExpressions.GeneratedRegex("^[a-z][a-z0-9]*(_[a-z0-9]+)*$", System.Text.RegularExpressions.RegexOptions.CultureInvariant)]
+    private static partial System.Text.RegularExpressions.Regex SecretName();
+
     /// <summary>
     /// What a Run of the payload would do on the filter's devices, nothing written (docs/spec/grpc.md): the checks of Run, the
     /// payload's field errors (then nothing else), else the devices to run in address order, the skipped ones by reason, the
@@ -209,15 +310,22 @@ public sealed partial class TaskGrpcService(
             throw GrpcGuard.NotFound(UnknownTaskPlugin(request.PluginId));
         }
 
-        if (TaskRunPermissions.IsPageTask(task.Plugin))
-        {
-            throw new RpcException(new Status(StatusCode.PermissionDenied, TaskRunPermissions.PageTaskOnly));
-        }
-
-        TaskRunPermissions.Require(task.Plugin, payload, caller.Permissions, () => roles.Catalog);
+        // A page task plans here only when it names the page permissions a run needs (ITaskPlugin.PagePermissions).
+        TaskRunPermissions.RequireOutsidePage(registry, task, payload, caller.Permissions, () => roles.Catalog);
         var view = await views.ForAsync(context).ConfigureAwait(false);
         var reply = new Proto.TaskPlanReply();
         var errors = PayloadErrors(task.Plugin, payload, engine.CallFor(view, TaskCaller.Of(caller)));
+        if (request.CheckOnly)
+        {
+            reply.Errors.AddRange(errors.Select(e => new Proto.PayloadFieldError { Field = e.Field, Message = e.Message }));
+            return reply;
+        }
+
+        // The secrets the person enters later (ITaskPlugin.SecretsOf): their fields are empty now, so their errors wait for
+        // the check of the entered value and for Run.
+        var secrets = SecretsOf(task.Plugin, payload);
+        reply.Secrets.AddRange(secrets.Select(s => new Proto.TaskSecretSlot { Name = s.Name, Label = s.Label, Field = s.Field }));
+        errors = [.. errors.Where(e => !secrets.Any(s => IsField(e.Field, s.Field)))];
         if (errors.Count > 0)
         {
             reply.Errors.AddRange(errors.Select(e => new Proto.PayloadFieldError { Field = e.Field, Message = e.Message }));
@@ -234,6 +342,13 @@ public sealed partial class TaskGrpcService(
         {
             LogPayloadCheckFailed(ex, task.Plugin.Id);
             plan = Sdk.Tasks.TaskPlan.ByCanRun(task.Plugin, devices);
+        }
+
+        // Problems only the plan can find (an upload it read, a choice the user must make): answered like payload errors.
+        if (plan.Errors is { Count: > 0 } planErrors)
+        {
+            reply.Errors.AddRange(planErrors.Select(e => new Proto.PayloadFieldError { Field = e.Field, Message = e.Message }));
+            return reply;
         }
 
         var known = devices.Select(d => d.Id).ToHashSet();
@@ -260,6 +375,7 @@ public sealed partial class TaskGrpcService(
             .Select(p => new Proto.NotRunnableGroup { Reason = p.Key, Count = p.Value }));
         reply.Warnings.AddRange(plan.Warnings.Where(w => !string.IsNullOrWhiteSpace(w)));
         reply.Files.AddRange(plan.Files.Select(f => new Proto.PlanFile { Name = f.Name, Sha256 = f.Sha256 }));
+        reply.Details.AddRange((plan.Details ?? []).Where(d => !string.IsNullOrWhiteSpace(d)));
         return reply;
     }
 
@@ -277,16 +393,11 @@ public sealed partial class TaskGrpcService(
             throw GrpcGuard.NotFound(UnknownTaskPlugin(request.PluginId));
         }
 
-        // A task only its page starts has no run key: the page's methods carry the rights, so Run refuses it for every caller
-        // (a payload sent here would skip them).
-        if (TaskRunPermissions.IsPageTask(task.Plugin))
-        {
-            throw new RpcException(new Status(StatusCode.PermissionDenied, TaskRunPermissions.PageTaskOnly));
-        }
-
         // The same check as call.Tasks of a plugin's call: PERMISSION_DENIED with what the role lacks (the interceptor's answer
-        // to DeviceAccessRefusedException).
-        TaskRunPermissions.Require(task.Plugin, payload, caller.Permissions, () => roles.Catalog);
+        // to DeviceAccessRefusedException). A task only its page starts has no run key: the page's methods carry the rights,
+        // so Run refuses it for every caller unless the task names the page permissions one run needs
+        // (ITaskPlugin.PagePermissions, the agents' task tools); then the role needs exactly those.
+        TaskRunPermissions.RequireOutsidePage(registry, task, payload, caller.Permissions, () => roles.Catalog);
 
         var view = await views.ForAsync(context).ConfigureAwait(false);
         var devices = await view.GetAsync(ids, context.CancellationToken).ConfigureAwait(false);

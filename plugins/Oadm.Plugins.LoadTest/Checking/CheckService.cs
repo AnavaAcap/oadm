@@ -410,6 +410,15 @@ internal sealed class CheckService : IAsyncDisposable
     /// <summary>The refusal for a user who does not see the running check: no user, no progress.</summary>
     internal const string CheckRunning = "A check is running. Start again when it ends.";
 
+    /// <summary>Refuses like <see cref="StartAsync"/> while a check starts or runs, without starting one (the preview of a tool).</summary>
+    public void RefuseStartWhileRunning(ICallContext caller)
+    {
+        lock (_gate)
+        {
+            RefuseWhileRunning(caller);
+        }
+    }
+
     private void RefuseWhileRunning(ICallContext caller)
     {
         if (_starting)

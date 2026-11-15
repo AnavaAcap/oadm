@@ -318,6 +318,35 @@ public sealed partial class ComplianceEngine : IHostEventSource, IAsyncDisposabl
         }
     }
 
+    /// <summary>
+    /// The results of one check in device id order (the tools' page of the devices a check fails on): only the outcomes in
+    /// <paramref name="outcomes"/> (empty: all) and the devices in <paramref name="only"/> (null: all); empty for an unknown check.
+    /// O(results of the check).
+    /// </summary>
+    public IReadOnlyList<ComplianceResultModel> ResultsOf(Guid checkId, IReadOnlySet<ComplianceOutcome> outcomes, IReadOnlySet<Guid>? only)
+    {
+        ArgumentNullException.ThrowIfNull(outcomes);
+        List<ComplianceResultModel> list = [];
+        lock (_sync)
+        {
+            if (!_checks.TryGetValue(checkId, out var runtime))
+            {
+                return list;
+            }
+
+            foreach (var (deviceId, result) in runtime.Results)
+            {
+                if ((outcomes.Count == 0 || outcomes.Contains(result.Outcome)) && (only is null || only.Contains(deviceId)))
+                {
+                    list.Add(Model(checkId, deviceId, result));
+                }
+            }
+        }
+
+        list.Sort((a, b) => a.DeviceId.CompareTo(b.DeviceId));
+        return list;
+    }
+
     /// <summary>The owner of a check, null for an unknown check (cheap: the results watch asks per change).</summary>
     public Auth.DeviceScope? OwnerOf(Guid checkId)
     {
@@ -740,6 +769,15 @@ public sealed partial class ComplianceEngine : IHostEventSource, IAsyncDisposabl
                 changes.Add(Model(checkId, deviceId, runtime.Results[deviceId]));
             }
         }
+    }
+
+    /// <summary>A check that is not stored, as the list would show it (its summary, no results): the tools' preview of a save.</summary>
+    public ComplianceCheckState StateOfUnsaved(ComplianceCheck check)
+    {
+        ArgumentNullException.ThrowIfNull(check);
+        var runtime = new CheckRuntime(check);
+        var state = StateOf(runtime);
+        return state with { Passed = 0, Failed = 0, NotChecked = 0, NotApplicable = 0, CouldNotCheck = 0 };
     }
 
     private ComplianceCheckState StateOf(CheckRuntime runtime, IReadOnlySet<Guid>? only = null)

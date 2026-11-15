@@ -85,6 +85,25 @@ public sealed class DialogTests : IDisposable
     }
 
     [Fact]
+    public async Task Builds_per_AXIS_OS_are_chosen_by_range_and_a_group_with_two_equal_builds_is_not_installed()
+    {
+        var ctx = new FakePageContext().WithEmptyServer();
+        var lts = Device("10.0.0.1", firmware: "10.12.4");
+        var current = Device("10.0.0.2");
+        var vm = new InstallAppsViewModel(ctx, [lts, current]);
+
+        await vm.LoadFilesAsync([Eap("hello_lts.eap", EapBuilder.Manifest(version: "1.1.0", osMin: "10.0", osMax: "10.12")), Eap("hello_12.eap", EapBuilder.Manifest(osMin: "11.0"))]);
+        var rows = vm.Rows.ToDictionary(r => r.DeviceId);
+        Assert.Equal("hello_lts.eap", rows[lts.DeviceId].Details);
+        Assert.Equal("hello_12.eap", rows[current.DeviceId].Details);
+
+        await vm.LoadFilesAsync([Eap("hello_a.eap", EapBuilder.Manifest()), Eap("hello_b.eap", EapBuilder.Manifest())]);
+        var unclear = vm.Rows.First(r => r.DeviceId == current.DeviceId);
+        Assert.Equal("Several packages fit: hello_a.eap, hello_b.eap.", unclear.Verdict);
+        Assert.False(unclear.CanInstall);
+    }
+
+    [Fact]
     public async Task Install_uploads_the_files_and_asks_the_server_part_to_install_on_the_devices_that_fit()
     {
         var ctx = new FakePageContext().WithEmptyServer();
@@ -99,8 +118,8 @@ public sealed class DialogTests : IDisposable
         await vm.LoadFilesAsync([Eap("hello_aarch64.eap", EapBuilder.Manifest()), Eap("hello_armv7hf.eap", EapBuilder.Manifest(architecture: "armv7hf"))]);
         var rows = vm.Rows.ToDictionary(r => r.DeviceId);
         Assert.Equal("2 files", vm.FileName);
-        Assert.Equal(("New install", "aarch64 build"), (rows[arm64.DeviceId].Verdict, rows[arm64.DeviceId].Details));
-        Assert.Equal(("Upgrade from 1.0.0", "armv7hf build"), (rows[arm32.DeviceId].Verdict, rows[arm32.DeviceId].Details));
+        Assert.Equal(("New install", "hello_aarch64.eap"), (rows[arm64.DeviceId].Verdict, rows[arm64.DeviceId].Details));
+        Assert.Equal(("Upgrade from 1.0.0", "hello_armv7hf.eap"), (rows[arm32.DeviceId].Verdict, rows[arm32.DeviceId].Details));
         Assert.Equal(("No package for mips.", null), (rows[mips.DeviceId].Verdict, rows[mips.DeviceId].Details));
         Assert.False(rows[mips.DeviceId].CanInstall);
 

@@ -91,15 +91,21 @@ public sealed class RecipientStore(IDbContextFactory<OadmDbContext> dbFactory, I
         Guid? id, string name, string typeId, JsonObject settings, IReadOnlyList<ActionField> fields, CancellationToken ct) =>
         SaveAsync(id, name, typeId, settings, fields, [], ct);
 
-    /// <summary>As the other overload; the password fields of <paramref name="forget"/> lose their stored value.</summary>
-    public async Task<(StoredRecipient Recipient, bool Created)> SaveAsync(
-        Guid? id, string name, string typeId, JsonObject settings, IReadOnlyList<ActionField> fields, IReadOnlyCollection<string> forget, CancellationToken ct)
+    /// <summary>
+    /// The checks of <see cref="SaveAsync(Guid?, string, string, JsonObject, IReadOnlyList{ActionField}, CancellationToken)"/> on the
+    /// name, the id, the type and the count, without saving (the tools' preview).
+    /// </summary>
+    public async Task CheckAsync(Guid? id, string name, string typeId, CancellationToken ct)
     {
-        ArgumentNullException.ThrowIfNull(forget);
         ArgumentNullException.ThrowIfNull(name);
         ArgumentNullException.ThrowIfNull(typeId);
-        ArgumentNullException.ThrowIfNull(settings);
-        ArgumentNullException.ThrowIfNull(fields);
+        var trimmed = CheckName(name);
+        await using var db = await dbFactory.CreateDbContextAsync(ct).ConfigureAwait(false);
+        CheckRows(await db.Recipients.AsNoTracking().ToListAsync(ct).ConfigureAwait(false), id, trimmed, typeId);
+    }
+
+    private static string CheckName(string name)
+    {
         var trimmed = name.Trim();
         if (trimmed.Length == 0)
         {
@@ -117,29 +123,51 @@ public sealed class RecipientStore(IDbContextFactory<OadmDbContext> dbFactory, I
             throw new RecipientValidationException(RecipientValidationException.NameField, RecipientType.NameInvalidText);
         }
 
+        return trimmed;
+    }
+
+    /// <summary>The row of <paramref name="id"/> (null for a new one) after the checks against the other rows.</summary>
+    private static RecipientEntity? CheckRows(List<RecipientEntity> rows, Guid? id, string trimmed, string typeId)
+    {
+        var row = id is { } known
+            ? rows.Find(r => r.Id == known) ?? throw new KeyNotFoundException(RecipientType.NotFoundText)
+            : null;
+        if (rows.Exists(r => r.Id != row?.Id && string.Equals(r.Name, trimmed, StringComparison.OrdinalIgnoreCase)))
+        {
+            throw new RecipientValidationException(RecipientValidationException.NameField, RecipientType.NameTakenText);
+        }
+
+        if (row is null && rows.Count >= MaxRecipients)
+        {
+            throw new RecipientValidationException(string.Create(CultureInfo.InvariantCulture, $"At most {MaxRecipients} recipients."));
+        }
+
+        if (row is not null && !string.Equals(row.TypeId, typeId, StringComparison.Ordinal))
+        {
+            throw new RecipientValidationException("The type of a recipient cannot change.");
+        }
+
+        return row;
+    }
+
+    /// <summary>As the other overload; the password fields of <paramref name="forget"/> lose their stored value.</summary>
+    public async Task<(StoredRecipient Recipient, bool Created)> SaveAsync(
+        Guid? id, string name, string typeId, JsonObject settings, IReadOnlyList<ActionField> fields, IReadOnlyCollection<string> forget, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(forget);
+        ArgumentNullException.ThrowIfNull(name);
+        ArgumentNullException.ThrowIfNull(typeId);
+        ArgumentNullException.ThrowIfNull(settings);
+        ArgumentNullException.ThrowIfNull(fields);
+        var trimmed = CheckName(name);
+
         (StoredRecipient Recipient, bool Created) result;
         await _write.WaitAsync(ct).ConfigureAwait(false);
         try
         {
             await using var db = await dbFactory.CreateDbContextAsync(ct).ConfigureAwait(false);
             var rows = await db.Recipients.ToListAsync(ct).ConfigureAwait(false);
-            var row = id is { } known
-                ? rows.Find(r => r.Id == known) ?? throw new KeyNotFoundException(RecipientType.NotFoundText)
-                : null;
-            if (rows.Exists(r => r.Id != row?.Id && string.Equals(r.Name, trimmed, StringComparison.OrdinalIgnoreCase)))
-            {
-                throw new RecipientValidationException(RecipientValidationException.NameField, RecipientType.NameTakenText);
-            }
-
-            if (row is null && rows.Count >= MaxRecipients)
-            {
-                throw new RecipientValidationException(string.Create(CultureInfo.InvariantCulture, $"At most {MaxRecipients} recipients."));
-            }
-
-            if (row is not null && !string.Equals(row.TypeId, typeId, StringComparison.Ordinal))
-            {
-                throw new RecipientValidationException("The type of a recipient cannot change.");
-            }
+            var row = CheckRows(rows, id, trimmed, typeId);
 
             var recipientId = row?.Id ?? Guid.NewGuid();
             var stored = Protect(recipientId, settings, row is null ? null : ToStored(row).Settings, fields, forget);

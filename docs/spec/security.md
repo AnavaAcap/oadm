@@ -14,6 +14,21 @@ Part of the OADM spec (`CLAUDE.md` "Feature specs"): read it before you change t
 - MyAxis sign-ins ([myaxis.md](myaxis.md)): the session cookie of each user, AES-256-GCM like device passwords with the user
   id as associated data (table MyAxisSessions); never in a gRPC answer, a backup or the log; sent only to www.axis.com.
 - Never log passwords or digest headers.
+- **AI agents and the assistant** (decision 2026-11-15, [mcp.md](mcp.md) "Secrets"): no tool returns a secret, and no
+  secret ever goes through a model; a secret reaches OADM only through the secret channel: a preview declares a slot, the
+  person types the value into a command of their own shell (`PUT /secrets/<token>` on the MCP port with the access key) or
+  into the assistant's preview card (sent with Run). Values are held in server memory only, encrypted with the master key
+  (AES-256-GCM, the caller's binding key, the handle and the slot as associated data), bound to the key or session and the
+  preview, taken once by the run, gone with the handle after 10 minutes, at most 4,096 bytes; never logged, never in an
+  answer or the chat; the audit entry "Set secret" names the secret and the caller, never the value.
+- **Files for agents** ([mcp.md](mcp.md) "Files"): a tool answers a file reference, never the bytes; the bytes leave only
+  through a one-time link bound to the key (MCP) or the user's own chat (assistant), made with the caller's rights at the
+  time of the download and audited "Downloaded file". Never a backup, a private key or a PKCS#12 file, except Back up a CA
+  key of PKI, protected with a password from the secret channel (decision 2026-11-15).
+- **Settings and services by agents** (decision 2026-11-15, [mcp.md](mcp.md) "Server settings and services as built"):
+  previews and runs with the GUI's checks and rights (Administrator where the GUI is), audited like the client; users,
+  roles, device groups, access keys, license keys, plugins on/off, the credential list and backups stay GUI only, so an
+  agent never raises rights.
 
 ## TLS
 
@@ -88,7 +103,15 @@ AuthTokens, AuditEntries) and `Roles`; client `Shell/AppShell`, `LoginViewModel`
   "Created access key" (the name; role, devices and the end in the detail) and "Deleted access key" by the administrator;
   "Access key refused" ("MCP <key name>" when its row is still there, else "Unknown access key" or "No access key"; one
   entry per address and key a minute with the count). `AccessKeyService` (`mcp.proto`): Administrator only (the page MCP & Assistant,
-  card MCP).
+  card MCP, or an Administrator's agent). A key never deletes itself (`AccessKeyTexts.OwnKey`), and a key a key makes ends at
+  the latest with the maker's own key; a new key leaves the server once, as a one-time link or the Assistant's Copy card,
+  never in a tool answer, a log line or the audit log ([mcp.md](mcp.md) "Access keys").
+  **AI agents and access** (decision 2026-11-15): users, roles, device groups and access keys can be managed by AI agents (MCP
+  and the Assistant) with the caller's rights, through the same Administrator-only services, checks and audit as the
+  Permissions page: an Administrator's agent may create another administrator, as the Administrator could; a caller of any
+  other role never sees these tools. The guards of the page hold (never the last enabled administrator, never the caller's
+  own role, state or account); a user's password reaches OADM only through the secret channel ([mcp.md](mcp.md) "Secrets",
+  "Access as built").
   `AuthMaintenanceHostedService` removes expired sessions and old audit entries hourly. A new password or a disabled user
   ends the sessions; a new role applies to the next call (`AuthTokenStore.SetRole`). An expired session ends like a
   logout (`SessionsEnded` for its token, when its next use finds it expired or in the hourly cleanup): its streams, plugin
@@ -409,7 +432,8 @@ server.
 `tests/Oadm.Server.Tests`: `AuthTests` (every service per role, the role table against the contracts, plugin method
 roles, first administrator, sessions, throttling, audit), `LoginLimitsTests` (long names and passwords, the audit entry
 of unknown names, the limit per address), `TlsPinningTests` (real Kestrel with TLS), `MasterKeyCheckTests`,
-`MasterKeyFileTests`, `KeyReplacedNoticeTests`, `DeviceLimitsTests`, `UploadStoreTests`; `MethodRoleTests` in the DHCP,
+`MasterKeyFileTests`, `KeyReplacedNoticeTests`, `DeviceLimitsTests`, `UploadStoreTests`, `McpTransferTests` and
+`AssistantTransferTests` (the secret channel and the file links); `MethodRoleTests` in the DHCP,
 NTP, PKI, Hardening scan and VAPIX Commander test projects; `tests/Oadm.Client.Tests`: `LoginTests`, `CrashHandlingTests`.
 `TestServerHost` calls as the administrator "admin" (`InvokerFor(token)` / `InvokerForUserAsync(name, role)` for others,
 `createAdmin: false` for an empty user table, PBKDF2 with 1,000 iterations for speed).

@@ -153,3 +153,22 @@ default: show only. Refusals show the server's text ("Your role does not allow: 
 The read-only tools `oadm_device_triggers_list` and `oadm_device_triggers_devices` (`Tools/TriggerTools.cs`,
 docs/spec/mcp.md "Plugins"): the page's list of the caller's triggers and one trigger's devices through the page's Get
 (its device group rule), paged. Tests: `ToolTests`.
+
+The page's actions (`Tools/TriggerPageTools.cs`, `PluginPageTools`, decision 2026-11-15), each through the page method it
+wraps and with its rights (`RulesMethodOf` in `RequiredRole`, `IsAudited`, `SystemAccessReason`; a preview is never audited):
+
+| Tool | Kind | Page method | Right |
+| --- | --- | --- | --- |
+| `oadm_device_triggers_events_read` | Read (starts the editor's read, device filter, at most 500 devices) | `startRead` | show |
+| `oadm_device_triggers_events` | Read (progress; once finished the events with source values, paged) | `readStatus` | show |
+| `oadm_device_triggers_save_preview` / `_run` | Change | `save` | manage |
+| `oadm_device_triggers_set_enabled_preview` / `_run` | Change | `setEnabled` | manage |
+| `oadm_device_triggers_copy_preview` / `_run` | Change | `duplicate` | manage |
+| `oadm_device_triggers_delete_preview` / `_run` | Change (destructive) | `delete` | manage |
+
+Save creates a trigger or changes one (`trigger_id`; fields left out stay). A new event (`topic`) and filters need a
+finished read of the caller (`read_id`): the event's name, state, values and source values come from it as in the editor,
+and a filter must be one of the values the devices list. The preview runs the page's save checks without storing
+(`PrepareSaveAsync`, shared with `save`); set_enabled and copy share their checks with the page methods
+(`CheckSetEnabledAsync`, `CheckDuplicate`). Another group's trigger answers "The trigger no longer exists.". Tests:
+`PageToolTests`.

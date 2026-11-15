@@ -68,6 +68,13 @@ Below an answer, **Sources** shows what it used, and **Next** offers questions t
 After **Run**, the plan shows what happened. When some devices failed, **Try the failed devices again** prepares the
 same change for them; press **Run** again.
 
+## Look in the Axis docs
+
+When OADM has no function for what you ask, the assistant asks first: "OADM has no function for this. Should I look in
+the Axis VAPIX docs online?" Only **Look up online** lets that one answer search and read developer.axis.com and
+help.axis.com; **Not now** or another message leaves it offline. This works with Anthropic and OpenAI; Ollama and
+OpenAI-compatible providers cannot look online.
+
 ## Changes need your click
 
 The assistant never changes a device by itself. It asks OADM for a plan and shows it as a card: what Run does, taken from
@@ -77,12 +84,23 @@ skipped and why, and the warnings. **Run** starts the tasks; the card follows th
 
 <Image src={preview} alt="Two plan cards: save a rule with its event and target, and delete two tags with a red Run" class="screen" />
 
+When a change needs a password, a passphrase or a license key, the card has a field for it. Type it there and press
+**Run**: it goes straight to OADM, never to the AI model or into the chat. A value OADM refuses shows below the field.
+
+A file the assistant made for you (the device list as CSV, a task's result, a report) shows as a card with **Save**.
+
+Administrators can also have users, roles, device groups and access keys prepared, as on the Permissions page. The card
+says it when someone gets more rights. A new access key shows as a card with **Copy**: it copies the key once, and the AI
+never sees it.
+
 Every change and every camera picture is in the audit log under your name, as if you did it in OADM.
 
 ## What it cannot do
 
-- Read or set passwords, keys or tokens.
-- Change users, roles, device groups, the license, plugins or server settings.
+- Read passwords, keys or tokens, or take one from the chat: a password goes only into a card's password field.
+- Change the credential list.
+- Make a change your role may not make in OADM. Users, roles, device groups, access keys, the license, plugins, backups,
+  the version, server settings and services it changes only as a card you run, with the rights you have in OADM.
 - Show live video.
 - Remember a chat: closing the panel or signing out forgets it.
 

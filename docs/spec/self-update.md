@@ -185,9 +185,19 @@ the reconnect.
 - Tests never run a real installer, `systemd-run` or `launchctl`: the installer, the process starts, the downloads, the
   disk and the clock are fakes (`Oadm.Server.Tests/Updates`, `Oadm.Client.Tests/SelfUpdateTests`).
 
+## AI agents
+
+Decision 2026-11-15 (`docs/spec/mcp.md` "Administration as built"): an administrator's agent checks for a new version
+(`oadm_update_check`) and runs Install now as a preview and a run (`oadm_update_install_preview`/`_run`). The preview hands
+out a handle only when Install now would be offered (the latest stable release newer than the server, installed with the
+installer, no update and no task running) and says that the server is away, the database is copied first, there is no
+rollback and site nodes are updated by hand; the run is `UpdateService.Start`, so rules 1 to 13 hold unchanged. In the
+Assistant the user presses Run on the card. Tests use the fakes of the release feed and the helper: no real installer.
+
 ## Not part of it
 
-- Automatic or scheduled updates: always an Administrator's click.
+- Automatic or scheduled updates: always an Administrator's decision (the click, or the run of an administrator's agent
+  after its preview).
 - Pre-releases (`-rc.N`) as a target. A server or client that runs one counts as older than its own stable release
   (`UpdateVersions.IsOlder`, 4.10.0-rc.2 is offered 4.10.0), and only the stable version ends an update (`IsRelease`).
 - A release signature: the SHA-256 of the same GitHub release is the check (decision 2026-11-02).

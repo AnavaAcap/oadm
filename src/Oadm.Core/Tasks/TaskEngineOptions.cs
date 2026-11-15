@@ -31,6 +31,9 @@ public sealed class TaskEngineOptions
     /// </summary>
     public MyAxis.IAxisDownloadSource? AxisDownloads { get; set; }
 
+    /// <summary>Where a task keeps its result file (<c>ITaskExecutionContext.SaveResultFileAsync</c>); null = tasks keep none.</summary>
+    public TaskResultFiles? ResultFiles { get; set; }
+
     /// <summary>Minimum time between two persisted progress messages of one device. Default 1 s.</summary>
     public TimeSpan ProgressPersistInterval { get; set; } = TimeSpan.FromSeconds(1);
 }

@@ -78,7 +78,12 @@ put `Oadm.Plugins.DateTime.Server.dll` into this plugin folder, where the loader
 port); `save` ({enabled, interfaceId, upstream, serveAtSites, serveSites}) validates the upstream with one query (same timeouts; the running
 server keeps serving) and replies {saved, upstreamError, upstreamResult, state}; an upstream that does not answer is
 not saved (error under the field). Events: `state` (status/upstream changed), `requests` (new entries).
-MCP (docs/spec/mcp.md): the read-only tool `oadm_ntp_status`.
+MCP (docs/spec/mcp.md): the read-only tool `oadm_ntp_status`, and the page's Save as `oadm_ntp_settings_save`
+(`Tools/NtpPageTools`, decision 2026-11-15; a preview and a run with the rights of `save`: Administrator, "manage", users
+with all devices; only the run is audited). Left-out fields keep their value; the interface by its name or id. The preview
+runs the checks that need no network (`NtpServerService.CheckSave`: the interface, the upstream's syntax) and warns that
+the server answers every device that asks, or that devices lose their time source when it goes off; the run is the page's
+`save`, which asks the upstream once (its error under `upstream`). Tests: `PageToolTests`.
 
 ## Permissions
 

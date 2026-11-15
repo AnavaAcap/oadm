@@ -18,9 +18,10 @@ namespace Oadm.Server.Tasks;
 /// <see cref="JsonSchemaExporter"/> and the plugin's own serializer options, so the schema names what the plugin reads.
 /// Objects take no other properties; <c>[Description]</c>, <c>[MaxLength]</c>, <c>[MinLength]</c>, <c>[Length]</c>,
 /// <c>[StringLength]</c> and <c>[Range]</c> become the schema's words; a text, number or list without its own bound gets the
-/// host's (<see cref="DefaultMaxLength"/>, the 32-bit range, <see cref="DeviceLimits.MaxDevices"/> items). Fail closed: no
-/// payload type, a <see cref="SecretAttribute"/> anywhere in it, a value of any type, or a type the exporter cannot describe
-/// means no schema, and the task is not offered to the tools.
+/// host's (<see cref="DefaultMaxLength"/>, the 32-bit range, <see cref="DeviceLimits.MaxDevices"/> items). A
+/// <see cref="SecretAttribute"/> property is left out wherever it sits (an agent never sends a secret; the person enters it,
+/// <see cref="ITaskPlugin.SecretsOf"/>). Fail closed: no payload type, a value of any type, or a type the exporter cannot
+/// describe means no schema, and the task is not offered to the tools.
 /// </summary>
 public static class TaskPayloadSchemas
 {
@@ -54,11 +55,6 @@ public static class TaskPayloadSchemas
     public static JsonObject? Build(Type type, JsonSerializerOptions? options)
     {
         ArgumentNullException.ThrowIfNull(type);
-        if (HasSecret(type, []))
-        {
-            return null;
-        }
-
         var export = new JsonSerializerOptions(options ?? PluginJson.CreateOptions()) { RespectRequiredConstructorParameters = true };
         export.TypeInfoResolver ??= new DefaultJsonTypeInfoResolver();
         JsonNode schema;
@@ -71,7 +67,56 @@ public static class TaskPayloadSchemas
             return null;
         }
 
+        if (schema is JsonObject top)
+        {
+            WithoutSecrets(top);
+        }
+
         return schema is JsonObject root && TypesOf(root).Contains("object") && Describable(root) ? root : null;
+    }
+
+    /// <summary>The mark <see cref="Transform"/> puts on a secret property, taken out with the property by <see cref="WithoutSecrets"/>.</summary>
+    private const string SecretMark = "x-oadm-secret";
+
+    /// <summary>True when <paramref name="type"/> has a <see cref="SecretAttribute"/> property anywhere (it is left out of the schema).</summary>
+    public static bool HasSecrets(Type type)
+    {
+        ArgumentNullException.ThrowIfNull(type);
+        return HasSecret(type, []);
+    }
+
+    /// <summary>Removes every property marked secret (and its name from <c>required</c>), at every level.</summary>
+    private static void WithoutSecrets(JsonNode? node)
+    {
+        switch (node)
+        {
+            case JsonObject schema:
+                if (schema["properties"] is JsonObject properties)
+                {
+                    foreach (var name in properties.Where(p => p.Value is JsonObject value && value.ContainsKey(SecretMark)).Select(p => p.Key).ToList())
+                    {
+                        properties.Remove(name);
+                        if (schema["required"] is JsonArray required && required.FirstOrDefault(r => r?.GetValue<string>() == name) is { } entry)
+                        {
+                            required.Remove(entry);
+                        }
+                    }
+                }
+
+                foreach (var child in schema.Select(p => p.Value).ToList())
+                {
+                    WithoutSecrets(child);
+                }
+
+                break;
+            case JsonArray list:
+                foreach (var child in list.ToList())
+                {
+                    WithoutSecrets(child);
+                }
+
+                break;
+        }
     }
 
     /// <summary>A secret property anywhere in the payload (its properties, their element types, their properties).</summary>
@@ -125,6 +170,11 @@ public static class TaskPayloadSchemas
         if (context.PropertyInfo?.AssociatedParameter?.AttributeProvider is { } parameter)
         {
             attributes.AddRange(parameter.GetCustomAttributes(true).OfType<Attribute>());
+        }
+
+        if (attributes.OfType<SecretAttribute>().Any())
+        {
+            return new JsonObject { [SecretMark] = true }; // left out by WithoutSecrets: an agent never sends a secret
         }
 
         if (context.PropertyInfo is null && context.TypeInfo.Type.GetCustomAttribute<DescriptionAttribute>() is { } typeDescription)

@@ -44,11 +44,11 @@ public sealed class DiscoveryGrpcService(
     /// <summary>Longest password of a probe credential.</summary>
     public const int MaxPasswordLength = 256;
 
-    public override async Task<Proto.DiscoverySession> StartZeroConf(Proto.Empty request, ServerCallContext context)
+    public override async Task<Proto.DiscoverySession> StartZeroConf(Proto.ZeroConfRequest request, ServerCallContext context)
     {
         var reach = await ReachAsync(context).ConfigureAwait(false);
         var session = await discovery.StartZeroConfAsync(context.CancellationToken, reach.Routes).ConfigureAwait(false);
-        return new() { SessionId = await OwnAsync(session.Id, reach, context).ConfigureAwait(false) };
+        return new() { SessionId = await OwnAsync(session.Id, reach, context, request.NoLogins).ConfigureAwait(false) };
     }
 
     public override async Task<Proto.DiscoverySession> StartRangeScan(Proto.RangeScanRequest request, ServerCallContext context)

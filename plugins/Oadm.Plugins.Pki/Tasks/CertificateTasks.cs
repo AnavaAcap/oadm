@@ -6,6 +6,7 @@ using Oadm.Plugins.Pki.Ca;
 using Oadm.Plugins.Pki.Device;
 using Oadm.Sdk.Devices;
 using Oadm.Sdk.Plugins;
+using Oadm.Sdk.Tasks;
 using Oadm.Sdk.Vapix;
 
 namespace Oadm.Plugins.Pki.Tasks;
@@ -151,8 +152,10 @@ public static class CertificateInventory
 }
 
 /// <summary>
-/// "View certificates": a read-only dialog (no task). The dialog reads every device through the query
-/// <see cref="PkiQueries.ListCertificates"/>, at most 4 devices at a time.
+/// "View certificates": a read-only dialog. The dialog reads every device through the query
+/// <see cref="PkiQueries.ListCertificates"/>, at most 4 devices at a time, and starts no task. AI agents (SDK 0.13.0) run it
+/// as a read task: the same read, one log line per certificate (<see cref="LogLine"/>), nothing written to the device.
+/// Steps: Check compatibility, Read certificates.
 /// </summary>
 public sealed class ViewCertificatesTask(Func<PkiService?> service) : PkiTaskBase(service), ITaskPluginQuery
 {
@@ -164,8 +167,83 @@ public sealed class ViewCertificatesTask(Func<PkiService?> service) : PkiTaskBas
 
     public override bool RequiresDialog => true;
 
-    public override Task ExecuteAsync(ITaskExecutionContext ctx, IDeviceInfo device, string? payloadJson, CancellationToken ct) =>
-        throw new InvalidOperationException("\"View certificates\" only reads; it never runs as a task.");
+    /// <summary>The read takes no settings (SDK 0.13.0); the certificates are in the task's log.</summary>
+    public override Type? PayloadType => typeof(PkiViewMcpPayload);
+
+    /// <summary>Reads only: what the dialog shows, one log line per certificate. The device is never changed.</summary>
+    public override async Task ExecuteAsync(ITaskExecutionContext ctx, IDeviceInfo device, string? payloadJson, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(ctx);
+        ArgumentNullException.ThrowIfNull(device);
+        ctx.PlanSteps(PkiSteps.CheckCompatibility, PkiSteps.ReadCertificates);
+        var (apis, api) = await ctx.StepAsync(PkiSteps.CheckCompatibility, async step =>
+        {
+            var support = await PkiCompatibility.RequireAsync(ctx.Vapix, device.Id, Time, ct).ConfigureAwait(false);
+            var read = await ctx.Vapix.GetApiListAsync(ct).ConfigureAwait(false);
+            step.Complete(support.Describe());
+            return (read, support.Certificates);
+        }).ConfigureAwait(false);
+
+        var service = Service;
+        var registry = service is null ? [] : await service.Issued.ForDeviceAsync(device, ct).ConfigureAwait(false);
+        await ctx.StepAsync(PkiSteps.ReadCertificates, async step =>
+        {
+            var (read, unknown) = await CertificateInventory.ReadWithUsesAsync(ctx.Vapix, api, apis, registry, service, device, ct).ConfigureAwait(false);
+            foreach (var certificate in read)
+            {
+                ctx.Log(TaskLogLevel.Info, LogLine(certificate));
+            }
+
+            var count = string.Create(CultureInfo.InvariantCulture, $"{read.Count} {(read.Count == 1 ? "certificate" : "certificates")}");
+            if (unknown is not null)
+            {
+                step.Warn($"{count}; what uses them cannot be read ({unknown.TrimEnd('.')}).");
+            }
+            else
+            {
+                step.Complete(count);
+            }
+        }).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// One certificate as the task's log shows it: "OADM HTTPS 20261115-101500: server certificate, issued to 10.0.0.48 by
+    /// OADM Root CA, valid until 2027-11-15, in use by HTTPS, from OADM, SHA-256 AB12...". The name is what Delete
+    /// certificates takes.
+    /// </summary>
+    public static string LogLine(InstalledCertificate certificate)
+    {
+        ArgumentNullException.ThrowIfNull(certificate);
+        var kind = certificate.Kind switch
+        {
+            CertificateKind.Ca => "CA certificate",
+            CertificateKind.Client => "client certificate",
+            _ => "server certificate",
+        };
+        var parts = new List<string> { kind, $"issued to {certificate.IssuedTo} by {certificate.IssuedBy}" };
+        if (certificate.NotAfterUtc != default)
+        {
+            parts.Add("valid until " + certificate.NotAfterUtc.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
+        }
+
+        parts.Add(certificate.UseUnknown ? "in use: unknown" : certificate.InUse.Count > 0 ? "in use by " + string.Join(" and ", certificate.InUse) : "not in use");
+        if (certificate.FromOadm)
+        {
+            parts.Add("from OADM");
+        }
+
+        if (certificate.Factory)
+        {
+            parts.Add("Axis factory certificate");
+        }
+
+        if (certificate.Fingerprint.Length > 0)
+        {
+            parts.Add("SHA-256 " + certificate.Fingerprint);
+        }
+
+        return certificate.Alias + ": " + string.Join(", ", parts);
+    }
 
     public Task<string?> QueryAsync(ITaskQueryContext ctx, IDeviceInfo device, string method, string? payloadJson, CancellationToken ct) =>
         CertificateQuery.QueryAsync(ctx, device, method, Service, Time, ct);
@@ -236,6 +314,100 @@ public sealed class DeleteCertificatesTask(Func<PkiService?> service) : PkiTaskB
     public Task<string?> QueryAsync(ITaskQueryContext ctx, IDeviceInfo device, string method, string? payloadJson, CancellationToken ct) =>
         CertificateQuery.QueryAsync(ctx, device, method, Service, Time, ct);
 
+    /// <summary>The dialog's payload is the input for AI agents too (SDK 0.13.0): the certificates by name per device id.</summary>
+    public override Type? PayloadType => typeof(DeletePayload);
+
+    /// <summary>
+    /// The payload's own rules before any task starts (<see cref="CheckPayload"/>); what is in use is read on each device
+    /// before its first delete.
+    /// </summary>
+    public override IReadOnlyList<PayloadError> ValidatePayload(string? payloadJson, ICallContext caller)
+    {
+        DeletePayload payload;
+        try
+        {
+            payload = PkiJson.Deserialize<DeletePayload>(payloadJson);
+        }
+        catch (ArgumentException ex)
+        {
+            return [new(string.Empty, ex.Message)];
+        }
+
+        return CheckPayload(payload);
+    }
+
+    /// <summary>
+    /// What a payload must hold: at least one certificate, each with a name, at most <see cref="DeletePayload.MaxPerDevice"/>
+    /// a device, never an Axis factory certificate (the dialog cannot choose one). One error per device, at "devices.&lt;id&gt;".
+    /// </summary>
+    public static IReadOnlyList<PayloadError> CheckPayload(DeletePayload payload)
+    {
+        ArgumentNullException.ThrowIfNull(payload);
+        if (payload.Devices is null || payload.Devices.Values.All(v => v is null || v.Count == 0))
+        {
+            return [new("devices", DeleteTexts.NoneChosen)];
+        }
+
+        var errors = new List<PayloadError>();
+        foreach (var (id, list) in payload.Devices)
+        {
+            var field = "devices." + id.ToString();
+            if (list is null || list.Count == 0)
+            {
+                continue;
+            }
+
+            if (list.Count > DeletePayload.MaxPerDevice)
+            {
+                errors.Add(new(field, DeleteTexts.TooMany));
+            }
+            else if (list.Any(r => r is null || string.IsNullOrWhiteSpace(r.Alias)))
+            {
+                errors.Add(new(field, DeleteTexts.NameMissing));
+            }
+            else if (list.FirstOrDefault(r => DeleteTexts.IsFactoryName(r.Alias)) is { } factory)
+            {
+                errors.Add(new(field, DeleteTexts.Factory(factory.Alias)));
+            }
+        }
+
+        return errors;
+    }
+
+    /// <summary>
+    /// From the payload and the cached data only: a device without a chosen certificate is skipped, the others as
+    /// <see cref="PkiTaskBase.CanRun"/>; the plan says how many certificates go from how many devices and that the device
+    /// refuses one in use.
+    /// </summary>
+    public override Task<TaskPlan> PlanAsync(string? payloadJson, IReadOnlyList<IDeviceInfo> devices, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(devices);
+        var payload = PkiJson.Deserialize<DeletePayload>(payloadJson);
+        var planned = new List<TaskPlanDevice>(devices.Count);
+        var certificates = 0;
+        var running = 0;
+        foreach (var device in devices)
+        {
+            var chosen = payload.Devices.TryGetValue(device.Id, out var list) && list is not null ? list.DistinctBy(r => (r.Alias, r.Ca)).Count() : 0;
+            if (!CanRun(device))
+            {
+                planned.Add(new TaskPlanDevice(device.Id, NotSupportedReason(device) ?? TaskSupportReasons.Default));
+            }
+            else if (chosen == 0)
+            {
+                planned.Add(new TaskPlanDevice(device.Id, DeleteTexts.NotChosen));
+            }
+            else
+            {
+                planned.Add(new TaskPlanDevice(device.Id));
+                certificates += chosen;
+                running++;
+            }
+        }
+
+        return Task.FromResult(new TaskPlan(planned) { Warnings = running == 0 ? [] : [DeleteTexts.Plan(certificates, running), DeleteTexts.InUseNote] });
+    }
+
     public override async Task ExecuteAsync(ITaskExecutionContext ctx, IDeviceInfo device, string? payloadJson, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(ctx);
@@ -246,7 +418,7 @@ public sealed class DeleteCertificatesTask(Func<PkiService?> service) : PkiTaskB
         ctx.PlanSteps([PkiSteps.CheckCompatibility, PkiSteps.ReadCertificates, .. deleteSteps, PkiSteps.Verify]);
         if (chosen.Count == 0)
         {
-            ctx.SkipStep(PkiSteps.CheckCompatibility, "No certificate of this device was chosen");
+            ctx.SkipStep(PkiSteps.CheckCompatibility, DeleteTexts.NotChosen);
             return;
         }
 
@@ -278,7 +450,7 @@ public sealed class DeleteCertificatesTask(Func<PkiService?> service) : PkiTaskB
                     ?? throw new InvalidOperationException($"The device has no certificate \"{choice.Alias}\". Nothing was changed.");
                 if (match.Factory)
                 {
-                    throw new InvalidOperationException($"\"{choice.Alias}\" is an Axis factory certificate and cannot be deleted. Nothing was changed.");
+                    throw new InvalidOperationException(DeleteTexts.Factory(choice.Alias) + " Nothing was changed.");
                 }
 
                 if (match.InUse.Count > 0)
@@ -338,7 +510,7 @@ public sealed class DeleteCertificatesTask(Func<PkiService?> service) : PkiTaskB
 /// certificate, Switch web server to the new certificate, Verify HTTPS; 802.1X: Check device clock, Install CA certificates,
 /// Install certificate, Set 802.1X configuration, Verify 802.1X settings; CA only: Install CA certificates.
 /// </summary>
-public sealed class InstallCertificatesTask(Func<PkiService?> service) : PkiTaskBase(service), ITaskPluginQuery
+public sealed partial class InstallCertificatesTask(Func<PkiService?> service) : PkiTaskBase(service), ITaskPlugin, ITaskPluginQuery
 {
     public override string Id => PkiTaskIds.Install;
 
@@ -456,6 +628,12 @@ public sealed class InstallCertificatesTask(Func<PkiService?> service) : PkiTask
                 if (dot1x && CertificateFiles.Dot1xProblem(contents) is { } notClient)
                 {
                     throw new InvalidOperationException($"{file.FileName}: {notClient} Nothing was changed.");
+                }
+
+                // The dialog matched the file to this device; an agent only named it, so the task checks the names itself.
+                if (needsLeaf && !CertificateFiles.Matches(contents.Names, device.Serial, device.Address, device.HostName))
+                {
+                    throw new InvalidOperationException($"{file.FileName}: {NotThisDevice} Nothing was changed.");
                 }
 
                 result.Add((file, data, contents));

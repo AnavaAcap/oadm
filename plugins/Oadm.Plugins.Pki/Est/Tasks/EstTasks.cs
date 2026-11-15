@@ -45,6 +45,62 @@ public static class EstTaskIds
         $"The camera's IEEE 802.1X profile {kept} also serves the {profile} profile's use: the {profile} profile was skipped.";
     public const string NothingToRemove = "The camera has none of these enrollment profiles. Nothing was changed.";
 
+    // ---- What Remove does, said by the dialog's confirmation and by the plan of AI agents ----
+
+    /// <summary>Removing a profile OADM set up.</summary>
+    public const string RemoveOadmEffect = "The cameras keep their certificates until they expire, but no longer renew them.";
+
+    /// <summary>Removing a profile of another EST server.</summary>
+    public const string RemoveOtherEffect = "OADM did not set it up: the cameras stop renewing the certificates of that EST server.";
+
+    /// <summary>The profile gives the network access certificate (IEEE 802.1X).</summary>
+    public const string RemoveNetworkAccessEffect = "Cameras with IEEE 802.1X on drop off the network when that certificate expires.";
+
+    /// <summary>Another server's profile that may serve IEEE 802.1X on some cameras.</summary>
+    public const string RemoveMaybeNetworkAccessEffect = "Cameras where it serves IEEE 802.1X drop off the network when that certificate expires.";
+
+    /// <summary>
+    /// What removing <paramref name="profileId"/> does: who set it up, then the network access risk (<paramref name="networkAccess"/>
+    /// true: it gives the network access certificate; null: it may, on some cameras; false: it does not).
+    /// </summary>
+    public static string RemoveEffect(string profileId, bool? networkAccess)
+    {
+        var oadm = IsOadm(profileId);
+        var text = oadm ? RemoveOadmEffect : RemoveOtherEffect;
+        return networkAccess switch
+        {
+            true => text + " " + RemoveNetworkAccessEffect,
+            null when !oadm => text + " " + RemoveMaybeNetworkAccessEffect,
+            _ => text,
+        };
+    }
+
+    // ---- The input of AI agents (SDK 0.13.0) ----
+
+    /// <summary>The most profiles one Remove takes (a camera holds two).</summary>
+    public const int MaxRemoveProfiles = 10;
+
+    /// <summary>The longest profile id a payload takes.</summary>
+    public const int MaxProfileIdLength = 64;
+
+    public const string ChooseProfile = "Choose a profile to remove.";
+    public static readonly string TooManyProfiles = string.Create(CultureInfo.InvariantCulture, $"Choose at most {MaxRemoveProfiles} profiles.");
+    public static readonly string ProfileIdInvalid = string.Create(CultureInfo.InvariantCulture, $"Enter the profile's id as the camera lists it, at most {MaxProfileIdLength} characters.");
+    public const string ProfilesOnlyForRemove = "Profiles are for Remove only.";
+    public const string ReplaceOnlyForSetup = "Replacing the network access certificate is for Set up only.";
+
+    /// <summary>The plan of Set up with the replacement chosen, while some cameras may have IEEE 802.1X on.</summary>
+    public const string ReplaceDot1xWarning = "Cameras with IEEE 802.1X on get a new network access certificate: they drop off the network if the RADIUS server does not trust its CA.";
+
+    /// <summary>The plan of Set up without the replacement, while some cameras may have IEEE 802.1X on.</summary>
+    public const string Dot1xKept = "Cameras with IEEE 802.1X on keep their network access certificate: their IEEE 802.1X profile is skipped.";
+
+    /// <summary>The plan of Set up: an agent cannot answer the dialog's clock question.</summary>
+    public const string ClockNote = "A camera whose clock is behind refuses the task and changes nothing. Set it to use NTP first.";
+
+    /// <summary>A refusal text without its "Nothing was changed." (a skip reason of the plan, which changes nothing).</summary>
+    public static string WithoutNothingChanged(string text) => text.Replace(" Nothing was changed.", string.Empty, StringComparison.Ordinal);
+
     /// <summary>Camera profiles OADM writes are named "oadm_&lt;profile&gt;" (or <see cref="AlternatePrefix"/>).</summary>
     public const string ProfilePrefix = "oadm_";
 
@@ -222,11 +278,118 @@ public sealed class EstSetupTask(Func<EstService?> service, Func<bool>? shown = 
     string ITaskPlugin.GetTaskName(string? payloadJson) =>
         SetupPayload.Read(payloadJson) is { Action: SetupAction.Remove } remove ? EstTaskIds.RemoveName(remove.Profiles) : EstTaskIds.SetupName;
 
+    /// <summary>The input of AI agents (SDK 0.13.0): Set up or Remove, without the clock answer of the dialog.</summary>
+    public Type? PayloadType => typeof(EstMcpPayload);
+
+    /// <summary>The names the task reads the payload with.</summary>
+    public System.Text.Json.JsonSerializerOptions? PayloadJsonOptions => EstJson.Options;
+
+    /// <summary>
+    /// The payload's rules before any task starts (<see cref="CheckPayload"/>): Remove names 1 to 10 profiles by id, Set up
+    /// names none; the replacement of the network access certificate is for Set up only.
+    /// </summary>
+    public IReadOnlyList<Sdk.Tasks.PayloadError> ValidatePayload(string? payloadJson, ICallContext caller) =>
+        SetupPayload.Read(payloadJson) is { } payload ? CheckPayload(payload) : [new(string.Empty, EstTaskIds.WithoutNothingChanged(EstTaskIds.BadOptions))];
+
+    /// <summary>The rules of <see cref="ValidatePayload"/>, each at its JSON field.</summary>
+    public static IReadOnlyList<Sdk.Tasks.PayloadError> CheckPayload(SetupPayload payload)
+    {
+        ArgumentNullException.ThrowIfNull(payload);
+        var errors = new List<Sdk.Tasks.PayloadError>();
+        if (payload.Action == SetupAction.Remove)
+        {
+            if (payload.Profiles.Count == 0)
+            {
+                errors.Add(new("profiles", EstTaskIds.ChooseProfile));
+            }
+            else if (payload.Profiles.Count > EstTaskIds.MaxRemoveProfiles)
+            {
+                errors.Add(new("profiles", EstTaskIds.TooManyProfiles));
+            }
+            else if (payload.Profiles.Any(p => string.IsNullOrWhiteSpace(p) || p.Length > EstTaskIds.MaxProfileIdLength || p.Any(char.IsControl)))
+            {
+                errors.Add(new("profiles", EstTaskIds.ProfileIdInvalid));
+            }
+
+            if (payload.ReplaceDot1x)
+            {
+                errors.Add(new("replaceDot1x", EstTaskIds.ReplaceOnlyForSetup));
+            }
+        }
+        else if (payload.Profiles.Count > 0)
+        {
+            errors.Add(new("profiles", EstTaskIds.ProfilesOnlyForRemove));
+        }
+
+        return errors;
+    }
+
+    /// <summary>
+    /// From the cached data and the EST server's state only: Set up skips every camera while OADM PRO, the EST server or the CA
+    /// is missing (what the task would refuse), else the cameras with AXIS OS 12.10 or later run; the warnings say what happens
+    /// to cameras with IEEE 802.1X on (cached state, unknown counts as on) and that a late clock refuses. Remove says what the
+    /// cameras lose with each profile, as the dialog's confirmation.
+    /// </summary>
+    public Task<Sdk.Tasks.TaskPlan> PlanAsync(string? payloadJson, IReadOnlyList<IDeviceInfo> devices, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(devices);
+        var payload = SetupPayload.Read(payloadJson) ?? throw new ArgumentException(EstTaskIds.BadOptions, nameof(payloadJson));
+        var est = Service;
+        var plan = Sdk.Tasks.TaskPlan.ByCanRun(this, devices);
+        if (payload.Action == SetupAction.Remove)
+        {
+            if (est is null && payload.Profiles.Any(EstTaskIds.IsOadm))
+            {
+                return Task.FromResult(SkipAll(devices, EstTaskIds.NotRunning));
+            }
+
+            var dot1xProfiles = est?.Store.Config.Profiles.Where(p => p.Use == ProfileUse.Dot1x).Select(p => p.Name).ToHashSet(StringComparer.Ordinal) ?? [];
+            return Task.FromResult(plan with
+            {
+                Warnings = [.. payload.Profiles.Distinct(StringComparer.Ordinal).Select(id =>
+                    id + ": " + EstTaskIds.RemoveEffect(id, EstTaskIds.IsOadm(id) ? dot1xProfiles.Contains(EstTaskIds.ProfileNameOf(id)) : null))],
+            });
+        }
+
+        var refusal = est is null ? EstTaskIds.NotRunning
+            : !est.ProActive ? EstTaskIds.NoPro
+            : est.Authority is not { IsReady: true } ? EstTaskIds.NoCa
+            : null;
+        if (refusal is not null)
+        {
+            return Task.FromResult(SkipAll(devices, refusal));
+        }
+
+        var running = plan.Devices.Where(d => d.SkipReason is null).Select(d => d.DeviceId).ToHashSet();
+        var dot1x = devices.Count(d => running.Contains(d.Id) && d.Dot1xEnabled != false);
+        var dot1xOffered = est!.Store.Config.Profiles.Any(p => p.Enabled && p.Use == ProfileUse.Dot1x);
+        var warnings = new List<string>();
+        if (dot1x > 0 && dot1xOffered)
+        {
+            warnings.Add(payload.ReplaceDot1x ? EstTaskIds.ReplaceDot1xWarning : EstTaskIds.Dot1xKept);
+        }
+
+        if (running.Count > 0)
+        {
+            warnings.Add(EstTaskIds.ClockNote);
+        }
+
+        return Task.FromResult(plan with { Warnings = warnings });
+    }
+
+    private static Sdk.Tasks.TaskPlan SkipAll(IReadOnlyList<IDeviceInfo> devices, string refusal) =>
+        new([.. devices.Select(d => new Sdk.Tasks.TaskPlanDevice(d.Id, EstTaskIds.WithoutNothingChanged(refusal)))]);
+
     public override async Task ExecuteAsync(ITaskExecutionContext ctx, IDeviceInfo device, string? payloadJson, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(ctx);
         // Set up and Remove share the task: options that cannot be read change nothing (never taken for Set up).
         var payload = SetupPayload.Read(payloadJson) ?? throw new ArgumentException(EstTaskIds.BadOptions, nameof(payloadJson));
+        if (CheckPayload(payload) is [var invalid, ..])
+        {
+            throw new ArgumentException(invalid.Message + " Nothing was changed.", nameof(payloadJson)); // before any request
+        }
+
         if (payload.Action == SetupAction.Remove)
         {
             await RemoveAsync(ctx, device, payload.Profiles, ct).ConfigureAwait(false);

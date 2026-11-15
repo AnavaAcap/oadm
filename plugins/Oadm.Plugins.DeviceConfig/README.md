@@ -89,7 +89,7 @@ The export contains values that belong to **one device** and some that cannot be
 
 ### Export
 
-- `oadm.device-config.export` (icon `export`) is dialog only, never a task. `CanRun`: status Ok and AXIS OS 12.5 or
+- `oadm.device-config.export` (icon `export`) is a dialog in the client, which runs no task (an agent's run: [AI agents](#ai-agents)). `CanRun`: status Ok and AXIS OS 12.5 or
   later (cached AXIS OS version); reason "Needs AXIS OS 12.5 or later (this device has ...)".
 - The save dialog comes first: one device `<address>_<MAC>_<model>_config.json`, several devices
   `oadm-config-<yyyy-MM-dd>.zip` with one file each plus `summary.txt` when some failed.
@@ -204,7 +204,7 @@ strings and other names with "pass", "secret" or "community" are masked like pas
 | Dialog safety | The overview is built whenever it opens (Next or its step dot), so Apply sends what was reviewed; Next follows every value change; Enter does not apply; a server error (gRPC status, timeout) shows in the dialog; a model whose read failed is read again with the next source; closing the dialog cancels its reads. |
 | Same name on the device | Replace: the new rule is created first (its action, then the rule) and only then the old rules of that name and their actions (when no other rule uses them) are removed, so a rule the device refuses never leaves it without the old one; a refused rule's new action is removed again. A stream profile is updated. A schedule with the same name and recurrence is used again. Applying twice gives the same result. Two checked rules or profiles with one name are refused in the dialog and by the payload check. |
 | Files | ADM `.cfg` format 3 (`AdmConfigFile`): read from Axis' hardening template (Generic) and ADM files, written byte for byte like ADM (UTF-8 BOM, CRLF, `<ActivationTimeout />`). The format is known from files only, ADM itself is never decompiled. Passwords are written like ADM. No files ship with OADM. |
-| Create configuration file | Its own entry for one device: the same tabs, overview, Save. With an action rule every schedule of the device goes into the file, like ADM. Never a task. |
+| Create configuration file | Its own entry for one device: the same tabs, overview, Save. With an action rule every schedule of the device goes into the file, like ADM. The dialog runs no task (an agent's run: [AI agents](#ai-agents)). |
 | Storage | Files only: the server keeps no configuration file. |
 
 ### Device API (reads verified on AXIS P3265-V and M3215-LVE, AXIS OS 12.11.77)
@@ -249,6 +249,42 @@ reported "1 already there" (schedule), "1 replaced" (rule, its old action remove
 added nothing. The cleanup removed rule, action, schedule and profile and set the parameter back; everything was exactly
 as before. 15 s for both runs and the cleanup.
 
+## AI agents
+
+The four tasks are offered to AI agents through the host's task tools (`oadm_tasks_catalog`, `oadm_task_preview`,
+`oadm_task_run`; [MCP server](../../docs/spec/mcp.md) "Tasks"), decision 2026-11-15. Each has an input record
+(`AgentPayloads.cs`) as `PayloadType`, `ValidatePayload` with field errors and `PlanAsync` from the cached devices only.
+
+| Task | Input | Checks (field errors) | Plan |
+|---|---|---|---|
+| Configure devices | `settings` (name, value), `actionRules`, `schedules`, `streamProfiles` (the dialog's models) | `ConfigurePayload.Check`: the payload rules with their texts at `settings[i].name` ...; device addresses (`AddressNote`) and values with line breaks or over 4,096 characters refused; a secret name's value is entered by the user (`SecretsOf`, an empty one "Enter the password.", at most 8: "Set at most 8 passwords in one run.") | runs where `CanRun`; a per-device value (host name, device names) skips every device of a run of several (`PerDeviceNote`); warnings: dangerous parameters with their reason, "Each device checks the values ...", rules and profiles of the same name are replaced, "Sets <names> with the values the user enters." |
+| Create configuration file | `parameters` (names; a name ending in a dot is a group), `actionRules`, `streamProfiles` (names) | "Check what to save", a name twice or empty, a secret name | runs where `CanRun` |
+| Export configuration | none (`{}`) | any field: "The export takes no settings." | runs where `CanRun` |
+| Import configuration | `fileId`, `fileName`, `sections` (area keys, `connection` included) | `ImportPayload.Check`: file, "Choose at least one settings area", unknown areas, no ZIP | the uploaded file read like the task reads it: other model, a broken or removed file skip with the dialog's texts; warnings: the settings are replaced, connection settings can make the devices unreachable, the identity stays; the file's name and SHA-256 |
+
+- **Agent form.** Configure devices reads `settings` and `actionRules` (the dialog sends `parameters` and `rules`), so the
+  task knows an agent's payload (`ConfigurePayload.FromAgent`).
+- **Passwords of agents** (docs/spec/mcp.md "Secrets"). The agent sends a setting or an action parameter whose name says
+  pass, secret or community (`SecretNames`) with an empty value; `ConfigurePayload.SecretsOf` makes a slot of each
+  (`setting_<i>` at `settings[i].value`, `rule_<i>_parameter_<j>` at `actionRules[i].action.parameters[j].value`, label
+  "password for <name>", at most 64 characters), the user enters the value through the secret link or the Assistant's card,
+  and the run's payload has it (in memory only, masked in steps and logs). The host refuses an agent's own value there and
+  checks an entered one with `ValidatePayload` at once. `Check(json, requireSecrets: false)` is the plan's check before the
+  values exist. A password parameter of the device's definitions whose name is no secret name is still skipped ("Set the
+  password in OADM."): that value would be the agent's own. Import without `files` (`ImportPayload.ForEveryDevice`) gives the one
+  `.json` to every device of the run; each device checks the model again.
+- **Permissions** as in the dialogs: `dangerous` for the parameters of `DangerousParameters`, `connection` for the area
+  `connection`.
+- **Results.** Export and Create configuration file are read-only tasks for agents (the dialogs still run none): the file
+  is the task's result in its log (`TaskFileResult`: a line with name, size and SHA-256, then the text in parts of 1,900
+  characters; a file of more than 400 parts gets the line only). Create configuration file never writes a password or a
+  secret value of an action into the file.
+- **Open (TODO hooks).** `TODO(download-link)` in `TaskFileResult`: the file as a download link.
+- Tests: `AgentTaskInputTests` (schemas through the host's exporter, field errors, plans, permissions, no request on an
+  invalid input, the API refusal, the password parameter skipped, the entered password written and never shown, the
+  secrets' slots and plan, the files in the log, the agent's import), host `McpAgentTaskSecretTests`, and the
+  dialog tests check the dialogs' payloads against `ValidatePayload`.
+
 ## Tools
 
 Read-only tools for the Assistant and MCP agents ([MCP server](../../docs/spec/mcp.md) "Plugins"), for the settings
@@ -280,9 +316,9 @@ page (`Tools/DeviceConfigToolsPlugin`, id `oadm.device-config`, area `config`), 
 
 ## Code
 
-- `plugins/Oadm.Plugins.DeviceConfig` (four task plugins and the core plugin of the tools, `Tools/`): `ExportConfigTask` (dialog only, query
-  `export`), `ImportConfigTask`, `ConfigApi` (export, discover, import, error texts), `ConfigCompare` (verify);
-  `Configure/`: `ConfigureDevicesTask` + `CreateConfigFileTask` (dialog only), `ParamDefinitionsReader`, `ActionEngineApi`
+- `plugins/Oadm.Plugins.DeviceConfig` (four task plugins and the core plugin of the tools, `Tools/`): `ExportConfigTask` (dialog, query
+  `export`; an agent's read-only task), `ImportConfigTask`, `ConfigApi` (export, discover, import, error texts), `ConfigCompare` (verify);
+  `Configure/`: `ConfigureDevicesTask` + `CreateConfigFileTask` (dialog; an agent's read-only task, `CreateConfigFileRequest`), `ParamDefinitionsReader`, `ActionEngineApi`
   (the shared `plugins/Shared/ActionEngine` SOAP engine of the Action Rule Editor, mapped to the ADM file models),
   `StreamProfileApi` + `ParamWriter`, `DeviceSettingsReader`, `ConfigMatchCheck`.
 - `Shared/` (also used by the client part): `ConfigFile` (parse, areas, `ConfigIdentity`, `ConfigFileNames`),
@@ -318,7 +354,7 @@ not have are skipped ("3 not on this model"). Failed: "2 settings differ" and up
 | `task:oadm.device-config.import:connection` | the "Connection settings" area (not offered without it) | no |
 | `task:oadm.device-config.configure:configure` | Configure devices | yes |
 | `task:oadm.device-config.configure:dangerous` | the warned parameters (not offered without it; full device control) | no |
-| `task:oadm.device-config.create` | Create configuration file (the file can hold passwords; Viewer no) | yes |
+| `task:oadm.device-config.create` | Create configuration file (the file can hold passwords; Viewer no; an agent's file never does) | yes |
 
 ## Device groups
 

@@ -41,8 +41,16 @@ public sealed class AccessKeyGrpcService(AccessKeyStore keys, AuditLog audit) : 
 
         try
         {
+            // A key an agent makes never outlives the agent's own key: an agent cannot extend its own life (docs/spec/mcp.md "Access keys").
+            DateTime? notAfter = null;
+            if (caller.IsAccessKey)
+            {
+                notAfter = (await keys.GetAsync(caller.UserId, context.CancellationToken).ConfigureAwait(false))?.ExpiresUtc
+                    ?? throw new RpcException(new Status(StatusCode.Unauthenticated, AccessKeyTexts.NotValid));
+            }
+
             var (key, info) = await keys.CreateAsync(request.Name, roleId, new DeviceScope(request.AllDevices, groupId), request.Days, caller.UserName,
-                context.CancellationToken).ConfigureAwait(false);
+                context.CancellationToken, notAfter).ConfigureAwait(false);
             await audit.WriteAsync(AuditActions.AccessKeyCreated, info.Name, Detail(info), context.CancellationToken).ConfigureAwait(false);
             return new Proto.CreatedAccessKey { Key = ToProto(info), Secret = key };
         }
@@ -58,6 +66,11 @@ public sealed class AccessKeyGrpcService(AccessKeyStore keys, AuditLog audit) : 
 
     public override async Task<Proto.AccessKeyList> Delete(Proto.AccessKeyIdRequest request, ServerCallContext context)
     {
+        if (AuthInterceptor.CallerOf(context) is { IsAccessKey: true } agent && Guid.TryParse(request.Id, out var own) && own == agent.UserId)
+        {
+            throw new RpcException(new Status(StatusCode.FailedPrecondition, AccessKeyTexts.OwnKey));
+        }
+
         var name = Guid.TryParse(request.Id, out var id) ? await keys.DeleteAsync(id, context.CancellationToken).ConfigureAwait(false) : null;
         if (name is null)
         {

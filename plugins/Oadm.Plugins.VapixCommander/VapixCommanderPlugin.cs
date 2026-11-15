@@ -62,6 +62,9 @@ public sealed partial class VapixCommanderPlugin : ICorePlugin, Oadm.Sdk.Actions
 
     private SavedCommandStore Saved => _saved ?? throw new InvalidOperationException("The VAPIX Commander is not started.");
 
+    /// <summary>The saved commands (the page tools).</summary>
+    internal SavedCommandStore SavedStore => Saved;
+
     public async Task StartAsync(ICorePluginContext ctx, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(ctx);
@@ -83,10 +86,24 @@ public sealed partial class VapixCommanderPlugin : ICorePlugin, Oadm.Sdk.Actions
     public Task StopAsync(CancellationToken ct) => Task.CompletedTask;
 
     /// <summary>Sending a request, rolling out commands and the run of the run tool reach devices: they go to the audit log.</summary>
-    public bool IsAudited(string method) => method is CommanderMethods.TryRequest or CommanderMethods.Rollout || CommanderTools.IsRun(method);
+    public bool IsAudited(string method) =>
+        method is CommanderMethods.TryRequest or CommanderMethods.Rollout || CommanderTools.IsRun(method) || DeviceRequestTool.IsRun(method);
 
-    /// <summary>The tools for AI agents (docs/spec/mcp.md "Plugins"): the commands they may run and a run as preview and run.</summary>
-    public IReadOnlyList<PluginTool> Tools => CommanderTools.All;
+    /// <summary>The run of a device request names its method, path and device count, never the query values or the body.</summary>
+    public string? AuditDetail(string method, string? payloadJson) =>
+        DeviceRequestTool.IsRun(method) ? DeviceRequestTool.AuditDetailOf(payloadJson) : null;
+
+    /// <summary>
+    /// The tools for AI agents (docs/spec/mcp.md "Plugins"): the commands they may run and a run as preview and run, the saved
+    /// commands, and a request of the agent's own (<c>oadm_device_request</c>).
+    /// </summary>
+    public IReadOnlyList<PluginTool> Tools { get; } = [.. CommanderTools.All, DeviceRequestTool.Request, .. CommanderPageTools.Set.Tools];
+
+    /// <summary>The successful one-device runs of the agents' device requests (the one-device-first rule).</summary>
+    internal DeviceRequestTrials RequestTrials { get; } = new();
+
+    /// <summary>The clock of the one-device-first rule (tests pass a fake one).</summary>
+    internal TimeProvider Time { get; set; } = TimeProvider.System;
 
     /// <summary>The tools' names start with oadm_vapix_.</summary>
     public string? ToolArea => "vapix";
@@ -97,19 +114,26 @@ public sealed partial class VapixCommanderPlugin : ICorePlugin, Oadm.Sdk.Actions
         new("send", "Send to one device", "Send a command or a request of your own to one device and see its answer.") { FullDeviceControl = true },
         new("rollout", "Run on many devices", "Run the commands of the rollout set on the chosen devices.") { FullDeviceControl = true },
         new("saved", "Change saved commands", "Save, change, delete and import the saved commands everyone shares."),
+        new(DeviceRequestTool.DangerousPermission, "Send dangerous requests",
+            "Let the assistant and AI agents send requests that can lock OADM out of a device or break it, such as accounts, network, HTTPS, 802.1X, AXIS OS or factory default.")
+        {
+            OperatorDefault = false,
+            FullDeviceControl = true,
+        },
     ];
 
-    public string? RequiredPermission(string method) => method switch
+    public string? RequiredPermission(string method) => CommanderPageTools.Set.RulesMethodOf(method) switch
     {
         CommanderMethods.TryRequest => "send",
         CommanderMethods.Rollout => "rollout",
-        _ when CommanderTools.CommandRun.Calls(method) => "rollout",
+        var other when CommanderTools.CommandRun.Calls(other) => "rollout",
+        var other when DeviceRequestTool.Request.Calls(other) => "send",
         CommanderMethods.Save or CommanderMethods.Delete or CommanderMethods.Import => "saved",
         _ => PermissionKeys.Show,
     };
 
     /// <summary>Changing the saved commands everyone shares is for users with all devices (docs/spec/device-scope.md).</summary>
-    public bool RequiresAllDevices(string method) => method is CommanderMethods.Save or CommanderMethods.Delete or CommanderMethods.Import;
+    public bool RequiresAllDevices(string method) => CommanderPageTools.Set.RulesMethodOf(method) is CommanderMethods.Save or CommanderMethods.Delete or CommanderMethods.Import;
 
     /// <summary>In-process callers and tests without a user: the context's own devices.</summary>
     public Task<string?> InvokeAsync(string method, string? payloadJson, CancellationToken ct) => InvokeCoreAsync(null, method, payloadJson, ct);
@@ -124,6 +148,20 @@ public sealed partial class VapixCommanderPlugin : ICorePlugin, Oadm.Sdk.Actions
     private async Task<string?> InvokeCoreAsync(ICallContext? caller, string method, string? payloadJson, CancellationToken ct)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(method);
+        if (CommanderPageTools.Set.Handles(method))
+        {
+            return caller is null
+                ? throw new InvalidOperationException("The tools of the VAPIX Commander need a caller.")
+                : await CommanderPageTools.Set.InvokeAsync(this, caller, method, payloadJson, ct).ConfigureAwait(false);
+        }
+
+        if (DeviceRequestTool.Request.Calls(method))
+        {
+            return caller is null
+                ? throw new InvalidOperationException("The tools of the VAPIX Commander need a caller.")
+                : await DeviceRequestTool.InvokeAsync(this, caller, method, payloadJson, ct).ConfigureAwait(false);
+        }
+
         if (CommanderTools.IsToolMethod(method))
         {
             // A tool always runs with a caller: its devices, tasks and rights are the user's (fail closed without one).
@@ -209,14 +247,14 @@ public sealed partial class VapixCommanderPlugin : ICorePlugin, Oadm.Sdk.Actions
         }
     }
 
-    private async Task<OkReply> DeleteAsync(DeleteCommandRequest request, CancellationToken ct)
+    internal async Task<OkReply> DeleteAsync(DeleteCommandRequest request, CancellationToken ct)
     {
         var deleted = await Saved.DeleteAsync(request.Id, ct).ConfigureAwait(false);
         await RefreshSavedSnapshotAsync(ct).ConfigureAwait(false);
         return deleted ? new OkReply { Ok = true } : new OkReply { Error = "The saved command no longer exists." };
     }
 
-    private async Task<ImportReply> ImportAsync(ImportRequest request, CancellationToken ct)
+    internal async Task<ImportReply> ImportAsync(ImportRequest request, CancellationToken ct)
     {
         var reply = await Saved.ImportAsync(request.Json, request.Owner, ct).ConfigureAwait(false);
         await RefreshSavedSnapshotAsync(ct).ConfigureAwait(false);
@@ -363,6 +401,23 @@ public sealed partial class VapixCommanderPlugin : ICorePlugin, Oadm.Sdk.Actions
             return new TryCommandReply { NeedsConfirmation = true };
         }
 
+        var (outcome, error) = await SendCheckedAsync(caller, device, command, rendered, level, ct).ConfigureAwait(false);
+        if (outcome is null)
+        {
+            return new TryCommandReply { Error = error };
+        }
+
+        LogTried(command.Id, device.Address, outcome.RequestLine ?? string.Empty, outcome.StatusCode ?? 0, outcome.Success);
+        return new TryCommandReply { Outcome = TryOutcome.From(outcome) };
+    }
+
+    /// <summary>
+    /// Sends a checked request to one device the way Send does (the device's own client, a fresh API list before a write):
+    /// the outcome, or why nothing was sent. The caller checked the device's state, its cached APIs and the confirmation first.
+    /// </summary>
+    internal async Task<(CommandOutcome? Outcome, string? Error)> SendCheckedAsync(
+        ICallContext? caller, IDeviceInfo device, CommandDefinition command, RenderedRequest rendered, SafetyLevel level, CancellationToken ct)
+    {
         IVapixClient vapix;
         try
         {
@@ -370,7 +425,7 @@ public sealed partial class VapixCommanderPlugin : ICorePlugin, Oadm.Sdk.Actions
         }
         catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
         {
-            return new TryCommandReply { Error = "Cannot reach the device: " + TransportErrors.Describe(ex, rendered.Timeout) };
+            return (null, "Cannot reach the device: " + TransportErrors.Describe(ex, rendered.Timeout));
         }
 
         // The factory owns (and caches) the client: never dispose it here.
@@ -383,17 +438,15 @@ public sealed partial class VapixCommanderPlugin : ICorePlugin, Oadm.Sdk.Actions
             }
             catch (DeviceNotCompatibleException ex)
             {
-                return new TryCommandReply { Error = ex.Message };
+                return (null, ex.Message);
             }
             catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
             {
-                return new TryCommandReply { Error = "Could not read the API list: " + TransportErrors.Describe(ex, rendered.Timeout) + ". Nothing was changed." };
+                return (null, "Could not read the API list: " + TransportErrors.Describe(ex, rendered.Timeout) + ". Nothing was changed.");
             }
         }
 
-        var outcome = await CommandExecutor.ExecuteAsync(vapix, command, rendered, ct).ConfigureAwait(false);
-        LogTried(command.Id, device.Address, outcome.RequestLine ?? string.Empty, outcome.StatusCode ?? 0, outcome.Success);
-        return new TryCommandReply { Outcome = TryOutcome.From(outcome) };
+        return (await CommandExecutor.ExecuteAsync(vapix, command, rendered, ct).ConfigureAwait(false), null);
     }
 
     internal Task<CompatibilityReply> CheckCompatibilityAsync(CompatibilityRequest request, CancellationToken ct) => CheckCompatibilityAsync(request, null, ct);
@@ -574,6 +627,9 @@ public sealed partial class VapixCommanderPlugin : ICorePlugin, Oadm.Sdk.Actions
 
     [LoggerMessage(Level = LogLevel.Information, Message = "VAPIX Commander: tried {CommandId} on {Address}: {Request} -> {Status} (success {Success})")]
     private partial void LogTried(string commandId, string address, string request, int status, bool success);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "VAPIX Commander: device request {Request} on {Address} -> {Status} (success {Success})")]
+    internal partial void LogDeviceRequest(string request, string address, int status, bool success);
 
     [LoggerMessage(Level = LogLevel.Information, Message = "VAPIX Commander: rollout {RolloutId} started, {Commands} commands on {Devices} devices (stop on first error {Stop})")]
     private partial void LogRolloutStarted(Guid rolloutId, int commands, int devices, bool stop);

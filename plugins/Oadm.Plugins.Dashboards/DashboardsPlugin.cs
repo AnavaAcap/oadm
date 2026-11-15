@@ -106,7 +106,8 @@ public sealed class DashboardsPlugin : ICorePlugin, IDynamicEventSource, IDispos
         new(DashboardsPluginInfo.PressKey, "Press dashboard buttons", "Press the buttons of the dashboards, which run event rules."),
     ];
 
-    public string? RequiredPermission(string method) => method switch
+    /// <summary>A tool of the page (<see cref="DashboardPageTools"/>) has the right of the page method it wraps.</summary>
+    public string? RequiredPermission(string method) => DashboardPageTools.Set.RulesMethodOf(method) switch
     {
         DashboardsMethods.List or DashboardsMethods.Catalog or DashboardsMethods.Devices or DashboardsMethods.Watch or DashboardsMethods.Unwatch or DashboardsMethods.Tables => PermissionKeys.Show,
         _ when DashboardTools.All.Any(t => t.Calls(method)) => PermissionKeys.Show,
@@ -115,11 +116,14 @@ public sealed class DashboardsPlugin : ICorePlugin, IDynamicEventSource, IDispos
         _ => null,
     };
 
-    /// <summary>The read-only tools <c>oadm_dashboards_list</c> and <c>oadm_dashboards_values</c> (docs/spec/mcp.md "Plugins"): "show".</summary>
-    public IReadOnlyList<PluginTool> Tools => DashboardTools.All;
+    /// <summary>
+    /// The tools (docs/spec/mcp.md "Plugins"): <c>oadm_dashboards_list</c> and <c>oadm_dashboards_values</c> ("show"), and the
+    /// page's actions with the rights of their page methods: read a dashboard and the events, save, delete, press a button.
+    /// </summary>
+    public IReadOnlyList<PluginTool> Tools { get; } = [.. DashboardTools.All, .. DashboardPageTools.Set.Tools];
 
-    /// <summary>Saves, deletes and every press of a button.</summary>
-    public bool IsAudited(string method) => DashboardsMethods.IsAudited(method);
+    /// <summary>Saves, deletes and every press of a button; a tool's preview never (it changes nothing).</summary>
+    public bool IsAudited(string method) => !PluginTool.IsPreviewMethod(method) && DashboardsMethods.IsAudited(DashboardPageTools.Set.RulesMethodOf(method));
 
     /// <summary>
     /// The audit entry of a press names the button and its dashboard ("Pressed Open gate on Gate house"); the other methods,
@@ -127,7 +131,7 @@ public sealed class DashboardsPlugin : ICorePlugin, IDynamicEventSource, IDispos
     /// </summary>
     public string? AuditDetail(string method, string? payloadJson)
     {
-        if (method != DashboardsMethods.Press || _dashboards is not { } dashboards)
+        if (DashboardPageTools.Set.RulesMethodOf(method) != DashboardsMethods.Press || _dashboards is not { } dashboards)
         {
             return null;
         }
@@ -135,7 +139,9 @@ public sealed class DashboardsPlugin : ICorePlugin, IDynamicEventSource, IDispos
         PressRequest? request;
         try
         {
-            request = JsonSerializer.Deserialize<PressRequest>(payloadJson ?? "null", DashboardsPluginInfo.Json);
+            request = DashboardPageTools.Set.Handles(method)
+                ? DashboardPageTools.PressRequestOf(payloadJson)
+                : JsonSerializer.Deserialize<PressRequest>(payloadJson ?? "null", DashboardsPluginInfo.Json);
         }
         catch (JsonException)
         {
@@ -254,6 +260,11 @@ public sealed class DashboardsPlugin : ICorePlugin, IDynamicEventSource, IDispos
     public async Task<string?> InvokeAsync(ICallContext caller, string method, string? payloadJson, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(caller);
+        if (DashboardPageTools.Set.Handles(method))
+        {
+            return await DashboardPageTools.Set.InvokeAsync(this, caller, method, payloadJson, ct).ConfigureAwait(false);
+        }
+
         switch (method)
         {
             case DashboardsMethods.List:
@@ -378,6 +389,38 @@ public sealed class DashboardsPlugin : ICorePlugin, IDynamicEventSource, IDispos
     {
         ArgumentNullException.ThrowIfNull(caller);
         ArgumentNullException.ThrowIfNull(request);
+        await _storeGate.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            var prepared = await PrepareSaveAsync(caller, request, await LoadAsync(ct).ConfigureAwait(false), ct).ConfigureAwait(false);
+            await StoreAsync(prepared.Next, prepared.Owner).ConfigureAwait(false);
+            return prepared.Answer;
+        }
+        finally
+        {
+            _storeGate.Release();
+        }
+    }
+
+    /// <summary>Every check of a save, nothing stored (the save tool's preview): the dashboard as the caller gets it back.</summary>
+    internal async Task<Dashboard> CheckSaveAsync(ICallContext caller, SaveDashboardRequest request, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(caller);
+        ArgumentNullException.ThrowIfNull(request);
+        await _storeGate.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            return (await PrepareSaveAsync(caller, request, await LoadAsync(ct).ConfigureAwait(false), ct).ConfigureAwait(false)).Answer;
+        }
+        finally
+        {
+            _storeGate.Release();
+        }
+    }
+
+    /// <summary>The checks of a save under the store's gate: the dashboards after it, its owner and the answer; refusals throw <see cref="ArgumentException"/>.</summary>
+    private async Task<(List<Dashboard> Next, string Owner, Dashboard Answer)> PrepareSaveAsync(ICallContext caller, SaveDashboardRequest request, List<Dashboard> dashboards, CancellationToken ct)
+    {
         var name = request.Name?.Trim() ?? string.Empty;
         if (DashboardRules.NameProblem(name) is { } nameProblem)
         {
@@ -392,79 +435,69 @@ public sealed class DashboardsPlugin : ICorePlugin, IDynamicEventSource, IDispos
 
         widgets = [.. widgets.Select(FollowingEvent)];
 
-        await _storeGate.WaitAsync(ct).ConfigureAwait(false);
-        try
+        var isNew = string.IsNullOrEmpty(request.Id);
+        var index = isNew ? -1 : dashboards.FindIndex(d => d.Id == request.Id && OwnerScope.Sees(caller, d.Owner));
+        if (!isNew && index < 0)
         {
-            var dashboards = await LoadAsync(ct).ConfigureAwait(false);
-            var isNew = string.IsNullOrEmpty(request.Id);
-            var index = isNew ? -1 : dashboards.FindIndex(d => d.Id == request.Id && OwnerScope.Sees(caller, d.Owner));
-            if (!isNew && index < 0)
-            {
-                throw new ArgumentException(DashboardRules.Gone);
-            }
-
-            var owner = OwnerScope.ForSave(Context, caller, index >= 0 ? dashboards[index].Owner : null, isNew);
-
-            // A user with all devices editing a group's dashboard: its widgets of devices that left the group are dropped (counted).
-            var left = await OwnerScope.LeftOwnerAsync(Context, caller, owner, widgets.Select(DeviceOf).OfType<Guid>(),
-                index >= 0 ? dashboards[index].Widgets.Select(DeviceOf).OfType<Guid>() : [], ct).ConfigureAwait(false);
-            var dropped = left.Count == 0 ? 0 : widgets.Count(w => DeviceOf(w) is { } id && left.Contains(id));
-            if (dropped > 0)
-            {
-                widgets = [.. widgets.Where(w => DeviceOf(w) is not { } id || !left.Contains(id))];
-            }
-
-            await OwnerScope.RequireDevicesAsync(Context, caller, owner, widgets.Select(DeviceOf).OfType<Guid>(), ct).ConfigureAwait(false);
-
-            // A group's page holds only what it may see: what it never held is not deleted by its save.
-            HashSet<Guid>? seen = null;
-            if (index >= 0 && !caller.HasAllDevices)
-            {
-                seen = (await caller.Devices.ListAsync(ct).ConfigureAwait(false)).Select(d => d.Id).ToHashSet();
-                widgets = WithHidden(dashboards[index], widgets, seen);
-                if (DashboardRules.WidgetsProblem(widgets) is { } limitProblem)
-                {
-                    throw new ArgumentException(limitProblem);
-                }
-            }
-
-            if (index >= 0 && request.Version != 0 && request.Version != dashboards[index].Version)
-            {
-                throw new ArgumentException(DashboardRules.ChangedMeanwhile(dashboards[index].Name));
-            }
-
-            if (dashboards.Where((d, i) => i != index && OwnerScope.Of(d.Owner) == owner).Any(d => string.Equals(d.Name, name, StringComparison.OrdinalIgnoreCase)))
-            {
-                throw new ArgumentException(DashboardRules.NameTaken(name));
-            }
-
-            if (isNew && dashboards.Count >= DashboardsPluginInfo.MaxDashboards)
-            {
-                throw new ArgumentException(DashboardRules.TooManyDashboards);
-            }
-
-            var saved = new Dashboard(isNew ? Guid.NewGuid().ToString("N") : request.Id!, name, index >= 0 ? dashboards[index].Version + 1 : 1, [.. widgets])
-            {
-                Owner = owner == ICallContext.AllDevicesScopeKey ? null : owner,
-            };
-            var next = new List<Dashboard>(dashboards);
-            if (index >= 0)
-            {
-                next[index] = saved;
-            }
-            else
-            {
-                next.Add(saved);
-            }
-
-            await StoreAsync(next, owner).ConfigureAwait(false);
-            var answer = seen is null ? saved : Within(saved, seen); // the widgets kept for others never reach this caller
-            return dropped == 0 ? answer : answer with { Dropped = dropped };
+            throw new ArgumentException(DashboardRules.Gone);
         }
-        finally
+
+        var owner = OwnerScope.ForSave(Context, caller, index >= 0 ? dashboards[index].Owner : null, isNew);
+
+        // A user with all devices editing a group's dashboard: its widgets of devices that left the group are dropped (counted).
+        var left = await OwnerScope.LeftOwnerAsync(Context, caller, owner, widgets.Select(DeviceOf).OfType<Guid>(),
+            index >= 0 ? dashboards[index].Widgets.Select(DeviceOf).OfType<Guid>() : [], ct).ConfigureAwait(false);
+        var dropped = left.Count == 0 ? 0 : widgets.Count(w => DeviceOf(w) is { } id && left.Contains(id));
+        if (dropped > 0)
         {
-            _storeGate.Release();
+            widgets = [.. widgets.Where(w => DeviceOf(w) is not { } id || !left.Contains(id))];
         }
+
+        await OwnerScope.RequireDevicesAsync(Context, caller, owner, widgets.Select(DeviceOf).OfType<Guid>(), ct).ConfigureAwait(false);
+
+        // A group's page holds only what it may see: what it never held is not deleted by its save.
+        HashSet<Guid>? seen = null;
+        if (index >= 0 && !caller.HasAllDevices)
+        {
+            seen = (await caller.Devices.ListAsync(ct).ConfigureAwait(false)).Select(d => d.Id).ToHashSet();
+            widgets = WithHidden(dashboards[index], widgets, seen);
+            if (DashboardRules.WidgetsProblem(widgets) is { } limitProblem)
+            {
+                throw new ArgumentException(limitProblem);
+            }
+        }
+
+        if (index >= 0 && request.Version != 0 && request.Version != dashboards[index].Version)
+        {
+            throw new ArgumentException(DashboardRules.ChangedMeanwhile(dashboards[index].Name));
+        }
+
+        if (dashboards.Where((d, i) => i != index && OwnerScope.Of(d.Owner) == owner).Any(d => string.Equals(d.Name, name, StringComparison.OrdinalIgnoreCase)))
+        {
+            throw new ArgumentException(DashboardRules.NameTaken(name));
+        }
+
+        if (isNew && dashboards.Count >= DashboardsPluginInfo.MaxDashboards)
+        {
+            throw new ArgumentException(DashboardRules.TooManyDashboards);
+        }
+
+        var saved = new Dashboard(isNew ? Guid.NewGuid().ToString("N") : request.Id!, name, index >= 0 ? dashboards[index].Version + 1 : 1, [.. widgets])
+        {
+            Owner = owner == ICallContext.AllDevicesScopeKey ? null : owner,
+        };
+        var next = new List<Dashboard>(dashboards);
+        if (index >= 0)
+        {
+            next[index] = saved;
+        }
+        else
+        {
+            next.Add(saved);
+        }
+
+        var answer = seen is null ? saved : Within(saved, seen); // the widgets kept for others never reach this caller
+        return (next, owner, dropped == 0 ? answer : answer with { Dropped = dropped });
     }
 
     /// <summary>Deletes a dashboard (tests: a user with all devices).</summary>
@@ -616,6 +649,29 @@ public sealed class DashboardsPlugin : ICorePlugin, IDynamicEventSource, IDispos
     {
         ArgumentNullException.ThrowIfNull(caller);
         ArgumentNullException.ThrowIfNull(request);
+        var (dashboard, button, publisher) = await CheckPressAsync(caller, request, ct).ConfigureAwait(false);
+        if (!TryPress(caller.UserName))
+        {
+            throw new InvalidOperationException(DashboardRules.TooManyPresses); // no event, no audit entry
+        }
+
+        var typeId = DashboardsPluginInfo.ButtonTypeId(dashboard.Id, button.Id);
+        publisher.Fire(typeId, null, new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            [DashboardsPluginInfo.UserField] = caller.UserName,
+            [DashboardsPluginInfo.DashboardField] = dashboard.Name,
+            [DashboardsPluginInfo.ButtonField] = button.Name,
+        });
+        Context.Logger.LogButtonPressed(button.Name, dashboard.Name, caller.UserName);
+        return new PressReply(publisher.IsUsedByRule(typeId));
+    }
+
+    /// <summary>
+    /// The checks of a press (the page's and the press tool's preview): the button on a dashboard the caller sees and the
+    /// server's event rules. Sends nothing.
+    /// </summary>
+    internal async Task<(Dashboard Dashboard, Widget Button, IEventPublisher Publisher)> CheckPressAsync(ICallContext caller, PressRequest request, CancellationToken ct)
+    {
         List<Dashboard> dashboards;
         await _storeGate.WaitAsync(ct).ConfigureAwait(false);
         try
@@ -638,20 +694,7 @@ public sealed class DashboardsPlugin : ICorePlugin, IDynamicEventSource, IDispos
             throw new InvalidOperationException(DashboardRules.NoEventRules);
         }
 
-        if (!TryPress(caller.UserName))
-        {
-            throw new InvalidOperationException(DashboardRules.TooManyPresses); // no event, no audit entry
-        }
-
-        var typeId = DashboardsPluginInfo.ButtonTypeId(dashboard.Id, button.Id);
-        publisher.Fire(typeId, null, new Dictionary<string, string>(StringComparer.Ordinal)
-        {
-            [DashboardsPluginInfo.UserField] = caller.UserName,
-            [DashboardsPluginInfo.DashboardField] = dashboard.Name,
-            [DashboardsPluginInfo.ButtonField] = button.Name,
-        });
-        Context.Logger.LogButtonPressed(button.Name, dashboard.Name, caller.UserName);
-        return new PressReply(publisher.IsUsedByRule(typeId));
+        return (dashboard, button, publisher);
     }
 
     /// <summary>

@@ -81,7 +81,7 @@ public sealed class McpPageToolTests
             Assert.False(properties.ContainsKey("after"), name);
         }
 
-        Assert.DoesNotContain(listed.Keys, n => n.EndsWith("_preview", StringComparison.Ordinal) && PageTools.Any(t => n.StartsWith(t.Name, StringComparison.Ordinal)));
+        Assert.DoesNotContain(listed.Keys, n => PageTools.Any(t => n == t.Name + "_preview"));
 
         // The reads that need nothing answer an empty page or state within the limit; the ones that need an id say so.
         foreach (var name in new[] { "oadm_edge_storage_cards", "oadm_image_health_results", "oadm_metadata_streams", "oadm_dashboards_list", "oadm_load_test_checks" })

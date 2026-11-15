@@ -7,6 +7,7 @@ using Oadm.Plugins.EdgeStorage.Disks;
 using Oadm.Sdk.Devices;
 using Oadm.Sdk.Formatting;
 using Oadm.Sdk.Plugins;
+using Oadm.Sdk.Tasks;
 using Oadm.Sdk.Vapix;
 
 namespace Oadm.Plugins.EdgeStorage;
@@ -69,6 +70,69 @@ public sealed class StorageTaskPlugin : ITaskPlugin
     {
         ArgumentNullException.ThrowIfNull(device);
         return TaskSupportReasons.ForStatus(device) ?? StorageTexts.NoApi;
+    }
+
+    /// <summary>The input for AI agents (SDK 0.13.0): every action; Encrypt's passphrase is entered by the person (<see cref="SecretsOf"/>).</summary>
+    public Type? PayloadType => typeof(StorageMcpPayload);
+
+    /// <summary>Encrypt needs the passphrase (docs/spec/mcp.md "Secrets"): the person enters it, the run's payload has it; the other actions none.</summary>
+    public IReadOnlyList<TaskSecret> SecretsOf(string? payloadJson)
+    {
+        try
+        {
+            return EdgeStorageJson.Deserialize<TaskPayload>(payloadJson).Action == StorageActions.EncryptionOn
+                ? [new TaskSecret(StoragePayloadRules.PassphraseField, "passphrase", StoragePayloadRules.PassphraseField)]
+                : [];
+        }
+        catch (ArgumentException)
+        {
+            return [];
+        }
+    }
+
+    /// <summary>The names the task reads (the actions are texts, <see cref="StorageMcpAction"/>).</summary>
+    public System.Text.Json.JsonSerializerOptions? PayloadJsonOptions => EdgeStorageJson.Options;
+
+    /// <summary>
+    /// The page method's rules before any task starts (the host runs this task without the page outside it): a known action,
+    /// the retention days, Encrypt's passphrase (the preview checks it when the person enters it).
+    /// </summary>
+    public IReadOnlyList<PayloadError> ValidatePayload(string? payloadJson, ICallContext caller)
+    {
+        TaskPayload payload;
+        try
+        {
+            payload = EdgeStorageJson.Deserialize<TaskPayload>(payloadJson);
+        }
+        catch (ArgumentException ex)
+        {
+            return [new(string.Empty, ex.Message)];
+        }
+
+        return StoragePayloadRules.Problems(payload);
+    }
+
+    /// <summary>The page's rights of a run outside the page: check and retention "manage", the others "format"; fail closed.</summary>
+    public IReadOnlyList<string>? PagePermissions(string? payloadJson)
+    {
+        try
+        {
+            return StoragePayloadRules.PermissionsOf(EdgeStorageJson.Deserialize<TaskPayload>(payloadJson).Action);
+        }
+        catch (ArgumentException)
+        {
+            return StoragePayloadRules.PermissionsOf(null);
+        }
+    }
+
+    /// <summary>
+    /// The cameras with a slot and a login (cached API list and status); format and encryption off say that every recording is
+    /// deleted, check and repair that recording stops. Whether a card is in the slot or encrypted is read when the task runs.
+    /// </summary>
+    public Task<TaskPlan> PlanAsync(string? payloadJson, IReadOnlyList<IDeviceInfo> devices, CancellationToken ct)
+    {
+        var payload = EdgeStorageJson.Deserialize<TaskPayload>(payloadJson);
+        return Task.FromResult(TaskPlan.ByCanRun(this, devices) with { Warnings = StoragePayloadRules.WarningsOf(payload.Action) });
     }
 
     public string GetTaskName(string? payloadJson)
@@ -256,22 +320,12 @@ public sealed class StorageTaskPlugin : ITaskPlugin
         }).ConfigureAwait(false);
     }
 
-    /// <summary>Checks the payload before any device access ("Nothing was changed" on a bad one).</summary>
+    /// <summary>Checks the payload before any device access ("Nothing was changed" on a bad one; <see cref="StoragePayloadRules.Problems"/>).</summary>
     internal static TaskPayload Validate(TaskPayload payload)
     {
-        if (!StorageActions.IsKnown(payload.Action))
+        if (StoragePayloadRules.Problems(payload) is [var first, ..])
         {
-            throw new ArgumentException("Unknown action. Nothing was changed.");
-        }
-
-        if (payload.Action == StorageActions.Retention && payload.RetentionDays is not (>= 0 and <= StorageRequests.MaxRetentionDays))
-        {
-            throw new ArgumentException(string.Create(CultureInfo.InvariantCulture, $"Enter 0 to {StorageRequests.MaxRetentionDays:N0} days. Nothing was changed."));
-        }
-
-        if (payload.Action == StorageActions.EncryptionOn && PassphraseProblem(payload.Passphrase) is { } problem)
-        {
-            throw new ArgumentException(problem + " Nothing was changed.");
+            throw new ArgumentException(first.Message + " Nothing was changed.");
         }
 
         return payload;
