@@ -371,11 +371,62 @@ and runs after the user agreed.
 | `oadm_live_view_view_save_run` | Run (changes) | Applies the plan of oadm_live_view_view_save_preview, which checks everything again. |
 | `oadm_live_view_views` | Read | Lists the saved views of the Live View page with their cameras and where each sits in the view. |
 
+## Backups
+
+| Tool | Kind | What it does |
+| --- | --- | --- |
+| `oadm_backups` | Read | The automatic backups (on, time, how many are kept), the backups kept on the server (newest first), the last automatic backup and the last restore. |
+| `oadm_backups_create_preview` | Preview | Shows what a backup holds; nothing is made. The user enters its password twice through the secret channel. Then call oadm_backups_create_run with the handle. |
+| `oadm_backups_create_run` | Run (changes) | Makes the backup with the password the user entered and offers it as a file (fetch it with oadm_files_download_link). It is made when the file is fetched. |
+| `oadm_backups_delete_preview` | Preview | Shows the backup kept on the server that would be deleted; nothing is changed. Then call oadm_backups_delete_run with the handle. |
+| `oadm_backups_delete_run` | Run (changes) | Deletes the backup of a preview from the server. |
+| `oadm_backups_download` | Read | A backup kept on the server as a file reference; fetch it with oadm_files_download_link. It stays encrypted with its password. |
+| `oadm_backups_restore_preview` | Preview | Shows what a restore replaces; nothing is changed. The backup is a file sent with oadm_files_upload_link (file_id) or one kept on the server (name); its password comes through the secret channel. Then call oadm_backups_restore_run with the handle. |
+| `oadm_backups_restore_run` | Run (changes) | Checks the backup with the password the user entered, makes a safety backup, cancels the tasks and restarts the server with the backup. Every client and agent is disconnected; access keys end. |
+| `oadm_backups_schedule_preview` | Preview | Checks the automatic backups' settings; nothing is changed. A new password comes through the secret channel. Then call oadm_backups_schedule_run with the handle. |
+| `oadm_backups_schedule_run` | Run (changes) | Saves the automatic backups of a preview (with the new password the user entered). |
+
+## Device
+
+| Tool | Kind | What it does |
+| --- | --- | --- |
+| `oadm_device_request_preview` | Preview | Sends one VAPIX request of your own (method, path, query, body) to the devices of a filter, when no OADM tool and no command of oadm_vapix_commands does it. Run a change on one device first. Nothing is changed. Call oadm_device_request_run with the handle to apply it. |
+| `oadm_device_request_run` | Run (changes) | Applies the plan of oadm_device_request_preview, which checks everything again. |
+
 ## Docs
 
 | Tool | Kind | What it does |
 | --- | --- | --- |
 | `oadm_docs_search` | Read | Searches the user docs of OADM for how to do something in OADM. Answers at most 5 pages with the title, the address and the matching passage. |
+
+## License
+
+| Tool | Kind | What it does |
+| --- | --- | --- |
+| `oadm_license_import_preview` | Preview | Shows the OADM PRO license now; nothing is changed. The user enters the license key through the secret channel, then call oadm_license_import_run with the handle. |
+| `oadm_license_import_run` | Run (changes) | Checks and stores the license key the user entered; it applies at once. |
+| `oadm_license_remove_preview` | Preview | Shows the OADM PRO license that would be removed; nothing is changed. Then call oadm_license_remove_run with the handle. |
+| `oadm_license_remove_run` | Run (changes) | Removes the imported license key. A running trial stays. |
+| `oadm_license_trial_preview` | Preview | Says whether the 30-day trial of OADM PRO can start on this server (once per server); nothing is changed. Then call oadm_license_trial_run with the handle. |
+| `oadm_license_trial_run` | Run (changes) | Starts the 30-day trial of OADM PRO. It runs once per server. |
+
+## Plugins
+
+| Tool | Kind | What it does |
+| --- | --- | --- |
+| `oadm_plugins_enable_preview` | Preview | Shows what turning a plugin on or off does; nothing is changed. Then call oadm_plugins_enable_run with the handle. |
+| `oadm_plugins_enable_run` | Run (changes) | Turns the plugin of a preview on or off at once (its pages, tasks, tools and event rule actions with it). |
+| `oadm_plugins_license_preview` | Preview | Shows the license of a commercial plugin now; nothing is changed. The user enters the license key through the secret channel, then call oadm_plugins_license_run with the handle. |
+| `oadm_plugins_license_remove_preview` | Preview | Shows the plugin license that would be removed; nothing is changed. Then call oadm_plugins_license_remove_run with the handle. |
+| `oadm_plugins_license_remove_run` | Run (changes) | Removes the plugin's license; it falls back to its trial or to no license. |
+| `oadm_plugins_license_run` | Run (changes) | Checks and stores the license key the user entered for the plugin; it applies at once. |
+| `oadm_plugins_optional` | Read | The optional plugins of this OADM version (not in the installers) with their state on this server and the download page of each ZIP. |
+| `oadm_plugins_optional_install_preview` | Preview | Checks an optional plugin's ZIP sent with oadm_files_upload_link (or takes back a removed one without a file); nothing is installed. Then call oadm_plugins_optional_install_run with the handle. |
+| `oadm_plugins_optional_install_run` | Run (changes) | Installs the optional plugin of a preview: the server checks the ZIP's SHA-256, unpacks it and loads it (off). Turn it on with oadm_plugins_enable_preview. |
+| `oadm_plugins_optional_remove_preview` | Preview | Shows what removing an optional plugin does; nothing is changed. Then call oadm_plugins_optional_remove_run with the handle. |
+| `oadm_plugins_optional_remove_run` | Run (changes) | Turns the optional plugin off at once; its files go at the next restart of the server. |
+| `oadm_plugins_optional_restart_preview` | Preview | Shows the optional plugins whose new version waits for a restart of the server; nothing is changed. Then call oadm_plugins_optional_restart_run with the handle. |
+| `oadm_plugins_optional_restart_run` | Run (changes) | Restarts the server so the waiting optional plugins start their new version. Every client and agent loses its connection for a moment. |
 
 ## Selection
 
@@ -383,11 +434,19 @@ and runs after the user agreed.
 | --- | --- | --- |
 | `oadm_selection` | Read | The devices the user selected in the device list, a page at a time with the total and a cursor. Over MCP none are selected. |
 
+## Support
+
+| Tool | Kind | What it does |
+| --- | --- | --- |
+| `oadm_support_report` | Read | The support report (the server's logs and a summary, no passwords or keys) as a file reference; fetch it with oadm_files_download_link. It is made when the file is fetched. |
+
 ## Update
 
 | Tool | Kind | What it does |
 | --- | --- | --- |
-| `oadm_update_check` | Read | The server's version and the latest stable release of OADM, as the new version dialog shows them. Install now stays in OADM. |
+| `oadm_update_check` | Read | The server's version and the latest stable release of OADM, as the new version dialog shows them. Install it with oadm_update_install_preview. |
+| `oadm_update_install_preview` | Preview | Checks Install now of the new version dialog: the latest stable release, an installed server, no task running; nothing is changed. Then call oadm_update_install_run with the handle. |
+| `oadm_update_install_run` | Run (changes) | Install now: the server downloads the release's installer, checks its SHA-256, copies its database and runs the installer. The server is away until the new version answers. |
 
 ## Waiting
 
