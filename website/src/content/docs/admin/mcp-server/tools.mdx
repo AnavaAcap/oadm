@@ -149,6 +149,19 @@ and runs after the user agreed.
 | --- | --- | --- |
 | `oadm_edge_storage_cards` | Read | Lists the SD cards of the cameras as Edge storage read them last: state, size, used, wear, encryption and retention, with the counts per state. Reads no camera. |
 
+## Action Rule Editor
+
+| Tool | Kind | What it does |
+| --- | --- | --- |
+| `oadm_device_rules_list` | Read | Lists the action rules on the devices as the Action Rule Editor read them last: per rule name the devices that have it and run it, then each device's rules with event and action. Reads no device. |
+
+## Device triggers
+
+| Tool | Kind | What it does |
+| --- | --- | --- |
+| `oadm_device_triggers_devices` | Read | One device trigger's devices: whether OADM receives the event from each, the problem when not, whether the state is on, and the last event. |
+| `oadm_device_triggers_list` | Read | Lists the device triggers: the device event each watches, on or off, how many devices are on, lost or waiting, and when the last event came. |
+
 ## VAPIX Commander
 
 | Tool | Kind | What it does |

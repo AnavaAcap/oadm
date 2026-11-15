@@ -235,6 +235,25 @@ The page reads of the bundled plugins (read only, the page's own rights and devi
 - `oadm_radius_log(result, text)` (802.1X server, Operator): its state and its log of the caller's devices, newest first
   (switch, port, MAC, device, result, reason, VLAN, the serial of the device's certificate). Never a shared secret or a
   certificate. While the server is off: its state only.
+- `oadm_device_rules_list(search, enabled, device_id)` (Action Rule Editor, "show"; its area is `device_rules`, apart
+  from OADM's own event rules `oadm_rules_*`): the action rules on the devices as the editor read them last for the
+  caller's device scope: per rule name the devices that have it and run it (at most 30 names), then one row per device
+  and rule (event, conditions, action, the device's recipient and schedule counts). Passwords are empty in the page's
+  rows already and never named.
+- `oadm_device_triggers_list(search, problems)`, `oadm_device_triggers_devices(trigger_id, connection)` (Device triggers,
+  "show"): the triggers of the caller's scope with their counts, and one trigger's devices with how OADM receives the
+  event from each (the page's Get, so another scope's trigger answers like an unknown one).
+- `oadm_ocr_readers(search, problems)`, `oadm_ocr_reads(reader_id)` (Text recognition, "show"): the readers with the
+  last text and problem, and the recent reads of one as text (at most 50, never a cut-out or picture).
+- `oadm_vision_pipelines(search, problems)` (Vision Center, "show"): the pipelines with mode, rate, problem and live
+  summary, and the load of the caller's pipelines; never a picture or a model.
+
+**Every plugin is readable.** A new page, column or plugin view gets its read tool in the same change: each bundled core
+plugin declares `ICorePlugin.Tools` (`McpPluginCoverageTests` reads the source of every bundled plugin); a package
+without a core plugin (a task plugin, an event rule action) is covered by the task tools (`oadm_tasks_catalog`,
+`oadm_task_preview`, `oadm_tasks_get` with its steps and log) and `oadm_rules_catalog`. The exceptions carry their reason:
+Live View (live video stays in the client) and Web View (the device's own web interface), plus plugins whose tools are
+built on other branches until they are merged.
 
 **VAPIX Commander** (`oadm_vapix_commands`, `oadm_vapix_command_preview` / `_run`, `CommanderTools`): only library and saved
 commands by id (`library:<id>`, `saved:<id>`), never a request of the agent's own. Not offered: a dangerous command

@@ -44,6 +44,8 @@
     <ProjectReference Include="..\..\plugins\Oadm.Plugins.EdgeStorage\Oadm.Plugins.EdgeStorage.csproj" />
     <!-- It holds its own copy of the Applications plugin's shared types: used only through the alias. -->
     <ProjectReference Include="..\..\plugins\Oadm.Plugins.AppManagement\Oadm.Plugins.AppManagement.csproj" Aliases="appmanagement" />
+    <ProjectReference Include="..\..\plugins\Oadm.Plugins.ActionRules\Oadm.Plugins.ActionRules.csproj" Aliases="actionrules" />
+    <ProjectReference Include="..\..\plugins\Oadm.Plugins.DeviceTriggers\Oadm.Plugins.DeviceTriggers.csproj" Aliases="devicetriggers" />
     <!-- The real OADM Site Node in the same process (sites tests). -->
     <ProjectReference Include="..\..\src\Oadm.SiteNode\Oadm.SiteNode.csproj" />
   </ItemGroup>

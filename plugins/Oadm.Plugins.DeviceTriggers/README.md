@@ -147,3 +147,9 @@ default: show only. Refusals show the server's text ("Your role does not allow: 
   events, token login over HTTPS, the report after the filter) and the app events of Image Health and Object Analytics.
   The only allowed writes are in the opt-in `Category=HardwareWrite` test: virtual input 64 of the development camera on
   and off, and the Object Analytics test alarm (`OADM_TRIGGER_OA_SCENARIO`).
+
+## MCP
+
+The read-only tools `oadm_device_triggers_list` and `oadm_device_triggers_devices` (`Tools/TriggerTools.cs`,
+docs/spec/mcp.md "Plugins"): the page's list of the caller's triggers and one trigger's devices through the page's Get
+(its device group rule), paged. Tests: `ToolTests`.

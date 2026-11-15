@@ -1,4 +1,6 @@
+extern alias actionrules;
 extern alias appmanagement;
+extern alias devicetriggers;
 
 using System.ComponentModel;
 using System.ComponentModel.DataAnnotations;
@@ -287,6 +289,8 @@ public sealed class McpPluginToolTests
         registry.RegisterCorePlugin(new Oadm.Plugins.Radius.RadiusPlugin(), new PluginOrigin(Oadm.Plugins.Radius.RadiusPlugin.PluginId, "1.0.0", null) { DisplayName = "802.1X server" });
         registry.RegisterCorePlugin(new Oadm.Plugins.EdgeStorage.EdgeStoragePlugin(), new PluginOrigin(Oadm.Plugins.EdgeStorage.EdgeStorageInfo.PluginId, "1.0.0", null) { DisplayName = "Edge storage" });
         registry.RegisterCorePlugin(new appmanagement::Oadm.Plugins.AppManagement.AppManagementPlugin(), new PluginOrigin(appmanagement::Oadm.Plugins.AppManagement.AppManagementInfo.PluginId, "1.0.0", null) { DisplayName = "Application management" });
+        registry.RegisterCorePlugin(new actionrules::Oadm.Plugins.ActionRules.ActionRulesPlugin(), new PluginOrigin(actionrules::Oadm.Plugins.ActionRules.ActionRulesInfo.PluginId, "1.0.0", null) { DisplayName = "Action Rule Editor" });
+        registry.RegisterCorePlugin(new devicetriggers::Oadm.Plugins.DeviceTriggers.DeviceTriggersPlugin(), new PluginOrigin(devicetriggers::Oadm.Plugins.DeviceTriggers.DeviceTriggersPluginInfo.PluginId, "1.0.0", null) { DisplayName = "Device triggers" });
         await server.Host.Get<PluginActivation>().LoadAsync(CancellationToken.None);
         await server.Host.Get<RoleStore>().SyncCatalogAsync(PermissionCatalog.Build(registry), CancellationToken.None);
         await server.Host.Get<CorePluginHost>().StartAllAsync(CancellationToken.None);
@@ -365,6 +369,8 @@ public sealed class McpPluginToolTests
                 "radius" => "802.1X server",
                 "app" => "Application management",
                 "edge" => "Edge storage",
+                "device" when name.StartsWith("oadm_device_rules_", StringComparison.Ordinal) => "Action Rule Editor",
+                "device" when name.StartsWith("oadm_device_triggers_", StringComparison.Ordinal) => "Device triggers",
                 "ntp" => "NTP server",
                 "dhcp" => "DHCP server",
                 "hardening" => "Hardening scan",
@@ -378,7 +384,7 @@ public sealed class McpPluginToolTests
             : name.EndsWith("_run", StringComparison.Ordinal) ? "Run (changes)"
             : tool["annotations"]?["readOnlyHint"]?.GetValue<bool>() == true ? "Read" : "Change";
 
-        var order = new[] { "Server", "Devices", "Tasks", "Files", "Tags", "Sites", "Compliance", "Event rules", "Logs", "PKI", "EST server", "802.1X server", "NTP server", "DHCP server", "Hardening scan", "Application management", "Edge storage", "VAPIX Commander" };
+        var order = new[] { "Server", "Devices", "Tasks", "Files", "Tags", "Sites", "Compliance", "Event rules", "Logs", "PKI", "EST server", "802.1X server", "NTP server", "DHCP server", "Hardening scan", "Application management", "Edge storage", "Action Rule Editor", "Device triggers", "VAPIX Commander" };
         var text = new System.Text.StringBuilder();
         foreach (var line in Intro)
         {
@@ -412,6 +418,7 @@ public sealed class McpPluginToolTests
                      "oadm_ntp_status", "oadm_dhcp_status", "oadm_dhcp_leases", "oadm_hardening_results",
                      "oadm_vapix_commands", "oadm_vapix_command_preview", "oadm_vapix_command_run",
                      "oadm_edge_storage_cards", "oadm_app_management_applications", "oadm_est_enrollments", "oadm_radius_log",
+                     "oadm_device_rules_list", "oadm_device_triggers_list", "oadm_device_triggers_devices",
                  })
         {
             Assert.Contains(expected, names);
@@ -482,7 +489,7 @@ public sealed class McpPluginToolTests
             foreach (System.Text.RegularExpressions.Match token in System.Text.RegularExpressions.Regex.Matches(text, "oadm_[a-z0-9_]+"))
             {
                 var name = token.Value.TrimEnd('_');
-                if (McpSkillTests.PlannedToolNames.Contains(name))
+                if (McpSkillTests.PlannedToolNames.Contains(name) || McpSkillTests.AddOnToolNames.Contains(name))
                 {
                     continue; // TODO: the tools of another branch (McpSkillTests.PlannedToolNames)
                 }

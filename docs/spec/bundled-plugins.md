@@ -400,6 +400,7 @@ event of the event rules, plus "<Trigger>: connection lost".
 - Device groups: every trigger belongs to the group of the user who made it (none = all devices) and watches only that
   group's devices ("All devices" and tags = the group's), so its events come only from them; group users see and change
   only their group's triggers; a deleted group's triggers watch nothing; the editor's reads are the user's jobs.
+- MCP ([mcp.md](mcp.md)): the read-only tools `oadm_device_triggers_list` and `oadm_device_triggers_devices`.
 
 ## Action Rule Editor (core plugin)
 
@@ -429,6 +430,8 @@ many devices. Every settings form uses the bundled action catalog (`Catalog/acti
   Operator yes); every change, copy, delete and undo is audited.
 - Device groups: one table per device scope; every device id of a request in the caller's devices or the whole request
   is refused (NOT_FOUND) before anything is read, saved or started; undo runs per group.
+- MCP ([mcp.md](mcp.md)): the read-only tool `oadm_device_rules_list` (the rules the editor read last for the caller's
+  device scope; it reads no device).
 
 ## System report (core plugin without a page)
 

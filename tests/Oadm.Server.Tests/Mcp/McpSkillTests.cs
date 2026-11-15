@@ -19,6 +19,9 @@ public sealed partial class McpSkillTests
     /// <summary>TODO: the Device configuration tools built on another branch (feat/config-tools); drop this list once they are merged.</summary>
     internal static readonly string[] PlannedToolNames = ["oadm_config_parameters", "oadm_config_action_rules", "oadm_config_stream_profiles"];
 
+    /// <summary>The tools of the optional plugins (Text recognition, Vision Center): not in this test server, tested in their own projects.</summary>
+    internal static readonly string[] AddOnToolNames = ["oadm_ocr_readers", "oadm_ocr_reads", "oadm_vision_pipelines"];
+
     /// <summary>The fixed tool names of the MCP tool layer (every builder uses these).</summary>
     private static readonly string[] ToolNames =
     [
@@ -36,6 +39,8 @@ public sealed partial class McpSkillTests
         "oadm_selection", "oadm_docs_search", "oadm_tasks_summary", "oadm_server_status", "oadm_pki_policies", "oadm_est_enrollments",
         "oadm_radius_log", "oadm_app_management_applications", "oadm_edge_storage_cards", "oadm_rules_catalog",
         .. PlannedToolNames,
+        .. AddOnToolNames,
+        "oadm_device_rules_list", "oadm_device_triggers_list", "oadm_device_triggers_devices",
     ];
 
     private static readonly string[] Workflows =

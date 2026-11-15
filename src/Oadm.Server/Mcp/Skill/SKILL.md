@@ -37,14 +37,17 @@ have the fact, and say why.
 | PKI, EST, 802.1X | `oadm_pki_certificates`, `oadm_pki_policies`, `oadm_est_enrollments`, `oadm_radius_log` |
 | Applications | `oadm_app_management_applications` |
 | SD cards | `oadm_edge_storage_cards` |
+| Action rules on the devices | `oadm_device_rules_list` |
+| Device triggers | `oadm_device_triggers_list`, `oadm_device_triggers_devices` |
+| Text recognition, Vision Center | `oadm_ocr_readers`, `oadm_ocr_reads`, `oadm_vision_pipelines` |
 | DHCP | `oadm_dhcp_status`, `oadm_dhcp_leases` |
 | Hardening | `oadm_hardening_results` |
-| Device settings, action rules, stream profiles | `oadm_config_parameters`, `oadm_config_action_rules`, `oadm_config_stream_profiles` (TODO: planned, verify the names) |
+| Device configuration: settings, its action rules, stream profiles | `oadm_config_parameters`, `oadm_config_action_rules`, `oadm_config_stream_profiles` (TODO: planned, verify the names) |
 | Server, license, plugins | `oadm_server_info`, `oadm_server_status`, `oadm_settings_get` |
 | How OADM works | `oadm_docs_search` |
 
-A plugin tool is listed only while its plugin is on. A page tool that answers nothing read yet (applications, SD cards)
-means the page has not read the devices: tell the user to open the page and choose the devices.
+A plugin tool is listed only while its plugin is on. A page tool that answers nothing read yet (applications, SD cards,
+action rules) means the page has not read the devices: tell the user to open the page and choose the devices.
 
 ## The device filter
 
