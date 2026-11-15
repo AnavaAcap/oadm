@@ -109,7 +109,7 @@ public sealed class PageToolTests
         withPassword.Name = "Brand with a password";
         withPassword.Fields.Add(new CommandField { Name = "pass", Label = "Password", Type = FieldTypes.Password, Default = JsonSerializer.SerializeToElement("secret1") });
         var refused = await CallAsync(ctx, plugin, admin, "tool.saved_save", new JsonObject { ["command"] = JsonSerializer.Serialize(withPassword, VapixCommander.CommandJson.Strict) });
-        Assert.Equal(CommanderPageTools.NoPasswords, refused["errors"]![0]!["error"]!.GetValue<string>());
+        Assert.Equal(CommanderPageTools.NoPasswords, refused["errors"]![0]!["error"]!.GetValue<string>()); // never as an argument
 
         var unknownPrevious = await CallAsync(ctx, plugin, admin, "tool.saved_save.preview", new JsonObject { ["command"] = CommandJson("Brand two"), ["previous_id"] = "custom.none" });
         Assert.Equal("previous_id", unknownPrevious["errors"]![0]!["field"]!.GetValue<string>());
@@ -165,5 +165,59 @@ public sealed class PageToolTests
         Assert.Empty(await plugin.SavedStore.ListAsync(CancellationToken.None));
         var export = await CallAsync(ctx, plugin, group, "tool.saved_export", new JsonObject());
         Assert.Equal(0, export["count"]!.GetValue<int>());
+    }
+
+    private sealed class TestProtector : ISecretProtector
+    {
+        public string Protect(string plaintext, string purpose) => "enc:" + Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(purpose + "|" + new string([.. plaintext.Reverse()])));
+
+        public string Unprotect(string protectedValue, string purpose)
+        {
+            var text = System.Text.Encoding.UTF8.GetString(Convert.FromBase64String(protectedValue["enc:".Length..]));
+            return text.StartsWith(purpose + "|", StringComparison.Ordinal) ? new string([.. text[(purpose.Length + 1)..].Reverse()]) : throw new InvalidOperationException("purpose");
+        }
+    }
+
+    [Fact]
+    public async Task A_password_named_in_set_passwords_is_entered_by_the_user_and_stored_encrypted()
+    {
+        const string Canary = "canary-saved-pass-8Lw";
+        var ctx = new SdkTesting.FakeCoreContext { Secrets = new TestProtector() };
+        var plugin = new VapixCommanderPlugin(LibraryDirectory);
+        await plugin.StartAsync(ctx, CancellationToken.None);
+        var admin = ctx.CallAsAllDevices();
+        var command = Samples.Brand;
+        command.Id = string.Empty;
+        command.Name = "Brand with a password";
+        command.Fields.Add(new CommandField { Name = "pass", Label = "Admin password", Type = FieldTypes.Password, Required = false });
+        var json = JsonSerializer.Serialize(command, VapixCommander.CommandJson.Strict);
+
+        var plan = await CallAsync(ctx, plugin, admin, "tool.saved_save.preview", new JsonObject { ["command"] = json, ["set_passwords"] = new JsonArray("pass") });
+        var slot = Assert.Single(plan["secrets_needed"]!.AsArray())!;
+        Assert.Equal(("pass", "admin password"), (slot["name"]!.GetValue<string>(), slot["label"]!.GetValue<string>()));
+        Assert.Equal(["pass"], plan["passwords_set"]!.AsArray().Select(p => p!.GetValue<string>()));
+        var notAPassword = await CallAsync(ctx, plugin, admin, "tool.saved_save.preview", new JsonObject { ["command"] = json, ["set_passwords"] = new JsonArray("brand") });
+        Assert.Equal(CommanderPageTools.NotAPassword, notAPassword["errors"]![0]!["error"]!.GetValue<string>());
+        Assert.Empty(await plugin.SavedStore.ListAsync(CancellationToken.None));
+
+        var saved = await ctx.InvokeAsync(plugin, admin, "tool.saved_save", new JsonObject { ["command"] = json, ["set_passwords"] = new JsonArray("pass"), ["secrets"] = new JsonObject { ["pass"] = Canary } }.ToJsonString());
+        Assert.DoesNotContain(Canary, saved, StringComparison.Ordinal);
+        var item = Assert.Single(await plugin.SavedStore.ListAsync(CancellationToken.None));
+        Assert.Equal(Canary, (await plugin.SavedStore.GetSecretsAsync(item.Command.Id, CancellationToken.None))["pass"]);
+        Assert.DoesNotContain(Canary, Stored(ctx), StringComparison.Ordinal); // encrypted like the page's
+        var export = await CallAsync(ctx, plugin, admin, "tool.saved_export", new JsonObject());
+        Assert.DoesNotContain(Canary, export.ToJsonString(), StringComparison.Ordinal);
+
+        // Import: a password of a command of the file, by its id and field.
+        command.Id = "custom.imported";
+        command.Name = "Imported";
+        command.Category = CommandCategories.Custom;
+        var file = VapixCommander.CommandJson.WriteLibraryFile(new LibraryFile { FormatVersion = 1, Category = CommandCategories.Custom, Commands = [command] });
+        var wanted = new JsonArray(new JsonObject { ["command_id"] = "custom.imported", ["field"] = "pass" });
+        var importPlan = await CallAsync(ctx, plugin, admin, "tool.saved_import.preview", new JsonObject { ["file"] = file, ["set_passwords"] = wanted });
+        Assert.Equal("pass", importPlan["secrets_needed"]![0]!["name"]!.GetValue<string>());
+        await ctx.InvokeAsync(plugin, admin, "tool.saved_import", new JsonObject { ["file"] = file, ["set_passwords"] = wanted.DeepClone(), ["secrets"] = new JsonObject { ["pass"] = Canary + "2" } }.ToJsonString());
+        Assert.Equal(Canary + "2", (await plugin.SavedStore.GetSecretsAsync("custom.imported", CancellationToken.None))["pass"]);
+        Assert.DoesNotContain(Canary, Stored(ctx), StringComparison.Ordinal);
     }
 }

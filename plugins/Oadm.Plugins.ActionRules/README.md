@@ -122,12 +122,16 @@ The task `oadm.action-rules.task` takes `RuleAgentPayload` (`Agent/`) as its `Pa
   a device the editor has not read is skipped ("Not read in the Action Rule Editor. Read the rules there first.").
 - `ValidatePayload` runs the page methods' checks that read no device, at the input's fields with the page's texts
   (`RulePatch.Problem`, `BuildProblem`, `UnknownSetting`, the copy's source rule in the last read, the undo's saved
-  devices); a field not used by the action is refused. Passwords: a setting `RuleText.IsSecret` names is refused ("Set
-  passwords in the Action Rule Editor."); `TODO(secret-handle)` in `ActionRulesPlugin.Agent.cs` marks where a secret handle
-  of the agents' secret channel goes later.
+  devices); a field not used by the action is refused. Passwords (the secret channel, docs/spec/mcp.md "Secrets"): the
+  agent sends a setting `RuleText.IsSecret` names empty in `change.parameters` or `rule.parameters`; `SecretsOf`
+  (`RuleAgentCheck.SecretsOf`) makes it a slot (the setting's name, label "password", "proxy password", "HTTP headers"),
+  the person enters it and the run's payload has it at its field. Empty at a run: "Enter the password."; a name that is no
+  plain word (letters, digits, `_`, `-`) or more than 8: "Set passwords in the Action Rule Editor.". The value goes to
+  the device like the page's, never into a step, the log or the task name; the undo store keeps it encrypted.
 - `PlanAsync` from the last read only: skipped "No rule with this name.", "Already on." / "Already off.", "The rule is
   copied from this device.", "Not changed by this change."; warnings: a delete counts the rules and devices, a copy takes
-  the rule's stored passwords along, an undo names devices of the change outside the choice.
+  the rule's stored passwords along, an undo names devices of the change outside the choice, a password slot "The action
+  gets a new password. The user enters it." (never the value).
 - `PagePermissions`: `delete` for delete, `manage` for the others (as the page's methods); a payload of the page (it has
   `runId`) answers null and starts only from the page.
 - The run: the first task of a run does the page method's part once for the whole run (the run saved for undo with the
@@ -155,6 +159,10 @@ of the page method it wraps (a preview is never audited):
   use is deleted only with them (`delete_rules`).
 - The preview runs the page's checks (`PrepareNewRecipientAsync`, `PrepareRecipientsAsync`, `PrepareSchedulesAsync`,
   `NewSchedule`) and starts nothing; the run checks again and starts the page's run (saved for undo, one task per device).
-- No password is taken or shown: a password setting or a login inside an address answers "Set this in OADM." (a secret
-  channel follows: TODO in `ActionRulePageTools.Settings`). A copy takes the source's password on the server, like the page.
+- No password is taken as a setting or shown: a password in `settings` answers "Leave passwords out of settings. Name
+  them in set_passwords; the user enters them.", a login inside an address "Set this in OADM.". `recipient_create` and
+  `recipient_change` take `set_passwords` (password settings of the kind or of the recipients read): the plan names a
+  slot each (`PluginToolPlan.SecretsNeeded`), the host's check of an entered value calls the preview with it (too long:
+  `secrets.<name>`), the run puts it into the page's run (in memory; the undo store encrypts it). A plan without the value
+  holds an empty stand-in and never runs. A copy takes the source's password on the server, like the page.
 - Rule changes, copies, deletes and undo are the editor's task, not these tools. Tests: `PageToolTests`.

@@ -77,6 +77,27 @@ public sealed partial class RuleTaskPlugin
         return _owner is null ? [new(string.Empty, "The Action Rule Editor is not running.")] : _owner.CheckAgent(payload);
     }
 
+    /// <summary>
+    /// The password settings of an agent's input (<see cref="RuleAgentCheck.SecretsOf"/>): the agent sends each empty and the
+    /// person enters it. A page payload has none (the page's person typed them).
+    /// </summary>
+    public IReadOnlyList<TaskSecret> SecretsOf(string? payloadJson)
+    {
+        if (!RuleAgentPayload.IsAgent(payloadJson))
+        {
+            return [];
+        }
+
+        try
+        {
+            return RuleAgentCheck.SecretsOf(RuleAgentPayload.Parse(payloadJson));
+        }
+        catch (ArgumentException)
+        {
+            return [];
+        }
+    }
+
     /// <summary>From the editor's last read only (<see cref="ActionRulesPlugin.PlanAgent"/>); a page payload plans by status.</summary>
     public Task<TaskPlan> PlanAsync(string? payloadJson, IReadOnlyList<IDeviceInfo> devices, CancellationToken ct)
     {
