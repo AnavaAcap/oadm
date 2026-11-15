@@ -226,10 +226,11 @@ public static partial class OadmServerHost
         services.AddSingleton<Assistant.IAssistantProviders>(sp => new Assistant.AssistantProviders(sp.GetRequiredService<TimeProvider>()));
         services.AddSingleton(sp => new Assistant.AssistantConversations(sp.GetRequiredService<TimeProvider>(), sp.GetRequiredService<Core.Auth.AuthTokenStore>()));
         services.AddSingleton(sp => new Assistant.AssistantUsage(sp.GetRequiredService<TimeProvider>()));
+        services.AddSingleton(sp => new Assistant.AssistantLimits(sp.GetRequiredService<TimeProvider>(), sp.GetRequiredService<SnapshotAudit>()));
         services.AddSingleton(sp => new Assistant.AssistantChats(sp.GetRequiredService<Tools.ToolRegistry>(), sp.GetRequiredService<InProcessCalls>(),
             sp.GetRequiredService<Assistant.IAssistantProviders>(), sp.GetRequiredService<Assistant.AssistantConversations>(), sp.GetRequiredService<Assistant.AssistantUsage>(),
             sp.GetRequiredService<ServerSettingsStore>(), sp.GetRequiredService<Core.Security.CredentialProtector>(), sp.GetRequiredService<TimeProvider>(),
-            sp.GetRequiredService<ILogger<Assistant.AssistantChats>>()));
+            sp.GetRequiredService<ILogger<Assistant.AssistantChats>>(), sp.GetRequiredService<Assistant.AssistantLimits>()));
         services.AddSingleton<Mcp.McpAccess>();
         services.AddSingleton<Mcp.McpToolAdapter>();
         services.AddSingleton<Mcp.McpFiles>();

@@ -374,7 +374,7 @@ used again.
   names the batch and the first 10,000 task ids. `GetSettings` (signed in: the settings without the key and without a
   model, `has_api_key`, the tokens of today, the status On or Off). `SetSettings` and `Test` (Admin,
   all devices; INVALID_ARGUMENT with the trailer `oadm-field` = `provider`, `address`, `api_key`, `daily_limit` or
-  `user_daily_limit`; an empty `api_key` keeps the saved one of the same provider). `SetSettings` is audited "Changed
+  `user_daily_limit`; an empty `api_key` keeps the saved one only for the same provider and address, else `api_key` "Enter the API key."). `SetSettings` is audited "Changed
   assistant" (never the key) and ends every chat when the assistant is turned off or its provider or address changes.
   `Test` reads the provider's model list (no model needed; an OpenAI-compatible server without a list counts as an
   answer) and says "The provider answered." or the error in plain words; it never saves.

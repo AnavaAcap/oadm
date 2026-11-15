@@ -59,10 +59,15 @@ shows the chat.
 - **Tool lines**: one short line per tool call ("Looking at devices", "Checking 812 devices for the upgrade").
 - **Preview cards** with **Run** and **Cancel**; several previews in one answer show one card each. After Run the card
   follows its tasks live (running, done, failed, from the task stream the client already has) and links to the tasks pane.
+  The card says what Run does from the preview itself, never from the model's text (`AssistantCards`): the count with
+  its unit ("3 devices", "2 tasks", "1 rule"), one line per key field (a task's name, its input without secrets and its
+  files; a rule's name, what it watches and does, where it sends, its problem; the tags added and removed; the files,
+  rules or devices deleted or removed; a plugin's preview: its plain fields one level deep), each line at most 200
+  characters, at most 12 lines with "+N more". Run is red for a delete or removal (`destructive`).
 - **Pictures**: a camera picture (`oadm_devices_snapshot`) shows in the answer, click to enlarge; never stored.
 - **Tables**: a device list the model got from a tool shows as a small table (name, address, model, status) where a click
-  on a row selects the device in the device grid; at most 50 rows, then "+N more" with **Select all in the grid** (every
-  matching id up to 10,000 comes with the table).
+  on a row selects the device in the device grid; the panel shows the first 8 rows, the message carries up to 50, then
+  "+N more" with **Select all in the grid** (every matching id up to 10,000 comes with the table).
 - **Stop** ends the answer that is streaming; the conversation stays.
 - **New chat** clears it. An empty panel shows four start suggestions ("Which devices are offline?", "Which devices have
   vulnerabilities?", "Which cameras run old AXIS OS?", "Show me a picture of a camera"), clicked they are sent.
@@ -83,7 +88,9 @@ Administrators only; changes audited ("Changed assistant").
 - **Turn on** / **Turn off**.
 - **Provider**: Anthropic, OpenAI, Ollama, or OpenAI-compatible (an address and a key: LM Studio, vLLM, Azure OpenAI).
 - **API key** (not for Ollama): stored encrypted, shown as "Saved" afterwards, never sent back; **Address** for Ollama and
-  OpenAI-compatible (`http://10.0.0.5:11434`).
+  OpenAI-compatible (`http://10.0.0.5:11434`). The saved key is used only for the provider and address it was saved
+  with: another provider or address needs the key again ("Enter the API key." below the key), so a saved key never goes
+  to a host just typed in.
 - **Send pictures to the model**: off by default.
 - **Daily limit**: tokens a day for the whole server (default 2,000,000) and, optionally, per user; **Used today** shows
   the count. At the limit the panel says "The assistant reached today's limit. It works again tomorrow." (reset at
@@ -109,9 +116,15 @@ Administrators only; changes audited ("Changed assistant").
 
 ## Limits
 
-Per login session one conversation at a time (a new chat ends the one before) and one answer at a time; at most 20
+Per login session one conversation at a time (a new chat ends the one before), one answer and one tool call at a time;
+the model's calls that act outside OADM (the network scan of Add devices) at most 10 a minute per session like an MCP
+access key ("The assistant did this too often. Wait a minute."), camera pictures within the user's limit of every
+channel ("Too many pictures. Wait a minute."); a Run is the user's click and counts against neither; the daily limit
+counts each message's estimate at its start and settles it at its end; a Stop sent just before an answer began stops it;
+OADM's own failure in a tool is a failed tool line ("The call failed. Try again."), never told as the provider's; at most 20
 tool calls per message (then the model must answer without tools); tool answers at most 32 KB (the tools' own
-limit); the model's context is cut from the oldest messages when it grows too long; a provider timeout of 120 s per
+limit); the model's context is cut from the oldest messages when it grows too long (older turns are dropped, and
+within one message the older tool answers are shortened to 1,500 characters while the newest stays whole); a provider timeout of 120 s per
 answer with all its rounds ("The provider did not answer. Try again."), 30 s for Test; a message at most 8,000
 characters with at most 10 files; at most 5 pictures per message to the model, and a picture never stays in the later
 context.

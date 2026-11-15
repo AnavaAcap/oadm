@@ -56,6 +56,21 @@ internal sealed class AssistantUsage(TimeProvider time)
         }
     }
 
+    /// <summary>
+    /// Settles an answer: its tokens replace the estimate <paramref name="reserved"/> counted at its start (never below 0, also
+    /// when the day changed meanwhile).
+    /// </summary>
+    public void Settle(Guid userId, long reserved, long tokens)
+    {
+        lock (_gate)
+        {
+            Roll();
+            var change = Math.Max(0, tokens) - Math.Max(0, reserved);
+            _server = Math.Max(0, _server + change);
+            _users[userId] = Math.Max(0, _users.GetValueOrDefault(userId) + change);
+        }
+    }
+
     private void Roll()
     {
         var today = DateOnly.FromDateTime(time.GetLocalNow().DateTime);

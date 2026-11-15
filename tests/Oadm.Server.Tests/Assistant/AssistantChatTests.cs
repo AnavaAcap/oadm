@@ -151,6 +151,9 @@ public sealed class AssistantChatTests
         var card = Assert.Single(events, e => Kind(e) == Proto.AssistantEvent.KindOneofCase.Preview).Preview;
         Assert.Equal("Change tags", card.Title);
         Assert.Equal(1, card.DeviceCount);
+        Assert.Equal("1 device", card.CountText);
+        Assert.Contains("Adds tags: Lobby", card.Details);
+        Assert.False(card.Destructive);
         Assert.NotEmpty(card.ExpiresUtc);
         var toModel = server.Model.Requests[1].Results().Values.Single();
         Assert.Null(toModel["handle"]); // the model never holds the handle

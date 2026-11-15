@@ -146,8 +146,15 @@ public sealed class AssistantGrpcService(AssistantChats chats, AuditLog audit) :
             throw Field("api_key", AssistantTexts.ApiKeyTooLong);
         }
 
+        // The saved key goes only to the provider and address it was saved for: another one needs the key again.
+        var sameTarget = saved.Provider == provider && string.Equals(saved.Address ?? string.Empty, address ?? string.Empty, StringComparison.Ordinal);
+        if (key.Length == 0 && !sameTarget && saved.HasApiKey && AssistantSettings.NeedsApiKey(provider))
+        {
+            throw Field("api_key", AssistantTexts.EnterApiKey);
+        }
+
         var protectedKey = key.Length > 0 ? AssistantSettings.Protect(chats.Protector, key)
-            : saved.Provider == provider ? saved.ProtectedApiKey : null;
+            : sameTarget ? saved.ProtectedApiKey : null;
         if (!AssistantSettings.NeedsApiKey(provider) && key.Length == 0)
         {
             protectedKey = null; // Ollama takes no key

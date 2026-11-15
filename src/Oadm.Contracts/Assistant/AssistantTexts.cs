@@ -64,6 +64,15 @@ public static class AssistantTexts
     /// <summary>Test: the provider read the model list (address and key work).</summary>
     public const string ProviderAnswered = "The provider answered.";
 
+    /// <summary>A tool line: the assistant reached its limit of network scans and other outside calls a minute in this session.</summary>
+    public const string TooManyChanges = "The assistant did this too often. Wait a minute.";
+
+    /// <summary>A tool line: the user's camera pictures of this minute are used up (the same limit as everywhere).</summary>
+    public const string TooManyPictures = "Too many pictures. Wait a minute.";
+
+    /// <summary>The done error when OADM itself failed (the server log says why); never a provider's error.</summary>
+    public const string Failed = "The assistant ran into a problem. The server log says why.";
+
     /// <summary>Chat without a model (trailer oadm-field "model").</summary>
     public const string ChooseModel = "Choose a model.";
 

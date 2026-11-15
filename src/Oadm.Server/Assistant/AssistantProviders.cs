@@ -43,7 +43,8 @@ internal interface IAssistantProviders
 /// plain HTTP, kept for 10 minutes for the panel's picker and never wait longer than <see cref="ModelsWait"/>.
 /// </summary>
 [SuppressMessage("ApiDesign", "RS0030:Do not use banned APIs", Justification = "The AI provider the administrator chose, never a device.")]
-internal sealed class AssistantProviders(TimeProvider time) : IAssistantProviders, IDisposable
+internal sealed class AssistantProviders(TimeProvider time, Func<AssistantConnection, CancellationToken, Task<IReadOnlyList<string>?>>? read = null)
+    : IAssistantProviders, IDisposable
 {
     /// <summary>How long GetSettings waits for a models list at most.</summary>
     public static readonly TimeSpan ModelsWait = TimeSpan.FromSeconds(2);
@@ -56,7 +57,9 @@ internal sealed class AssistantProviders(TimeProvider time) : IAssistantProvider
     public const int MaxOutputTokens = 4_096;
 
     private readonly SocketsHttpHandler _handler = new() { PooledConnectionLifetime = TimeSpan.FromMinutes(5), ConnectTimeout = TimeSpan.FromSeconds(15) };
-    private readonly ConcurrentDictionary<string, (DateTimeOffset At, Task<IReadOnlyList<string>> List)> _models = new(StringComparer.Ordinal);
+    /// <summary>The last good list per connection (a failed read never replaces it) and the read that runs now.</summary>
+    private readonly ConcurrentDictionary<string, (DateTimeOffset At, IReadOnlyList<string> List)> _good = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<string, Task<IReadOnlyList<string>?>> _reading = new(StringComparer.Ordinal);
 
     private HttpClient Http(Uri? baseAddress = null)
     {
@@ -97,33 +100,85 @@ internal sealed class AssistantProviders(TimeProvider time) : IAssistantProvider
     {
         ArgumentNullException.ThrowIfNull(connection);
         var key = connection.Provider + "|" + connection.Address + "|" + Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(connection.ApiKey ?? string.Empty)));
-        var now = time.GetUtcNow();
-        var entry = _models.AddOrUpdate(key,
-            _ => (now, FetchAsync(connection)),
-            (_, old) => now - old.At > ModelsKept || old.List.IsFaulted ? (now, FetchAsync(connection)) : old);
+        var good = _good.TryGetValue(key, out var kept) ? kept : ((DateTimeOffset At, IReadOnlyList<string> List)?)null;
+        if (good is { } fresh && time.GetUtcNow() - fresh.At <= ModelsKept)
+        {
+            return fresh.List;
+        }
+
+        var reading = _reading.GetOrAdd(key, _ => FetchAsync(key, connection));
         try
         {
-            return await entry.List.WaitAsync(ModelsWait, time, ct).ConfigureAwait(false);
+            return await reading.WaitAsync(ModelsWait, time, ct).ConfigureAwait(false) ?? good?.List ?? [];
         }
         catch (TimeoutException)
         {
-            return []; // the list comes with the next read
+            return good?.List ?? []; // the new list comes with a later read
+        }
+        finally
+        {
+            if (reading.IsCompleted)
+            {
+                _reading.TryRemove(new KeyValuePair<string, Task<IReadOnlyList<string>?>>(key, reading)); // a read that ended at once is never reused
+            }
         }
     }
 
-    private async Task<IReadOnlyList<string>> FetchAsync(AssistantConnection connection)
+    /// <summary>One read of the list: a good one is kept for <see cref="ModelsKept"/>; a failure (null) is never kept.</summary>
+    private async Task<IReadOnlyList<string>?> FetchAsync(string key, AssistantConnection connection)
     {
         try
         {
             using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10), time);
-            return await ReadModelsAsync(connection, cts.Token).ConfigureAwait(false) ?? [];
+            var list = await (read ?? ReadModelsAsync)(connection, cts.Token).ConfigureAwait(false) ?? [];
+            _good[key] = (time.GetUtcNow(), list);
+            return list;
         }
-#pragma warning disable CA1031 // A models list is best effort: whatever goes wrong, the panel lets the user type a model.
+#pragma warning disable CA1031 // A models list is best effort: whatever goes wrong, the last good list stays and the panel lets the user type.
         catch (Exception)
 #pragma warning restore CA1031
         {
-            return [];
+            return null;
         }
+        finally
+        {
+            _reading.TryRemove(key, out _);
+        }
+    }
+
+    /// <summary>
+    /// The provider's chat models in its own order (Anthropic and OpenAI answer the newest first): for OpenAI only the GPT,
+    /// ChatGPT and o-series models, never embeddings, speech, images or the old completion models.
+    /// </summary>
+    public static IReadOnlyList<string> ChatModels(string provider, IEnumerable<string> ids)
+    {
+        ArgumentNullException.ThrowIfNull(ids);
+        var clean = ids.Where(n => !string.IsNullOrWhiteSpace(n) && n.Length <= 200).Distinct(StringComparer.Ordinal);
+        if (provider == AssistantTexts.OpenAi)
+        {
+            string[] notChat = ["embedding", "tts", "whisper", "dall-e", "davinci", "babbage", "moderation", "audio", "realtime", "transcribe", "image", "search"];
+            clean = clean.Where(n => (n.StartsWith("gpt-", StringComparison.Ordinal) || n.StartsWith("chatgpt-", StringComparison.Ordinal)
+                    || (n.Length > 1 && n[0] == 'o' && char.IsAsciiDigit(n[1])))
+                && !notChat.Any(w => n.Contains(w, StringComparison.OrdinalIgnoreCase)));
+        }
+
+        return [.. clean.Take(200)];
+    }
+
+    /// <summary>The models the panel suggests first, per provider, when the provider lists one of them.</summary>
+    private static readonly Dictionary<string, string[]> Defaults = new(StringComparer.Ordinal)
+    {
+        [AssistantTexts.Anthropic] = [AssistantTexts.AnthropicDefaultModel],
+        [AssistantTexts.OpenAi] = ["gpt-5.5", "gpt-5", "gpt-4.1", "gpt-4o"],
+    };
+
+    /// <summary>The suggested model: the provider's known default when listed, else the first listed (the provider's order).</summary>
+    public static string Suggest(string provider, IReadOnlyList<string> models)
+    {
+        ArgumentNullException.ThrowIfNull(models);
+        var known = Defaults.GetValueOrDefault(provider) ?? [];
+        return known.FirstOrDefault(models.Contains)
+            ?? (models.Count > 0 ? models[0] : provider == AssistantTexts.Anthropic ? AssistantTexts.AnthropicDefaultModel : string.Empty);
     }
 
     public async Task<IReadOnlyList<string>?> ReadModelsAsync(AssistantConnection connection, CancellationToken ct)
@@ -167,16 +222,8 @@ internal sealed class AssistantProviders(TimeProvider time) : IAssistantProvider
                 return [];
             }
 
-            return
-            [
-                .. items.EnumerateArray()
-                    .Select(i => i.TryGetProperty(field, out var name) && name.ValueKind == JsonValueKind.String ? name.GetString() : null)
-                    .Where(n => !string.IsNullOrWhiteSpace(n) && n.Length <= 200)
-                    .Select(n => n!)
-                    .Distinct(StringComparer.Ordinal)
-                    .Order(StringComparer.Ordinal)
-                    .Take(200),
-            ];
+            return ChatModels(connection.Provider, items.EnumerateArray()
+                .Select(i => i.TryGetProperty(field, out var name) && name.ValueKind == JsonValueKind.String ? name.GetString() ?? string.Empty : string.Empty));
         }
     }
 

@@ -34,8 +34,10 @@ internal sealed class AssistantConversation(string sessionKey, Guid userId, stri
     /// <summary>The answer that streams now; null between answers.</summary>
     public CancellationTokenSource? Streaming { get; set; }
 
-    /// <summary>Stop was pressed for the answer that streams.</summary>
+    /// <summary>Stop was pressed (<see cref="StopAt"/>): it stops the answer that streams, or the next one that begins soon after.</summary>
     public bool StopRequested { get; set; }
+
+    public DateTimeOffset StopAt { get; set; }
 
     public bool Ended { get; private set; }
 

@@ -56,10 +56,18 @@ public sealed partial class AssistantChats
     private readonly CredentialProtector _protector;
     private readonly TimeProvider _time;
     private readonly ILogger<AssistantChats> _logger;
+    private readonly AssistantLimits _limits;
+
+    /// <summary>A Stop that came just before its answer began still stops it.</summary>
+    public static readonly TimeSpan PendingStop = TimeSpan.FromSeconds(10);
+
+    /// <summary>A tool answer of an older round of the same message is cut to this when the message grows too long.</summary>
+    public const int ShortenedResult = 1_500;
 
     internal AssistantChats(ToolRegistry tools, InProcessCalls calls, IAssistantProviders providers, AssistantConversations conversations, AssistantUsage usage,
-        ServerSettingsStore store, CredentialProtector protector, TimeProvider time, ILogger<AssistantChats> logger)
+        ServerSettingsStore store, CredentialProtector protector, TimeProvider time, ILogger<AssistantChats> logger, AssistantLimits limits)
     {
+        _limits = limits;
         _tools = tools;
         _calls = calls;
         _providers = providers;
@@ -149,9 +157,23 @@ public sealed partial class AssistantChats
 
             streaming = CancellationTokenSource.CreateLinkedTokenSource(ct);
             conversation.Streaming = streaming;
+            if (conversation.StopRequested && _time.GetUtcNow() - conversation.StopAt <= PendingStop)
+            {
+                streaming.Cancel(); // Stop came before the answer began: it stops this one
+            }
+
             conversation.StopRequested = false;
         }
 
+        // The estimate of the request counts at once, so parallel sessions cannot go far beyond the limit; the answer settles it.
+        long reserved;
+        lock (conversation.Gate)
+        {
+            reserved = (conversation.Turns.Sum(t => t.Sum(SizeOf)) + text.Length) / 4;
+        }
+
+        _usage.Settle(caller.UserId, 0, reserved);
+        var spend = new Spend();
         try
         {
             var selection = await SelectionAsync(caller, message.SelectedDeviceIds, ct).ConfigureAwait(false);
@@ -171,10 +193,11 @@ public sealed partial class AssistantChats
                 await emit(new Proto.AssistantEvent { Notice = AssistantTexts.Notice(settings.Provider) }).ConfigureAwait(false);
             }
 
-            await AnswerAsync(settings, model, conversation, ToolCallerOf(caller, selection), UserMessage(conversation, text, selection, files), emit, streaming, ct).ConfigureAwait(false);
+            await AnswerAsync(settings, model, conversation, ToolCallerOf(caller, selection), UserMessage(conversation, text, selection, files), emit, streaming, spend, ct).ConfigureAwait(false);
         }
         finally
         {
+            _usage.Settle(caller.UserId, reserved, spend.Tokens);
             lock (conversation.Gate)
             {
                 conversation.Streaming = null;
@@ -266,7 +289,7 @@ public sealed partial class AssistantChats
     }
 
     private async Task AnswerAsync(AssistantSettings settings, string model, AssistantConversation conversation, ToolCaller caller, ChatMessage user,
-        Func<Proto.AssistantEvent, Task> emit, CancellationTokenSource streaming, CancellationToken ct)
+        Func<Proto.AssistantEvent, Task> emit, CancellationTokenSource streaming, Spend spend, CancellationToken ct)
     {
         var apiKey = settings.ApiKey(_protector);
         var offered = AssistantTools.Offered(_tools, caller);
@@ -284,7 +307,7 @@ public sealed partial class AssistantChats
         var finished = false;
         try
         {
-            using var client = _providers.Create(new AssistantConnection(settings.Provider, settings.Address, model, apiKey));
+            using var client = Provider(() => _providers.Create(new AssistantConnection(settings.Provider, settings.Address, model, apiKey)));
             for (var step = 0; step <= AssistantTexts.MaxToolCallsPerMessage + 1; step++)
             {
                 var messages = Context(system, conversation, turn);
@@ -295,19 +318,29 @@ public sealed partial class AssistantChats
                     ToolMode = round.ToolsOff ? ChatToolMode.None : ChatToolMode.Auto,
                 };
                 var updates = new List<ChatResponseUpdate>();
-                await foreach (var update in client.GetStreamingResponseAsync(messages, options, linked.Token).ConfigureAwait(false))
+                var stream = Provider(() => client.GetStreamingResponseAsync(messages, options, linked.Token).GetAsyncEnumerator(linked.Token));
+                try
                 {
-                    updates.Add(update);
-                    var piece = update.Text;
-                    if (!string.IsNullOrEmpty(piece))
+                    while (await ProviderAsync(stream.MoveNextAsync).ConfigureAwait(false))
                     {
-                        answered.Append(piece);
-                        await emit(new Proto.AssistantEvent { Text = piece }).ConfigureAwait(false);
+                        var update = stream.Current;
+                        updates.Add(update);
+                        var piece = update.Text;
+                        if (!string.IsNullOrEmpty(piece))
+                        {
+                            answered.Append(piece);
+                            await emit(new Proto.AssistantEvent { Text = piece }).ConfigureAwait(false);
+                        }
                     }
+                }
+                finally
+                {
+                    await stream.DisposeAsync().ConfigureAwait(false);
                 }
 
                 var response = updates.ToChatResponse();
                 tokens += TokensOf(response, messages);
+                spend.Tokens = tokens;
                 turn.AddRange(response.Messages);
                 var requested = response.Messages.SelectMany(m => m.Contents).OfType<FunctionCallContent>().ToList();
                 if (requested.Count == 0)
@@ -351,19 +384,58 @@ public sealed partial class AssistantChats
                 stopped = true; // Stop, End or the session's end
             }
         }
-        catch (Exception ex) when (ex is not OperationCanceledException && ex is not RpcException)
+        catch (ProviderFailure failure)
         {
             // A model that refuses tools ends the answer with the one text that says to choose another (once, as its error).
+            var ex = failure.InnerException!;
             error = declarations.Count > 0 && AssistantProviderErrors.RejectsTools(ex) ? AssistantTexts.CannotUseTools : AssistantProviderErrors.Plain(ex, apiKey);
             LogProviderError(AssistantTexts.ProviderName(settings.Provider), error);
         }
+        catch (Exception ex) when (ex is not OperationCanceledException && ex is not RpcException && ex is not IOException)
+        {
+            error = AssistantTexts.Failed; // OADM's own failure, never told as the provider's
+            LogFailed(ex);
+        }
         finally
         {
-            _usage.Add(caller.User.UserId, tokens);
+            spend.Tokens = tokens;
             Commit(conversation, finished ? turn : [user, new ChatMessage(ChatRole.Assistant, answered.Length > 0 ? answered.ToString() : "(no answer)")]);
         }
 
         await emit(new Proto.AssistantEvent { Done = new Proto.AssistantDone { Stopped = stopped, Error = error, Tokens = tokens } }).ConfigureAwait(false);
+    }
+
+    /// <summary>The tokens an answer used so far (settled against the estimate when the message ends).</summary>
+    internal sealed class Spend
+    {
+        public long Tokens { get; set; }
+    }
+
+    /// <summary>An error of the provider's call (never one of OADM's tools or cards).</summary>
+    private sealed class ProviderFailure(Exception inner) : Exception(inner.Message, inner);
+
+    private static T Provider<T>(Func<T> call)
+    {
+        try
+        {
+            return call();
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            throw new ProviderFailure(ex);
+        }
+    }
+
+    private static async Task<bool> ProviderAsync(Func<ValueTask<bool>> call)
+    {
+        try
+        {
+            return await call().ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            throw new ProviderFailure(ex);
+        }
     }
 
     private sealed class RoundState
@@ -375,10 +447,13 @@ public sealed partial class AssistantChats
         public bool ToolsOff { get; set; }
     }
 
-    /// <summary>Keeps the turn; a picture stays out of the later context (it was seen once).</summary>
+    /// <summary>
+    /// Keeps the turn (its older tool answers shortened when it is long); a picture stays out of the later context (it was seen
+    /// once). Turns beyond the context budget are dropped, the oldest first: they would never be sent again.
+    /// </summary>
     private static void Commit(AssistantConversation conversation, List<ChatMessage> turn)
     {
-        var kept = turn.Select(m => m.Contents.Any(c => c is DataContent)
+        var kept = Shorten(turn).Select(m => m.Contents.Any(c => c is DataContent)
             ? new ChatMessage(m.Role, [.. m.Contents.Select(c => c is DataContent ? new TextContent("(a camera picture was here)") : c)])
             : m).ToList();
         lock (conversation.Gate)
@@ -386,8 +461,35 @@ public sealed partial class AssistantChats
             if (!conversation.Ended)
             {
                 conversation.Turns.Add(kept);
+                var total = conversation.Turns.Sum(t => t.Sum(SizeOf));
+                while (conversation.Turns.Count > 1 && total > MaxContextCharacters)
+                {
+                    total -= conversation.Turns[0].Sum(SizeOf);
+                    conversation.Turns.RemoveAt(0);
+                }
             }
         }
+    }
+
+    /// <summary>
+    /// The turn within <see cref="MaxContextCharacters"/>: when it is longer, the tool answers of its older rounds are cut to
+    /// <see cref="ShortenedResult"/> characters (the newest round stays whole), so 20 large answers of one message still fit.
+    /// </summary>
+    internal static List<ChatMessage> Shorten(List<ChatMessage> turn)
+    {
+        if (turn.Sum(SizeOf) <= MaxContextCharacters)
+        {
+            return turn;
+        }
+
+        var newest = turn.FindLastIndex(m => m.Role == ChatRole.Tool);
+        return
+        [
+            .. turn.Select((m, i) => m.Role != ChatRole.Tool || i == newest ? m : new ChatMessage(m.Role, [.. m.Contents.Select(c =>
+                c is FunctionResultContent r && r.Result?.ToString() is { Length: > ShortenedResult } whole
+                    ? new FunctionResultContent(r.CallId, whole[..ShortenedResult] + " ... (shortened to save room; call the tool again for all of it)")
+                    : c)])),
+        ];
     }
 
     /// <summary>The system prompt, the newest turns that fit <see cref="MaxContextCharacters"/> and this turn.</summary>
@@ -399,6 +501,7 @@ public sealed partial class AssistantChats
             turns = [.. conversation.Turns];
         }
 
+        turn = Shorten(turn);
         var budget = MaxContextCharacters - turn.Sum(SizeOf);
         var start = turns.Count;
         while (start > 0 && budget - turns[start - 1].Sum(SizeOf) >= 0)
@@ -410,7 +513,7 @@ public sealed partial class AssistantChats
         return [system, .. turns.Skip(start).SelectMany(t => t), .. turn];
     }
 
-    private static int SizeOf(ChatMessage message) => message.Contents.Sum(c => c switch
+    internal static int SizeOf(ChatMessage message) => message.Contents.Sum(c => c switch
     {
         TextContent t => t.Text?.Length ?? 0,
         FunctionCallContent f => 100 + (f.Arguments is null ? 0 : JsonSerializer.Serialize(f.Arguments, AIJsonUtilities.DefaultOptions).Length),
@@ -458,7 +561,29 @@ public sealed partial class AssistantChats
             return Result(request, ToolAnswers.ErrorJson(NotOffered));
         }
 
+        if (_tools.Refusal(tool, caller) is null && _limits.Refusal(tool, caller) is { } limited)
+        {
+            await emit(Line(limited, failed: true)).ConfigureAwait(false);
+            return Result(request, ToolAnswers.ErrorJson(limited));
+        }
+
         await emit(Line(AssistantTools.LineOf(tool), failed: false)).ConfigureAwait(false);
+        try
+        {
+            return await RunToolAsync(settings, conversation, caller, tool, request, round, extra, emit, ct).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException && ex is not IOException && !(ex is RpcException && ct.IsCancellationRequested))
+        {
+            // OADM's own failure in a tool, a card or a table: a failed line, the model hears the call failed, the log says why.
+            LogToolFailed(tool.Name, ex);
+            await emit(Line(Short(tool.Title + ": " + ToolAnswers.Failed), failed: true)).ConfigureAwait(false);
+            return Result(request, ToolAnswers.ErrorJson(ToolAnswers.Failed));
+        }
+    }
+
+    private async Task<AIContent> RunToolAsync(AssistantSettings settings, AssistantConversation conversation, ToolCaller caller, OadmTool tool,
+        FunctionCallContent request, RoundState round, List<AIContent> extra, Func<Proto.AssistantEvent, Task> emit, CancellationToken ct)
+    {
         var arguments = JsonSerializer.SerializeToElement(request.Arguments ?? new Dictionary<string, object?>(), AIJsonUtilities.DefaultOptions);
         var result = await _tools.CallAsync(caller, tool.Name, arguments, ct).ConfigureAwait(false);
         if (result.IsError)
@@ -476,7 +601,8 @@ public sealed partial class AssistantChats
                 conversation.Previews[handle] = runTool;
             }
 
-            await emit(new Proto.AssistantEvent { Preview = Card(tool, runTool, handle, answer) }).ConfigureAwait(false);
+            var card = AssistantCards.Build(tool, _tools.TryGet(runTool, out var run) ? run : null, handle, answer, arguments);
+            await emit(new Proto.AssistantEvent { Preview = card }).ConfigureAwait(false);
             answer = (JsonObject)answer.DeepClone();
             answer.Remove("handle");
             answer.Remove("expires");
@@ -519,39 +645,7 @@ public sealed partial class AssistantChats
 
     private static string Short(string text) => text.Length <= 200 ? text : text[..199] + "…";
 
-    /// <summary>The card of a preview: what, how many devices, the skipped ones by reason, the warnings and the first names.</summary>
-    private Proto.AssistantPreviewCard Card(OadmTool preview, string runTool, string handle, JsonObject answer)
-    {
-        var card = new Proto.AssistantPreviewCard
-        {
-            Handle = handle,
-            Title = Text(answer["task_name"]) is { Length: > 0 } taskName ? taskName
-                : _tools.TryGet(runTool, out var run) ? TitleOf(run.Title) : preview.Title,
-            DeviceCount = Number(answer["will_run"]) ?? Number(answer["will_change"]) ?? Number(answer["will_cancel"]) ?? Number(answer["devices"])
-                ?? (answer["files"] as JsonArray)?.Count ?? 0,
-            ExpiresUtc = Text(answer["expires"]) ?? string.Empty,
-        };
-        var unit = preview.Name.StartsWith("oadm_tasks_cancel", StringComparison.Ordinal) ? "tasks" : "devices";
-        foreach (var reason in (answer["skipped"] as JsonArray ?? answer["cannot"] as JsonArray ?? []).OfType<JsonObject>())
-        {
-            var count = Number(reason["count"]) ?? 0;
-            card.Skipped.Add(string.Create(CultureInfo.InvariantCulture, $"{count:N0} {(count == 1 ? unit.TrimEnd('s') : unit)}: {Text(reason["reason"])}"));
-        }
-
-        card.Warnings.AddRange((answer["warnings"] as JsonArray ?? []).Select(Text).OfType<string>().Take(20));
-        foreach (var row in (answer["first"] as JsonArray ?? []).OfType<JsonObject>().Take(20))
-        {
-            card.FirstDevices.Add(NameOf(row));
-        }
-
-        return card;
-    }
-
-    /// <summary>"Set device logins" from "Set device logins", "Ping: run" from a plugin's run tool becomes "Ping".</summary>
-    private static string TitleOf(string runTitle) => runTitle.EndsWith(": run", StringComparison.Ordinal) ? runTitle[..^": run".Length] : runTitle;
-
-    private static string NameOf(JsonObject row) =>
-        new[] { Text(row["host_name"]), Text(row["upnp_name"]), Text(row["name"]), Text(row["address"]), Text(row["id"]) }.FirstOrDefault(n => !string.IsNullOrEmpty(n)) ?? string.Empty;
+    private static string NameOf(JsonObject row) => AssistantCards.NameOf(row);
 
     private static string? Text(JsonNode? node) => node is JsonValue v && v.TryGetValue<string>(out var s) ? s : null;
 
@@ -642,6 +736,7 @@ public sealed partial class AssistantChats
             lock (conversation.Gate)
             {
                 conversation.StopRequested = true;
+                conversation.StopAt = _time.GetUtcNow();
                 conversation.Streaming?.Cancel();
             }
         }
@@ -721,11 +816,15 @@ public sealed partial class AssistantChats
 
         var reply = new Proto.AssistantModelList { Editable = models.Count == 0 };
         reply.Models.AddRange(models);
-        reply.Suggested = settings.Provider == AssistantTexts.Anthropic && models.Contains(AssistantTexts.AnthropicDefaultModel)
-            ? AssistantTexts.AnthropicDefaultModel
-            : models.Count > 0 ? models[0] : (settings.Provider == AssistantTexts.Anthropic ? AssistantTexts.AnthropicDefaultModel : string.Empty);
+        reply.Suggested = AssistantProviders.Suggest(settings.Provider, models);
         return reply;
     }
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "The assistant failed in OADM itself")]
+    private partial void LogFailed(Exception exception);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "The assistant's tool {Tool} failed")]
+    private partial void LogToolFailed(string tool, Exception exception);
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "The assistant's provider {Provider} answered with an error: {Error}")]
     private partial void LogProviderError(string provider, string error);
