@@ -51,11 +51,12 @@ Tables in an answer are devices: click a row to select it on the Devices page, o
 
 ## Changes need your click
 
-The assistant never changes a device by itself. It asks OADM for a plan and shows it as a card: what it does, on how many
-devices, which devices are skipped and why, and the warnings. **Run** starts the tasks; the card follows them. **Cancel**
-drops the plan.
+The assistant never changes a device by itself. It asks OADM for a plan and shows it as a card: what Run does, taken from
+the plan itself (a rule's event and where it sends, the tag names, the file), on how many devices, which devices are
+skipped and why, and the warnings. **Run** starts the tasks; the card follows them. A **Run** that deletes is red.
+**Cancel** drops the plan.
 
-<Image src={preview} alt="A plan card to restart 3 cameras with Run and Cancel" class="screen" />
+<Image src={preview} alt="Two plan cards: save a rule with its event and target, and delete two tags with a red Run" class="screen" />
 
 Every change and every camera picture is in the audit log under your name, as if you did it in OADM.
 
