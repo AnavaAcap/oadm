@@ -99,8 +99,9 @@ Every tool with what it does: [MCP tools](./tools/).
 - See which devices the published Axis CVEs affect, worst first, with the possible ones apart.
 - Read tasks and their results, failures grouped by their error, the server log, the audit log and the event log.
 - Read OADM's own state: OADM PRO, which plugins are on, MCP and the assistant, the date of the vulnerability list.
-- Run tasks on many devices, such as restart, date and time, Upgrade AXIS OS, network settings, applications or
-  certificates. A task shows in the Tasks list like any other. Its owner is "MCP" and the key's name, for example
+- Run tasks on many devices, such as restart, date and time, Upgrade AXIS OS, network settings, applications and their
+  settings, certificates, Configure devices, Import and Export configuration, the SD card tasks of Edge storage and the
+  action rules of the Action Rule Editor. A task shows in the Tasks list like any other. Its owner is "MCP" and the key's name, for example
   "MCP Lobby-bot". Cancel tasks.
 - Refresh, remove and add devices, and set their login from the credential list by its name. Agents add only
   addresses in the networks of the server or a site, at most 200 devices at a time.
@@ -115,7 +116,7 @@ Every tool with what it does: [MCP tools](./tools/).
   outputs of a device, open event streams, dashboard values, load test results and snapshot tiles. Also the recipients of
   the event rules and whether they are connected. Reads, checks and exports are started in OADM.
 - Run commands of the [VAPIX Commander](../../tools/vapix-commander/) library and saved commands on many devices, for settings
-  no task covers (image, video, I/O, PTZ, storage and more). Not offered: dangerous commands, commands with a password or
+  no task covers (siren and light, PTZ and more). Not offered: dangerous commands, commands with a password or
   a file, and changes OADM's own tasks make. A value that looks like a password in an answer shows as `***`.
 - Upload files, such as a firmware file, without the file passing through the agent.
 

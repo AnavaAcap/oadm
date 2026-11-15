@@ -506,8 +506,9 @@ what each version added is `website/src/content/docs/dev/compatibility.md`.
   packages keep their own hand-written `plugin.json`: 0.4.0, or the version of the newest member a package uses at run time
   (0.13.0, the members for MCP: Applications (ACAP), Upgrade AXIS OS, Network, DHCP server, NTP server, Hardening
   scan (payload schemas or plugin tools), PKI with the EST and 802.1X servers (also `IServerCertificates`), Date and time
-  (`ValidatePayload`) and Users (`Secret`); 0.12.0: `PluginJson` or `ByteSize` in Action Rule Editor, Application
-  management, the configuration tasks, Dashboards, Device triggers, Edge recording export, Edge storage, Image Health, I/O
+  (`ValidatePayload`), Users (`Secret`), Action Rule Editor, Device configuration and Edge storage (task inputs for agents,
+  `PagePermissions`); 0.12.0: `PluginJson` or `ByteSize` in Application
+  management, Dashboards, Device triggers, Edge recording export, Image Health, I/O
   monitor, Live view, Load test, Metadata monitor, Snapshot report, System report, Text recognition, VAPIX commander and
   Vision Center; PKI also
   `IRecipientCertificates` and `IRecipientCertificateUse`; Modbus, MQTT and OPC UA `RecipientType.Sessions`; 0.11.0:
@@ -641,8 +642,12 @@ box back with the error below the list (`PluginsViewModel.SwitchAsync`).
   (`PayloadError` per JSON field with the dialog's text; `TaskService.Run` and `Plan` call it, a throwing check refuses the
   run), `PlanAsync(payloadJson, devices, ct)` (`TaskPlan`: per device run or skip with a reason, warnings; default
   `TaskPlan.ByCanRun`; an overload with `IUploadedFiles` lets a plan name the uploads it uses, `TaskPlan.Files`). A task without a payload type, with a `[Secret]` property anywhere in it, or with a value of any
-  type is not offered to the tools. Bundled: Restart and Use OADM NTP server (empty records), Date and time
-  (`DateTimePayload`, `PayloadValidator`), Users (its password is `[Secret]`: not offered).
+  type is not offered to the tools. `PagePermissions(payloadJson)`: a page task (hidden from the menus, no permissions of
+  its own) names the keys of its package's core plugin one run needs; `TaskService.Plan` and `Run` then run it with those
+  rights (`TaskRunPermissions.RequireOutsidePage`) and the tools' catalog lists it, the client's menus never; null (the
+  default): only its page starts it. Bundled: Restart and Use OADM NTP server (empty records), Date and time
+  (`DateTimePayload`, `PayloadValidator`), Users (its password is `[Secret]`: not offered); the full list in
+  `docs/spec/mcp.md` "Offered tasks".
 - **Plugin tools** (SDK 0.13.0, `docs/spec/mcp.md` "Stage 3 as built", `website/src/content/docs/dev/plugin-tools.md`):
   `ICorePlugin.Tools` (`PluginTool`: name, title, description, input and output schema, read only or change, permission)
   and `ICorePlugin.ToolArea` (default: the plugin id without `oadm.`); the host calls `InvokeAsync` with the caller as

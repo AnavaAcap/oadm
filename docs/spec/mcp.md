@@ -333,12 +333,15 @@ New default interface members (SDK minor version up, `docs/spec/plugins.md`):
   (`tool.<name>`). Changes get the preview/run pair from the host; the plugin implements `tool.<name>.preview`, which never
   writes. Nothing in the SDK names MCP: a later built-in assistant uses the same tools.
 - `[Secret]` (`SecretAttribute`) on a payload property: a task whose payload has one, anywhere, is not offered over MCP.
+- `ITaskPlugin.PagePermissions(payloadJson)`: a page task names the keys of its core plugin one run needs; then the task
+  tools offer it with those rights ("Offered tasks").
 
 ## Skill
 
 One skill `oadm` (`SKILL.md` with a table of which tool answers which question from OADM's own data, plus workflow files:
-AXIS OS rollout, network change, certificates, health check, troubleshoot one device, vulnerabilities, failed tasks,
-event rules, applications, SD cards, sites; every tool name in them is a tool the server offers, `McpPluginToolTests`),
+AXIS OS rollout, network change, configure devices (a setting on many devices), certificates, health check, troubleshoot
+one device, vulnerabilities, failed tasks, event rules, applications, SD cards, sites; every tool name in them is a tool
+the server offers, `McpPluginToolTests`),
 kept in `src/Oadm.Server/Mcp/Skill/`, served over MCP (skills extension `io.modelcontextprotocol/skills` and resource
 `oadm://skill/SKILL.md`) and as **Download skill** on the Settings card. It says: call `oadm_server_info` first; start
 with summaries, narrow with filters; always preview, show the plan and the skipped reasons to the user, then run; never
@@ -497,11 +500,45 @@ The website gets a user page (Administration > MCP server, `admin/mcp-server`, n
   downgrade; `PlanAsync` is `FirmwareCompatibility.ChooseFor` from the cached model and version; no online download, which
   needs the user's MyAxis sign-in), Network settings, Assign IP address, Applications (install, remove, start, stop),
   Enable and Disable HTTPS, Enable and Disable IEEE 802.1X, Renew certificates. The dialogs and
-  the previews share their warning texts (`FirmwareWarnings`, `NetworkWarningTexts`, `PkiTaskIds`). Not offered (fail
-  closed): application license keys and settings, Install certificates (secrets), Install CA certificates (a new trust
-  anchor on the devices: the dialog shows each certificate to the person), Delete and View certificates (choices only the
-  dialog makes), EST setup, Users. The PKI enable tasks have no clock question over MCP: a device with a late clock
-  refuses. The schema export also describes maps (Network's devices by id: `propertyNames` uuid, at most 100,000).
+  the previews share their warning texts (`FirmwareWarnings`, `NetworkWarningTexts`, `PkiTaskIds`). The PKI enable tasks
+  have no clock question over MCP: a device with a late clock refuses. The schema export also describes maps (Network's
+  devices by id: `propertyNames` uuid, at most 100,000).
+- **Every task a user can run** (decision 2026-11-15: agents do what a user can in the client, every change preview then
+  run; the Assistant's user presses Run). No tool of their own: each task got an input record, the dialog's field errors
+  (shared with the dialog, never a copy) and a plan from cached data, so the generic task tools offer it. The details are
+  in each plugin's README ("AI agents").
+  - Device configuration: **Configure devices** (`settings` name and value, `actionRules`, `schedules`,
+    `streamProfiles`; the dialog's `parameters`/`rules` form stays; "Configure dangerous parameters" for network, HTTPS,
+    ports, login and 802.1X parameters; warnings for a value that can cut the devices off; a per-device value on several
+    devices skips them all; a secret parameter or action value is refused, "Set the password in OADM."), **Create
+    configuration file** and **Export configuration** (read-only tasks; the file is the task's result in its log: name,
+    size, SHA-256, then the text in parts; download links follow, `TODO(download-link)`), **Import configuration** (one
+    `.json` from an upload link for every device of its model, no ZIP; "Import connection settings" and the lock-out
+    warning for the area `connection`; the plan reads the uploaded file only).
+  - Edge storage (page task `oadm.edge-storage.task`): check, repair, retention, format, encryption off; format and
+    encryption off warn that every recording is deleted, repair that damaged recordings can be lost; the page's rights
+    "Change storage settings" (check, retention) and "Format and encrypt storage" (the others). Encrypt needs a passphrase
+    and stays on the page.
+  - Action Rule Editor (page task `oadm.action-rules.task`): change (on/off, name, wait time, action settings, recipient),
+    delete, copy, create, undo; rules by name as the editor read them last (a device not read is skipped, "Not read in the
+    Action Rule Editor."); the editor's rights "Change action rules" and "Delete action rules"; a password in an action
+    is refused. `oadm_device_rules_list` answers the event topics and the undoable changes.
+  - PKI: **View certificates** (a read-only task: one log line per certificate, the name Delete takes), **Delete
+    certificates** (per device the certificates by name; the plan says how many and that they cannot be restored; one in
+    use by HTTPS or 802.1X is still refused on the device), **EST set up and remove** (OADM PRO; no clock question: a late
+    clock refuses; Remove says per profile what the cameras lose).
+  - Applications: **Change settings** (`values` by name; a password setting is refused at its field and again on the
+    device before any write; the page's own runs pass `passwordsAllowed`, which agents cannot send).
+  - Page tasks: a task only its page starts (hidden from the menus, no permissions of its own) is offered when it answers
+    `ITaskPlugin.PagePermissions` (SDK 0.13.0) with the keys of its package's core plugin one run needs; `TaskService.Plan`
+    and `Run` check exactly those (`TaskRunPermissions.RequireOutsidePage`, unknown keys need all of them), the catalog
+    lists it only with `with_payload_schema` (`TaskPluginRunnable.InMenus` false), the client's menus never. The page's own
+    payload answers null and stays page only.
+  - Secrets: a password, passphrase or key an agent would have to send is refused at its field; each place that takes a
+    secret handle later is marked `TODO(secret-handle)` (Configure devices, Edge storage encrypt, the Action Rule Editor's
+    action passwords, application settings).
+  - Not offered (fail closed): application license keys, Install certificates (secrets), Install CA certificates (a new
+    trust anchor on the devices: the dialog shows each certificate to the person), Users.
 - **Tasks and files**: `oadm_tasks_cancel_preview`/`_run` (a batch or up to 200 task ids; counts what stops and what
   cannot; only the caller's devices; one cancel takes at most 200 tasks and runs at most 60 s, `more_after_this` and
   `left` say to preview again); a task preview names each uploaded file it uses with its SHA-256 (`files`), and an
@@ -515,7 +552,11 @@ The website gets a user page (Administration > MCP server, `admin/mcp-server`, n
 - **Tests**: `McpTaskToolTests` (the catalog and a secret task, a preview that writes nothing, the handle of another key,
   once, 10 minutes, invalid input from the schema and from the plugin, the same refusal through `TaskService.Run`, upload
   links, 10 changes a minute), `McpToolTests` and `McpSecretTests` over every tool, the canary
-  case of `TaskService.Plan`.
+  case of `TaskService.Plan`; `McpAgentTaskInputTests` (the tasks of 2026-11-15 in the catalog with their schemas, the page
+  tasks never in the menus, format's warnings and the page's format right, Configure devices preview and run on several
+  devices, the dangerous and connection rights, a password refused, the editor's last read, Delete certificates' plan),
+  `RoleTests` (a page task with page permissions through Run, the rights it names, fail closed), and each plugin's
+  `AgentTaskInputTests` / `AgentSettingsTests` / `PayloadTests`.
 
 ## Stage 3 as built
 

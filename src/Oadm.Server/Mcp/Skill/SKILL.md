@@ -90,7 +90,8 @@ Questions about the settings of devices ("which cameras have capture frequency 5
 profiles): read them with `oadm_config_parameters`, `oadm_config_action_rules` or `oadm_config_stream_profiles` first,
 before any VAPIX command. They group the devices by value and say which could not be read.
 
-Settings a task does not cover (image, video, I/O, PTZ, storage, siren and light, MQTT, SNMP and more): take a command from
+Setting a parameter, action rules or stream profiles on many devices is Configure devices: see
+[Configure devices](configure-devices.md). Settings it does not cover (siren and light, PTZ moves and more): take a command from
 `oadm_vapix_commands` and run it with `oadm_vapix_command_preview`, on device ids from `oadm_devices_search`. Reads go
 preview then run too; read each device's answer with `oadm_tasks_get`. Prefer a task from the catalog when one does the
 job.
@@ -126,6 +127,7 @@ Read the file for the job you are doing.
 
 - [AXIS OS rollout](rollout-axis-os.md)
 - [Network change](network-change.md)
+- [Configure devices](configure-devices.md)
 - [Certificates](certificates.md)
 - [Health check](health-check.md)
 - [Troubleshoot one device](troubleshoot-device.md)

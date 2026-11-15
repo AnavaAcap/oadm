@@ -254,7 +254,11 @@ public Task<TaskPlan> PlanAsync(string? payloadJson, IReadOnlyList<IDeviceInfo> 
   calls it before every run, also for the client: an invalid payload starts no task. Use it in your dialog too.
 - `PlanAsync` says per device whether the run changes it or why not, from the cached data only (no device request). The
   default uses `CanRun` and `NotSupportedReason`.
-- Mark a password or key with `[Secret]`: such a task is never offered to agents.
+- Mark a password or key with `[Secret]`: such a task is never offered to agents. When the dialog's payload carries a
+  password, give agents their own record without it as `PayloadType` (the task reads both).
+- A task only your page starts (`ShowInMenus` false, no `Permissions`) is offered to agents when `PagePermissions`
+  names the keys of your core plugin's permissions one run needs (`["format"]`). Return null for the page's own payload
+  to keep it on the page.
 
 ## Device safety
 
