@@ -371,6 +371,16 @@ and runs after the user agreed.
 | `oadm_live_view_view_save_run` | Run (changes) | Applies the plan of oadm_live_view_view_save_preview, which checks everything again. |
 | `oadm_live_view_views` | Read | Lists the saved views of the Live View page with their cameras and where each sits in the view. |
 
+## Access keys
+
+| Tool | Kind | What it does |
+| --- | --- | --- |
+| `oadm_access_keys_create_preview` | Preview | Checks a new access key's name, role, devices and end and says what an agent with it may do; nothing is changed. Then call oadm_access_keys_create_run with the handle. |
+| `oadm_access_keys_create_run` | Run (changes) | Creates the access key of a preview. The key is handed out once: over MCP as a link the user's shell fetches, never in this answer. |
+| `oadm_access_keys_delete_preview` | Preview | Shows the access key that would be deleted; agents with it can no longer connect. Then call oadm_access_keys_delete_run with the handle. |
+| `oadm_access_keys_delete_run` | Run (changes) | Deletes the access key of a preview; it ends at once. It cannot be undone. |
+| `oadm_access_keys_list` | Read | The access keys of AI agents with their role, devices and end, a page at a time; never a key. Administrators only. |
+
 ## Backups
 
 | Tool | Kind | What it does |
@@ -392,6 +402,16 @@ and runs after the user agreed.
 | --- | --- | --- |
 | `oadm_device_request_preview` | Preview | Sends one VAPIX request of your own (method, path, query, body) to the devices of a filter, when no OADM tool and no command of oadm_vapix_commands does it. Run a change on one device first. Nothing is changed. Call oadm_device_request_run with the handle to apply it. |
 | `oadm_device_request_run` | Run (changes) | Applies the plan of oadm_device_request_preview, which checks everything again. |
+
+## Device groups
+
+| Tool | Kind | What it does |
+| --- | --- | --- |
+| `oadm_device_groups_delete_preview` | Preview | Shows the group that would be deleted and the users who then have no devices; nothing is changed. Then call oadm_device_groups_delete_run with the handle. |
+| `oadm_device_groups_delete_run` | Run (changes) | Deletes the device group of a preview; its users have no devices until an administrator chooses again. It cannot be undone. |
+| `oadm_device_groups_list` | Read | The device groups with their rules, device counts and users, a page at a time. Administrators only. |
+| `oadm_device_groups_save_preview` | Preview | Shows a new device group, or a group's new rules, with its device count and the users whose devices change; nothing is changed. Then call oadm_device_groups_save_run with the handle. |
+| `oadm_device_groups_save_run` | Run (changes) | Creates or changes the device group of a preview; its users see the new devices at their next call. |
 
 ## Docs
 
@@ -447,6 +467,26 @@ and runs after the user agreed.
 | `oadm_update_check` | Read | The server's version and the latest stable release of OADM, as the new version dialog shows them. Install it with oadm_update_install_preview. |
 | `oadm_update_install_preview` | Preview | Checks Install now of the new version dialog: the latest stable release, an installed server, no task running; nothing is changed. Then call oadm_update_install_run with the handle. |
 | `oadm_update_install_run` | Run (changes) | Install now: the server downloads the release's installer, checks its SHA-256, copies its database and runs the installer. The server is away until the new version answers. |
+
+## Users and roles
+
+| Tool | Kind | What it does |
+| --- | --- | --- |
+| `oadm_roles_delete_preview` | Preview | Shows the role that would be deleted; refused for a built-in role and a role users or access keys have. Then call oadm_roles_delete_run with the handle. |
+| `oadm_roles_delete_run` | Run (changes) | Deletes the role of a preview. It cannot be undone. |
+| `oadm_roles_list` | Read | The roles with their kind, users and how many rights each has, a page at a time. Administrators only. |
+| `oadm_roles_permissions` | Read | Every right a role can have, with its key, name and group, and whether a role has it; a page at a time. Use the keys with oadm_roles_save_preview. |
+| `oadm_roles_save_preview` | Preview | Shows a new role, or the rights a role gains and loses and whom it affects; nothing is changed. Then call oadm_roles_save_run with the handle. |
+| `oadm_roles_save_run` | Run (changes) | Creates or changes the role of a preview; its users and access keys get the new rights at their next call. |
+| `oadm_users_add_preview` | Preview | Checks a new user's name, role and devices; nothing is changed. The user sets the password through the secret channel, then call oadm_users_add_run with the handle. |
+| `oadm_users_add_run` | Run (changes) | Adds the user of a preview with the password the user set. The new user can log in at once. |
+| `oadm_users_delete_preview` | Preview | Shows the user that would be deleted; nothing is changed. Then call oadm_users_delete_run with the handle. |
+| `oadm_users_delete_run` | Run (changes) | Deletes the user of a preview; the user is logged out at once. It cannot be undone. |
+| `oadm_users_list` | Read | The users who can log in to OADM with their role, devices and state, a page at a time. Administrators only. |
+| `oadm_users_password_preview` | Preview | Prepares a new password for a user; nothing is changed. The user types it through the secret channel, then call oadm_users_password_run with the handle. |
+| `oadm_users_password_run` | Run (changes) | Sets the password the user typed for the user of a preview; the user is logged out and logs in with it. |
+| `oadm_users_update_preview` | Preview | Shows a user's new role, devices or state and what it means; nothing is changed. Then call oadm_users_update_run with the handle. |
+| `oadm_users_update_run` | Run (changes) | Changes the role, devices or state of the user of a preview, as the Permissions page does. |
 
 ## Waiting
 
