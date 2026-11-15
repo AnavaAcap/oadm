@@ -212,6 +212,7 @@ export default defineConfig({
 					label: 'Administration',
 					collapsed: true,
 					items: [
+						{ label: 'Assistant', slug: 'admin/assistant' },
 						{ label: 'Device groups', slug: 'admin/device-groups' },
 						{ label: 'Logs and troubleshooting', slug: 'admin/troubleshooting' },
 						{
