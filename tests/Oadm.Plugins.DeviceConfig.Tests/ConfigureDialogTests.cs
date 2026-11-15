@@ -171,6 +171,7 @@ public sealed class ConfigureDialogTests(Xunit.Abstractions.ITestOutputHelper ou
 
         Assert.Empty(ui.Confirmations); // nothing dangerous
         var payload = ConfigurePayload.Parse(dialog.Result);
+        Assert.Empty(new ConfigureDevicesTask().ValidatePayload(dialog.Result, Oadm.Sdk.Testing.FakeCallContext.AllDevices(new Oadm.Sdk.Testing.FakeCoreContext()))); // the server's check before the run
         Assert.Equal([new NameValue("Image.I0.Appearance.ColorEnabled", "no"), new NameValue("Image.I0.Appearance.Compression", "45")], payload.Parameters);
         Assert.Equal("View Area 1_ACS_Pro_High", Assert.Single(payload.StreamProfiles).Name);
         Assert.Equal("10.0.0.48 (AXIS P3265-V)", payload.Source);
