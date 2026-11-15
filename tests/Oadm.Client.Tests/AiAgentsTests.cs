@@ -56,7 +56,7 @@ public sealed class AiAgentsTests
         Assert.False(card.CanDownloadCa);
 
         await card.TurnOnCommand.ExecuteAsync(null);
-        Assert.Equal("802.1X and EST server (OADM Root CA FAKE), until 2036-11-14", card.CertificateText);
+        Assert.Equal("MCP Server Certificate (OADM Root CA FAKE), until 2036-11-14", card.CertificateText);
         Assert.Equal("Names: oadm-server.local, 10.0.0.17", card.CertificateHint);
         Assert.True(card.Running);
         Assert.Equal("Running on port 5082", card.StatusText);
@@ -86,10 +86,52 @@ public sealed class AiAgentsTests
         api.GetMcpAsync(Arg.Any<CancellationToken>()).Returns(state);
         var card = new AiAgentsViewModel(api, Substitute.For<IDialogService>(), Session(UserRole.Admin));
         await card.LoadAsync();
-        Assert.Equal("Turn on PKI to choose the certificate.", card.CertificateText);
+        Assert.Equal("PKI is not running. The server log says why.", card.CertificateText);
         Assert.False(card.TurnOnCommand.CanExecute(null));
-        Assert.Equal("Turn on PKI to choose the certificate.", card.TurnOnTip);
+        Assert.Equal("PKI is not running. The server log says why.", card.TurnOnTip);
         Assert.False(card.CanDownloadCa);
+    }
+
+    [Fact]
+    public async Task AnInterfaceTheServerDoesNotKnowShowsItsErrorDirectlyBelowListenOn()
+    {
+        var api = Substitute.For<IOadmApi>();
+        var state = new McpState { Settings = new McpSettings { Port = 5082 }, Status = McpTexts.Off, PkiAvailable = true };
+        state.Interfaces.Add(new McpInterface { Id = "all", Label = "All interfaces", Name = "All interfaces" });
+        state.Interfaces.Add(new McpInterface { Id = "eth0", Label = "Ethernet - 10.0.0.17", Name = "Ethernet", Addresses = { "10.0.0.17" } });
+        state.Interfaces.Add(new McpInterface { Id = "eth1", Label = "Ethernet 2 - 10.1.0.17", Name = "Ethernet 2", Addresses = { "10.1.0.17" } });
+        api.GetMcpAsync(Arg.Any<CancellationToken>()).Returns(state);
+        api.SetMcpAsync(Arg.Any<McpSettings>(), Arg.Any<CancellationToken>())
+            .Returns<McpState>(_ => throw new Grpc.Core.RpcException(new Grpc.Core.Status(Grpc.Core.StatusCode.InvalidArgument, McpTexts.UnknownInterface)));
+        var outDir = Environment.GetEnvironmentVariable("OADM_SCREENSHOT_DIR");
+        var done = await HeadlessSession.Shared.Dispatch(async () =>
+        {
+            var card = new AiAgentsViewModel(api, Substitute.For<IDialogService>(), Session(UserRole.Admin));
+            await card.LoadAsync();
+            var window = new Window { Width = 900, Height = 700, Content = new AiAgentsCardView { DataContext = card, Margin = new Avalonia.Thickness(24) } };
+            window.Show();
+            Pump();
+            window.GetVisualDescendants().OfType<Oadm.Client.Controls.CollapsibleCard>().Single().IsExpanded = true;
+            Pump();
+
+            card.SelectedInterface = card.Listen.Find("eth0");
+            await card.SaveCommand.ExecuteAsync(null);
+            Pump();
+            Assert.Equal(McpTexts.UnknownInterface, card.ErrorOf(nameof(AiAgentsViewModel.SelectedInterface)));
+            Assert.Null(card.Message); // never under the buttons
+            Assert.False(card.SaveCommand.CanExecute(null));
+            var listenOn = window.GetVisualDescendants().OfType<Oadm.Sdk.Client.Controls.FormField>().Single(f => f.Label == "Listen on" && f.IsEffectivelyVisible);
+            Assert.Contains(McpTexts.UnknownInterface, listenOn.GetVisualDescendants().OfType<TextBlock>().Where(t => t.IsEffectivelyVisible).Select(t => t.Text));
+            Save(window, outDir, "client-settings-ai-agents-interface-error.png");
+
+            card.SelectedInterface = card.Listen.Find("eth1"); // another choice clears it
+            Pump();
+            Assert.Null(card.ErrorOf(nameof(AiAgentsViewModel.SelectedInterface)));
+            Assert.True(card.SaveCommand.CanExecute(null));
+            window.Close();
+            return true;
+        }, CancellationToken.None);
+        Assert.True(done);
     }
 
     [Fact]

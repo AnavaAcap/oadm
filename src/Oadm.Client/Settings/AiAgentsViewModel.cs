@@ -19,12 +19,12 @@ namespace Oadm.Client.Settings;
 
 /// <summary>
 /// The Settings card AI agents (docs/spec/mcp.md "Transport and certificate"; "MCP" only in the docs): off by default; Turn on,
-/// Port and Listen on for administrators (Save), the certificate the PKI policy MCP server picks, and Download CA certificate
-/// for the agent's computer. Without PKI: "Turn on PKI to choose the certificate." and no Turn on. Every user sees the state.
+/// Port and Listen on for administrators (Save), the certificate the PKI policy AI agents picks, and Download CA certificate
+/// for the agent's computer. Without PKI: "PKI is not running. The server log says why." and no Turn on. Every user sees the state.
 /// </summary>
 public sealed partial class AiAgentsViewModel : ValidatingViewModel
 {
-    public const string Intro = "AI agents work in OADM with an access key and the rights of its user.";
+    public const string Intro = AccessKeyWords.Intro; // one phrase with the account menu's Access keys
     public const string ChooseCertificate = McpTexts.CertificateOnTurnOn;
     public const string NoCertificate = "None";
     public const string PortRange = McpTexts.PortRange;
@@ -58,7 +58,15 @@ public sealed partial class AiAgentsViewModel : ValidatingViewModel
             };
         }
 
-        Listen.PropertyChanged += (_, _) => NotifyCommands();
+        Listen.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(InterfaceSelection.Selected))
+            {
+                OnPropertyChanged(nameof(SelectedInterface)); // the field the server's error shows below
+            }
+
+            NotifyCommands();
+        };
         Validation.Rule(nameof(Port), () => int.TryParse(Port, NumberStyles.None, CultureInfo.InvariantCulture, out var port) && port is >= 1025 and <= 65535 ? null : PortRange);
         Validation.Validate();
         Validation.Reset();
@@ -69,6 +77,13 @@ public sealed partial class AiAgentsViewModel : ValidatingViewModel
 
     /// <summary>The choices of Listen on (the server's interfaces).</summary>
     public InterfaceSelection Listen { get; } = new();
+
+    /// <summary>The chosen interface of Listen on (bind <c>SelectedItem</c>): the field of its validation error.</summary>
+    public InterfaceOption? SelectedInterface
+    {
+        get => Listen.Selected;
+        set => Listen.Selected = value;
+    }
 
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(SaveCommand))]
@@ -239,6 +254,10 @@ public sealed partial class AiAgentsViewModel : ValidatingViewModel
         catch (RpcException ex) when (ex.StatusCode == StatusCode.InvalidArgument && ex.Status.Detail == PortRange)
         {
             Validation.SetServerError(nameof(Port), ex.Status.Detail);
+        }
+        catch (RpcException ex) when (ex.StatusCode == StatusCode.InvalidArgument && ex.Status.Detail == McpTexts.UnknownInterface)
+        {
+            Validation.SetServerError(nameof(SelectedInterface), ex.Status.Detail);
         }
         catch (RpcException ex)
         {

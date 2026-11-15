@@ -9,7 +9,7 @@ namespace Oadm.Contracts.Mcp;
 public static class McpTexts
 {
     public const string PortRange = "Enter a port from 1025 to 65535.";
-    public const string NoPki = "Turn on PKI to choose the certificate.";
+    public const string NoPki = "PKI is not running. The server log says why.";
     public const string Off = "Off";
     public const string UnknownInterface = "This interface is not available. Choose another one.";
     public const string NoCaCertificate = "The server for AI agents has no certificate yet.";

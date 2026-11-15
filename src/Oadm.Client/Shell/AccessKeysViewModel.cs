@@ -66,7 +66,7 @@ public interface IAccessKeyList
 public static class AccessKeyWords
 {
     public const string Title = "Access keys";
-    public const string Intro = "An AI agent works in OADM with an access key and the rights of your role.";
+    public const string Intro = "An AI agent works in OADM with an access key and the rights of its user."; // also the Settings card AI agents
     public const string CopyNow = "Copy it now. OADM cannot show it again.";
     public const string NeverUsed = "Never";
     public const string EnterName = "Enter a name.";

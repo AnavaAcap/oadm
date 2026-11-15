@@ -7,7 +7,7 @@
              x:Class="Oadm.Client.Settings.AiAgentsCardView"
              x:DataType="settings:AiAgentsViewModel">
   <!-- Settings page, every user (docs/spec/mcp.md): the server AI agents connect to. Administrators turn it on and set the port
-       and interface (Save); the certificate is the one the PKI policy MCP server picks. The status sits left of the buttons it
+       and interface (Save); the certificate is the one the PKI policy AI agents picks. The status sits left of the buttons it
        reports on, like the EST server's. -->
   <c:CollapsibleCard Title="AI agents">
     <StackPanel Classes="form">
@@ -17,7 +17,7 @@
           <TextBox x:Name="McpPort" Text="{Binding Port}" Width="120" HorizontalAlignment="Left" />
         </ui:FormField>
         <ui:FormField Label="Listen on" InputWidth="320">
-          <ComboBox HorizontalAlignment="Stretch" ItemsSource="{Binding Listen.Items}" SelectedItem="{Binding Listen.Selected}"
+          <ComboBox HorizontalAlignment="Stretch" ItemsSource="{Binding Listen.Items}" SelectedItem="{Binding SelectedInterface}"
                     ToolTip.Tip="The interface agents reach this server on">
             <ComboBox.ItemTemplate>
               <DataTemplate x:DataType="net:InterfaceOption">
