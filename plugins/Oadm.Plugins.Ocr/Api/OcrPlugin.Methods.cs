@@ -22,6 +22,11 @@ public sealed partial class OcrPlugin
         var ctx = _ctx ?? throw new InvalidOperationException(ReaderRules.NotRunning);
         var store = _store ?? throw new InvalidOperationException(ReaderRules.NotRunning);
         var runtime = _runtime ?? throw new InvalidOperationException(ReaderRules.NotRunning);
+        if (OcrPageTools.Set.Handles(method))
+        {
+            return await OcrPageTools.Set.InvokeAsync(this, caller, method, payloadJson, ct).ConfigureAwait(false);
+        }
+
         if (method == OcrTools.Readers.Method)
         {
             // The page's list with its rules (a reader of a camera the caller cannot see shows no text).

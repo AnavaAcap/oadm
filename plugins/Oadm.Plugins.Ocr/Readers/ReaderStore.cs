@@ -82,12 +82,33 @@ internal sealed partial class ReaderStore(IPluginRecords records, ILogger logger
     /// limits (a check of a field: <see cref="ReaderFieldException"/>); returns the stored reader and the one it replaced (null for a new one). <paramref name="deviceOf"/> finds any
     /// managed camera (system view) for the count of watching readers per site; it shows the caller no device data.
     /// </summary>
-    public async Task<(Reader Saved, Reader? Before)> SaveAsync(
+    public Task<(Reader Saved, Reader? Before)> SaveAsync(
         ICorePluginContext ctx,
         ICallContext caller,
         Reader incoming,
         int maxWatching,
         Func<Guid, CancellationToken, Task<IDeviceInfo?>> deviceOf,
+        CancellationToken ct) => SaveAsync(ctx, caller, incoming, maxWatching, deviceOf, check: false, ct);
+
+    /// <summary>
+    /// Every check of <see cref="SaveAsync(ICorePluginContext, ICallContext, Reader, int, Func{Guid, CancellationToken, Task{IDeviceInfo?}}, CancellationToken)"/>
+    /// without storing anything (a tool's preview): the reader as it would be stored (a new one without its id) and the one it replaces.
+    /// </summary>
+    public Task<(Reader Saved, Reader? Before)> CheckSaveAsync(
+        ICorePluginContext ctx,
+        ICallContext caller,
+        Reader incoming,
+        int maxWatching,
+        Func<Guid, CancellationToken, Task<IDeviceInfo?>> deviceOf,
+        CancellationToken ct) => SaveAsync(ctx, caller, incoming, maxWatching, deviceOf, check: true, ct);
+
+    private async Task<(Reader Saved, Reader? Before)> SaveAsync(
+        ICorePluginContext ctx,
+        ICallContext caller,
+        Reader incoming,
+        int maxWatching,
+        Func<Guid, CancellationToken, Task<IDeviceInfo?>> deviceOf,
+        bool check,
         CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(deviceOf);
@@ -148,6 +169,11 @@ internal sealed partial class ReaderStore(IPluginRecords records, ILogger logger
                 {
                     throw new ReaderFieldException(OcrFields.Mode, ReaderRules.TooManyWatchingAtSite(camera.SiteName));
                 }
+            }
+
+            if (check)
+            {
+                return (reader with { OwnerScopeKey = owner == ICallContext.AllDevicesScopeKey ? null : owner }, before);
             }
 
             var saved = reader with
