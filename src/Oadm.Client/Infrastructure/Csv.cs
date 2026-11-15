@@ -9,37 +9,11 @@ namespace Oadm.Client.Infrastructure;
 /// </summary>
 public static class Csv
 {
-    /// <summary>One cell as written: formula-safe and quoted when needed.</summary>
-    public static string Field(string? value)
-    {
-        string text = value ?? "";
-        if (text.Length > 0 && text[0] is '=' or '+' or '-' or '@' or '\t' or '\r')
-        {
-            text = "'" + text;
-        }
-
-        return text.AsSpan().IndexOfAny(",\"\r\n") >= 0 ? "\"" + text.Replace("\"", "\"\"", StringComparison.Ordinal) + "\"" : text;
-    }
+    /// <summary>One cell as written: formula-safe and quoted when needed (<see cref="Contracts.Text.CsvWriter"/>).</summary>
+    public static string Field(string? value) => Contracts.Text.CsvWriter.Field(value);
 
     /// <summary>Appends one record (cells and CRLF).</summary>
-    public static void AppendRecord(StringBuilder sb, IEnumerable<string?> cells)
-    {
-        ArgumentNullException.ThrowIfNull(sb);
-        ArgumentNullException.ThrowIfNull(cells);
-        bool first = true;
-        foreach (string? cell in cells)
-        {
-            if (!first)
-            {
-                sb.Append(',');
-            }
-
-            sb.Append(Field(cell));
-            first = false;
-        }
-
-        sb.Append("\r\n");
-    }
+    public static void AppendRecord(StringBuilder sb, IEnumerable<string?> cells) => Contracts.Text.CsvWriter.AppendRecord(sb, cells);
 
     /// <summary>Undoes the formula guard of <see cref="Field"/> ("'=1" reads as "=1").</summary>
     public static string Unguard(string cell)

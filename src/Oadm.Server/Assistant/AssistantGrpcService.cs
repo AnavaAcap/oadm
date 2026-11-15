@@ -67,8 +67,11 @@ public sealed class AssistantGrpcService(AssistantChats chats, AuditLog audit, I
         }
         finally
         {
-            await audit.WriteAsync(AuditActions.FileDownloaded, file.Name,
-                string.Create(System.Globalization.CultureInfo.InvariantCulture, $"{sent:N0} bytes, from the assistant"), CancellationToken.None).ConfigureAwait(false);
+            if (!file.AuditedBySource)
+            {
+                await audit.WriteAsync(AuditActions.FileDownloaded, file.Name,
+                    string.Create(System.Globalization.CultureInfo.InvariantCulture, $"{sent:N0} bytes, from the assistant"), CancellationToken.None).ConfigureAwait(false);
+            }
         }
     }
 

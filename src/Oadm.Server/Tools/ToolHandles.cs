@@ -19,6 +19,9 @@ internal sealed record PlannedDownload(string Name, string ContentType, Func<Can
 {
     /// <summary>The size in bytes when known before the file is made.</summary>
     public long? Size { get; init; }
+
+    /// <summary>The source writes the "Downloaded file" entry itself (a task's result file): the channel writes none of its own.</summary>
+    public bool AuditedBySource { get; init; }
 }
 
 /// <summary>

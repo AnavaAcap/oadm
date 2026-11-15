@@ -27,6 +27,7 @@ internal static class AssistantCards
     private static readonly HashSet<string> Shown = new(StringComparer.Ordinal)
     {
         "handle", "expires", "note", "warnings", "skipped", "cannot", "first", "devices", "will_run", "will_change", "will_cancel", "will_try",
+        "needs_secrets", "secret_links",
     };
 
     public static Proto.AssistantPreviewCard Build(OadmTool preview, OadmTool? run, string handle, JsonObject answer, JsonElement arguments)

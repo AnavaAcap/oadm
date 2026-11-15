@@ -39,6 +39,9 @@ public sealed class TaskResultFiles
         _time = time ?? TimeProvider.System;
     }
 
+    /// <summary>The largest file; <see cref="TaskResultFile.MaxBytes"/> unless a test sets less.</summary>
+    public long MaxBytes { get; init; } = TaskResultFile.MaxBytes;
+
     /// <summary>The result file of <paramref name="taskId"/>; null when it has none (or it ended).</summary>
     public TaskResultFileInfo? Find(Guid taskId)
     {
@@ -70,9 +73,9 @@ public sealed class TaskResultFiles
                 while ((read = await content.ReadAsync(buffer, ct).ConfigureAwait(false)) > 0)
                 {
                     size += read;
-                    if (size > TaskResultFile.MaxBytes)
+                    if (size > MaxBytes)
                     {
-                        throw new InvalidOperationException("The result file is larger than 64 MB.");
+                        throw new InvalidOperationException(string.Create(System.Globalization.CultureInfo.InvariantCulture, $"The result file is larger than {MaxBytes / (1024 * 1024)} MB."));
                     }
 
                     await file.WriteAsync(buffer.AsMemory(0, read), ct).ConfigureAwait(false);

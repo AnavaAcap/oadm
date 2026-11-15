@@ -108,6 +108,7 @@ internal static class ToolFiles
                 (s, r, w, c) => s.DownloadResult(r, w, c), ct).ConfigureAwait(false)).Content)
         {
             Size = file.Size,
+            AuditedBySource = true, // TaskService.DownloadResult audits every download
         };
     }
 

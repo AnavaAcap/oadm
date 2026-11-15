@@ -225,6 +225,7 @@ public static partial class OadmServerHost
                         Tools.ServerStatusTool.McpPath, new Oadm.Contracts.V1.Empty(), (s, r, c) => s.Get(r, c))),
                     .. Tools.FileTools.Create(cursors, sp.GetRequiredService<Tools.ToolHandles>()),
                     .. Tools.ToolFiles.Create(sp.GetRequiredService<Tools.ToolHandles>()),
+                    .. Tools.ExportTools.Create(sp.GetRequiredService<Tools.ToolHandles>(), () => roles.Catalog),
                     .. Tools.SelectionTools.Create(cursors, facts),
                     .. Tools.DocsTools.Create(() => Assistant.DocsIndex.Shipped),
                 ],

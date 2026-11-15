@@ -176,8 +176,9 @@ internal sealed class ToolSecrets(TimeProvider time, CredentialProtector protect
                 return null;
             }
 
-            Remove(entry.Handle);
-            return entry.Values.ToDictionary(v => v.Key, v => protector.Unprotect(v.Value, Associated(entry, v.Key)), StringComparer.Ordinal);
+            var values = entry.Values.ToDictionary(v => v.Key, v => protector.Unprotect(v.Value, Associated(entry, v.Key)), StringComparer.Ordinal);
+            Remove(entry.Handle); // zeroes the encrypted values
+            return values;
         }
     }
 
