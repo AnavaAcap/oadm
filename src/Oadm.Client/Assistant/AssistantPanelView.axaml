@@ -47,7 +47,7 @@
         <ui:ProgressRow Text="{x:Static a:AssistantTexts.Uploading}" IsVisible="{Binding IsUploading}" />
         <!-- The selection that goes along: more than 10,000 devices, the message directly below the box. -->
         <ui:FormField LabelAbove="True" Error="{Binding SelectionError}">
-          <TextBox x:Name="MessageBox" Text="{Binding Draft}" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="64" MaxHeight="200"
+          <TextBox x:Name="MessageBox" Text="{Binding Draft}" AcceptsReturn="True" TextWrapping="Wrap" MaxHeight="200"
                    MaxLength="{x:Static a:AssistantTexts.MaxMessageLength}" PlaceholderText="{x:Static a:AssistantTexts.Placeholder}" />
         </ui:FormField>
         <!-- The model picker left of Send (the provider's list, or a typed name), its error directly below it (data
