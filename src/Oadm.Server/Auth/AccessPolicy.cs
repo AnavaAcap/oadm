@@ -46,6 +46,15 @@ public readonly record struct AccessRule(Access Access, string? Permission = nul
 
     /// <summary>This rule, for users with all devices only.</summary>
     public AccessRule ForAllDevices() => this with { AllDevices = true };
+
+    /// <summary>
+    /// Only the server's own tools call it in process (<c>InProcessCalls</c>); a client over the network gets PERMISSION_DENIED.
+    /// For answers that grow with the device count, which a client never needs (CLAUDE.md "scale").
+    /// </summary>
+    public bool InProcessOnly { get; init; }
+
+    /// <summary>This rule, for the server's own in-process calls only.</summary>
+    public AccessRule ForInProcess() => this with { InProcessOnly = true };
 }
 
 /// <summary>
@@ -54,6 +63,9 @@ public readonly record struct AccessRule(Access Access, string? Permission = nul
 /// </summary>
 public static class AccessPolicy
 {
+    /// <summary>The refusal of a method that only the server's own tools call (<see cref="AccessRule.InProcessOnly"/>).</summary>
+    public const string InProcessOnlyMessage = "Only the server's own tools use this call.";
+
     /// <summary>Web View's permission: the relay acts with the stored device login.</summary>
     public const string WebViewOpen = "oadm.web-view:open";
 
@@ -88,7 +100,7 @@ public static class AccessPolicy
         ["/oadm.v1.DeviceService/Remove"] = AccessRule.Needs(HostPermissions.DevicesAddRemove),
         ["/oadm.v1.DeviceService/Refresh"] = AccessRule.Needs(HostPermissions.DevicesRefresh),
         ["/oadm.v1.DeviceService/SetCredentials"] = AccessRule.Needs(HostPermissions.DevicesLogin),
-        ["/oadm.v1.DeviceService/Resolve"] = AccessRule.SignedIn, // like Search: the caller's view, filtered (the MCP device tools)
+        ["/oadm.v1.DeviceService/Resolve"] = AccessRule.SignedIn.ForInProcess(), // like Search: the caller's view, filtered; every id at once, so the tools only
         ["/oadm.v1.DeviceService/SetStoredCredentials"] = AccessRule.Admin.ForAllDevices(), // applies an entry of the credential list: the rule of ListCredentials (Administrator, never a device group)
         ["/oadm.v1.DeviceService/LogIn"] = AccessRule.Needs(HostPermissions.DevicesLogin),
         ["/oadm.v1.DeviceService/GetCredentialUserName"] = AccessRule.Needs(HostPermissions.DevicesLogin),
@@ -131,7 +143,7 @@ public static class AccessPolicy
         ["/oadm.v1.TagService/Watch"] = AccessRule.SignedIn,
         ["/oadm.v1.TagService/Create"] = AccessRule.Needs(HostPermissions.TagsAssign),
         ["/oadm.v1.TagService/SetDeviceTags"] = AccessRule.Needs(HostPermissions.TagsAssign),
-        ["/oadm.v1.TagService/PlanDeviceTags"] = AccessRule.Needs(HostPermissions.TagsAssign),
+        ["/oadm.v1.TagService/PlanDeviceTags"] = AccessRule.Needs(HostPermissions.TagsAssign).ForInProcess(), // every changed id at once: the tools only
         ["/oadm.v1.TagService/Update"] = AccessRule.Needs(HostPermissions.TagsManage).ForAllDevices(),
         ["/oadm.v1.TagService/Delete"] = AccessRule.Needs(HostPermissions.TagsManage).ForAllDevices(),
 
@@ -143,7 +155,7 @@ public static class AccessPolicy
         ["/oadm.v1.TaskService/GetLog"] = AccessRule.SignedIn,
         ["/oadm.v1.TaskService/Run"] = AccessRule.InCall,
         ["/oadm.v1.TaskService/Query"] = AccessRule.InCall,
-        ["/oadm.v1.TaskService/Plan"] = AccessRule.InCall, // like Run: the run's permissions are checked in the call, nothing is written
+        ["/oadm.v1.TaskService/Plan"] = AccessRule.InCall.ForInProcess(), // like Run: the run's permissions in the call, nothing written; every id at once: the tools only
         ["/oadm.v1.TaskService/Cancel"] = AccessRule.Needs(HostPermissions.TasksCancel),
         ["/oadm.v1.TaskService/Delete"] = AccessRule.Needs(HostPermissions.TasksDelete),
         ["/oadm.v1.TaskService/DeleteAll"] = AccessRule.Needs(HostPermissions.TasksDeleteAll).ForAllDevices(),

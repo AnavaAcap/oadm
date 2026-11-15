@@ -77,8 +77,8 @@ used again.
     "Measured"); no filter, rows or counts answers the view's cached count. Ids in the filter read only those devices: any
     one that is unknown or outside the view refuses the request (NOT_FOUND, like every method); INVALID_ARGUMENT for a sort,
     count field, limit or id it does not know.
-  - `Resolve(filter, shown)` (signed in, like `Search`; the AI agents' device previews): the ids of the filter's devices in
-    the caller's view in address order and the first `shown` rows, so a run takes a fixed list.
+  - `Resolve(filter, shown)` (signed in, like `Search`; the AI agents' device previews; **in process only**): the ids of the
+    filter's devices in the caller's view in address order and the first `shown` rows, so a run takes a fixed list.
   - `SetStoredCredentials(device_ids, credential_id)` (Administrator, the rule of `SettingsService.ListCredentials`;
     audited "Set device credentials"): the login of an entry of the credential list, so no password is sent or answered.
   - `LogIn(device_ids, user_name, password, save_to_credential_list)` (context menu "Log in", `docs/spec/main-window.md`;
@@ -176,8 +176,8 @@ used again.
     `batch_id = 3`, all tasks of a Run written in one transaction. Before any task starts the plugin checks the payload
     (`ITaskPlugin.ValidatePayload`, SDK 0.13.0): INVALID_ARGUMENT with the first problem's text and its field in the trailer
     `oadm-field`; a check that throws refuses the run ("The task settings cannot be checked. Nothing was changed.").
-  - `Plan(PlanTaskRequest {plugin_id, filter (DeviceFilter), payload_json})` (like Run, nothing written; the preview of the
-    tools, `docs/spec/mcp.md` "Tasks"): NOT_FOUND unknown plugin, PERMISSION_DENIED page task or what the run needs; the
+  - `Plan(PlanTaskRequest {plugin_id, filter (DeviceFilter), payload_json})` (like Run, nothing written; **in process
+    only**; the preview of the tools, `docs/spec/mcp.md` "Tasks"): NOT_FOUND unknown plugin, PERMISSION_DENIED page task or what the run needs; the
     payload's `errors` {field, message} (then nothing else), else the filter's devices in the caller's view in address order
     (NOT_FOUND for an id outside it), `run_device_ids` (`PlanAsync`, cached data only), `skipped` {reason, count},
     `task_name`, `device_count`, `warnings`.
@@ -329,8 +329,11 @@ used again.
   PERMISSION_DENIED for a user with a device group who adds or removes a tag a device group uses; RESOURCE_EXHAUSTED when
   a device would get more than 20 tags; reply `devices_changed`, `created`). Every write publishes one Updated device
   change per changed device; moves into or out of device groups are audited per group.
-  - `PlanDeviceTags(filter, add, remove)` (like `SetDeviceTags`): the counts and the ids of the devices that would change;
-    writes nothing.
+  - `PlanDeviceTags(filter, add, remove)` (like `SetDeviceTags`; **in process only**): the counts and the ids of the devices
+    that would change; writes nothing.
+- **In process only** (`AccessRule.InProcessOnly`): `DeviceService.Resolve`, `TaskService.Plan` and `TagService.PlanDeviceTags`
+  answer an id per device (about 3.7 MB at 100,000 devices). Only the server's own tools call them, in process
+  (`InProcessCalls`); a client over the network gets PERMISSION_DENIED "Only the server's own tools use this call."
 - **`LicenseService`** (`license.proto`, `docs/spec/licensing.md`): `GetLicense` (every signed-in user), `ImportLicense`
   and `RemoveLicense` (Admin, audited; INVALID_ARGUMENT with the reason), `StartTrial` (Admin, audited, once per server;
   FAILED_PRECONDITION with the reason).

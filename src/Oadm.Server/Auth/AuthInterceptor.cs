@@ -254,6 +254,12 @@ public sealed partial class AuthInterceptor(AuthTokenStore tokens, RoleStore rol
             throw new RpcException(new Status(StatusCode.Unavailable, Contracts.Updates.UpdateTexts.Updating(updatingTo)));
         }
 
+        if (rule.InProcessOnly)
+        {
+            // Answers that grow with the device count: only the server's own tools call these, in process, never through here.
+            throw new RpcException(new Status(StatusCode.PermissionDenied, AccessPolicy.InProcessOnlyMessage));
+        }
+
         if (rule.Access == Access.Open)
         {
             return (null, rule);
