@@ -204,7 +204,8 @@ nothing is selected.
 - `oadm_task_preview(task, filter, input)`: checks the input (the plugin's `ValidatePayload`, see "SDK"), resolves the
   filter to a fixed device list and answers the plan: `will_run` count with the first 20 devices, `skipped` grouped by
   reason ("No file for this model.", "Already up to date", "Needs AXIS OS 11.11 or later"), the task name
-  (`GetTaskName`), warnings (the dialog's warnings, e.g. a network change that can make devices unreachable), and a
+  (`GetTaskName`), warnings (the dialog's warnings, e.g. a network change that can make devices unreachable), `files`
+  and `details` (the plan's lines, e.g. the package each device group gets; the Assistant's card lists them), and a
   **handle** (10 minutes, once, bound to the key; the input stays in memory only, like every payload). Invalid input:
   `isError` with one entry per field (`{"field": "ip", "error": "Enter an IPv4 address."}`, the dialog's texts).
 - `oadm_task_run(handle)`: the run; re-checks the permissions and the role's `RequiredPermissions`; answers the batch id

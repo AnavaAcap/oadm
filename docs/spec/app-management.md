@@ -85,11 +85,13 @@ always-on `oadm.acap` stays as it is). The context menu dialog **Applications (A
 - Actions (command buttons, each with its texts and confirmations):
   - **Install** opens the page's own dialog **Install applications** (chosen 2026-10-28 over the Applications plugin's
     dialog through `RunTaskAsync`: "the same view again"): fixed size, no card. **Choose files** (`ui:FileRow`): one
-    `.eap`, one per architecture of the same application and version, a ZIP of them, or both (see "A ZIP of packages";
-    `AcapCompatibility.CheckPackageSet`, refused at the file row before any upload). A virtualized grid of the target devices: address, model, AXIS OS, SoC,
+    `.eap`, several builds of the same application (per architecture and AXIS OS), a ZIP of them, or both (see "A ZIP of
+    packages"; `AcapCompatibility.CheckPackageSet`, refused at the file row before any upload). A virtualized grid of the target devices: address, model, AXIS OS, SoC,
     architecture, **Result**. Once files are chosen every device is checked off the UI thread with the Applications
-    plugin's own preview (`AcapCompatibility.Preview`, linked source, also the Applications dialog's): the package of its
-    architecture ("No package for mips."), architecture, AXIS OS range and manifest schema, root apps, signed-only on
+    plugin's own preview (`AcapCompatibility.Preview`, linked source, also the Applications dialog's): the build of its
+    group (`AcapBuildChooser`, one choice per group, the ZIP's mapping file included; "No package for mips."; a group two
+    builds fit equally is not installed here: its row says "Several packages fit: a.eap, b.eap.", the Applications
+    dialog has the table to choose), architecture, AXIS OS range and manifest schema, root apps, signed-only on
     AXIS OS 13+, another app with the same name, vendor change, install kind and downgrade. The facts are what the page
     read (architecture, AXIS OS, installed applications, AllowUnsigned, the embedded development version); the task
     checks them again with fresh values before it uploads. Devices that were not read show their row's error.
@@ -169,51 +171,75 @@ the device is read again; when it cannot be asked, Settings stays (the window th
   application settings", Administrator and Operator by default). Task name "Change settings of <app>". Only the changed
   values are sent.
 
-## Several packages per install (stage 2)
+## Several builds per install
 
-The Applications (ACAP) dialog and task take several `.eap` files of the same application at once, one per architecture
-(e.g. the `aarch64` and the `armv7hf` build), like Upgrade AXIS OS takes one file per model:
+Vendors ship one application as several builds: per architecture and per AXIS OS track (an `aarch64` build for AXIS OS
+10.x and another for 11 and later), sometimes with other version numbers per track. The Applications (ACAP) dialog and
+task take them together (decision 2026-11-15, "auto + table when unclear"):
 
-- All files must name the same application (`appName`) and version; two files for the same architecture, or a file of
-  another application, are refused in the dialog before any upload. A package without an architecture (`all`,
-  `noarch`, none) fits every device and cannot be combined with others.
-- Each device gets the file of its architecture (basicdeviceinfo `Architecture`); the preview shows per device which file
-  ("aarch64 build") and every other check as today; a device without a fitting file is skipped with the reason "No
-  package for armv7hf." (Done with warnings, nothing changed).
-- The payload carries the files (`files: [{fileId, sha256, architecture}]`, the old single `fileId` still read); the task
-  picks the file again from a fresh basicdeviceinfo before it uploads.
+- All files must name the same application (`appName`) and no two files the same name (a mapping names them); several
+  builds per architecture, other versions and a package for any architecture are fine. Otherwise refused in the dialog
+  before any upload (`AcapCompatibility.CheckPackageSet`), and again by the task. At most 16 files (`AcapPayload.MaxFiles`):
+  three architectures times three tracks fit.
+- **One pure function** picks the build per device group (model, AXIS OS, architecture): `AcapBuildChooser.Choose`, used
+  by the dialog's preview, Install applications, the plan for agents and the task's run with a fresh basicdeviceinfo.
+  Order: 1) the choice of the payload's `mapping` for the group (the table, an agent); 2) the rows of a mapping file that
+  match the device (below); 3) automatic: the architecture fits (`arm64` = `aarch64`) and the AXIS OS is inside the build's
+  `compatibleOsVersions` (without a range: at least the manifest schema's minimum); of those the newest version, then the
+  range that lies inside the others'. A package for any architecture only when no native build fits. A choice never
+  overrides safety: the chosen build must fit the device's architecture and AXIS OS, else that group gets "No package"
+  with the reason ("lpr_lts.eap from row 1 of the mapping file does not fit: it needs AXIS OS 10.0 - 10.12.").
+- **Unclear**: two builds fit equally (same version and range, ranges where none lies inside the other, a build without
+  a range next to another, two mapping rows of the same weight). The dialog then shows a table above the preview, one
+  row per group with a list of the candidate files (Devices, Package, Decided by); Install stays disabled with "Choose the
+  package for P3265-V, AXIS OS 12.11.77, aarch64." as its tooltip until every unclear group has a file. The table shows
+  only unclear groups; with a mapping file every group, the decided ones with their file and the row that decided. The
+  groups come from the cached facts of all selected devices (the read ones from the dialog's read), O(n).
+- **No package**: "No package for armv7hf.", "No package for AXIS OS 9.80.3." (Done with warnings, nothing changed).
+- **Payload**: `files: [{fileId, sha256, architecture}]` (the old single `fileId` still read), `rules` (the mapping file's
+  rows with file ids), `mapping: [{model, axisOs, architecture, file}]` for the unclear groups (model optional = every
+  model). The task honours the mapping; a mapped file that does not fit the fresh read fails "Nothing was changed", an
+  unclear group without a choice too. A device whose AXIS OS changed since the preview is decided again.
+
+## Mapping file for vendors
+
+`oadm-packages.json` in the ZIP, at its top level or next to the `.eap` files (name in any case), OADM's own format (Axis
+has none): `{"packages": [{"file", "models", "soc", "architecture", "axisOs": {"min", "max"}}]}`. Only `file` is required
+and must name an `.eap` of the pick; `models` match the model with or without "AXIS " (any case), `soc` the SoC as the SoC
+column shows it ("A8" = "ARTPEC-8" = "Axis Artpec-8", "CV25" = "Ambarella CV25"), `axisOs` bounds inclusive at their own
+precision like the manifest ranges. The most specific matching row wins: models before the SoC before architecture and
+AXIS OS; a tie of rows naming different files is unclear. Strict JSON (no comments, no trailing commas), no unknown key,
+at most 64 KB and 500 rows (`AcapPackageRules`); a broken file refuses the ZIP at the file row with a plain sentence
+("oadm-packages.json row 2 names lpr.eap, which is not among the .eap files."). The package facts say "Mapping from the
+package".
 
 ## A ZIP of packages
 
-Vendors ship an application as a ZIP with one `.eap` per architecture. Both dialogs (Applications (ACAP) and Install
-applications) take it next to loose files, also mixed in one pick, through one shared class,
-`EapPackageFiles` (`plugins/Oadm.Plugins.Acap/Shared`). Temp folders a client that ended hard left behind go at the client's
-next start, older than a day, best effort, once, off the UI thread (`SweepOnce`, from the Applications dialog's load):
+Vendors ship an application as a ZIP of its builds. Both dialogs (Applications (ACAP) and Install applications) take it
+next to loose files, also mixed in one pick, through `EapPackageFiles`; agents and the Assistant upload the ZIP and give
+`zipFileId`. The rules of a ZIP are one shared class, `EapZip` (`plugins/Oadm.Plugins.Acap/Shared`), the same for the
+client and the server:
 
-- **Client only.** The picker offers `*.eap` and `*.zip` together, plus All files. The client unpacks the `.eap` files of
-  each ZIP, also from subfolders, into a private temp folder of the dialog; other files and the copies macOS adds
-  (`__MACOSX/`, `._name`) are ignored, a ZIP inside a ZIP too. From there on it is the path of several loose `.eap`
-  files: the same read, `CheckPackageSet`, every compatibility and signing check and upload. The ZIP never reaches the
-  server or a device. Several different applications in one install stay refused.
-- **An entry's name is never a path.** Only its last segment counts (`/` and `\`), characters a file system could read
-  as more than a name are replaced, names reserved on Windows become `package.eap`, each entry gets a folder of its own,
-  so equal names never overwrite each other.
-- **Limits** (constants of `EapPackageFiles`): at most `AcapPayload.MaxFiles` (16) `.eap` per pick, loose ones included;
-  `MaxUnpackedBytes` 2 GB unpacked per pick, the default size limit of one upload; `MaxZipEntries` 10,000 entries per ZIP.
-  Sizes are checked first as the ZIP declares them, before anything is written, then again while writing, so a ZIP that
-  lies about its sizes stops at the limit. An entry whose size differs from its record is damaged.
-- **Refusals**, one sentence in the file row, nothing left in the temp folder: "app.zip has no .eap files.", "app.zip is
-  damaged or not a ZIP file.", "app.zip is password protected.", "app.zip is too large to unpack.", "app.zip has too many
-  files.", "Choose at most 16 files."
-- **File row**: "app.zip  ·  2 files", with more in the pick "app.zip and 1 more  ·  3 files", the size below it
-  (the unpacked `.eap` files). A long ZIP name is shortened in the middle, so the count stays visible. Errors name the
-  `.eap` files as for loose files.
-- **Progress**: only a pick with a ZIP shows the dialog's progress row (the upload's) from the first moment, Cancel stops
-  the unpacking and the dialog stays open ("Unpacking cancelled."). It runs on a pool thread.
-- **Temp folder** (`oadm-eap-<id>` in the user's temp folder, on Linux and macOS for the user only): deleted on a new
-  pick, a refused or failed read, Cancel and when the window closes. A read or an upload holds it
-  (`EapPackageFiles.Hold`): closing the window meanwhile deletes it when that ended. A failed or cancelled upload keeps
-  it for the next try. After a crash of the client it stays in the temp folder.
+- **Only the builds and the mapping file.** The `.eap` entries, also from subfolders, and one `oadm-packages.json`; other
+  files and the copies macOS adds (`__MACOSX/`, `._name`) are ignored, a ZIP inside a ZIP too.
+- **Refused**: an entry name with an absolute path, a drive or ".." ("app.zip has a file with a path outside the ZIP."),
+  two `.eap` of the same name ("app.zip has two files named app.eap."), more than one mapping file, a password, more than
+  10,000 entries, more than 16 `.eap`, more than 2 GB unpacked (declared sizes first, then counted while reading), an
+  entry that unpacks to more than 100 times its packed size (a ZIP bomb; an `.eap` is compressed already), an entry that
+  ends short of its size ("app.zip is damaged or not a ZIP file.").
+- **Client.** The client unpacks the builds into a private temp folder of the dialog (`oadm-eap-<id>` in the user's temp
+  folder, on Linux and macOS for the user only; the file name on disk made safe, `SafeFileName`, the name in the ZIP kept
+  for the mapping) and uploads each `.eap`; the ZIP never reaches the server from the dialog. Deleted on a new pick, a
+  refused or failed read, Cancel and when the window closes; a read or an upload holds it (`EapPackageFiles.Hold`). Temp
+  folders a client that ended hard left behind go at the next start, older than a day (`SweepOnce`). Only a pick with a
+  ZIP shows the progress row, Cancel stops the unpacking ("Unpacking cancelled."). File row: "app.zip  ·  2 files", "app.zip
+  and 1 more  ·  3 files", a long name shortened in the middle.
+- **Server** (agents, the Assistant: `zipFileId`). The plan and every task read the uploaded ZIP as a stream, never
+  unpacked to disk: each build's manifest and SHA-256 while it streams (`EapZip.ReadAsync`), the mapping file, the same
+  checks; the upload to the device streams the chosen entry within its declared size (`EapZip.OpenBuildAsync`). The plan
+  names the ZIP and each build with its SHA-256 and a line per device group ("P3265-V, AXIS OS 12.11.77, aarch64 (4
+  devices): lpr_2.6_aarch64.eap (row 1 of the mapping file)"); an unclear group is a field error at `mapping` with the
+  candidates, a broken ZIP one at `zipFileId`.
 
 ## Settings values are treated as secret
 
@@ -242,7 +268,7 @@ Actions: the Applications plugin's task permissions; a role without them sees th
   lies about its size, temp folder deleted on close, cancel and a new pick and kept over an upload, both dialogs through
   `EapPackageFiles` (`tests/Oadm.Plugins.Acap.Tests/EapPackageFilesTests.cs`, `DialogTests`); headless screenshots of the
   file row in both dialogs.
-- Install applications and Install licenses: the verdict per row from the shared rules (several files per architecture,
+- Install applications and Install licenses: the verdict per row from the shared rules (several builds per architecture and AXIS OS,
   downgrade, signed-only, not read devices; key found, expired, other application, no license needed), the run request
   sent (files, version, options; keys per application), the permissions (install, downgrade, license) checked by the
   server part before any task; 100,000 devices checked and matched within a Perf budget; headless screenshots of both.

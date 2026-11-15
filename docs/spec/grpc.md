@@ -189,7 +189,9 @@ used again.
     only**; the preview of the tools, `docs/spec/mcp.md` "Tasks"): NOT_FOUND unknown plugin, PERMISSION_DENIED page task or what the run needs; the
     payload's `errors` {field, message} (then nothing else), else the filter's devices in the caller's view in address order
     (NOT_FOUND for an id outside it), `run_device_ids` (`PlanAsync`, cached data only), `skipped` {reason, count},
-    `task_name`, `device_count`, `warnings`.
+    `task_name`, `device_count`, `warnings`, `files`, `details` (`TaskPlan.Details`: what the run does, such as the package each
+    device group gets). A plan that finds problems only it can see (`TaskPlan.Errors`: an upload it read, a choice the user
+    must make) answers them as `errors` like the payload check.
   - `List(ListTasksRequest)`: newest first, `limit` / `offset` paging, `TaskList.total_count = 2`, limit 0 = all.
     `Watch(WatchTasksRequest)`: every active task plus the newest `snapshot_limit` (0 = all), `SNAPSHOT_END` (kind 4, no
     task) when `snapshot_end_marker`, then live changes. For a user with a group both are filtered in the query

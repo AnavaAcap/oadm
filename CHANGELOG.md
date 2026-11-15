@@ -18,6 +18,7 @@ Each entry is one short line in plain words (what the user gets, not how); no ne
 - Assistant and agents do what you can on the plugin pages, such as starting a scan or saving a dashboard, with the same permissions.
 - Assistant and agents hand you exports, reports and task results as files, and you type a password for them without the AI seeing it.
 - Plugin SDK 0.13.0: the certificates of the servers OADM runs, and tasks and tools for MCP (payload schema, payload check, plan, result files, tool files).
+- Applications: install several builds of one application at once, each camera gets the one for its processor and AXIS OS, also from a vendor's ZIP with its mapping file and by agents.
 
 ## [5.0.0] - 2026-11-13
 

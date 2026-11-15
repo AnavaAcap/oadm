@@ -641,7 +641,7 @@ box back with the error below the list (`PluginsViewModel.SwitchAsync`).
   bound get the host's: 4,096 characters, the 32-bit range, 100,000 items), `ValidatePayload(payloadJson, caller)`
   (`PayloadError` per JSON field with the dialog's text; `TaskService.Run` and `Plan` call it, a throwing check refuses the
   run), `PlanAsync(payloadJson, devices, ct)` (`TaskPlan`: per device run or skip with a reason, warnings; default
-  `TaskPlan.ByCanRun`; an overload with `IUploadedFiles` lets a plan name the uploads it uses, `TaskPlan.Files`). A task without a payload type, with a `[Secret]` property anywhere in it, or with a value of any
+  `TaskPlan.ByCanRun`; an overload with `IUploadedFiles` lets a plan name the uploads it uses, `TaskPlan.Files`, read them and answer what only they show: `TaskPlan.Errors` per JSON field, answered like `ValidatePayload`, and `TaskPlan.Details`, plain lines of what the run does). A task without a payload type, with a `[Secret]` property anywhere in it, or with a value of any
   type is not offered to the tools. `PagePermissions(payloadJson)`: a page task (hidden from the menus, no permissions of
   its own) names the keys of its package's core plugin one run needs; `TaskService.Plan` and `Run` then run it with those
   rights (`TaskRunPermissions.RequireOutsidePage`) and the tools' catalog lists it, the client's menus never; null (the
