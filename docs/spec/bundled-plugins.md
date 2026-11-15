@@ -224,7 +224,8 @@ IEEE 802.1X, Renew certificates, View, Delete and Install certificates, Install 
   answer refuses; only OADM's own certificates that nothing uses are removed; passwords of imports and backups are never
   stored or logged; nothing in tests touches a real trust store; View and Delete certificates read at most 5,000 devices
   per window (each device is read, 4 at a time; a larger selection gets "Choose at most 5,000 devices."), the other tasks
-  take any number; while it runs it offers its CAs to other plugins (`IDeviceCertificateAuthority`,
+  take any number; AI agents run View certificates as a read task and Delete certificates by name per device (never an
+  Axis factory or an in-use certificate), never Install certificates or Install CA certificates; while it runs it offers its CAs to other plugins (`IDeviceCertificateAuthority`,
   `docs/spec/plugins.md` "Plugin services"), which signs the same way; every certificate a CA of PKI issues for a device
   (tasks and the service) goes into the list of issued certificates with its DER; a certificate deleted while valid,
   replaced or unused goes on the internal list of certificates no longer accepted (written before the call returns, never
@@ -265,7 +266,10 @@ server** of the PKI page, its own source-available `Est/LICENSE`. Off by default
   enrollments, Not renewed, certificates and listeners (this server, sites) of the group's devices only, never refusals
   of cameras OADM does not manage. Host names never go into certificates of a device a user with a group added.
 - MCP ([mcp.md](mcp.md)): the read-only tool `oadm_est_enrollments` (the state and the enrollments of the caller's
-  devices; while the server is off its state only).
+  devices; while the server is off its state only). The task EST - Certificate Enrollment is offered through the task
+  tools (Set up or Remove, the permission `enroll`; no clock answer: a camera whose clock is behind refuses); its plan
+  skips every camera while the EST server, OADM PRO or the CA is missing and says what cameras with IEEE 802.1X on and a
+  removed profile lose.
 
 ## 802.1X server (core plugin of PKI, OADM PRO)
 

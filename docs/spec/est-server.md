@@ -313,6 +313,10 @@ devices a user with all devices added and no device group covers; only another c
 PKI takes the IP addresses a device reports, only for devices no group covers; Set up removes a profile of another EST
 server whole when it serves a use OADM sets up.
 
+**AI agents** ([mcp.md](mcp.md) "Tasks"): Set up and Remove through the task tools with the same permission; no clock
+answer (a camera whose clock is behind refuses); the replacement of the network access certificate only when the agent
+asks for it, and the plan warns that such cameras drop off the network if the RADIUS server does not trust its CA.
+
 **Hardware test:** `tests/Oadm.Plugins.Est.Tests/EstHardwareWriteTests.cs` (`OADM_EST_HARDWARE_WRITE=1`,
 `OADM_EST_SERVER_ADDRESS`, `OADM_DEV_CAMERAS`): a real EST server on this computer with a test CA, the real task on
 10.0.0.48 (set up, again, another host name, Remove and set up again), then the camera back as before (profile removed,
