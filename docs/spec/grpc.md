@@ -390,7 +390,11 @@ used again.
   model cannot use tools. Choose another one." when the chosen model refuses the tools). The model may change between
   messages; the chat stays. `replace_last` (Try again, Edit): the server drops the conversation's last user message and
   everything after it before it adds this one; FAILED_PRECONDITION "There is nothing to try again." when it has none.
-  `mentioned_device_ids` (devices chosen with @, at most 10,000, cut to the caller's view). `RetryFailed` (handle of a card
+  `mentioned_device_ids` (devices chosen with @, at most 10,000, cut to the caller's view). `docs_offer_id` (Look up
+  online, decision 2026-11-15, docs/spec/assistant.md "Looking in the Axis docs"): the id of an `AssistantEvent.docs_offer`
+  of this chat's last answer; only this answer gets the provider's web tools for developer.axis.com and help.axis.com;
+  taken once, any other message ends the chat's offers; FAILED_PRECONDITION "This offer has ended. Ask again." for an
+  unknown, used, ended (10 minutes) or another chat's offer. `RetryFailed` (handle of a card
   the caller ran in this chat, the failed device ids, 1 to 10,000): the same preview tool with the same input for those
   devices as a new card; NOT_FOUND "This preview has ended. Ask again." for a card of another chat or one that never ran,
   FAILED_PRECONDITION with the preview's own warning or "These devices cannot be tried again. Ask again.".
