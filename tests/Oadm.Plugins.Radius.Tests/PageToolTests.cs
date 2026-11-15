@@ -110,7 +110,7 @@ public sealed class PageToolTests
     {
         await using var harness = await PluginHarness.CreateAsync();
         var plan = await CallAsync(harness, "tool.switch_save.preview", new JsonObject { ["name"] = "Core", ["address"] = "10.0.0.2" });
-        Assert.Equal(["shared_secret"], plan["needs_secrets"]!.AsArray().Select(n => n!.GetValue<string>()));
+        Assert.Equal(["shared_secret"], plan["secrets_needed"]!.AsArray().Select(n => n!["name"]!.GetValue<string>()));
         Assert.Equal(("create", "enter"), (plan["change"]!.GetValue<string>(), plan["secret"]!.GetValue<string>()));
         Assert.Empty(harness.Service.ListSwitches().Switches); // nothing stored
         Assert.Equal("secret", FieldOf(await CallAsync(harness, "tool.switch_save.preview", new JsonObject { ["name"] = "Core", ["address"] = "10.0.0.2", ["secret"] = "keep" })));
@@ -131,7 +131,7 @@ public sealed class PageToolTests
 
         // A rename keeps the secret: no secret needed.
         var rename = await CallAsync(harness, "tool.switch_save.preview", new JsonObject { ["switch_id"] = row.Id.ToString(), ["name"] = "Core 1" });
-        Assert.Empty(rename["needs_secrets"]!.AsArray());
+        Assert.Empty(rename["secrets_needed"]!.AsArray());
         await CallAsync(harness, "tool.switch_save", new JsonObject { ["switch_id"] = row.Id.ToString(), ["name"] = "Core 1" });
         Assert.Equal("Core 1", Assert.Single(harness.Service.ListSwitches().Switches).Name);
 
@@ -149,7 +149,7 @@ public sealed class PageToolTests
         await using var harness = await PluginHarness.CreateAsync();
         var row = await harness.AddSwitchAsync("Core", "10.0.0.2");
         var plan = await CallAsync(harness, "tool.switch_save.preview", new JsonObject { ["switch_id"] = row.Id.ToString(), ["secret"] = "generate" });
-        Assert.Empty(plan["needs_secrets"]!.AsArray());
+        Assert.Empty(plan["secrets_needed"]!.AsArray());
         Assert.Contains(plan["warnings"]!.AsArray(), w => w!.GetValue<string>().Contains("on the switch too", StringComparison.Ordinal));
 
         var done = await CallAsync(harness, "tool.switch_save", new JsonObject { ["switch_id"] = row.Id.ToString(), ["secret"] = "generate" });

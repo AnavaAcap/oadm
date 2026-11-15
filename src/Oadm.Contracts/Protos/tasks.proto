@@ -122,6 +122,17 @@ message PlanTaskRequest {
   string plugin_id = 1;
   DeviceFilter filter = 2;    // the devices: resolved in the caller's view, sorted by address
   string payload_json = 3;
+  // Only the payload's check, the secrets' fields included (a value the person entered is checked here, in memory only):
+  // the errors and nothing else; no device is read.
+  bool check_only = 4;
+}
+
+// A secret the run needs that an agent never sends (ITaskPlugin.SecretsOf): the person enters it, the run's payload has it
+// at field. Never a value.
+message TaskSecretSlot {
+  string name = 1;   // lower case words with underscores
+  string label = 2;  // what the person is asked for, lower case ("password", "PKCS#12 password")
+  string field = 3;  // where it goes in the payload ("password", "settings[2].value")
 }
 
 message PayloadFieldError {
@@ -137,6 +148,7 @@ message TaskPlanReply {
   repeated NotRunnableGroup skipped = 5;  // the others by reason (count only), most devices first
   repeated string warnings = 6;
   repeated PlanFile files = 7;            // the uploaded files the run would use (name and SHA-256 from the upload store)
+  repeated TaskSecretSlot secrets = 8;    // the secrets the run needs; the payload's errors at their fields are left out
 }
 message PlanFile {
   string name = 1;

@@ -219,18 +219,35 @@ public static class InstallPurpose
 }
 
 /// <summary>One file of "Install certificates", matched to one device.</summary>
-public sealed record InstallFile(Guid DeviceId, string FileId, string FileName);
+public sealed record InstallFile(
+    [property: Description("The device that gets this file; for ca the all-zero id (every device of the run).")] Guid DeviceId,
+    [property: Description("The file id of an upload link (a PKCS#12 file, .pfx or .p12, at most 1 MB)."), MaxLength(64)] string FileId,
+    [property: Description("The file's name, shown in the task's steps."), MaxLength(255)] string FileName);
 
-/// <summary>Payload of "Install certificates". The password stays in memory (payloads are never persisted).</summary>
+/// <summary>
+/// Payload of "Install certificates". The password stays in memory (payloads are never persisted); an AI agent never sends
+/// it (<see cref="Oadm.Sdk.Tasks.SecretAttribute"/>): the person enters it through the secret channel.
+/// </summary>
+[Description("Install PKCS#12 files on devices: one file per device for https or dot1x (the certificate must name the device: MAC address, IP address or host name), or the CA certificates of the files on every device for ca. The PKCS#12 password is entered by the user.")]
 public sealed record InstallPayload
 {
     /// <summary><see cref="InstallPurpose"/>.</summary>
+    [Description("https (the web server switches to it), dot1x (IEEE 802.1X with the settings of a policy) or ca (CA certificates only)."), MaxLength(8)]
     public string Purpose { get; init; } = InstallPurpose.Https;
 
     /// <summary>One password for all files (like ADM).</summary>
+    [Oadm.Sdk.Tasks.Secret(Label = "PKCS#12 password")]
     public string? Password { get; init; }
 
+    /// <summary>The files have no password: the run asks for none (AI agents; the dialog sends an empty password).</summary>
+    [Description("True when the files have no password; the user is then not asked for one.")]
+    public bool WithoutPassword { get; init; }
+
+    [Description("The files, at most one per device for https and dot1x."), MaxLength(InstallPayload.MaxFiles)]
     public IReadOnlyList<InstallFile> Files { get; init; } = [];
+
+    /// <summary>The most files of one run.</summary>
+    public const int MaxFiles = 10_000;
 
     // Kept beside the record (not a field of it): two payloads with the same values stay equal.
     private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<InstallPayload, ILookup<Guid, (InstallFile File, int Index)>> ByDevice = new();
@@ -246,6 +263,7 @@ public sealed record InstallPayload
     /// IEEE 802.1X: the IEEE 802.1X certificate policy whose settings and RADIUS server CA the run sets (the file brings the
     /// certificate). Null (older payloads): the first of the kind.
     /// </summary>
+    [Description("dot1x: the id of the IEEE 802.1X certificate policy; leave it out for the first one.")]
     public Guid? PolicyId { get; init; }
 
     /// <summary>
@@ -253,6 +271,7 @@ public sealed record InstallPayload
     /// False (also a payload without it, from an older client): not answered, such a device is refused
     /// (<see cref="KeysOverHttpRefused"/>).
     /// </summary>
+    [Description("Send the keys anyway: true only when the user agreed that a private key crosses the network unencrypted to devices OADM reaches over HTTP.")]
     public bool SendKeysOverHttp { get; init; }
 
     /// <summary>The task's refusal for a device reached over HTTP without <see cref="SendKeysOverHttp"/>.</summary>
@@ -263,7 +282,7 @@ public sealed record InstallPayload
 /// <summary>One CA certificate of "Install CA certificates": the name for the step and the PEM.</summary>
 public sealed record CaCertificatePayload(
     [property: Description("A name for the certificate, shown in the task's steps."), MinLength(1), MaxLength(128)] string Name,
-    [property: Description("The CA certificate in PEM text (certificates only, never a private key)."), MinLength(1), MaxLength(CaCertificatePayload.MaxPemLength)] string Pem)
+    [property: Description("The CA certificate in PEM text (certificates only, never a private key); for AI agents its line breaks written as spaces."), MinLength(1), MaxLength(CaCertificatePayload.MaxPemLength)] string Pem)
 {
     /// <summary>The longest PEM text of one certificate (a CA certificate is a few KB).</summary>
     public const int MaxPemLength = 16 * 1024;

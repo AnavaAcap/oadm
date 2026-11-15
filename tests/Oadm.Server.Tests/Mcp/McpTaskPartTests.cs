@@ -93,11 +93,10 @@ public sealed class McpTaskPartTests
         ];
         Assert.All(offered, id => Assert.Contains(id, tasks));
 
-        // A password (users, install certificates) or a new trust anchor on the devices (install CA certificates: the dialog
-        // shows each one to the person) stays in OADM.
-        string[] notOffered = [UsersTaskPlugin.PluginId, PkiTaskIds.Install, PkiTaskIds.InstallCa];
-        Assert.All(notOffered, id => Assert.DoesNotContain(id, tasks));
-        Assert.All(notOffered, id => Assert.Null(TaskPayloadSchemas.Of(server.Host.Get<PluginRegistry>().TryGetTaskPlugin(id, out var plugin) ? plugin.Plugin : throw new InvalidOperationException(id))));
+        // A password (users, install certificates) comes through the secret channel, never as an input; install CA
+        // certificates lists each CA in its plan for the person to confirm (decision 2026-11-15).
+        Assert.All([UsersTaskPlugin.PluginId, PkiTaskIds.Install, PkiTaskIds.InstallCa], id => Assert.Contains(id, tasks));
+        Assert.DoesNotContain("password", TaskPayloadSchemas.Of(server.Host.Get<PluginRegistry>().TryGetTaskPlugin(PkiTaskIds.Install, out var install) ? install.Plugin : throw new InvalidOperationException())!["properties"]!.AsObject().Select(p => p.Key));
 
         var firmware = TaskPayloadSchemas.Of(new FirmwareTaskPlugin())!;
         Assert.Equal(["files"], firmware["required"]!.AsArray().Select(r => r!.GetValue<string>()));
@@ -105,8 +104,8 @@ public sealed class McpTaskPartTests
         Assert.DoesNotContain("online", firmware["properties"]!.AsObject().Select(p => p.Key)); // axis.com needs the user's own sign-in
 
         var acap = TaskPayloadSchemas.Of(new AcapTaskPlugin())!;
-        Assert.Equal(["install", "remove", "start", "stop", "settings"], acap["properties"]!["action"]!["enum"]!.AsArray().Select(v => v!.GetValue<string>()));
-        Assert.DoesNotContain(acap["properties"]!.AsObject().Select(p => p.Key), name => name is "licenseKeys" or "passwordsAllowed"); // license keys and passwords stay in OADM
+        Assert.Equal(["install", "remove", "start", "stop", "installLicense", "settings"], acap["properties"]!["action"]!["enum"]!.AsArray().Select(v => v!.GetValue<string>()));
+        Assert.DoesNotContain(acap["properties"]!.AsObject().Select(p => p.Key), name => name is "licenseKeys" or "passwordsAllowed" or "licenseKey"); // the license key and passwords are the person's
         Assert.Equal("string", acap["properties"]!["values"]!["additionalProperties"]!["type"]!.GetValue<string>());
 
         var delete = TaskPayloadSchemas.Of(new DeleteCertificatesTask(() => null))!;
@@ -245,7 +244,7 @@ public sealed class McpTaskPartTests
     }
 
     [Fact]
-    public async Task ApplicationsTakesPackagesAndNamesButNeitherLicenseKeysNorSettings()
+    public async Task ApplicationsTakesPackagesAndNamesAndLeavesSecretsToTheUser()
     {
         await using var server = await StartAsync();
         var device = await AddAsync(server.Host, "10.22.0.1", 5201, "M3085-V", "12.8.0", DeviceStatus.Ok, Application);
@@ -268,7 +267,7 @@ public sealed class McpTaskPartTests
         Assert.Equal("The package runs on the devices. Check that it is the one you want.", Assert.Single(named["warnings"]!.AsArray())!.GetValue<string>());
         Assert.Empty(stop["files"]!.AsArray());
 
-        // The dialog's rules at their fields; the schema leaves license keys and the page's password switch out.
+        // The dialog's rules at their fields; the schema leaves the key files, the entered key and the page's password switch out.
         var install = await RefusedAsync(server, key, AcapTaskId, Filter(device), new JsonObject { ["action"] = "install" });
         Assert.StartsWith("Install needs an uploaded package", install["input.files"], StringComparison.Ordinal);
         var name = await RefusedAsync(server, key, AcapTaskId, Filter(device), new JsonObject { ["action"] = "start", ["application"] = "../x" });
@@ -277,9 +276,10 @@ public sealed class McpTaskPartTests
         {
             ["action"] = "installLicense",
             ["licenseKeys"] = new JsonArray(),
+            ["licenseKey"] = "typed",
             ["passwordsAllowed"] = true,
         });
-        Assert.StartsWith("Use one of: install, remove, start, stop, settings", secret["input.action"], StringComparison.Ordinal);
+        Assert.Equal(ToolInputTexts.Unknown, secret["input.licenseKey"]);
         Assert.Equal(ToolInputTexts.Unknown, secret["input.licenseKeys"]);
         Assert.Equal(ToolInputTexts.Unknown, secret["input.passwordsAllowed"]);
 
@@ -299,7 +299,7 @@ public sealed class McpTaskPartTests
             ["application"] = "vmd",
             ["values"] = new JsonObject { ["Mqtt.Password"] = "x" },
         });
-        Assert.Equal("Mqtt.Password is a password. Set it in OADM.", password["input.values.Mqtt.Password"]);
+        Assert.Equal("Mqtt.Password is a password. List it in passwords: the user enters it.", password["input.values.Mqtt.Password"]);
     }
 
     [Fact]
@@ -322,12 +322,12 @@ public sealed class McpTaskPartTests
         var clock = await RefusedAsync(server, key, PkiTaskIds.Dot1xEnable, Filter(device), new JsonObject { ["clockConfirmed"] = true });
         Assert.Equal(ToolInputTexts.Unknown, clock["input.clockConfirmed"]);
 
-        // Install CA certificates is not offered: an agent could bring any certificate as a trust anchor.
+        // Install CA certificates checks every certificate before the plan: no certificate, no plan.
         var ca = await RefusedAsync(server, key, PkiTaskIds.InstallCa, Filter(device), new JsonObject
         {
             ["certificates"] = new JsonArray(new JsonObject { ["name"] = "Acme", ["pem"] = "not a certificate" }),
         });
-        Assert.Equal(TaskRunTools.NotOffered, ca["task"]);
+        Assert.Contains("input.certificates", ca.Keys);
     }
 
     [Fact]

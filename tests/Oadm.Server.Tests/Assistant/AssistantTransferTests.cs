@@ -74,6 +74,83 @@ public sealed class AssistantTransferTests
     }
 
     [Fact]
+    public async Task ATaskSecretIsAFieldOfTheCardCheckedByThePluginAndReachesOnlyTheTask()
+    {
+        await using var server = await AssistantTestServer.StartAsync();
+        var task = new McpTaskSecretTests.SecretTask();
+        var registry = server.Host.Get<Oadm.Core.Plugins.PluginRegistry>();
+        Assert.True(registry.RegisterTaskPlugin(task, new Oadm.Core.Plugins.PluginOrigin(McpTaskSecretTests.SecretTask.PluginId, "1.0.0", null)));
+        await server.Host.Get<RoleStore>().SyncCatalogAsync(PermissionCatalog.Build(registry), CancellationToken.None);
+        var device = await DeviceServiceTests.AddDeviceAsync(server.Host, "10.32.0.1", 4601);
+        server.Model.Call(("oadm_task_preview", AssistantTestServer.Args(
+            "{\"task\":\"" + McpTaskSecretTests.SecretTask.PluginId + "\",\"filter\":{\"ids\":[\"" + device.Id + "\"]},\"input\":{\"user\":\"joe\"}}"))).Say("Enter the passphrase and press Run.");
+
+        var events = await server.ChatAsync("Set the passphrase of joe");
+
+        var card = Assert.Single(events, e => e.KindCase == Proto.AssistantEvent.KindOneofCase.Preview).Preview;
+        var field = Assert.Single(card.Secrets);
+        Assert.Equal("password", field.Name);
+        Assert.Equal("passphrase", field.Label); // the card shows "Passphrase"
+        Assert.Equal("Passphrase", AssistantTexts.SecretLabel(field.Label));
+
+        // The plugin's own rule refuses a short value below the field; the card stays.
+        var shortValue = new Proto.AssistantRunRequest { ConversationId = "chat-1", Handle = card.Handle };
+        shortValue.Secrets["password"] = "short";
+        var refused = await Assert.ThrowsAsync<RpcException>(async () => await server.Service().RunAsync(shortValue));
+        Assert.Equal(McpTaskSecretTests.SecretTask.TooShort, refused.Status.Detail);
+        Assert.Equal("password", refused.Trailers.GetValue(AssistantTexts.FieldTrailer));
+
+        var run = new Proto.AssistantRunRequest { ConversationId = "chat-1", Handle = card.Handle };
+        run.Secrets["password"] = Canary;
+        var reply = await server.Service().RunAsync(run);
+        Assert.Equal(1, reply.TaskCount);
+        await Oadm.Sdk.Testing.Eventually.TrueAsync(() => task.Received.Count == 1, "the task ran");
+        Assert.Equal(Canary, Assert.Single(task.Received));
+
+        server.Model.Say("Done.");
+        var next = await server.ChatAsync("Thanks");
+        foreach (var request in server.Model.Requests)
+        {
+            Assert.DoesNotContain(Canary, request.AllText(), StringComparison.Ordinal);
+        }
+
+        await Oadm.Sdk.Testing.Eventually.TrueAsync(async () => (await server.Host.Tasks.ListAsync(new Proto.ListTasksRequest())).Tasks
+            .All(t => t.State == Proto.TaskState.Done), "the task ended");
+        await SecretScan.AssertNowhereAsync(server.Host, Canary, string.Concat(events.Concat(next).Select(e => e.ToString())));
+    }
+
+    [Fact]
+    public async Task AHostPreviewWithAPasswordIsACardWithItsFieldAndTheValueNeverReachesTheModel()
+    {
+        await using var server = await AssistantTestServer.StartAsync();
+        server.Model.Call(("oadm_credentials_add_preview", AssistantTestServer.Args("""{"user_name":"installer"}"""))).Say("Enter the password and press Run.");
+
+        var events = await server.ChatAsync("Add installer to the credential list");
+
+        var card = Assert.Single(events, e => e.KindCase == Proto.AssistantEvent.KindOneofCase.Preview).Preview;
+        var field = Assert.Single(card.Secrets);
+        Assert.Equal(("password", "Password"), (field.Name, AssistantTexts.SecretLabel(field.Label)));
+        Assert.Equal("1 credential", card.CountText);
+        var toModel = server.Model.Requests[1].Results().Values.Single();
+        Assert.Equal(AssistantChats.SecretNote, toModel["note"]!.GetValue<string>());
+        Assert.Null(toModel["secret_links"]);
+
+        var run = new Proto.AssistantRunRequest { ConversationId = "chat-1", Handle = card.Handle };
+        run.Secrets["password"] = Canary;
+        await server.Service().RunAsync(run);
+        Assert.Equal("installer", Assert.Single((await server.Host.Settings.ListCredentialsAsync(new Proto.Empty())).Entries).UserName);
+
+        server.Model.Say("Added.");
+        var next = await server.ChatAsync("Thanks");
+        foreach (var request in server.Model.Requests)
+        {
+            Assert.DoesNotContain(Canary, request.AllText(), StringComparison.Ordinal);
+        }
+
+        await SecretScan.AssertNowhereAsync(server.Host, Canary, string.Concat(events.Concat(next).Select(e => e.ToString())));
+    }
+
+    [Fact]
     public async Task AFileOfAToolAnswerIsACardSavedOnlyFromItsOwnChat()
     {
         await using var server = await AssistantTestServer.StartAsync();

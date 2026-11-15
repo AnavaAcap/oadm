@@ -12,7 +12,15 @@ namespace Oadm.Server.Tools;
 /// <param name="Name">Lower case words with underscores, e.g. <c>password</c>; the run reads it with <see cref="ToolCall.Secret"/>.</param>
 /// <param name="Label">What the field is called, lower case, e.g. "password", "PKCS#12 password"; the refusal reads "Enter the &lt;label&gt;.".</param>
 /// <param name="MaxLength">The longest value in characters (at most <see cref="ToolSecrets.MaxBytes"/> bytes in UTF-8 anyway).</param>
-internal sealed record ToolSecretSlot(string Name, string Label, int MaxLength = 1024);
+internal sealed record ToolSecretSlot(string Name, string Label, int MaxLength = 1024)
+{
+    /// <summary>
+    /// The run's own check of an entered value (a passphrase policy, a PKCS#12 password that opens the file): the refusal in
+    /// the words of the dialog, null when it fits. Asked before the value is taken, so a wrong one is corrected while the
+    /// handle lives (the link stays, the card's field shows it). Never log or answer the value.
+    /// </summary>
+    public Func<string, CancellationToken, Task<string?>>? Check { get; init; }
+}
 
 /// <summary>
 /// The secret channel (docs/spec/mcp.md "Secrets"): a secret reaches a run without ever passing through a model. A preview
@@ -92,6 +100,33 @@ internal sealed class ToolSecrets(TimeProvider time, CredentialProtector protect
         }
 
         return tokens;
+    }
+
+    /// <summary>The slot of a link of <paramref name="bindingKey"/>; null when it ended or is another caller's.</summary>
+    public ToolSecretSlot? SlotOfLink(string bindingKey, string? token)
+    {
+        lock (_gate)
+        {
+            DropEnded();
+            return !string.IsNullOrEmpty(token) && _links.TryGetValue(token, out var link) && Find(bindingKey, link.Handle) is { } entry
+                ? entry.Slots.First(s => s.Name == link.Slot)
+                : null;
+        }
+    }
+
+    /// <summary>
+    /// The refusal of <paramref name="value"/> for <paramref name="slot"/>: empty, too long, or the run's own check
+    /// (<see cref="ToolSecretSlot.Check"/>); null when it fits. Nothing is stored.
+    /// </summary>
+    public static async Task<string?> CheckAsync(ToolSecretSlot slot, string value, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(slot);
+        if (Check(slot, value) is { } error)
+        {
+            return error;
+        }
+
+        return slot.Check is { } check ? await check(value, ct).ConfigureAwait(false) : null;
     }
 
     /// <summary>The slots of <paramref name="handle"/> for <paramref name="bindingKey"/>; empty when it has none (or is another caller's).</summary>

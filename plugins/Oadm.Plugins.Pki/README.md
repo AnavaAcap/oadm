@@ -239,6 +239,19 @@ confirmed (then a Warning log line). Tests: `ClockTests`.
   the others by `CanRun`; warnings "Deletes N certificates from M devices. A deleted certificate and its key cannot be
   restored." and that one in use by HTTPS or 802.1X is never deleted (the task still refuses it on the device before the
   first delete).
+- **Install certificates for AI agents** (`InstallCertificatesTask.Agent.cs`): `PayloadType` is the dialog's
+  `InstallPayload`; its `password` is `[Secret(Label = "PKCS#12 password")]` (the slot `password`, none with
+  `withoutPassword`), entered by the person. The agent names each file's device (`files[{deviceId, fileId, fileName}]`, ids
+  of upload links); without the password the preview cannot read the files, so the task checks before the install that
+  the certificate names its device (`CertificateFiles.Matches`, else "The certificate does not name this device ... Nothing
+  was changed."). `ValidatePayload`: the purpose, at least one file, a device per file and one file per device (HTTPS,
+  802.1X), the 802.1X policy. `PlanAsync` with the uploads: a device without its file is skipped, one reached over HTTP is
+  skipped unless `sendKeysOverHttp` (then the dialog's warning), the files with their SHA-256, the dialog's line of the
+  purpose. No clock question: the 802.1X path refuses a late clock as before. A wrong password fails each device in Read
+  certificate file before any write (the preview cannot check it: it has no file reader). Install CA certificates
+  (`InstallCaTask`, `InstallCaPayload`, PEM text with line breaks as spaces): the plan's first warning is "The devices will
+  trust every certificate these CAs issue. Check each CA before you run it.", then one line per CA ("CA <name>: issued to
+  ... by ..., valid until ..., SHA-256 ...", `InstallCaTask.Describe`). Tests: `AgentInstallTests`.
 - **Install certificates** (`oadm.pki.install`): `InstallCertificatesWindow`: Use for (HTTPS / IEEE 802.1X / CA certificates
   only), .pfx / .p12 files (one password for all, `CertificateFiles`: wrong password under the field), table File,
   Certificate, Device, Status chip; a file must match exactly one selected device by MAC (serial in any notation, also
@@ -367,6 +380,23 @@ download `downloadCertificate`, `oadm_pki_ca_file(previous_id, format)` the down
 (`OpenDownloadAsync` answers the page's file of these Invoke methods). Only PEM or DER of the certificate: never a private
 key, a PKCS#12 file or a backup (`PkiTools.FileFormats`).
 
+Import and sign (Admin with "Manage the certificate authority" and all devices, audited like the page's Import and Sign
+request; decision 2026-11-15, docs/spec/mcp.md "Secrets"):
+
+- `oadm_pki_certificate_import_preview`/`_run(file_id)` (the caller's own upload, `ICallContext.Uploads`, at most 1 MB): the
+  page's Import (`ImportCertificateAsync`, `dryRun` in the preview, which stores nothing). A certificate (PEM, DER) needs no
+  secret; a PKCS#12 file that does not open without a password names the secret `password` ("PKCS#12 password",
+  `SecretsNeeded`), and its name shows once the password opened it. An entered password is checked at once by the preview
+  with that value (a wrong one answers at `secrets.password`, "The password is wrong or the file is damaged."); the run
+  imports with it. The key stays encrypted in OADM; no answer holds key material.
+- `oadm_pki_certificate_sign_preview`/`_run(request, use, policy_id)`: the page's Sign request; the request is PEM text (no
+  secret, line breaks written as spaces: tool texts take no line breaks), the preview checks and signs in memory
+  (`SignCertificateAsync` `dryRun`), the run stores it and answers its PEM as a file (`ReturnsFile`, download
+  `downloadCertificate`).
+
+Tests: `ToolTests`, server `McpUsersPkiSecretTests` (the link, a wrong password refused when entered, the run, the canary
+nowhere, a Viewer and a group user list neither).
+
 The page's actions (`Tools/PkiPageTools`, `PluginPageTools`, decision 2026-11-15), each a preview that writes nothing and a
 run with the rights of its page method (`RulesMethodOf`; Administrator with "Manage the certificate authority", Install in
 the server's trust with "Trust it on the server", users with all devices, the run audited with its page method through
@@ -375,8 +405,9 @@ the server's trust with "Trust it on the server", users with all devices, the ru
 - `oadm_pki_all_policies` (read): every policy with its id, kind, main values and summary (the PRO kinds only with OADM PRO,
   none for a group user).
 - `ca_create` (`CreateAuthorityErrors`, the checks of Create CA), `ca_import` (a file the caller uploaded, `ICallContext.Uploads`,
-  1 MB at most, an optional separate key file; a file that needs its password names the secret `password` in the plan,
-  `needs_secrets`, and the preview names the CA only once it can open the file; `ImportRefusal` refuses a CA in the list),
+  1 MB at most, an optional separate key file; a file that needs its password names the secret `password` in the plan's
+  `SecretsNeeded`, an entered one is checked by the preview at once, and the preview names the CA only once it can open the
+  file; `ImportRefusal` refuses a CA in the list),
   `ca_delete` (`DeleteAuthorityAsync` with a dry run: the same refusals, "Used by the policy ..."), `ca_key_backup` (secret
   `password`; the run makes the PKCS#12 of `Backup` and hands it out once: `ToolFileStore`, download `toolFile`, bound to the
   caller's session, 10 minutes, zeroed when taken; the only private-key file a tool hands out, decision 2026-11-15),

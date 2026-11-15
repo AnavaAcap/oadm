@@ -234,6 +234,7 @@ public static partial class OadmServerHost
                     .. Tools.AccessKeyTools.Create(cursors, sp.GetRequiredService<Tools.ToolHandles>(), sp.GetRequiredService<TimeProvider>(),
                         sp.GetRequiredService<Core.Security.CredentialProtector>()),
                     .. Tools.DeviceChangeTools.Create(sp.GetRequiredService<Tools.ToolHandles>(), sp.GetRequiredService<TimeProvider>()),
+                    .. Tools.LoginTools.Create(sp.GetRequiredService<Tools.ToolHandles>()),
                     .. Tools.SettingsTools.Create(),
                     .. Tools.ServerChangeTools.Create(sp.GetRequiredService<Tools.ToolHandles>(), new Tools.AgentServerCalls(
                         call => call.CallAsync<Mcp.McpGrpcService, Oadm.Contracts.V1.Empty, Oadm.Contracts.V1.McpState>(

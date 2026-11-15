@@ -27,14 +27,21 @@ internal sealed record RemovePlan(IReadOnlyList<string> Ids);
 /// <summary>The devices and the stored credential (its id in the credential list, never its password) a preview fixed.</summary>
 internal sealed record CredentialsPlan(IReadOnlyList<string> Ids, string CredentialId);
 
-/// <summary>A device an add preview saw answer as an Axis device: its address and serial number (never a login).</summary>
-internal sealed record AddDevice(string Address, string Serial);
+/// <summary>
+/// A device an add preview saw answer as an Axis device: its address and serial number (never a login), and whether it was in
+/// factory default (it is added with the first password the person enters).
+/// </summary>
+internal sealed record AddDevice(string Address, string Serial, bool FactoryDefault = false);
 
 /// <summary>
 /// What an add preview found and fixed: the devices the run logs in to with the credential list (and adds when that works),
 /// the addresses to keep waiting, the waiting entries to try now.
 /// </summary>
-internal sealed record AddPlan(IReadOnlyList<AddDevice> Devices, IReadOnlyList<string> KeepWaiting, IReadOnlyList<string> TryWaiting, bool UseDnsNames);
+internal sealed record AddPlan(IReadOnlyList<AddDevice> Devices, IReadOnlyList<string> KeepWaiting, IReadOnlyList<string> TryWaiting, bool UseDnsNames)
+{
+    /// <summary>A user name the person typed: the run tries it with the password they enter when the credential list fails (the add page's typed login).</summary>
+    public string? UserName { get; init; }
+}
 
 /// <summary>
 /// The tools that change devices and the snapshot (docs/spec/mcp.md "Devices and the device filter"): one JPEG of a camera,
@@ -58,6 +65,7 @@ internal static class DeviceChangeTools
     public static readonly string StopScanPath = InProcessCalls.PathOf(Proto.DiscoveryService.Descriptor, "StopScan");
     public static readonly string EndPath = InProcessCalls.PathOf(Proto.DiscoveryService.Descriptor, "End");
     public static readonly string CommitPath = InProcessCalls.PathOf(Proto.AddDevicesService.Descriptor, "Commit");
+    public static readonly string RetryAuthPath = InProcessCalls.PathOf(Proto.AddDevicesService.Descriptor, "RetryAuth");
     public static readonly string WaitingAddPath = InProcessCalls.PathOf(Proto.WaitingDeviceService.Descriptor, "Add");
     public static readonly string WaitingListPath = InProcessCalls.PathOf(Proto.WaitingDeviceService.Descriptor, "List");
     public static readonly string WaitingTryPath = InProcessCalls.PathOf(Proto.WaitingDeviceService.Descriptor, "TryNow");
@@ -209,9 +217,11 @@ internal static class DeviceChangeTools
                 P("try_waiting", Flag("Try the devices on the waiting list now instead of looking for new ones.")),
                 P("keep_waiting", Flag("With addresses: keep those that do not answer on the waiting list. OADM adds them once they answer.")),
                 P("use_dns_names", Flag("Add the devices of a range or of Discovery by their DNS name when they have one, else by address.")),
+                P("user_name", Text("A login to try where the credential list fails; the user enters its password through the secret link.", 64, minLength: 1)),
+                P("first_password", Flag("Also add devices in factory default with a first root password the user enters through the secret link.")),
             ]),
             AddPreviewOutput(),
-            [StartRangePath, StartZeroConfPath, ProbePath, WatchPath, StopScanPath, EndPath, WaitingListPath, CommitPath, WaitingAddPath, WaitingTryPath],
+            [StartRangePath, StartZeroConfPath, ProbePath, WatchPath, StopScanPath, EndPath, WaitingListPath, CommitPath, RetryAuthPath, WaitingAddPath, WaitingTryPath],
             call => AddPreviewAsync(call, handles, time))
         {
             ActsOutside = true, // it sends packets to the network: not announced as a read, counted as a change
@@ -230,7 +240,7 @@ internal static class DeviceChangeTools
                 P("waiting_tried", Out("integer", "Waiting entries asked to try again now.")),
                 P("device_ids", OutList("The first added devices.", Out("string", "A device id."))),
             ], "added", "not_added", "waiting_kept", "waiting_tried", "device_ids"),
-            [CommitPath, WaitingAddPath, WaitingTryPath],
+            [CommitPath, RetryAuthPath, WaitingAddPath, WaitingTryPath],
             call => AddRunAsync(call, handles, time))
         {
             ReadsOnly = false,
@@ -430,6 +440,8 @@ internal static class DeviceChangeTools
         P("warnings", OutList("What the user must know before the run.", Out("string", "A warning."))),
         P("handle", OrNull(Out("string", "Pass it to oadm_devices_add_run; null when the run would do nothing."))),
         P("expires", OrNull(Out("string", "When the handle ends (UTC)."))),
+        P("first_password_rules", OrNull(Out("string", "The password rules of the devices in factory default; null without them."))),
+        .. ToolSecretAnswers.OutputProperties(),
     ], "source", "complete", "found", "will_try", "states", "first", "not_answering", "not_answering_count", "keep_waiting", "warnings", "handle", "expires");
 
     /// <summary>What watching a discovery session gave: the last message of every device and whether the scan finished.</summary>
@@ -505,6 +517,10 @@ internal static class DeviceChangeTools
         var useDns = call.Flag("use_dns_names") == true;
         var discovery = call.Flag("discovery") == true;
         CheckAddInput(range, addresses, tryWaiting, keepWaiting, discovery);
+        if (tryWaiting && (call.Text("user_name") is not null || call.Flag("first_password") == true))
+        {
+            throw new ToolException(ToolAnswers.FieldsMessage, [new ToolFieldError(call.Text("user_name") is not null ? "user_name" : "first_password", "Use it to look for new devices, not with try_waiting.")]);
+        }
 
         if (tryWaiting)
         {
@@ -688,9 +704,14 @@ internal static class DeviceChangeTools
             }
         }
 
-        // What the run logs in to: the devices that answer with a password set, by address and serial number.
-        var answering = rows.Where(r => r.State == "Answers" && !string.IsNullOrEmpty(r.Device.Serial)).ToList();
-        var planned = answering.Take(MaxAddedPerRun).Select(r => new AddDevice(r.Device.Address, r.Device.Serial)).ToList();
+        // What the run logs in to: the devices that answer with a password set, by address and serial number; with
+        // first_password also those in factory default (they get the first password the person enters).
+        var firstPassword = call.Flag("first_password") == true;
+        var userName = call.Text("user_name")?.Trim();
+        var answering = rows.Where(r => (r.State == "Answers" || (firstPassword && r.State == "PasswordNotSet")) && !string.IsNullOrEmpty(r.Device.Serial)).ToList();
+        var planned = answering.Take(MaxAddedPerRun).Select(r => new AddDevice(r.Device.Address, r.Device.Serial, r.State == "PasswordNotSet")).ToList();
+        var policies = planned.Where(d => d.FactoryDefault)
+            .Select(d => (string?)rows.First(r => string.Equals(r.Device.Serial, d.Serial, StringComparison.OrdinalIgnoreCase)).Device.PassphrasePolicy).ToList();
 
         // Devices that did not answer or are unreachable may wait (as the import of the add page does): the addresses as typed.
         var waiting = new List<string>();
@@ -723,9 +744,14 @@ internal static class DeviceChangeTools
             warnings.Add($"The run logs in to the first {MaxAddedPerRun} devices by address. Add them, then look again for the rest.");
         }
 
-        if (rows.Any(r => r.State == "PasswordNotSet"))
+        if (!firstPassword && rows.Any(r => r.State == "PasswordNotSet"))
         {
-            warnings.Add("Devices in factory default are not added over this tool. Set their first password in OADM.");
+            warnings.Add("Devices in factory default are added only with first_password: the user enters their first root password.");
+        }
+
+        if (policies.Count > 0)
+        {
+            warnings.Add("The devices in factory default get the first password as their root password and OADM's login.");
         }
 
         if (planned.Count > 0)
@@ -736,7 +762,7 @@ internal static class DeviceChangeTools
         string? handle = null;
         if (planned.Count > 0 || waiting.Count > 0)
         {
-            handle = handles.AddChange(call.Caller.BindingKey, new PlannedChange("oadm_devices_add_run", new AddPlan(planned, waiting, [], useDns)));
+            handle = handles.AddChange(call.Caller.BindingKey, new PlannedChange("oadm_devices_add_run", new AddPlan(planned, waiting, [], useDns) { UserName = userName }));
         }
 
         if (handle is null)
@@ -744,7 +770,7 @@ internal static class DeviceChangeTools
             warnings.Add("Nothing would be added.");
         }
 
-        return new JsonObject
+        var answer = new JsonObject
         {
             ["source"] = source,
             ["complete"] = complete,
@@ -758,7 +784,30 @@ internal static class DeviceChangeTools
             ["warnings"] = new JsonArray([.. warnings.Select(w => (JsonNode)JsonValue.Create(w)!)]),
             ["handle"] = handle,
             ["expires"] = handle is null ? null : Time(handles.EndOfNew()),
+            ["first_password_rules"] = policies.Count > 0 ? Oadm.Contracts.Devices.PasswordRules.Hint(policies) : null,
         };
+
+        // The passwords the person enters (the secret channel): a typed login's password, the first password.
+        List<ToolSecretSlot> slots = [];
+        if (handle is not null && userName is not null && planned.Any(d => !d.FactoryDefault))
+        {
+            slots.Add(new ToolSecretSlot("password", "password", Oadm.Contracts.Devices.PasswordRules.MaxLength));
+        }
+
+        if (handle is not null && policies.Count > 0)
+        {
+            slots.Add(new ToolSecretSlot("first_password", "first password", Oadm.Contracts.Devices.PasswordRules.MaxLength)
+            {
+                Check = (value, _) => Task.FromResult(Oadm.Contracts.Devices.PasswordRules.PasswordError(value, policies)),
+            });
+        }
+
+        if (slots.Count > 0)
+        {
+            ToolSecretAnswers.Declare(call, answer, handle!, "oadm_devices_add_run", slots);
+        }
+
+        return answer;
     }
 
     /// <summary>The waiting list as a preview: the entries the run asks to try now (not those that rejected every login).</summary>
@@ -851,11 +900,13 @@ internal static class DeviceChangeTools
             using var linked = CancellationTokenSource.CreateLinkedTokenSource(call.Ct, bound.Token);
             var working = call with { Ct = linked.Token };
             var failed = 0;
+            var login = plan.UserName is not null && call.Secret("password") is { } typed ? (plan.UserName, typed) : ((string, string)?)null;
+            var firstPassword = call.Secret("first_password");
             try
             {
                 await Parallel.ForEachAsync(plan.Devices, new ParallelOptions { MaxDegreeOfParallelism = ProbeParallelism, CancellationToken = linked.Token }, async (device, ct) =>
                 {
-                    if (!await AddOneAsync(working, call, device, plan.UseDnsNames, added).ConfigureAwait(false))
+                    if (!await AddOneAsync(working, call, device, plan.UseDnsNames, added, login, firstPassword).ConfigureAwait(false))
                     {
                         Interlocked.Increment(ref failed);
                     }
@@ -904,7 +955,10 @@ internal static class DeviceChangeTools
     /// <param name="call">The run's call, bounded by its time.</param>
     /// <param name="unbounded">The same call without that bound: it stops the probe session also when the time ran out, so no
     /// login goes on after the answer said "not added".</param>
-    private static async Task<bool> AddOneAsync(ToolCall call, ToolCall unbounded, AddDevice device, bool useDns, System.Collections.Concurrent.ConcurrentBag<string> added)
+    /// <param name="login">The user name and the password the person entered, tried where the credential list fails (RetryAuth).</param>
+    /// <param name="firstPassword">The first password the person entered, for a device in factory default.</param>
+    private static async Task<bool> AddOneAsync(ToolCall call, ToolCall unbounded, AddDevice device, bool useDns, System.Collections.Concurrent.ConcurrentBag<string> added,
+        (string User, string Password)? login = null, string? firstPassword = null)
     {
         Proto.DiscoverySession session;
         try
@@ -920,14 +974,39 @@ internal static class DeviceChangeTools
         try
         {
             var watched = await WatchAsync(call, session.SessionId).ConfigureAwait(false);
-            var loggedIn = watched.Devices.Values.FirstOrDefault(d => d.AuthState == Proto.AuthState.Authenticated && !d.AlreadyManaged
-                && string.Equals(d.Serial, device.Serial, StringComparison.OrdinalIgnoreCase));
+            var seen = watched.Devices.Values.FirstOrDefault(d => !d.AlreadyManaged && string.Equals(d.Serial, device.Serial, StringComparison.OrdinalIgnoreCase));
+            var request = new Proto.CommitRequest { SessionId = session.SessionId, UseHostName = useDns };
+            if (device.FactoryDefault)
+            {
+                // Still in factory default: the commit sets the first password the person entered (the device checks it again).
+                if (seen is not { AuthState: Proto.AuthState.PasswordNotSet } || firstPassword is null)
+                {
+                    return false;
+                }
+
+                request.InitialPasswords[seen.DiscoveredId] = firstPassword;
+            }
+            else if (seen is { AuthState: Proto.AuthState.LoginFailed } && login is { } typed)
+            {
+                // The add page's typed login for a refused device: tried once, never saved to the credential list here.
+                try
+                {
+                    seen = await call.CallAsync<AddDevicesGrpcService, Proto.RetryAuthRequest, Proto.DiscoveredDevice>(RetryAuthPath,
+                        new Proto.RetryAuthRequest { SessionId = session.SessionId, DiscoveredId = seen.DiscoveredId, UserName = typed.User, Password = typed.Password },
+                        (s, r, c) => s.RetryAuth(r, c)).ConfigureAwait(false);
+                }
+                catch (RpcException ex) when (ex.StatusCode is StatusCode.FailedPrecondition or StatusCode.NotFound or StatusCode.InvalidArgument)
+                {
+                    return false;
+                }
+            }
+
+            var loggedIn = device.FactoryDefault ? seen : seen is { AuthState: Proto.AuthState.Authenticated } ? seen : null;
             if (loggedIn is null)
             {
                 return false;
             }
 
-            var request = new Proto.CommitRequest { SessionId = session.SessionId, UseHostName = useDns };
             request.DiscoveredIds.Add(loggedIn.DiscoveredId);
             var reply = await call.CallAsync<AddDevicesGrpcService, Proto.CommitRequest, Proto.CommitReply>(CommitPath, request, (s, r, c) => s.Commit(r, c)).ConfigureAwait(false);
             foreach (var id in reply.DeviceIds)

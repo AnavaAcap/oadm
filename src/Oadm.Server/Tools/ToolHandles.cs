@@ -3,7 +3,14 @@ using System.Security.Cryptography;
 namespace Oadm.Server.Tools;
 
 /// <summary>What a preview fixed for its run: the task, the devices and the payload (in memory only, like every payload).</summary>
-internal sealed record PlannedRun(string PluginId, IReadOnlyList<string> DeviceIds, string? PayloadJson, string TaskName);
+internal sealed record PlannedRun(string PluginId, IReadOnlyList<string> DeviceIds, string? PayloadJson, string TaskName)
+{
+    /// <summary>The secrets the person enters for the run (name and payload field; never a value).</summary>
+    public IReadOnlyList<TaskSecretField> Secrets { get; init; } = [];
+}
+
+/// <summary>A secret of a task run: its slot's name and where the value goes in the payload ("settings[2].value").</summary>
+internal sealed record TaskSecretField(string Name, string Field);
 
 /// <summary>The tasks a cancel preview fixed (the ones that were waiting or running); the run asks exactly these to stop.</summary>
 internal sealed record PlannedCancel(IReadOnlyList<string> TaskIds);

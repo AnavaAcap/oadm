@@ -117,8 +117,9 @@ public interface ITaskPlugin : IPlugin
     /// <summary>
     /// The record the payload is read into (SDK 0.13.0). The host exports its JSON Schema (properties with
     /// <c>[Description]</c>, <c>[MaxLength]</c>, <c>[Range]</c>, <c>[Length]</c>; enums by name) as the input of the task over
-    /// MCP. Null (the default), a payload with a <see cref="Tasks.SecretAttribute"/> property, or one whose schema leaves a text,
-    /// number or list without its bounds: the task is not offered over MCP. A task without settings returns an empty record.
+    /// MCP; a <see cref="Tasks.SecretAttribute"/> property is left out of it (the person enters it, <see cref="SecretsOf"/>). Null
+    /// (the default) or a type the host cannot describe: the task is not offered over MCP. A task without settings returns an
+    /// empty record.
     /// </summary>
     Type? PayloadType => null;
 
@@ -135,6 +136,17 @@ public interface ITaskPlugin : IPlugin
     /// a device; empty when the payload is valid. Default: no problems (the task checks its payload itself).
     /// </summary>
     IReadOnlyList<Tasks.PayloadError> ValidatePayload(string? payloadJson, ICallContext caller) => [];
+
+    /// <summary>
+    /// The secrets a run of <paramref name="payloadJson"/> needs that an AI agent never sends (SDK 0.13.0, docs/spec/mcp.md
+    /// "Secrets"): the agents' preview declares one slot each, the person enters the value (their own shell, the assistant's
+    /// card), and the run's payload has it at <see cref="Tasks.TaskSecret.Field"/> (in memory only). The preview ignores
+    /// <see cref="ValidatePayload"/>'s problems at these fields and refuses an agent's value there, each value is checked with
+    /// <see cref="ValidatePayload"/> when it is entered, and <c>TaskService.Run</c> checks the whole payload again. Read the
+    /// payload only; answer only what this payload needs (a removal needs no password). Default: the top-level
+    /// <see cref="Tasks.SecretAttribute"/> properties of <see cref="PayloadType"/> (<see cref="Tasks.TaskSecrets.FromAttributes"/>).
+    /// </summary>
+    IReadOnlyList<Tasks.TaskSecret> SecretsOf(string? payloadJson) => Tasks.TaskSecrets.FromAttributes(PayloadType, PayloadJsonOptions);
 
     /// <summary>
     /// Which of <paramref name="devices"/> a run of <paramref name="payloadJson"/> would change and why the others are skipped,

@@ -37,7 +37,8 @@ change a password or role, or remove users on every selected device.
 - Rules that must hold: never removes, demotes or changes the password of the account OADM uses, never removes or demotes
   the last administrator, never removes `root` before AXIS OS 11.5, and changes nothing while the OADM account is not
   known ("Nothing was changed"); passwords only in memory and the POST body, never in a step, log, warning, error or URL;
-  every change is read back.
+  every change is read back; AI agents never send the password: the person enters it through the secret channel
+  (docs/spec/mcp.md "Secrets"), only for Add and a password change.
 
 ## Upgrade AXIS OS
 
@@ -156,7 +157,7 @@ command**. Command format: `Schema/command-format.md` + `command.schema.json` (t
   all devices (`RequiresAllDevices`; the page hides New command, Import, Edit, Delete and Save with values); a saved
   command's stored passwords only for users with all devices (others get `CommanderTexts.SavedPasswordsRefused` and
   enter the passwords); the task owner is the caller.
-- Page actions as tools (decision 2026-11-15, [mcp.md](mcp.md) "Page actions"), with the page's rights: saved commands `oadm_vapix_saved_save`, `_delete`, `_import` (changes) and `oadm_vapix_saved_export` (the command file, secret values masked, no password value).
+- Page actions as tools (decision 2026-11-15, [mcp.md](mcp.md) "Page actions"), with the page's rights: saved commands `oadm_vapix_saved_save`, `_delete`, `_import` (changes; a password to store is named in `set_passwords` and entered by the user through the secret channel, stored encrypted) and `oadm_vapix_saved_export` (the command file, secret values masked, no password value). A command with password fields runs over `oadm_vapix_command_preview` / `_run` with each password entered by the user (never a stored one).
 
 ## NTP server (core plugin)
 
@@ -232,10 +233,13 @@ IEEE 802.1X, Renew certificates, View, Delete and Install certificates, Install 
   stored or logged; nothing in tests touches a real trust store; View and Delete certificates read at most 5,000 devices
   per window (each device is read, 4 at a time; a larger selection gets "Choose at most 5,000 devices."), the other tasks
   take any number; AI agents run View certificates as a read task and Delete certificates by name per device (never an
-  Axis factory or an in-use certificate), never Install certificates or Install CA certificates; the page actions as tools
-  (decision 2026-11-15: Create, Import, Delete, Back up and Install in the server's trust of a CA, the policies' Save and
-  Delete) have the page's checks, rights and audit, passwords only through the secret channel, a key backup only as a
-  one-time file; while it runs it offers its CAs to other plugins (`IDeviceCertificateAuthority`,
+  Axis factory or an in-use certificate), Install certificates with the PKCS#12 password entered by the person (never
+  sent by the agent; the task checks that each certificate names its device) and Install CA certificates with each CA
+  listed in the plan; Import certificate and Sign certificate request are tools (the PKCS#12 password through the secret
+  channel, the file through an upload link); the page actions as tools (decision 2026-11-15: Create, Import, Delete, Back
+  up and Install in the server's trust of a CA, the policies' Save and Delete) have the page's checks, rights and audit,
+  passwords only through the secret channel, a key backup only as a one-time file; while it runs it offers its CAs to
+  other plugins (`IDeviceCertificateAuthority`,
   `docs/spec/plugins.md` "Plugin services"), which signs the same way; every certificate a CA of PKI issues for a device
   (tasks and the service) goes into the list of issued certificates with its DER; a certificate deleted while valid,
   replaced or unused goes on the internal list of certificates no longer accepted (written before the call returns, never
@@ -464,7 +468,7 @@ many devices. Every settings form uses the bundled action catalog (`Catalog/acti
   device scope and its recent changes; it reads no device); the task takes the agents' input `RuleAgentPayload` (change,
   on / off, delete, copy, create, undo; rules by name as the editor read them last; no password; the page's rights through
   `PagePermissions`), run like the page's own runs (saved for undo, the copy read on the server).
-- Page actions as tools (decision 2026-11-15, [mcp.md](mcp.md) "Page actions"), with the page's rights: `oadm_device_rules_read` (Refresh), `_recipients`, `_schedules`, `_recipient_kinds`, and the recipient and schedule changes (create, change, copy, delete; no password over a tool); rule deploy, delete and undo stay the editor's task.
+- Page actions as tools (decision 2026-11-15, [mcp.md](mcp.md) "Page actions"), with the page's rights: `oadm_device_rules_read` (Refresh), `_recipients`, `_schedules`, `_recipient_kinds`, and the recipient and schedule changes (create, change, copy, delete; a recipient password is named in `set_passwords` and entered by the user through the secret channel, never an argument); rule deploy, delete and undo stay the editor's task, an action password of its task is sent empty and entered by the user the same way.
 
 ## System report (core plugin without a page)
 
@@ -648,7 +652,8 @@ only while Edge storage is on.
 - MCP ([mcp.md](mcp.md)): the read-only tool `oadm_edge_storage_cards` (the table the page read last for the caller's
   device scope, with its counts; it reads no camera).
 - AI agents: the hidden task is offered to the task tools with `StorageMcpPayload` (check, repair, retention, format,
-  encryption off; never Encrypt, which needs a passphrase), the page method's rules in `ValidatePayload`, the page's rights
+  encryption on and off; Encrypt's passphrase is entered by the user through the secret channel, never by the agent), the
+  page method's rules in `ValidatePayload`, the page's rights
   through `PagePermissions` (check and retention `manage`, the others `format`) and a plan that says format and encryption
   off delete every recording.
 - Page actions as tools (decision 2026-11-15, [mcp.md](mcp.md) "Page actions"), with the page's rights: `oadm_edge_storage_read` (the page's Read; check, repair and format stay the storage task).
@@ -703,8 +708,9 @@ import, `/config/rest/$export`, `$import`, like its web interface), **Configure 
   devices of the caller's view; Configure devices' permissions (`configure` or `dangerous`); passwords, secrets,
   community strings and tokens are never answered; bounded (8 devices at a time, 40 s, then the rest counts as not read;
   at most 20 rows, about 30 KB). The four tasks have agent inputs (`AgentPayloads.cs`, decision 2026-11-15), offered by
-  the host's task tools: an agent never sends a password or a secret value ("Set the password in OADM."; a password
-  parameter is skipped on the device whatever its name) and never a device address; Configure devices' `dangerous` and
+  the host's task tools: an agent never sends a password or a secret value (a setting or action parameter with a secret
+  name is a slot of the secret channel the user fills; a password parameter whose name is no secret name is skipped on the
+  device) and never a device address; Configure devices' `dangerous` and
   Import's `connection` rights hold as in the dialogs; Import takes one uploaded `.json` for every device of its model
   (no ZIP); the plans come from the cached devices and the uploaded file only and carry the dialogs' warnings.
 - Device groups: the source device of Configure devices and Create configuration file is read with the user's query
@@ -733,9 +739,11 @@ version and a valid license; the choices are read from one device.
   (16 files, 2 GB, counted while writing), entry names are never paths, then the checks and the upload of loose files run
   unchanged (`docs/spec/app-management.md` "A ZIP of packages"). Change settings: every name must be a setting of the installed application and every value fit its type and
   range before the one write, read back afterwards (passwords never read back); setting values never appear in a log,
-  step text, task name or the audit log. AI agents change settings through the task tools without passwords: a setting
-  the application declares as a password, or whose name points to a secret, is refused before any write; only the
-  Applications page may send one (`passwordsAllowed`).
+  step text, task name or the audit log. AI agents change settings through the task tools and never send a password: a
+  value in `values` for a setting the application declares as a password, or whose name points to a secret, is refused
+  before any write; a password setting the agent lists in `passwords` gets its value from the user through the secret
+  channel (docs/spec/mcp.md "Secrets"); only the Applications page sends typed ones (`passwordsAllowed`). An agent's
+  license key (`installLicense`) is one key file the user enters, for one device.
 
 ## Outputs, Notifications, Modbus, MQTT and OPC UA (event rule actions)
 

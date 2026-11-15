@@ -80,11 +80,13 @@ disk lists).
 The task is offered to the agents' task tools (`oadm_tasks_catalog`, `oadm_task_preview`, `oadm_task_run`; docs/spec/mcp.md
 "Tasks") although it is hidden from the menus:
 
-- Input `StorageMcpPayload` (`PayloadType`): `action` (`check`, `repair`, `retention`, `format`, `encryptionOff`) and
-  `retentionDays` (0 to 7,000, retention only). The task reads the same JSON as its `TaskPayload`.
-- Encrypt is not offered: it needs a passphrase. `ValidatePayload` refuses `encryptionOn` at `action` ("Encrypt on the Edge
-  storage page. It needs a passphrase."); a `TODO(secret-handle)` in `StorageTaskPlugin.ValidatePayload` marks where a
-  secret handle takes its place later.
+- Input `StorageMcpPayload` (`PayloadType`): `action` (`check`, `repair`, `retention`, `format`, `encryptionOff`,
+  `encryptionOn`) and `retentionDays` (0 to 7,000, retention only). The task reads the same JSON as its `TaskPayload`.
+- Encrypt: the passphrase is `[Secret(Label = "passphrase")]`, so it is no input; `SecretsOf` declares the slot
+  `passphrase` for `encryptionOn` only (docs/spec/mcp.md "Secrets"), the user enters it through the secret link or the
+  Assistant's card, the page's rule (`PassphraseProblem`) checks it when entered and again in `ValidatePayload` at Run, and
+  the run's payload has it (memory and the POST body only). The plan says "Encrypts the SD cards with the passphrase the
+  user enters." and that every recording is deleted; the page's right "Format and encrypt storage".
 - `ValidatePayload` holds every rule the page method checks before it starts tasks (`StoragePayloadRules.Problems`, also
   used by the page method and the task): a known action ("Unknown action.", field `action`), the days ("Enter 0 to 7,000
   days.", field `retentionDays`).

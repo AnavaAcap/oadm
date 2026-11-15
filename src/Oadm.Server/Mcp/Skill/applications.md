@@ -10,4 +10,5 @@ Use it for "which applications run where?" and to change them.
 3. Report: each application with its device count, how many run it, the versions, devices with a license problem.
 4. Start, stop, install, remove or change settings is the task `oadm.acap`: `oadm_tasks_catalog`, then
    `oadm_task_preview` (`action` `settings` with `application` and `values` by setting name). Only after the user agrees.
-   Password settings and license keys are set in OADM.
+   A password setting goes in `passwords` by name (never in `values`); a license key is installed with `installLicense`
+   on one device. The user enters both through the secret command of the preview (see "Passwords").

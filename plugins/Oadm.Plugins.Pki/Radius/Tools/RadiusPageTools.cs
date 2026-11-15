@@ -29,6 +29,9 @@ internal static class RadiusPageTools
     /// <summary>A valid stand-in for a secret the preview does not have yet (the checks of the other fields need one).</summary>
     private const string PreviewSecret = "PreviewOnly2026";
 
+    /// <summary>The switch's shared secret, entered by the person (Save switch with enter).</summary>
+    private static readonly PluginToolSecret SharedSecret = new("shared_secret", "shared secret", RadiusLimits.MaxSecretLength);
+
     public static PluginPageTools<RadiusPlugin> Set { get; } = new PluginPageTools<RadiusPlugin>(RadiusTools.Json)
         .Read<NoArgs, SessionsAnswer>(
             new("sessions", "802.1X sessions", "The switch port logins of the 802.1X server in progress and just ended, the newest first: switch, port, device, state and VLAN.")
@@ -90,7 +93,7 @@ internal static class RadiusPageTools
         .Change<SwitchArgs, SwitchPlan, SwitchResult>(
             new("switch_save", "Save switch", "Adds a switch the 802.1X server answers, or changes one: name, address, site and shared secret. The secret is entered by you, kept, or generated and handed out once as a file.")
             {
-                Secrets = [new PluginToolSecret("shared_secret", "shared secret", RadiusLimits.MaxSecretLength)],
+                Secrets = [SharedSecret],
                 ReturnsFile = true,
             },
             RadiusMethods.SaveSwitch,
@@ -218,7 +221,8 @@ internal static class RadiusPageTools
             Name = args.Name ?? existing?.Name,
             Address = args.Address ?? existing?.Address,
             SiteId = site,
-            Secret = secret == "keep" ? null : input.IsRun && secret == "enter" ? input.Secret("shared_secret") : PreviewSecret,
+            // The run, and the check of an entered value, have the person's secret; the preview checks the rest with a stand-in.
+            Secret = secret == "keep" ? null : secret == "enter" && (input.IsRun || input.Secret(SharedSecret.Name) is not null) ? input.Secret(SharedSecret.Name) : PreviewSecret,
         };
         if (existing is null && service.StoredSwitches.Count >= RadiusLimits.MaxSwitches)
         {
@@ -242,8 +246,9 @@ internal static class RadiusPageTools
         }
 
         return new SwitchPlan(existing is null ? "create" : "change", request.Name!.Trim(), request.Address!.Trim(),
-            site is null ? "This server" : site.Value.ToString(), secret, secret == "enter" ? ["shared_secret"] : [], warnings)
+            site is null ? "This server" : site.Value.ToString(), secret, warnings)
         {
+            SecretsNeeded = secret == "enter" ? [SharedSecret] : [],
             Request = request with { Secret = secret == "keep" ? null : request.Secret },
             SecretChoice = secret,
         };
@@ -390,7 +395,6 @@ internal static class RadiusPageTools
         string Address,
         [property: Description("This server, or the site id.")] string Site,
         [property: Description("keep, enter or generate.")] string Secret,
-        [property: Description("Secrets the run needs.")] IReadOnlyList<string> NeedsSecrets,
         IReadOnlyList<string> Warnings) : PluginToolPlan(1, "switch")
     {
         [System.Text.Json.Serialization.JsonIgnore]

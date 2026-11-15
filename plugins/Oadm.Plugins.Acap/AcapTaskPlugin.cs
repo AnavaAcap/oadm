@@ -66,7 +66,7 @@ public sealed class AcapTaskPlugin : ITaskPlugin, ITaskPluginQuery
     /// <summary>The permission of the run's action; an install with "Allow downgrade" also needs "downgrade".</summary>
     public IReadOnlyList<string>? RequiredPermissions(string? payloadJson)
     {
-        var payload = AcapPayload.Parse(payloadJson);
+        var payload = AcapPayload.Parse(payloadJson, requireSecrets: false); // an agent's preview: before the person entered them
         var license = payload.LicenseKeys.Count > 0 ? new[] { AcapPermissions.License } : [];
         return payload.Action switch
         {
@@ -85,7 +85,7 @@ public sealed class AcapTaskPlugin : ITaskPlugin, ITaskPluginQuery
     {
         try
         {
-            return AcapPayload.Parse(payloadJson).TaskName();
+            return AcapPayload.Parse(payloadJson, requireSecrets: false).TaskName();
         }
         catch (ArgumentException)
         {
@@ -111,10 +111,54 @@ public sealed class AcapTaskPlugin : ITaskPlugin, ITaskPluginQuery
     }
 
     /// <summary>
-    /// The input for AI agents (SDK 0.13.0): install, remove, start, stop and settings without passwords. License keys can
-    /// hold secrets, so they are done in OADM.
+    /// The input for AI agents (SDK 0.13.0): install, remove, start, stop, settings and a license key. Password settings and the
+    /// license key are entered by the person (<see cref="SecretsOf"/>).
     /// </summary>
     public Type? PayloadType => typeof(AcapMcpPayload);
+
+    /// <summary>
+    /// The secrets of an agent's payload (docs/spec/mcp.md "Secrets"): one per password setting (<c>password_&lt;i&gt;</c> at
+    /// <c>passwords[i].value</c>, "password for MQTT.Password") and the license key of InstallLicense (<c>license_key</c>).
+    /// </summary>
+    public IReadOnlyList<TaskSecret> SecretsOf(string? payloadJson)
+    {
+        if (TryRead(payloadJson) is not { } payload)
+        {
+            return [];
+        }
+
+        var secrets = new List<TaskSecret>();
+        var passwords = payload.Passwords ?? [];
+        for (var i = 0; i < passwords.Count && i < AcapPayload.MaxPasswords; i++)
+        {
+            if (passwords[i] is { Name: { Length: > 0 } name })
+            {
+                var label = "password for " + name;
+                secrets.Add(new TaskSecret(string.Create(CultureInfo.InvariantCulture, $"password_{i}"), label.Length > 64 ? label[..64] : label,
+                    string.Create(CultureInfo.InvariantCulture, $"passwords[{i}].value")));
+            }
+        }
+
+        if (payload.Action == AcapAction.InstallLicense && payload.LicenseKeys is not { Count: > 0 })
+        {
+            secrets.Add(new TaskSecret(LicenseKeySlot, "license key", LicenseKeyField));
+        }
+
+        return secrets;
+    }
+
+    /// <summary>The slot and field of an agent's license key.</summary>
+    public const string LicenseKeySlot = "license_key";
+    public const string LicenseKeyField = "licenseKey";
+
+    /// <summary>The plan of an agent's InstallLicense on several devices: a key file fits one device.</summary>
+    public const string OneDeviceForAKey = "A license key fits one device. Choose one device.";
+
+    public const string LicenseKeyNote = "Installs the license key the user enters.";
+
+    /// <summary>"Sets MQTT.Password with the value the user enters." (never the value).</summary>
+    public static string PasswordsNote(IReadOnlyList<string> names) =>
+        "Sets " + string.Join(", ", names) + (names.Count == 1 ? " with the value the user enters." : " with the values the user enters.");
 
     /// <summary>The names and enum texts the task reads.</summary>
     public System.Text.Json.JsonSerializerOptions? PayloadJsonOptions => AcapPlugin.Json;
@@ -127,15 +171,52 @@ public sealed class AcapTaskPlugin : ITaskPlugin, ITaskPluginQuery
     {
         try
         {
+            var read = TryRead(payloadJson);
+
+            // The secrets the person enters, each at its field (the preview checks an entered value there).
+            var secretErrors = new List<PayloadError>();
+            for (var i = 0; read?.Passwords is { } passwords && i < passwords.Count; i++)
+            {
+                var field = string.Create(CultureInfo.InvariantCulture, $"passwords[{i}].value");
+                if (passwords[i] is { } password && string.IsNullOrEmpty(password.Value))
+                {
+                    secretErrors.Add(new(field, AcapPayload.EnterPassword));
+                }
+                else if (passwords[i] is { Name: { } name } entered
+                    && AppSettings.OfflineProblems(new Dictionary<string, string> { [name] = entered.Value! }, passwordsAllowed: true) is [var problem, ..])
+                {
+                    return [new(field, problem.Message)]; // the text rules of every setting (a person's value too)
+                }
+            }
+
+            if (read is { Action: AcapAction.InstallLicense, LicenseKeys: not { Count: > 0 } })
+            {
+                if (string.IsNullOrEmpty(read.AgentLicenseKey))
+                {
+                    secretErrors.Add(new(LicenseKeyField, AcapPayload.EnterLicenseKey));
+                }
+                else
+                {
+                    try
+                    {
+                        LicenseKey.Parse(read.AgentLicenseKey);
+                    }
+                    catch (FormatException)
+                    {
+                        return [new(LicenseKeyField, AcapPayload.BadLicenseKey)];
+                    }
+                }
+            }
+
             // The settings first, each at its own field (the parser below names only the first problem of the list).
-            if (TryRead(payloadJson) is { Action: AcapAction.Settings } settings
+            if (read is { Action: AcapAction.Settings } settings && (settings.Values is { Count: > 0 } || settings.Passwords is not { Count: > 0 })
                 && AppSettings.OfflineProblems(settings.Values, settings.PasswordsAllowed) is { Count: > 0 } problems)
             {
                 return [.. problems.Select(p => new PayloadError(p.Name is null ? "values" : "values." + p.Name, p.Message))];
             }
 
-            AcapPayload.Parse(payloadJson);
-            return [];
+            AcapPayload.Parse(payloadJson, requireSecrets: false);
+            return secretErrors;
         }
         catch (ArgumentException ex)
         {
@@ -197,8 +278,15 @@ public sealed class AcapTaskPlugin : ITaskPlugin, ITaskPluginQuery
 
     private async Task<TaskPlan> PlanCoreAsync(string? payloadJson, IReadOnlyList<IDeviceInfo> devices, IUploadedFiles? files, CancellationToken ct)
     {
-        var payload = AcapPayload.Parse(payloadJson);
+        var payload = AcapPayload.Parse(payloadJson, requireSecrets: false); // an agent's preview: the person enters the secrets later
         var plan = TaskPlan.ByCanRun(this, devices);
+        if (payload.Action == AcapAction.InstallLicense && payload.LicenseKeys.Count == 0)
+        {
+            // An agent's key (entered later) is one file for one device.
+            return devices.Count > 1
+                ? new TaskPlan([.. devices.Select(d => new TaskPlanDevice(d.Id, OneDeviceForAKey))]) { Warnings = [LicenseKeyNote] }
+                : plan with { Warnings = [LicenseKeyNote] };
+        }
         if (payload.Action == AcapAction.Remove)
         {
             return plan with { Warnings = ["The application's settings are lost with it."] };
@@ -206,7 +294,12 @@ public sealed class AcapTaskPlugin : ITaskPlugin, ITaskPluginQuery
 
         if (payload.Action == AcapAction.Settings)
         {
-            return plan with { Warnings = [SettingsCheckedOnDeviceWarning] };
+            return plan with
+            {
+                Warnings = payload.Passwords is { Count: > 0 } passwords
+                    ? [PasswordsNote([.. passwords.Select(p => p.Name)]), SettingsCheckedOnDeviceWarning]
+                    : [SettingsCheckedOnDeviceWarning],
+            };
         }
 
         if (payload.Action != AcapAction.Install)
@@ -634,7 +727,7 @@ public sealed class AcapTaskPlugin : ITaskPlugin, ITaskPluginQuery
             step.Complete($"{app.DisplayName} {app.Version} ({app.Status})");
         }
 
-        var values = payload.Values!;
+        var values = payload.AllValues();
         Dictionary<string, string> changed;
         IReadOnlyList<AppSettingDefinition> definitions;
         HashSet<string> passwordNames;
@@ -646,7 +739,7 @@ public sealed class AcapTaskPlugin : ITaskPlugin, ITaskPluginQuery
                 throw new InvalidOperationException($"{app.DisplayName} has no settings here. Nothing was changed.");
             }
 
-            var problems = AppSettings.Check(definitions, values, app.DisplayName, out var normalized, payload.PasswordsAllowed);
+            var problems = AppSettings.Check(definitions, values, app.DisplayName, out var normalized, payload.PasswordsAllowed, payload.EnteredPasswords());
             if (problems.Count > 0)
             {
                 foreach (var problem in problems)

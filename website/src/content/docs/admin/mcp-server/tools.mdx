@@ -30,7 +30,11 @@ and runs after the user agreed.
 | `oadm_devices_credentials_preview` | Preview | Shows which devices would get the login of a stored credential, chosen by its name. Without a name it lists the names; no password is ever sent or shown. |
 | `oadm_devices_credentials_run` | Run (changes) | Stores the chosen credential as the login of the devices of a preview and queues their refresh. The devices themselves are not changed. |
 | `oadm_devices_export` | Read | The devices of a filter as a CSV file (the columns of Export devices). Answers the count and a file reference; fetch it with oadm_files_download_link. |
+| `oadm_devices_first_password_preview` | Preview | Shows the devices of a filter in factory default (Password not set) that would get their first root password, and the password rules of those devices. The user enters the password through the secret link. Then call oadm_devices_first_password_run with the handle. |
+| `oadm_devices_first_password_run` | Run (changes) | Sets the first root password on the devices of a preview that are still in factory default and stores it as their login. |
 | `oadm_devices_get` | Read | One device with its details, as the device details in OADM show them, never its credentials. Take the id from oadm_devices_search. |
+| `oadm_devices_login_preview` | Preview | Shows which devices would be logged in to with a user name the user gives; the user enters the password through the secret link. Nothing is changed; then call oadm_devices_login_run with the handle. |
+| `oadm_devices_login_run` | Run (changes) | Tries the login of a preview on its devices and stores it for those that accept it; their refresh is queued. |
 | `oadm_devices_optics` | Change | Reads now whether a camera has a remote zoom and focus, and where they stand. |
 | `oadm_devices_optics_preview` | Preview | Checks one zoom or focus change against what the camera supports; nothing moves yet. Then call oadm_devices_optics_run with the handle. |
 | `oadm_devices_optics_run` | Run (changes) | Moves the camera's zoom or focus as the preview said and answers where they stand afterwards. |
@@ -189,6 +193,10 @@ and runs after the user agreed.
 | `oadm_pki_certificate_create_preview` | Preview | Makes a key and a certificate for HTTPS or IEEE 802.1X with an issuing policy. The key stays in OADM. Nothing is changed. Call oadm_pki_certificate_create_run with the handle to apply it. |
 | `oadm_pki_certificate_create_run` | Run (changes) | Applies the plan of oadm_pki_certificate_create_preview, which checks everything again. |
 | `oadm_pki_certificate_file` | Read | One certificate of oadm_pki_certificates as a file, PEM or DER. Only the certificate: never its private key. |
+| `oadm_pki_certificate_import_preview` | Preview | Imports a certificate (PEM or DER) or a PKCS#12 file (.pfx, .p12) with its key into the certificate list, from an upload link. The PKCS#12 password is entered by the user, never sent by you. Nothing is changed. Call oadm_pki_certificate_import_run with the handle to apply it. |
+| `oadm_pki_certificate_import_run` | Run (changes) | Applies the plan of oadm_pki_certificate_import_preview, which checks everything again. |
+| `oadm_pki_certificate_sign_preview` | Preview | Signs a certificate request (PKCS#10 PEM text) with an issuing policy; the names come from the request. The run hands out the certificate as a file. Nothing is changed. Call oadm_pki_certificate_sign_run with the handle to apply it. |
+| `oadm_pki_certificate_sign_run` | Run (changes) | Applies the plan of oadm_pki_certificate_sign_preview, which checks everything again. |
 | `oadm_pki_certificates` | Read | Lists the certificates PKI knows: device certificates, certificate authorities, servers and the ones created here. Never shows a private key. |
 | `oadm_pki_policies` | Read | Lists the issuing policies for HTTPS and IEEE 802.1X certificates, to pick the policy of a new certificate. |
 | `oadm_pki_policy_delete_preview` | Preview | Deletes a PKI policy. A system policy is never deleted. Nothing is changed. Call oadm_pki_policy_delete_run with the handle to apply it. |
@@ -293,7 +301,7 @@ and runs after the user agreed.
 | `oadm_device_rules_recipient_change_run` | Run (changes) | Applies the plan of oadm_device_rules_recipient_change_preview, which checks everything again. |
 | `oadm_device_rules_recipient_copy_preview` | Preview | Copies a recipient of one device, with its password, to the chosen devices. Nothing is changed. Call oadm_device_rules_recipient_copy_run with the handle to apply it. |
 | `oadm_device_rules_recipient_copy_run` | Run (changes) | Applies the plan of oadm_device_rules_recipient_copy_preview, which checks everything again. |
-| `oadm_device_rules_recipient_create_preview` | Preview | Adds a new recipient with its settings to the chosen devices. Passwords are set in OADM. Nothing is changed. Call oadm_device_rules_recipient_create_run with the handle to apply it. |
+| `oadm_device_rules_recipient_create_preview` | Preview | Adds a new recipient with its settings to the chosen devices. Name password settings in set_passwords: the user enters them. Nothing is changed. Call oadm_device_rules_recipient_create_run with the handle to apply it. |
 | `oadm_device_rules_recipient_create_run` | Run (changes) | Applies the plan of oadm_device_rules_recipient_create_preview, which checks everything again. |
 | `oadm_device_rules_recipient_delete_preview` | Preview | Deletes the recipients of this name and kind on the chosen devices. Rules keep their copied settings. Nothing is changed. Call oadm_device_rules_recipient_delete_run with the handle to apply it. |
 | `oadm_device_rules_recipient_delete_run` | Run (changes) | Applies the plan of oadm_device_rules_recipient_delete_preview, which checks everything again. |
@@ -454,6 +462,15 @@ and runs after the user agreed.
 | `oadm_backups_restore_run` | Run (changes) | Checks the backup with the password the user entered, makes a safety backup, cancels the tasks and restarts the server with the backup. Every client and agent is disconnected; access keys end. |
 | `oadm_backups_schedule_preview` | Preview | Checks the automatic backups' settings; nothing is changed. A new password comes through the secret channel. Then call oadm_backups_schedule_run with the handle. |
 | `oadm_backups_schedule_run` | Run (changes) | Saves the automatic backups of a preview (with the new password the user entered). |
+
+## Credentials
+
+| Tool | Kind | What it does |
+| --- | --- | --- |
+| `oadm_credentials_add_preview` | Preview | Shows the entry the credential list would get; the user enters its password through the secret link. Nothing is changed; then call oadm_credentials_add_run with the handle. |
+| `oadm_credentials_add_run` | Run (changes) | Adds the entry of a preview to the credential list. OADM tries it on devices it adds. |
+| `oadm_credentials_remove_preview` | Preview | Shows the entry of the credential list that would be removed, by its user name. Nothing is changed; then call oadm_credentials_remove_run with the handle. |
+| `oadm_credentials_remove_run` | Run (changes) | Removes the entry of a preview from the credential list. Devices keep the login they have. |
 
 ## Device
 

@@ -61,7 +61,8 @@ public sealed class ToolTests
         Assert.Contains("library:time.get", ids);                     // a read of a path whose changes OADM makes
         Assert.DoesNotContain("library:maintenance.restart", ids);    // dangerous, and Restart is a task
         Assert.DoesNotContain("library:storage.format", ids);         // dangerous
-        Assert.DoesNotContain("library:users.add", ids);              // a password
+        Assert.DoesNotContain("library:users.add", ids);              // Users is a task
+        Assert.Contains("library:events.mqtt.client.configure", ids); // its password comes through the secret channel
         Assert.DoesNotContain("library:siren.profiles.upload", ids);  // a file
         Assert.DoesNotContain("library:time.timezone.set", ids);      // Date and time is a task
         Assert.DoesNotContain("library:time.ntp.static.set", ids);    // Use OADM as NTP server is a task
@@ -123,7 +124,9 @@ public sealed class ToolTests
             await Field($$"""{"command":"library:image.brightness.set","device_ids":["{{device.Id}}"],"values":[{"field":"color","value":"1"}]}"""));
         Assert.Equal("command: " + CommanderTools.IsDangerous, await Field($$"""{"command":"library:maintenance.restart","device_ids":["{{device.Id}}"]}"""));
         Assert.Equal("command: " + CommanderTools.HasOwnTask, await Field($$"""{"command":"library:time.timezone.set","device_ids":["{{device.Id}}"]}"""));
-        Assert.Equal("command: " + CommanderTools.NeedsSecretOrFile, await Field($$"""{"command":"library:users.password.set","device_ids":["{{device.Id}}"]}"""));
+        Assert.Equal("command: " + CommanderTools.NeedsSecretOrFile, await Field($$"""{"command":"library:siren.profiles.upload","device_ids":["{{device.Id}}"]}"""));
+        Assert.Equal("values: " + CommanderTools.SecretFromUser,
+            await Field($$"""{"command":"library:events.mqtt.client.configure","device_ids":["{{device.Id}}"],"values":[{"field":"host","value":"b"},{"field":"clientId","value":"c"},{"field":"password","value":"typed"}]}"""));
         Assert.Equal("command: " + CommanderTools.NotForAgents, await Field($$"""{"command":"inline:x","device_ids":["{{device.Id}}"]}"""));
         Assert.Equal("device_ids: Take the device ids from oadm_devices_search.", await Field("""{"command":"library:image.settings.get","device_ids":["lobby"]}"""));
         Assert.Equal("device_ids: Choose at least one device.", await Field("""{"command":"library:image.settings.get","device_ids":[]}"""));
@@ -289,5 +292,45 @@ public sealed class ToolTests
         Assert.Equal(PermissionKeys.Show, plugin.RequiredPermission(CommanderTools.Commands.Method));
         Assert.True(CommanderTools.CommandRun.Changes);
         Assert.Equal("rollout", CommanderTools.CommandRun.Permission);
+    }
+
+    [Fact]
+    public async Task A_password_field_is_a_slot_the_user_fills_and_only_the_run_gets_it_masked()
+    {
+        const string Canary = "canary-mqtt-pass-4Rt";
+        var (ctx, plugin) = await StartAsync();
+        var device = ctx.Add(new SdkTesting.FakeDevice { Apis = [new DeviceApi("mqtt-client", "1.0")] });
+        var call = ctx.CallAsAllDevices();
+        var args = new JsonObject
+        {
+            ["command"] = "library:events.mqtt.client.configure",
+            ["device_ids"] = new JsonArray(device.Id.ToString()),
+            ["values"] = new JsonArray(new JsonObject { ["field"] = "host", ["value"] = "broker" }, new JsonObject { ["field"] = "clientId", ["value"] = "cam1" }),
+        };
+
+        var plan = JsonNode.Parse((await ctx.InvokeAsync(plugin, call, CommanderTools.CommandRun.PreviewMethod, args.ToJsonString()))!)!.AsObject();
+        var slot = Assert.Single(plan["secrets_needed"]!.AsArray())!;
+        Assert.Equal(("password", "password"), (slot["name"]!.GetValue<string>(), slot["label"]!.GetValue<string>()));
+        Assert.Equal(1, plan["will_run"]!.GetValue<int>());
+
+        // The host checks an entered value with the preview: a value the field does not take answers at secrets.password.
+        var check = (JsonObject)args.DeepClone();
+        check["secrets"] = new JsonObject { ["password"] = "with\0nul" };
+        var refused = JsonNode.Parse((await ctx.InvokeAsync(plugin, call, CommanderTools.CommandRun.PreviewMethod, check.ToJsonString()))!)!;
+        Assert.Equal("secrets.password", refused["errors"]![0]!["field"]!.GetValue<string>());
+        Assert.Empty(ctx.TaskRuns);
+
+        // Without the value the run never sends a stand-in.
+        var missing = JsonNode.Parse((await ctx.InvokeAsync(plugin, call, CommanderTools.CommandRun.RunMethod, args.ToJsonString()))!)!;
+        Assert.NotNull(missing["errors"]);
+        Assert.Empty(ctx.TaskRuns);
+
+        var run = (JsonObject)args.DeepClone();
+        run["secrets"] = new JsonObject { ["password"] = Canary };
+        var answer = await ctx.InvokeAsync(plugin, call, CommanderTools.CommandRun.RunMethod, run.ToJsonString());
+        Assert.DoesNotContain(Canary, answer, StringComparison.Ordinal);
+        using var payload = JsonDocument.Parse(Assert.Single(ctx.TaskRuns).PayloadJson!);
+        Assert.True(payload.RootElement.GetProperty("maskSecrets").GetBoolean());
+        Assert.Contains(Canary, payload.RootElement.GetProperty("commands")[0].GetProperty("values").GetRawText(), StringComparison.Ordinal); // in memory, for the run
     }
 }

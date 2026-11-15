@@ -1067,7 +1067,7 @@ public sealed partial class AssistantChats
         }
 
         // The card's secret fields go straight into the secret channel (never into the conversation); the card stays while one is missing.
-        SetSecrets(ToolCallerOf(caller).BindingKey, handle, preview.RunTool, secrets ?? new Dictionary<string, string>());
+        await SetSecretsAsync(ToolCallerOf(caller).BindingKey, handle, preview.RunTool, secrets ?? new Dictionary<string, string>(), ct).ConfigureAwait(false);
         lock (conversation.Gate)
         {
             if (!conversation.Previews.Remove(handle, out preview))
@@ -1119,7 +1119,7 @@ public sealed partial class AssistantChats
         return reply;
     }
 
-    private void SetSecrets(string bindingKey, string handle, string runTool, IReadOnlyDictionary<string, string> secrets)
+    private async Task SetSecretsAsync(string bindingKey, string handle, string runTool, IReadOnlyDictionary<string, string> secrets, CancellationToken ct)
     {
         if (secrets.Count > AssistantTexts.MaxRunSecrets)
         {
@@ -1142,6 +1142,13 @@ public sealed partial class AssistantChats
             if (string.IsNullOrEmpty(value))
             {
                 continue; // an empty field is a missing one
+            }
+
+            // The run's own check of the value first (a passphrase policy): the card shows it below the field and stays.
+            if (store.SlotsOf(bindingKey, handle).FirstOrDefault(s => s.Name == name) is { } slot
+                && await ToolSecrets.CheckAsync(slot, value, ct).ConfigureAwait(false) is { } refused)
+            {
+                throw FieldError(name, refused);
             }
 
             if (store.Set(bindingKey, handle, name, value) is { } error)

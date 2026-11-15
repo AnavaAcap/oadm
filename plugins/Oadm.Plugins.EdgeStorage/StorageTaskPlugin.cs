@@ -72,15 +72,30 @@ public sealed class StorageTaskPlugin : ITaskPlugin
         return TaskSupportReasons.ForStatus(device) ?? StorageTexts.NoApi;
     }
 
-    /// <summary>The input for AI agents (SDK 0.13.0): every action but Encrypt, which needs a passphrase.</summary>
+    /// <summary>The input for AI agents (SDK 0.13.0): every action; Encrypt's passphrase is entered by the person (<see cref="SecretsOf"/>).</summary>
     public Type? PayloadType => typeof(StorageMcpPayload);
+
+    /// <summary>Encrypt needs the passphrase (docs/spec/mcp.md "Secrets"): the person enters it, the run's payload has it; the other actions none.</summary>
+    public IReadOnlyList<TaskSecret> SecretsOf(string? payloadJson)
+    {
+        try
+        {
+            return EdgeStorageJson.Deserialize<TaskPayload>(payloadJson).Action == StorageActions.EncryptionOn
+                ? [new TaskSecret(StoragePayloadRules.PassphraseField, "passphrase", StoragePayloadRules.PassphraseField)]
+                : [];
+        }
+        catch (ArgumentException)
+        {
+            return [];
+        }
+    }
 
     /// <summary>The names the task reads (the actions are texts, <see cref="StorageMcpAction"/>).</summary>
     public System.Text.Json.JsonSerializerOptions? PayloadJsonOptions => EdgeStorageJson.Options;
 
     /// <summary>
     /// The page method's rules before any task starts (the host runs this task without the page outside it): a known action,
-    /// the retention days. Encrypt is refused: agents never send a passphrase.
+    /// the retention days, Encrypt's passphrase (the preview checks it when the person enters it).
     /// </summary>
     public IReadOnlyList<PayloadError> ValidatePayload(string? payloadJson, ICallContext caller)
     {
@@ -92,13 +107,6 @@ public sealed class StorageTaskPlugin : ITaskPlugin
         catch (ArgumentException ex)
         {
             return [new(string.Empty, ex.Message)];
-        }
-
-        if (payload.Action == StorageActions.EncryptionOn)
-        {
-            // TODO(secret-handle): take the passphrase from a secret handle (branch feat/agent-transfer) instead of refusing;
-            // then check it with PassphraseProblem and keep it out of the plan, the task name and every log.
-            return [new(StoragePayloadRules.ActionField, StoragePayloadRules.EncryptOnPage)];
         }
 
         return StoragePayloadRules.Problems(payload);

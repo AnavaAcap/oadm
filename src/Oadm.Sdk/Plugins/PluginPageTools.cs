@@ -178,38 +178,7 @@ public sealed class PluginPageTools<TOwner>(JsonSerializerOptions? json = null)
     private string Serialize<T>(T value) => JsonSerializer.Serialize(value, Json);
 
     private static PluginToolInput<TArgs> Input<TArgs>(object args, string? payloadJson, bool run = false) =>
-        new((TArgs)args, PluginToolDevices.Of(payloadJson), PluginToolPage.Of(payloadJson)) { Secrets = run ? SecretsOf(payloadJson) : new Dictionary<string, string>(), IsRun = run };
-
-    /// <summary>The run's secrets (<see cref="PluginToolSecret.Property"/>).</summary>
-    private static Dictionary<string, string> SecretsOf(string? payloadJson)
-    {
-        var secrets = new Dictionary<string, string>(StringComparer.Ordinal);
-        if (string.IsNullOrWhiteSpace(payloadJson))
-        {
-            return secrets;
-        }
-
-        try
-        {
-            if (System.Text.Json.Nodes.JsonNode.Parse(payloadJson) is System.Text.Json.Nodes.JsonObject payload
-                && payload[PluginToolSecret.Property] is System.Text.Json.Nodes.JsonObject given)
-            {
-                foreach (var (name, value) in given)
-                {
-                    if (value is System.Text.Json.Nodes.JsonValue text && text.TryGetValue<string>(out var secret))
-                    {
-                        secrets[name] = secret;
-                    }
-                }
-            }
-        }
-        catch (JsonException)
-        {
-            // broken JSON was refused before
-        }
-
-        return secrets;
-    }
+        new((TArgs)args, PluginToolDevices.Of(payloadJson), PluginToolPage.Of(payloadJson)) { Secrets = PluginToolSecrets.Of(payloadJson), IsRun = run };
 
     private sealed record Entry(PluginTool Tool, string PageMethod, Type ArgsType, Func<TOwner, ICallContext, object, string?, bool, CancellationToken, Task<string>> Handle);
 }
@@ -221,15 +190,16 @@ public sealed class PluginPageTools<TOwner>(JsonSerializerOptions? json = null)
 public sealed record PluginToolInput<TArgs>(TArgs Args, PluginToolDevices Devices, PluginToolPage Page)
 {
     /// <summary>
-    /// The secrets of a run (<see cref="PluginTool.Secrets"/>), entered by the person through the host's secret channel; empty in
-    /// a preview and a read. Never write one into an answer, a log line or an audit detail.
+    /// The secrets the person entered (<see cref="PluginTool.Secrets"/>, <see cref="PluginToolPlan.SecretsNeeded"/>): none in a
+    /// preview and a read, all of them in the run, the one being checked when the host asks the check whether an entered value
+    /// fits (refuse it with a field error at <c>secrets.&lt;name&gt;</c>). Never write one into an answer, a log line or an audit detail.
     /// </summary>
     public IReadOnlyDictionary<string, string> Secrets { get; init; } = new Dictionary<string, string>();
 
-    /// <summary>The value of the secret <paramref name="name"/>; null when the call has none (always in a preview).</summary>
+    /// <summary>The secret <paramref name="name"/>; null when this call has none (a preview).</summary>
     public string? Secret(string name) => Secrets.TryGetValue(name, out var value) ? value : null;
 
-    /// <summary>True in the run of a change (its check runs again before the run's code); false in a preview and a read.</summary>
+    /// <summary>True in the run of a change (its check runs again before the run's code); false in a preview, a check of a secret and a read.</summary>
     public bool IsRun { get; init; }
 }
 
@@ -278,4 +248,13 @@ public sealed class PluginToolInputException : ArgumentException
 /// <param name="Unit">What they are: one word in the singular ("reader", "pipeline", "lease", "device").</param>
 public abstract record PluginToolPlan(
     [property: Description("How many things the run changes.")] int WillChange,
-    [property: Description("What they are, in the singular.")] string Unit);
+    [property: Description("What they are, in the singular.")] string Unit)
+{
+    /// <summary>
+    /// The secrets the run needs (SDK 0.13.0, <see cref="PluginToolSecret"/>): some of the tool's <see cref="PluginTool.Secrets"/>
+    /// or ones the plan names itself; empty: none; null: all of the tool's <see cref="PluginTool.Secrets"/>. The host takes them
+    /// out of the answer and asks the person for them; the run reads them with <see cref="PluginToolInput{TArgs}.Secret"/>.
+    /// </summary>
+    [System.Text.Json.Serialization.JsonPropertyName(PluginToolSecrets.Property)]
+    public IReadOnlyList<PluginToolSecret>? SecretsNeeded { get; init; }
+}

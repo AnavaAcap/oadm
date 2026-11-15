@@ -621,7 +621,13 @@ Rules:
   certificates as lines of the task's log, nothing written); Delete certificates takes the dialog's payload (names per
   device, as View lists them), refuses an empty choice or an Axis factory name before any task starts, and its plan says
   how many certificates go from how many devices, that they cannot be restored and that one in use is never deleted.
-  Install certificates (a password) and Install CA certificates (a new trust anchor the person checks) stay in OADM.
+  Install certificates takes the dialog's payload with the files by device (upload links) and the PKCS#12 password
+  entered by the person through the secret channel ([mcp.md](mcp.md) "Secrets"), never by the agent; the task checks that
+  each certificate names its device before the install. Install CA certificates lists each CA in the plan (name, issued
+  to and by, valid until, SHA-256) after the warning that the devices will trust what these CAs issue, for the person to
+  confirm before Run. The Certificates card's Import (a certificate, or a PKCS#12 file with its password through the
+  secret channel) and Sign request are tools of their own (`oadm_pki_certificate_import_*`, `oadm_pki_certificate_sign_*`),
+  the page's checks in the preview, nothing stored before the run.
 - AI agents and the page (decision 2026-11-15, [mcp.md](mcp.md) "Page actions"): Create CA, Import CA (a file the agent
   uploaded, its password only through the secret channel), Delete CA (refused while a policy names it, as on the page), Back
   up a CA's key (its password through the secret channel, the PKCS#12 handed out once over a download link, the only

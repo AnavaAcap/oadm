@@ -24,6 +24,9 @@ internal static class PkiPageTools
     public const string NoKey = "OADM cannot read the key of this CA, so it cannot be backed up.";
     public const string NotRoot = "Only a root CA can be installed in the server's trust.";
     public const string AlreadyTrusted = "The server trusts this CA already.";
+    /// <summary>The password of an imported CA file (or of its key file), entered by the person.</summary>
+    public static readonly PluginToolSecret FilePassword = new("password", "file password");
+
     public const string ChooseKind = "Use one of: " + "httpsCertificate, dot1xCertificate, expiryWarning, dot1xServer, allowCa, vlan, block, estServer, enrollment, signInCa, mcpServer.";
 
     public static PluginPageTools<PkiPlugin> Set { get; } = new PluginPageTools<PkiPlugin>(PkiTools.Json)
@@ -43,7 +46,7 @@ internal static class PkiPageTools
         .Change<CaImportArgs, CaImportPlan, CaResult>(
             new("ca_import", "Import CA", "Adds a CA with its key from a file you uploaded: PKCS#12 (.pfx, .p12) or PEM with the key, or a PEM certificate with a separate key file. It never replaces another CA.")
             {
-                Secrets = [new PluginToolSecret("password", "file password")],
+                Secrets = [FilePassword],
             },
             PkiMethods.Import,
             CheckImportAsync,
@@ -174,14 +177,16 @@ internal static class PkiPageTools
             (key, _) = await ReadUploadAsync(caller, keyId, "key_file_id", ct).ConfigureAwait(false);
         }
 
-        var plan = new CaImportPlan(fileName, null, null, 0, []) { Content = file, KeyContent = key };
+        var plan = new CaImportPlan(fileName, null, null, 0) { Content = file, KeyContent = key, SecretsNeeded = [] };
         if (input.IsRun)
         {
             return plan; // the run's import checks everything again, with the password
         }
 
-        // Without the password: a file that needs one names the secret; any other problem is the page's field error.
-        var result = CaImporter.Import(new CaImportInput(file, fileName, null, key, null), DateTimeOffset.UtcNow, service.DefaultValidDays);
+        // Without the password: a file that needs one names the secret; any other problem is the page's field error. With
+        // the password (the host checks an entered one): a wrong one is refused at secrets.password.
+        var password = input.Secret(FilePassword.Name);
+        var result = CaImporter.Import(new CaImportInput(file, fileName, password, key, password), DateTimeOffset.UtcNow, service.DefaultValidDays);
         using (result.Ca)
         {
             if (result.Ca is not { } material)
@@ -193,7 +198,12 @@ internal static class PkiPageTools
                     throw new PluginToolInputException(other.Select(e => new KeyValuePair<string, string>(ImportField(e.Key), e.Value)));
                 }
 
-                return plan with { NeedsSecrets = ["password"] };
+                if (password is not null)
+                {
+                    throw new PluginToolInputException(result.Errors.Select(e => new KeyValuePair<string, string>(ImportField(e.Key), e.Value)));
+                }
+
+                return plan with { SecretsNeeded = [FilePassword] };
             }
 
             if (service.ImportRefusal(material.Id) is { } refusal)
@@ -217,7 +227,7 @@ internal static class PkiPageTools
         _ => "file_id",
     };
 
-    private static async Task<(byte[] Content, string Name)> ReadUploadAsync(ICallContext caller, string? fileId, string field, CancellationToken ct)
+    internal static async Task<(byte[] Content, string Name)> ReadUploadAsync(ICallContext caller, string? fileId, string field, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(fileId) || await caller.Uploads.FindAsync(fileId.Trim(), ct).ConfigureAwait(false) is not { } upload)
         {
@@ -478,8 +488,7 @@ internal static class PkiPageTools
         [property: Description("The uploaded file.")] string File,
         [property: Description("The CA's name; null until the file's password is entered.")] string? Name,
         [property: Description("The CA's end (UTC date); null until the password is entered.")] string? ValidUntil,
-        [property: Description("Issuers above the CA in the file.")] int ChainCertificates,
-        [property: Description("Secrets the run needs.")] IReadOnlyList<string> NeedsSecrets) : PluginToolPlan(1, "certificate authority")
+        [property: Description("Issuers above the CA in the file.")] int ChainCertificates) : PluginToolPlan(1, "certificate authority")
     {
         [System.Text.Json.Serialization.JsonIgnore]
         public byte[] Content { get; init; } = [];

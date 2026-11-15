@@ -193,11 +193,10 @@ public sealed partial class ActionRulesPlugin
             return errors;
         }
 
-        if (RuleAgentCheck.Secret(patch.Parameters) is { } secret)
+        if (RuleAgentCheck.SecretProblems("change.parameters", patch.Parameters) is { Count: > 0 } secrets)
         {
-            // TODO(secret-handle): take a secret handle of the agents' secret channel (branch feat/agent-transfer) for the
-            // password settings of an action instead of refusing them; until then passwords are set in the editor only.
-            errors.Add(new("change.parameters." + secret, RuleAgentCheck.SecretText));
+            // A password setting is a slot of the secret channel (RuleTaskPlugin.SecretsOf): the person enters it.
+            errors.AddRange(secrets);
         }
         else if (UnknownSetting(patch.Parameters) is { } unknown)
         {
@@ -215,10 +214,9 @@ public sealed partial class ActionRulesPlugin
     /// <summary>A new rule: the rule builder's check (<see cref="BuildProblem"/>), no password.</summary>
     private List<PayloadError> CheckNewRule(RuleAgentNewRule rule)
     {
-        if (RuleAgentCheck.Secret(rule.Parameters) is { } secret)
+        if (RuleAgentCheck.SecretProblems("rule.parameters", rule.Parameters) is { Count: > 0 } secrets)
         {
-            // TODO(secret-handle): as for a change, a secret handle for the action's password settings later.
-            return [new("rule.parameters." + secret, RuleAgentCheck.SecretText)];
+            return secrets; // a password setting is a slot of the secret channel, as for a change
         }
 
         var created = Normalize(rule.ToNewRule());
@@ -281,6 +279,11 @@ public sealed partial class ActionRulesPlugin
 
         var running = devices.Count(d => d.SkipReason is null);
         var warnings = new List<string>();
+        foreach (var secret in RuleAgentCheck.SecretsOf(payload))
+        {
+            warnings.Add("The action gets a new " + secret.Label + ". The user enters it.");
+        }
+
         switch (payload.Action)
         {
             case RuleAgentAction.Delete when running > 0:
@@ -470,10 +473,90 @@ public sealed partial class ActionRulesPlugin
 }
 
 /// <summary>Texts and field names of the agents' input check.</summary>
-public static class RuleAgentCheck
+public static partial class RuleAgentCheck
 {
-    /// <summary>A password setting in an agent's input. Passwords are set in the editor (a secret handle comes later).</summary>
+    /// <summary>A password setting whose name cannot carry a secret through the agents' secret channel.</summary>
     public const string SecretText = "Set passwords in the Action Rule Editor.";
+
+    /// <summary>A password setting without its value at a run: the person enters it through the secret channel.</summary>
+    public const string EnterSecretText = "Enter the password.";
+
+    /// <summary>
+    /// The password settings of an agent's input (<see cref="RuleText.IsSecret"/>) as slots of the secret channel (SDK 0.13.0,
+    /// <see cref="TaskSecret"/>): the agent sends each one empty, the person enters it, the run gets it at
+    /// <c>change.parameters.&lt;name&gt;</c> or <c>rule.parameters.&lt;name&gt;</c>. A setting whose name is no plain word is
+    /// left out (its check refuses it: <see cref="SecretText"/>).
+    /// </summary>
+    public static IReadOnlyList<TaskSecret> SecretsOf(RuleAgentPayload payload)
+    {
+        ArgumentNullException.ThrowIfNull(payload);
+        var (prefix, parameters) = payload.Action switch
+        {
+            RuleAgentAction.Change or RuleAgentAction.Copy => ("change.parameters", payload.Change?.Parameters),
+            RuleAgentAction.Create => ("rule.parameters", payload.Rule?.Parameters),
+            _ => (string.Empty, null),
+        };
+        var secrets = new List<TaskSecret>();
+        foreach (var name in (parameters?.Keys ?? []).Order(StringComparer.Ordinal))
+        {
+            if (SlotOf(name, prefix + "." + name) is not { } secret)
+            {
+                continue;
+            }
+
+            secrets.Add(secrets.Any(s => s.Name == secret.Name) ? secret with { Name = "secret_" + (secrets.Count + 1).ToString(CultureInfo.InvariantCulture) } : secret);
+        }
+
+        return secrets.Count > 8 ? [] : secrets;
+    }
+
+    /// <summary>
+    /// The slot of a password setting (<see cref="RuleText.IsSecret"/>, a plain name) going to <paramref name="field"/>: the
+    /// setting's name as a slot name (else secret_1), its label (<see cref="LabelOf"/>); null for another setting.
+    /// </summary>
+    public static TaskSecret? SlotOf(string name, string field)
+    {
+        ArgumentNullException.ThrowIfNull(name);
+        if (!RuleText.IsSecret(name) || !IsPlainName(name))
+        {
+            return null;
+        }
+
+        var slot = TaskSecrets.SlotName(name);
+        return new TaskSecret(SlotPattern().IsMatch(slot) ? slot : "secret_1", LabelOf(name), field);
+    }
+
+    /// <summary>The problems of the password settings: a name that is no plain word, more than 8, or one without a value (at a run).</summary>
+    public static List<PayloadError> SecretProblems(string prefix, IReadOnlyDictionary<string, string>? parameters)
+    {
+        var errors = new List<PayloadError>();
+        var secrets = (parameters ?? new Dictionary<string, string>()).Where(p => RuleText.IsSecret(p.Key)).ToList();
+        foreach (var (name, value) in secrets)
+        {
+            if (!IsPlainName(name) || secrets.Count > 8)
+            {
+                errors.Add(new(prefix + "." + name, SecretText));
+            }
+            else if (string.IsNullOrEmpty(value))
+            {
+                errors.Add(new(prefix + "." + name, EnterSecretText)); // the preview leaves it to the person; a run needs it
+            }
+        }
+
+        return errors;
+    }
+
+    /// <summary>What the person is asked for: "password", "proxy password", "HTTP headers".</summary>
+    public static string LabelOf(string name)
+    {
+        ArgumentNullException.ThrowIfNull(name);
+        return name.Equals("http_headers", StringComparison.OrdinalIgnoreCase) ? "HTTP headers" : name.Replace('_', ' ').Replace('-', ' ').ToLowerInvariant();
+    }
+
+    private static bool IsPlainName(string name) => name.Length is > 0 and <= 64 && name.All(c => char.IsAsciiLetterOrDigit(c) || c is '_' or '-');
+
+    [System.Text.RegularExpressions.GeneratedRegex("^[a-z][a-z0-9]*(_[a-z0-9]+)*$", System.Text.RegularExpressions.RegexOptions.CultureInvariant)]
+    private static partial System.Text.RegularExpressions.Regex SlotPattern();
 
     public const string RuleNameText = "Enter the name of the rules.";
 

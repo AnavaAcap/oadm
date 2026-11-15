@@ -276,7 +276,7 @@ public sealed class McpPluginToolTests
     }
 
     /// <summary>The bundled plugins started in the server, like the host starts them; PKI keeps the fake certificate of the MCP server.</summary>
-    private static async Task<McpTestServer> StartBundledAsync()
+    internal static async Task<McpTestServer> StartBundledAsync()
     {
         var server = await McpTestServer.StartAsync();
         var registry = server.Host.Get<PluginRegistry>();

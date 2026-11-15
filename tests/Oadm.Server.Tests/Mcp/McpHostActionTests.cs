@@ -45,6 +45,7 @@ public sealed class McpHostActionTests
         "oadm_tags_update_run", "oadm_task_query", "oadm_tasks_delete_all_preview", "oadm_tasks_delete_all_run", "oadm_tasks_delete_preview",
         "oadm_tasks_delete_run", "oadm_update_check", "oadm_vulnerabilities_update_preview", "oadm_vulnerabilities_update_run",
         "oadm_waiting_list", "oadm_waiting_remove_preview", "oadm_waiting_remove_run",
+        .. McpLoginToolTests.ToolNames,
     ];
 
     /// <summary>The gRPC methods the tools of this stage call besides those of the other stages.</summary>
@@ -63,6 +64,7 @@ public sealed class McpHostActionTests
         "/oadm.v1.TagService/Delete", "/oadm.v1.TagService/Update",
         "/oadm.v1.TaskService/Delete", "/oadm.v1.TaskService/DeleteAll", "/oadm.v1.TaskService/Query",
         "/oadm.v1.UpdateService/Get", "/oadm.v1.VulnerabilityService/Refresh", "/oadm.v1.WaitingDeviceService/Remove",
+        .. McpLoginToolTests.Methods,
     ];
 
     /// <summary>The run tools of this stage: each takes only the handle of its preview.</summary>
@@ -72,13 +74,14 @@ public sealed class McpHostActionTests
     public static readonly string[] AddingRuns =
     [
         "oadm_compliance_check_now_run", "oadm_recipients_test_run", "oadm_rules_duplicate_run", "oadm_rules_test_action_run", "oadm_vulnerabilities_update_run",
+        "oadm_credentials_add_run",
     ];
 
     /// <summary>The reads and previews that ask a device or act outside OADM (no plain read).</summary>
     public static readonly string[] ActsOutside =
     [
         "oadm_compliance_check_now_run", "oadm_devices_optics", "oadm_devices_optics_preview", "oadm_devices_ptz", "oadm_devices_ptz_preview",
-        "oadm_task_query", "oadm_vulnerabilities_update_run",
+        "oadm_task_query", "oadm_vulnerabilities_update_run", "oadm_devices_login_run", "oadm_devices_first_password_preview",
     ];
 
     /// <summary>One call of every tool of this stage for the scan of <see cref="McpSecretTests"/>.</summary>
@@ -117,6 +120,10 @@ public sealed class McpHostActionTests
             ["oadm_devices_rtsp_port_preview"] = new() { ["filter"] = new JsonObject { ["ids"] = new JsonArray(deviceId) }, ["port"] = 8554 },
             ["oadm_vulnerabilities_update_preview"] = [],
             ["oadm_update_check"] = [],
+            ["oadm_devices_login_preview"] = new() { ["filter"] = new JsonObject { ["ids"] = new JsonArray(deviceId) }, ["user_name"] = "root" },
+            ["oadm_devices_first_password_preview"] = new() { ["filter"] = new JsonObject { ["ids"] = new JsonArray(deviceId) } },
+            ["oadm_credentials_add_preview"] = new() { ["user_name"] = "scan" },
+            ["oadm_credentials_remove_preview"] = new() { ["user_name"] = "nobody" },
         };
         foreach (var run in RunTools)
         {
@@ -398,7 +405,8 @@ public sealed class McpHostActionTests
             ["name"] = "Ops", ["type_id"] = "test.host.relay-type", ["settings"] = new JsonObject { ["url"] = "https://relay.example.com/a", ["token"] = "canary-new" },
         });
         Assert.True(password["isError"]!.GetValue<bool>());
-        Assert.Contains(RuleTools.SetInOadm, Text(password), StringComparison.Ordinal);
+        Assert.Contains(RecipientChangeTools.UseSetSecrets, Text(password), StringComparison.Ordinal);
+        Assert.DoesNotContain("canary-new", Text(password), StringComparison.Ordinal);
         var login = await server.CallToolAsync(key, "oadm_recipients_save_preview", new JsonObject
         {
             ["name"] = "Ops", ["type_id"] = "test.host.relay-type", ["settings"] = new JsonObject { ["url"] = "https://user:pw@relay.example.com/a" },
@@ -443,6 +451,81 @@ public sealed class McpHostActionTests
         await server.ToolAsync(key, "oadm_recipients_delete_run", new JsonObject { ["handle"] = delete["handle"]!.GetValue<string>() });
         Assert.Empty((await Events(server).ListRecipientsAsync(new Proto.Empty())).Recipients);
         Assert.Contains(await AuditAsync(server), e => e.Action == AuditActions.RecipientDeleted);
+    }
+
+    [Fact]
+    public async Task ARecipientsPasswordAndHeaderValueComeThroughTheSecretLinksAndAChangeKeepsTheRest()
+    {
+        const string Token = "canary-recipient-token-4Kd";
+        const string Header = "hdr-canary-value-8Mw";
+        await using var server = await StartWithActionsAsync();
+        var key = await server.CreateKeyAsync(name: "Ops-bot");
+        var answers = new System.Text.StringBuilder();
+
+        var wrong = await server.CallToolAsync(key, "oadm_recipients_save_preview", new JsonObject
+        {
+            ["name"] = "Ops", ["type_id"] = "test.host.relay-type", ["settings"] = new JsonObject { ["url"] = "https://relay.example.com/a" },
+            ["set_secrets"] = new JsonArray(new JsonObject { ["field"] = "url" }, new JsonObject { ["field"] = "headers" }),
+        });
+        Assert.Equal(["set_secrets[0]", "set_secrets[1]"], JsonNode.Parse(Text(wrong))!["errors"]!.AsArray().Select(e => e!["field"]!.GetValue<string>()));
+
+        var arguments = new JsonObject
+        {
+            ["name"] = "Ops", ["type_id"] = "test.host.relay-type", ["settings"] = new JsonObject { ["url"] = "https://relay.example.com/a" },
+            ["set_secrets"] = new JsonArray(new JsonObject { ["field"] = "token" }, new JsonObject { ["field"] = "headers", ["header"] = "Authorization" }),
+        };
+        var preview = await server.ToolAsync(key, "oadm_recipients_save_preview", arguments);
+        answers.Append(preview.ToJsonString());
+        Assert.Equal(["token", "header"], preview["needs_secrets"]!.AsArray().Select(n => n!.GetValue<string>()));
+        Assert.Equal(["token", "value of the header Authorization"], preview["secrets"]!.AsArray().Select(n => n!.GetValue<string>()));
+        Assert.Contains(Card(server, "oadm_recipients_save_preview", preview, arguments).Details, d => d.Contains("value of the header Authorization", StringComparison.Ordinal));
+        Assert.Empty((await Events(server).ListRecipientsAsync(new Proto.Empty())).Recipients); // nothing saved
+
+        var handle = preview["handle"]!.GetValue<string>();
+        var early = await server.CallToolAsync(key, "oadm_recipients_save_run", new JsonObject { ["handle"] = handle });
+        Assert.Contains("Enter the token.", Text(early), StringComparison.Ordinal);
+        foreach (var (slot, value) in new[] { ("token", Token), ("header", Header) })
+        {
+            using var client = server.Http();
+            using var put = new HttpRequestMessage(HttpMethod.Put, new Uri(preview["secret_links"]![slot]!["url"]!.GetValue<string>()).PathAndQuery)
+            {
+                Content = new ByteArrayContent(System.Text.Encoding.UTF8.GetBytes(value)),
+            };
+            put.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", key);
+            using var sent = await client.SendAsync(put);
+            Assert.Equal(System.Net.HttpStatusCode.OK, sent.StatusCode);
+            answers.Append(await sent.Content.ReadAsStringAsync());
+        }
+
+        var saved = await server.ToolAsync(key, "oadm_recipients_save_run", new JsonObject { ["handle"] = handle });
+        answers.Append(saved.ToJsonString());
+        var store = server.Host.Get<RecipientStore>();
+        var stored = store.DecryptSettings((await store.GetAsync(Guid.Parse(saved["recipient_id"]!.GetValue<string>()), CancellationToken.None))!);
+        Assert.Equal(Token, stored["token"]!.GetValue<string>());
+        Assert.Equal(Header, stored["headers"]![0]!["value"]!.GetValue<string>());
+
+        // A new target needs the password again, as in the dialog: the preview asks the user for it.
+        var moved = await server.ToolAsync(key, "oadm_recipients_save_preview", new JsonObject
+        {
+            ["recipient_id"] = saved["recipient_id"]!.GetValue<string>(), ["settings"] = new JsonObject { ["url"] = "https://relay.example.com/b" },
+        });
+        Assert.Equal(["token"], moved["needs_secrets"]!.AsArray().Select(n => n!.GetValue<string>()));
+
+        // A change sets only what it names: the stored token and header stay.
+        var change = await server.ToolAsync(key, "oadm_recipients_save_preview", new JsonObject
+        {
+            ["recipient_id"] = saved["recipient_id"]!.GetValue<string>(), ["name"] = "Ops desk",
+        });
+        Assert.True(change["has_password"]!.GetValue<bool>());
+        Assert.Null(change["needs_secrets"]);
+        await server.ToolAsync(key, "oadm_recipients_save_run", new JsonObject { ["handle"] = change["handle"]!.GetValue<string>() });
+        var after = store.DecryptSettings((await store.GetAsync(Guid.Parse(saved["recipient_id"]!.GetValue<string>()), CancellationToken.None))!);
+        Assert.Equal(Token, after["token"]!.GetValue<string>());
+        Assert.Equal(Header, after["headers"]![0]!["value"]!.GetValue<string>());
+
+        Assert.Contains(await AuditAsync(server), e => e.Action == AuditActions.SecretSet && e.Target == "value of the header Authorization" && e.Detail == "For Save a recipient");
+        await SecretScan.AssertNowhereAsync(server.Host, Token, answers.ToString()); // the token is stored encrypted
+        await SecretScan.AssertNowhereAsync(server.Host, Header, answers.ToString(), "oadm.db", "oadm.db-wal", "oadm.db-shm"); // a header is stored as the dialog stores it
     }
 
     [Fact]
@@ -670,7 +753,9 @@ public sealed class McpHostActionTests
 
         public IReadOnlyList<RecipientType> RecipientTypes { get; } =
         [
-            new("test.host.relay-type", "Relay", null, [ActionField.Text("url", "URL", required: true) with { Format = ActionFieldFormat.Url }, ActionField.Password("token", "Token")], "test.host.relay") { Target = "{url}" },
+            new("test.host.relay-type", "Relay", null,
+                [ActionField.Text("url", "URL", required: true) with { Format = ActionFieldFormat.Url }, ActionField.Password("token", "Token"), ActionField.KeyValues("headers", "Headers")],
+                "test.host.relay") { Target = "{url}" },
         ];
 
         public IReadOnlyList<ActionField> Fields { get; } = [ActionField.Recipient("recipient", "Recipient", ["test.host.relay-type"])];

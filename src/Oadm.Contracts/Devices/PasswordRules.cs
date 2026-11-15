@@ -1,4 +1,4 @@
-namespace Oadm.Client.Discovery;
+namespace Oadm.Contracts.Devices;
 
 /// <summary>
 /// Rules for the first root password of a factory-default device: 1-64 printable ASCII characters

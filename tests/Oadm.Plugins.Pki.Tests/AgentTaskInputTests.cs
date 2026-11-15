@@ -20,7 +20,7 @@ public sealed class AgentTaskInputTests
         PkiJson.Serialize(new DeletePayload { Devices = devices.ToDictionary(d => d.Device, d => (IReadOnlyList<CertificateRef>)d.Refs) });
 
     [Fact]
-    public async Task View_and_delete_have_a_payload_type_and_install_stays_not_offered()
+    public async Task View_delete_and_both_installs_have_a_payload_type()
     {
         await using var pki = await PkiHarness.StartAsync();
         ITaskPlugin Task(string id) => pki.Plugin.TaskPlugins.Single(t => t.Id == id);
@@ -28,7 +28,8 @@ public sealed class AgentTaskInputTests
         Assert.Equal(typeof(PkiViewMcpPayload), Task(PkiTaskIds.View).PayloadType);
         Assert.Equal(typeof(DeletePayload), Task(PkiTaskIds.Delete).PayloadType);
         Assert.Same(PkiJson.Options, Task(PkiTaskIds.Delete).PayloadJsonOptions);
-        Assert.Null(Task(PkiTaskIds.Install).PayloadType); // a password
+        Assert.Equal(typeof(InstallPayload), Task(PkiTaskIds.Install).PayloadType); // its password through the secret channel
+        Assert.Equal(typeof(InstallCaPayload), Task(PkiTaskIds.InstallCa).PayloadType); // its plan lists each CA
     }
 
     [Fact]

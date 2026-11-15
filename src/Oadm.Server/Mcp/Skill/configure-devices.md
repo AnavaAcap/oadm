@@ -15,6 +15,7 @@ Use it for "set capture frequency 50 Hz on all lobby cameras" and other settings
 7. Read again with `oadm_config_parameters` to show the result.
 
 Action rules and stream profiles of the same task: `actionRules`, `streamProfiles` in the input (read them with
-`oadm_config_action_rules`, `oadm_config_stream_profiles`). Passwords are never set this way: "Set the password in OADM."
+`oadm_config_action_rules`, `oadm_config_stream_profiles`). A password setting is sent with an empty value: the
+preview answers `secret_links`, show the user the command (see "Passwords"), never ask for the value.
 Import configuration takes one `.json` from `oadm_files_upload_link`; Export configuration and Create configuration file
 put the file in the task's log.

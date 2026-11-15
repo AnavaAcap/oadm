@@ -117,11 +117,13 @@ public sealed record PluginTool(string Name, string Title, string Description)
     public bool ReturnsFile { get; init; }
 
     /// <summary>
-    /// Secrets the run of a change needs (SDK 0.13.0, a password, a shared secret): they never pass through a model. The host
-    /// declares them on the preview's handle (all of them, or only those the plan names in its <c>needs_secrets</c> list), the
-    /// person enters them through the host's secret channel, and the run gets them once in
-    /// <see cref="PluginToolInput{TArgs}.Secrets"/> (the payload's <c>secrets</c> object). The preview never has them: its
-    /// check accepts a missing secret. A change only; at most 8.
+    /// Secrets the run of a change may need (SDK 0.13.0, docs/spec/mcp.md "Secrets"): a password, a shared secret. They never
+    /// pass through a model or an argument. The preview's plan chooses which the run needs with
+    /// <see cref="PluginToolPlan.SecretsNeeded"/> (some of these, or secrets it names itself, such as one per saved command);
+    /// a plan that names none needs all of these. The host declares them on the preview's handle, the person enters them in
+    /// their own shell or the assistant's card, the preview method checks each entered value (a field error at
+    /// <c>secrets.&lt;name&gt;</c> refuses it), and the run gets them in <see cref="PluginToolInput{TArgs}.Secrets"/>. A change
+    /// only; at most 8 per preview.
     /// </summary>
     public IReadOnlyList<PluginToolSecret> Secrets { get; init; } = [];
 
@@ -157,19 +159,6 @@ public sealed record PluginTool(string Name, string Title, string Description)
 
     /// <summary>True when <paramref name="method"/> only reads or previews (never writes): every tool method but the run of a change.</summary>
     public static bool IsPreviewMethod(string? method) => method is not null && method.EndsWith(".preview", StringComparison.Ordinal) && IsToolMethod(method);
-}
-
-/// <summary>A secret the run of a change needs (<see cref="PluginTool.Secrets"/>): its name and what the person is asked for.</summary>
-/// <param name="Name">Lower case words with underscores ("shared_secret"); the run reads it with <see cref="PluginToolInput{TArgs}.Secret"/>.</param>
-/// <param name="Label">What the field is called, in lower case ("shared secret", "PKCS#12 password"); the refusal reads "Enter the &lt;label&gt;.".</param>
-/// <param name="MaxLength">The longest value in characters.</param>
-public sealed record PluginToolSecret(string Name, string Label, int MaxLength = 1024)
-{
-    /// <summary>The property of a run's payload that holds the values (in memory only, never logged or audited).</summary>
-    public const string Property = "secrets";
-
-    /// <summary>The property of a plan that names the secrets the run needs (some of <see cref="PluginTool.Secrets"/>); absent: all.</summary>
-    public const string NeedsProperty = "needs_secrets";
 }
 
 /// <summary>
@@ -328,5 +317,63 @@ public static class PluginToolErrors
         {
             ["errors"] = new JsonArray([.. errors.Select(e => (JsonNode)new JsonObject { ["field"] = e.Key, ["error"] = e.Value })]),
         }.ToJsonString();
+    }
+}
+
+/// <summary>
+/// A secret the run of a plugin tool's change needs (SDK 0.13.0, docs/spec/mcp.md "Secrets"): a password, a passphrase, a key.
+/// The caller never sends it as an argument: the tool declares it (<see cref="PluginTool.Secrets"/>) or the preview's plan names
+/// it (<see cref="PluginToolPlan.SecretsNeeded"/>), the person enters the value in their own shell or the assistant's card, and
+/// the host hands it to a check of the value and to the run in the payload's <see cref="PluginToolSecrets.ValuesProperty"/>.
+/// Never echo a value in an answer, an audit detail or a log line.
+/// </summary>
+/// <param name="Name">Lower case words with underscores ("password", "pkcs12_password"); read it with <see cref="PluginToolInput{TArgs}.Secret"/>.</param>
+/// <param name="Label">What the person is asked for, in lower case ("password", "PKCS#12 password"); the refusal reads "Enter the &lt;label&gt;.".</param>
+/// <param name="MaxLength">The longest value in characters.</param>
+public sealed record PluginToolSecret(
+    [property: System.Text.Json.Serialization.JsonPropertyName("name")] string Name,
+    [property: System.Text.Json.Serialization.JsonPropertyName("label")] string Label,
+    [property: System.Text.Json.Serialization.JsonPropertyName("max_length")] int MaxLength = 1024);
+
+/// <summary>The secrets of a plugin tool's change (<see cref="PluginToolSecret"/>) as the host passes them.</summary>
+public static class PluginToolSecrets
+{
+    /// <summary>The property of a preview's answer that names the secrets the run needs (a list of <see cref="PluginToolSecret"/>); the host takes it out.</summary>
+    public const string Property = "secrets_needed";
+
+    /// <summary>The property of the payload that holds the values by name: all of them for the run, one when the host checks a value the person entered.</summary>
+    public const string ValuesProperty = "secrets";
+
+    /// <summary>
+    /// The secret values of a payload by name; empty for a preview, all of the preview's for a run, the one value being checked
+    /// when the host asks the preview method whether an entered value fits (answer a field error at <c>secrets.&lt;name&gt;</c>).
+    /// </summary>
+    public static IReadOnlyDictionary<string, string> Of(string? payloadJson)
+    {
+        var values = new Dictionary<string, string>(StringComparer.Ordinal);
+        if (string.IsNullOrWhiteSpace(payloadJson))
+        {
+            return values;
+        }
+
+        try
+        {
+            if (JsonNode.Parse(payloadJson) is JsonObject payload && payload[ValuesProperty] is JsonObject secrets)
+            {
+                foreach (var (name, value) in secrets)
+                {
+                    if (value is JsonValue text && text.TryGetValue<string>(out var secret))
+                    {
+                        values[name] = secret;
+                    }
+                }
+            }
+        }
+        catch (JsonException)
+        {
+            // no secrets
+        }
+
+        return values;
     }
 }

@@ -74,6 +74,15 @@ internal sealed class McpSecrets(ToolSecrets secrets, ToolRegistry tools, AuditL
         }
 
         value = value.EndsWith("\r\n", StringComparison.Ordinal) ? value[..^2] : value.EndsWith('\n') ? value[..^1] : value;
+
+        // The run's own check of the value first (a passphrase policy): a wrong one is refused and the link stays.
+        if (secrets.SlotOfLink(caller.BindingKey, token) is { } checkedSlot
+            && await ToolSecrets.CheckAsync(checkedSlot, value, http.RequestAborted).ConfigureAwait(false) is { } refused)
+        {
+            await RefuseAsync(http, StatusCodes.Status400BadRequest, refused).ConfigureAwait(false);
+            return;
+        }
+
         var (slot, runTool, error) = secrets.SetByLink(caller.BindingKey, token, value);
         if (error is not null)
         {

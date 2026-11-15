@@ -6,8 +6,9 @@ preview and run, the schemas of the bundled tasks without secrets, cancel, file 
 sites, compliance, event rules, plugin tools; stage 4: the skill, Connect an agent, the website pages; see the "as built"
 sections), the host actions of "everything a user can do" (decision 2026-11-15, stage 1: see "Host actions as built"), the
 administration of license, plugins, backups and Install now ("Administration as built") and users, roles, device groups
-and access keys for an Administrator's agent ("Access as built"),
-and server settings and services ("Server settings and services as built").
+and access keys for an Administrator's agent ("Access as built"), server settings and services ("Server settings and
+services as built"), and every secret through the secret channel (decision 2026-11-15: the tasks, the plugin pages and the
+host's logins, recipients and credential list; see "Secrets").
 Not offered on purpose: see "Not over MCP" and "Open points".
 
 Part of the OADM spec (`CLAUDE.md` "Feature specs"): read it before you change this area, update it in the same change.
@@ -35,9 +36,10 @@ host change.
 4. **No secret through the model** (decision 2026-11-15). No tool returns a secret, and no secret ever goes through the
    model; a secret reaches OADM only through the secret channel ("Secrets"): a preview names a slot, the person types the
    value into a command of their own shell (MCP) or into the preview card (the assistant), and the run reads it once. No
-   tool takes a password, private key, license key, access key or token as an argument. Stored credentials are used by
-   name; a task whose payload has a `[Secret]` is still not offered ("Set the password in OADM.") until its preview
-   declares the slot.
+   tool takes a password, private key, license key, access key or token as an argument (a task's `[Secret]` properties are
+   left out of its schema, a value at a task's secret field is refused). Stored credentials are used by name; every
+   action that needs a new secret declares its slots in its preview (decision 2026-11-15: every secret hook of the host,
+   the tasks and the plugin pages goes through the channel).
 5. **Least rights.** The tool list shows only what the key may do now (its role and device group, plugins on); a role like
    Viewer gives a look-only agent; a role that may run no task (no `task:` right) lists no task or file tool and is refused
    "Your role may run no task." (`TaskRunTools.NoTaskRight`). An agent never gets more rights than its caller. Users, roles,
@@ -219,6 +221,15 @@ nothing is selected.
   Import from file as up to 1,000 addresses, the waiting list; logins with the credential list; only addresses inside a
   network of the server or of a connected site, at most 200 devices a run) as preview/run pairs; the waiting list itself
   (list, remove).
+- Logins typed by the person (decision 2026-11-15, `Tools/LoginTools`, the password always through the secret channel):
+  Log in (`oadm_devices_login_preview`/`_run`: a user name, slot `password`, `DeviceService.LogIn`, stored where the
+  device accepts it; optionally into the credential list for administrators), First password
+  (`oadm_devices_first_password_preview`/`_run`: only devices with Password not set, at most 1,000, the devices' passphrase
+  rules in `rules`, checked when the password is entered, `SetFirstPassword`), the add run's `user_name` (a typed login
+  tried with `RetryAuth` where the credential list fails, never saved) and `first_password` (factory-default devices added
+  with the entered first password, checked against each device's policy, `first_password_rules`); the credential list
+  `oadm_credentials_add_preview`/`_run` and `oadm_credentials_remove_preview`/`_run` (Administrator with all devices, by
+  user name, slot `password`; a password is never shown).
 
 ### Tasks
 
@@ -318,9 +329,12 @@ Web View (the device's own web interface), plus plugins whose tools are built on
 Live View offers its saved views; its video stays in the client.
 
 **VAPIX Commander** (`oadm_vapix_commands`, `oadm_vapix_command_preview` / `_run`, `CommanderTools`): library and saved
-commands by id (`library:<id>`, `saved:<id>`); a request of the agent's own is the device request below. Not offered: a dangerous command
-(`RequestSafety`, of the definition and again of the filled-in request), one with a password or a file field, and one that
-changes what OADM's own tasks change (date and time, NTP, applications, AXIS OS, restart, users, network; their reads stay).
+commands by id (`library:<id>`, `saved:<id>`); a request of the agent's own is the device request below. Not offered: a
+dangerous command (`RequestSafety`, of the definition and again of the filled-in request), one with a file field or more
+than 8 password fields, and one that changes what OADM's own tasks change (date and time, NTP, applications, AXIS OS,
+restart, users, network; their reads stay). A password field is never a value of the agent ("Leave the password out. The
+user enters it."): the preview names a secret per password field (the field's name, its label in lower case), the run
+takes the entered values, never a stored password of a saved command.
 Every command, a read too, goes preview then run. The preview checks the values (the page's renderer) and plans the chosen
 devices from cached data (an id outside the caller's view refuses the call; Certificate changed, Site offline and a missing
 API skip a device); the run is the page's rollout, one task per device, with the user's OK of the preview as the
@@ -392,9 +406,10 @@ changes (`will_change`, `unit`) for the Assistant's card. Bundled:
   settings, never a secret value); settings writes and installs stay tasks.
 - Action Rule Editor: `read` (Refresh), `recipients`, `schedules`, `recipient_kinds`, and `recipient_create`,
   `recipient_change`, `recipient_copy`, `recipient_delete`, `schedule_create`, `schedule_change`, `schedule_copy`,
-  `schedule_delete` (the page's runs: one editor task per device, kept for undo). A recipient password or a login in an
-  address is refused with "Set this in OADM." (a secret channel comes later); a copy takes the source's password on the
-  server. Rule deploy, delete and undo are the editor's task.
+  `schedule_delete` (the page's runs: one editor task per device, kept for undo). A recipient password is named in
+  `set_passwords` of `recipient_create` / `recipient_change` and entered by the user (a slot per setting, labels such as
+  "password", "HTTP headers"); a password in `settings` is refused, a login in an address is set in OADM ("Set this in
+  OADM."); a copy takes the source's password on the server. Rule deploy, delete and undo are the editor's task.
 - Device triggers: `events_read` and `events` (the editor's read of the device events, then its result), `save`,
   `set_enabled`, `copy`, `delete`. Dashboards: `get`, `events`, `save`, `delete`, `press` (a change: its event goes to
   the event rules, and the preview says whether a rule uses it).
@@ -422,8 +437,9 @@ changes (`will_change`, `unit`) for the Assistant's card. Bundled:
   (dry runs of the Policies tab's checks, `PolicyStore` `dryRun`; Block and VLAN warn). A CA certificate without its key is
   imported in OADM.
 - VAPIX Commander: `saved_save`, `saved_delete`, `saved_import`, `saved_export` (the page's command file, at most 24 KB,
-  secret values as `***`, password values left out; a command with a password value is refused with "Set passwords in
-  OADM.").
+  secret values as `***`, password values left out; a password value in a command is refused, a password to store is named
+  in `set_passwords` (save: field names; import: command id and field), entered by the user and stored encrypted like the
+  page's; without the master key's protector the preview refuses "OADM cannot store passwords for saved commands here.").
 - Live View: `views`, `view_save`, `view_delete` (saved views; no tool opens video).
 
 ### Not over MCP
@@ -499,9 +515,29 @@ without ever passing through the AI model.
 - **Held** in server memory only (`ToolSecrets`), encrypted with the master key (AES-256-GCM, the binding key, the handle
   and the slot as associated data), bound to the caller and the preview's run tool, ended with the handle (10 minutes,
   `FakeTimeProvider` in the tests), at most 20 previews with slots per caller; zeroed when taken or ended.
-- **First user**: the recipients' password fields (`SaveRecipient`; its tools are built on `feat/agent-host-actions`,
-  whose TODO hook declares the slot `password` in the save preview and reads it in the run as above). The test tool
-  `SecretDemoTools` (tests) shows the whole path over MCP and the assistant.
+- **Checked when entered.** A slot may carry the run's own check of a value (`ToolSecretSlot.Check`: a passphrase policy, a
+  PKCS#12 password that opens its file, the plugin's rules). It runs before the value is taken: MCP answers 400 with the
+  refusal and the link stays; the assistant's card shows it below the field and stays. The run checks everything again.
+- **Task secrets** (`oadm_task_preview`/`_run`, SDK `ITaskPlugin.SecretsOf`): the task names what a run of the payload
+  needs (`TaskSecret`: name, label, field such as `password` or `settings[2].value`; default: the top-level `[Secret]`
+  properties, `[Secret(Label = "passphrase")]`). `TaskService.Plan` answers them (`secrets`, never a value) and leaves
+  out the payload's errors at their fields; the preview refuses an agent's value there ("Leave this empty. The user
+  enters it through the secret link.") and declares one slot each for `oadm_task_run`, whose check is `Plan` with
+  `check_only` and the value at its field (the error at that field). The run puts the values into the payload at their
+  fields for `TaskService.Run` only (in memory, `TaskSecretPaths`); the handle keeps the payload without them. Payloads are
+  never persisted, the task name, steps and log never hold a value, and `TaskRun` is audited with the task and the count.
+- **Plugin tool secrets** (SDK `PluginToolSecret`, `PluginTool.Secrets`, `PluginToolPlan.SecretsNeeded`,
+  `PluginToolInput.Secret`): a change declares the secrets its run may need (`PluginTool.Secrets`, at most 8); its plan
+  chooses those this run needs in `secrets_needed` (some of the declared ones or secrets it makes itself, such as one per
+  password field of a saved command; empty: none; absent or null: all declared). The host takes `secrets_needed` out of
+  the answer (and of the published output schema), declares the slots for the run tool, checks an entered value by calling
+  the preview method with that one value in the payload's `secrets` (a field error at `secrets.<name>` refuses it) and
+  hands all values in `secrets` to the run method. A caller never sends `secrets` (the strict schema; the host removes it
+  from every payload it did not make). A list the host cannot use (more than 8, a bad name, a name twice, no label)
+  refuses the preview. The plugin's audit detail and answers never name a value.
+- The test tool `SecretDemoTools` (tests) shows the whole path over MCP and the assistant; `McpTaskSecretTests`,
+  `McpPluginSecretTests`, `McpPluginSecretUploadTests` and `AssistantTransferTests` the task and plugin paths; `SecretScan` checks a canary against the
+  answers, the audit log, the server log, the tasks (names, steps, logs) and every file of the data folder.
 
 ## SDK
 
@@ -530,14 +566,19 @@ New default interface members (SDK minor version up, `docs/spec/plugins.md`):
   `McpAddOnToolSchemaTests` checks the schemas of the optional plugins without starting them.
 - `PluginTool.Area` (decision 2026-11-15): the area of one tool's name instead of the plugin's `ToolArea` (lower case
   words with underscores; `oadm_device_request` of VAPIX Commander); a host tool's name still wins.
-- `PluginTool.Secrets` (`PluginToolSecret(Name, Label, MaxLength)`, at most 8): the secrets a plugin change's run needs. The
-  host declares them on the preview's handle (all, or those the plan names in `needs_secrets`), the person fills them
-  through the secret channel ("Secrets"), and the run's payload gets them once in `secrets` (`PluginToolInput.Secret(name)`,
-  `IsRun`); a preview never has them. A plugin never writes one into an answer, a log line or an audit detail.
+- Plugin tool secrets (one record `PluginToolSecret(Name, Label, MaxLength)`): `PluginTool.Secrets` declares the secrets a
+  change's run may need (at most 8); the plan's `PluginToolPlan.SecretsNeeded` chooses those the run needs (some of the
+  declared ones, or secrets the plan makes itself, such as one per password field of a command; empty: none; null: all
+  declared). The run and a check of an entered value read them with `PluginToolInput.Secret(name)` (`Secrets`,
+  `PluginToolSecrets.Of` for a plugin without `PluginPageTools`); `IsRun` tells the run from a preview or a check. A
+  plugin never writes one into an answer, a log line or an audit detail ("Secrets").
 - `ICallContext.Uploads` (`IUploadedFiles`): the files the caller uploaded in this session (an agent's upload link, the
-  Assistant's Attach file), so a tool takes a file as `file_id`; another user's or session's upload answers like an unknown
-  id (`UploadStore.For`, `CorePluginHost.UploadStore`). `FakeCallContext.Uploads` with `FakeUploadedFiles` in tests.
-- `[Secret]` (`SecretAttribute`) on a payload property: a task whose payload has one, anywhere, is not offered over MCP.
+  Assistant's Attach file), so a tool takes a file as `file_id` and reads it itself (PKI's Import CA and Import
+  certificate); another user's or session's upload answers like an unknown id (`UploadStore.For`,
+  `CorePluginHost.UploadStore`). `FakeCallContext.Uploads` with `FakeUploadedFiles` in tests.
+- `[Secret]` (`SecretAttribute`, `Label`) on a payload property: left out of the task's input schema; with
+  `ITaskPlugin.SecretsOf(payloadJson)` (`TaskSecret`, default `TaskSecrets.FromAttributes`) the secrets the person enters
+  for a run ("Secrets"). A plugin tool's input type with a `[Secret]` is never offered: the tool declares its secrets.
 - `ITaskPlugin.PagePermissions(payloadJson)`: a page task names the keys of its core plugin one run needs; then the task
   tools offer it with those rights ("Offered tasks").
 - `ITaskExecutionContext.SaveResultFileAsync(fileName, contentType, content, ct)` and `TaskResultFile.MaxBytes` (64 MB):
@@ -690,7 +731,8 @@ The website gets a user page (Administration > MCP server, `admin/mcp-server`, n
   (`PayloadError` per JSON field), `PlanAsync` (`TaskPlan`, `TaskPlanDevice`, default `TaskPlan.ByCanRun`), `SecretAttribute`.
   The host's `Tasks/TaskPayloadSchemas` exports the schema once per type: objects without other properties, the attributes'
   bounds, the host's bounds for a text, number or list without one (4,096 characters, the 32-bit range, 100,000 items); no
-  schema (not offered) for a secret, a value of any type, a reference or a type the exporter cannot describe.
+  schema (not offered) for a value of any type, a reference or a type the exporter cannot describe; a `[Secret]` property is
+  left out of the schema (2026-11-15, "Secrets").
 - **gRPC** (docs/spec/grpc.md): `TaskService.Run` asks `ValidatePayload` before any task starts (INVALID_ARGUMENT with the
   first text, trailer `oadm-field`; a check that throws refuses the run) and answers `batch_id`; `TaskService.Plan` (the
   preview: the checks of Run, the field errors, the filter resolved in the caller's view in address order, per device run
@@ -712,8 +754,8 @@ The website gets a user page (Administration > MCP server, `admin/mcp-server`, n
   audited as "MCP <key name>" (the key's caller name). Changes per key: 10 a minute (429 "Too many changes with this access key. Wait a
   minute.", Retry-After 60; counted on `Mcp-Method` tools/call and `Mcp-Name` of a tool that starts tasks).
 - **Offered tasks**: Restart and Use OADM NTP server (no settings), Date and time (`DateTimePayload` with its
-  descriptions, `PayloadValidator` at the payload's fields; the year is left to the device as in the task). Users has a
-  `[Secret]` password and is not offered. Also offered: Upgrade AXIS OS (uploaded files only, factory default, allow
+  descriptions, `PayloadValidator` at the payload's fields; the year is left to the device as in the task). Users takes its
+  password through the secret channel. Also offered: Upgrade AXIS OS (uploaded files only, factory default, allow
   downgrade; `PlanAsync` is `FirmwareCompatibility.ChooseFor` from the cached model and version; no online download, which
   needs the user's MyAxis sign-in), Network settings, Assign IP address, Applications (install, remove, start, stop),
   Enable and Disable HTTPS, Enable and Disable IEEE 802.1X, Renew certificates. The dialogs and
@@ -727,35 +769,47 @@ The website gets a user page (Administration > MCP server, `admin/mcp-server`, n
   - Device configuration: **Configure devices** (`settings` name and value, `actionRules`, `schedules`,
     `streamProfiles`; the dialog's `parameters`/`rules` form stays; "Configure dangerous parameters" for network, HTTPS,
     ports, login and 802.1X parameters; warnings for a value that can cut the devices off; a per-device value on several
-    devices skips them all; a secret parameter or action value is refused, "Set the password in OADM."), **Create
+    devices skips them all; a setting or action parameter with a secret name (pass, secret, community) is sent empty and is a slot of
+    the secret channel (`setting_<i>`, `rule_<i>_parameter_<j>`, "password for <name>", at most 8); a device password
+    parameter whose name is no secret name is skipped on the device), **Create
     configuration file** and **Export configuration** (read-only tasks; the file is the task's result in its log: name,
     size, SHA-256, then the text in parts; download links follow, `TODO(download-link)`), **Import configuration** (one
     `.json` from an upload link for every device of its model, no ZIP; "Import connection settings" and the lock-out
     warning for the area `connection`; the plan reads the uploaded file only).
   - Edge storage (page task `oadm.edge-storage.task`): check, repair, retention, format, encryption off; format and
     encryption off warn that every recording is deleted, repair that damaged recordings can be lost; the page's rights
-    "Change storage settings" (check, retention) and "Format and encrypt storage" (the others). Encrypt needs a passphrase
-    and stays on the page.
+    "Change storage settings" (check, retention) and "Format and encrypt storage" (the others). Encrypt (`encryptionOn`)
+    takes the passphrase the user enters (slot `passphrase`, the page's rule checked when entered), right "Format and
+    encrypt storage".
   - Action Rule Editor (page task `oadm.action-rules.task`): change (on/off, name, wait time, action settings, recipient),
     delete, copy, create, undo; rules by name as the editor read them last (a device not read is skipped, "Not read in the
-    Action Rule Editor."); the editor's rights "Change action rules" and "Delete action rules"; a password in an action
-    is refused. `oadm_device_rules_list` answers the event topics and the undoable changes.
+    Action Rule Editor."); the editor's rights "Change action rules" and "Delete action rules"; a password setting of an
+    action is sent empty and entered by the user (`RuleAgentCheck.SecretsOf`: a slot per setting at
+    `change.parameters.<name>` / `rule.parameters.<name>`; the plan warns "The action gets a new password. The user enters
+    it."; the undo store keeps it encrypted). `oadm_device_rules_list` answers the event topics and the undoable changes.
   - PKI: **View certificates** (a read-only task: one log line per certificate, the name Delete takes), **Delete
     certificates** (per device the certificates by name; the plan says how many and that they cannot be restored; one in
     use by HTTPS or 802.1X is still refused on the device), **EST set up and remove** (OADM PRO; no clock question: a late
     clock refuses; Remove says per profile what the cameras lose).
-  - Applications: **Change settings** (`values` by name; a password setting is refused at its field and again on the
-    device before any write; the page's own runs pass `passwordsAllowed`, which agents cannot send).
+  - Applications: **Change settings** (`values` by name; a password setting goes in `passwords` by name and the user
+    enters its value, slot `password_<i>`, "password for <name>"; one in `values` is refused at its field and on the device
+    before any write); **Install license key** (`installLicense`: one key file the user enters, slot `license_key`, label
+    "license key", one device a run; a file that is no key is refused when entered).
   - Page tasks: a task only its page starts (hidden from the menus, no permissions of its own) is offered when it answers
     `ITaskPlugin.PagePermissions` (SDK 0.13.0) with the keys of its package's core plugin one run needs; `TaskService.Plan`
     and `Run` check exactly those (`TaskRunPermissions.RequireOutsidePage`, unknown keys need all of them), the catalog
     lists it only with `with_payload_schema` (`TaskPluginRunnable.InMenus` false), the client's menus never. The page's own
     payload answers null and stays page only.
-  - Secrets: a password, passphrase or key an agent would have to send is refused at its field; each place that takes a
-    secret handle later is marked `TODO(secret-handle)` (Configure devices, Edge storage encrypt, the Action Rule Editor's
-    action passwords, application settings).
-  - Not offered (fail closed): application license keys, Install certificates (secrets), Install CA certificates (a new
-    trust anchor on the devices: the dialog shows each certificate to the person), Users.
+  - Secrets (decision 2026-11-15): every password, passphrase or key of a task goes through the secret channel ("Secrets":
+    `ITaskPlugin.SecretsOf`, the preview's slots, the value checked when entered and put into the run's payload only).
+  - Users (the password a slot of Add and of a password change, "password"; the dialog's rules at their fields and the
+    base rule checked when entered; each device checks its own passphrase policy before the write; a device whose stored
+    login is the user changed or removed is skipped, "OADM uses this account on the device."), Install certificates (files
+    by device from upload links; the PKCS#12 password a slot "PKCS#12 password" unless `withoutPassword`; the task refuses
+    a certificate that does not name its device before any write; HTTP devices skipped unless `sendKeysOverHttp` with the
+    dialog's warning; no clock question), Install CA certificates (the plan's warnings: "The devices will trust every
+    certificate these CAs issue. Check each CA before you run it.", then each CA with name, issued to and by, valid until
+    and SHA-256, for the person to confirm).
 - **Tasks and files**: `oadm_tasks_cancel_preview`/`_run` (a batch or up to 200 task ids; counts what stops and what
   cannot; only the caller's devices; one cancel takes at most 200 tasks and runs at most 60 s, `more_after_this` and
   `left` say to preview again); a task preview names each uploaded file it uses with its SHA-256 (`files`), and an
@@ -787,8 +841,8 @@ The website gets a user page (Administration > MCP server, `admin/mcp-server`, n
   network of the server's own interfaces or of a connected site, otherwise a field error names the allowed networks; the
   preview only looks (it sends no login and stores nothing), waits at most 90 s and then says the scan is incomplete; it
   acts outside OADM, so it is not announced as a read and it counts as a change; the run logs in with the credential
-  list and adds only the devices that logged in, at most 200 a run, never one with factory default settings or a failed
-  login); `oadm_settings_get` (what the Settings page shows, without secrets). A preview is listed
+  list and adds only the devices that logged in, at most 200 a run, a device in factory default only with
+  `first_password`, a failed login only with a typed `user_name` that works); `oadm_settings_get` (what the Settings page shows, without secrets). A preview is listed
   only for a caller who may run its change. Refresh is not destructive; Remove and Set credentials are.
 - **Tags, sites, compliance, event rules** (`Tools/TagTools`, `SiteTools`, `ComplianceTools`, `RuleTools`):
   `oadm_tags_list` (device counts in the caller's group), `oadm_tags_assign_preview`/`_run` (add and remove tags on a
@@ -818,6 +872,11 @@ The website gets a user page (Administration > MCP server, `admin/mcp-server`, n
   call) and hands the plugin at most 500 ids by address and the total. A tool with `TaskPlugin` is listed only for a role
   with a permission of that task of the same package. Bundled: `oadm_pki_certificates`, `oadm_pki_policies`,
   `oadm_pki_certificate_create_preview`/`_run` (the PKI page's own create check, no key material in any answer),
+  `oadm_pki_certificate_import_preview`/`_run(file_id)` (a certificate, or a PKCS#12 file with its key, from an upload link;
+  its password a slot "PKCS#12 password" only when the file does not open without one, a wrong one refused when entered;
+  the page's checks with `dryRun`), `oadm_pki_certificate_sign_preview`/`_run(request, use, policy_id)` (the CSR as PEM
+  text with its line breaks as spaces; the run answers the certificate as a file reference); both Administrator with
+  Manage the certificate authority, all devices, audited like the page,
   `oadm_ntp_status`, `oadm_dhcp_status`, `oadm_dhcp_leases`, `oadm_hardening_results`, and the settings reads of Device
   configuration `oadm_config_parameters` (a setting by a word of its name or label, or exact names: the devices grouped
   by value), `oadm_config_action_rules` and `oadm_config_stream_profiles` (grouped by rule or profile name), read with
@@ -880,8 +939,11 @@ unit, the key fields, red Run for deletes and removals) and a short status line 
 - **Recipients** (users with all devices, Change rules): `oadm_recipients_types` (the types and their fields),
   `oadm_recipients_certificates` (`ListRecipientCertificates`, ids and texts), `oadm_recipients_save_preview`/`_run` (the
   preview is `EventService.CheckRecipient`: the dialog's checks without saving; a change keeps the fields left out and the
-  stored password; a password, header or file value is refused "Set this in OADM.", and so is a new recipient whose type
-  needs a password; an address with a login is refused), `oadm_recipients_delete_preview`/`_run` (no handle while rules
+  stored password; a password or header value is never an argument: `set_secrets` names the password fields (by key) and
+  headers (field and name) the user enters through the secret channel; a new recipient's required passwords and a password
+  the server asks for again (a changed target) are slots by themselves; each value is checked with `CheckRecipient` when
+  entered and put into `SaveRecipient` in memory by the run; a file value is set in OADM; an address with a login is
+  refused; a header value is stored as the dialog stores it), `oadm_recipients_delete_preview`/`_run` (no handle while rules
   use it, their names in `used_by`), `oadm_recipients_test_preview`/`_run` (`TestRecipient` with the stored values).
 - **Compliance**: `oadm_compliance_devices(check_id, outcomes, filter)` (which devices fail a check, or pass, or are unknown,
   pages with the total and the result's detail, `ComplianceService.ListResults`), `oadm_compliance_kinds` (the kinds and
@@ -906,7 +968,10 @@ unit, the key fields, red Run for deletes and removals) and a short status line 
 - **Tests**: `McpHostActionTests` (the preview writes nothing, the run does it once and only with its own preview's handle,
   handles end after 10 minutes and belong to their caller, the audit lines, refusals, a role without the rights and a group
   user list none of the changes and a group sees only its devices, Discovery only looks, the scrub of a task read, every
-  card), and `McpToolTests` / `McpSecretTests` / `McpSkillTests` over every new tool.
+  card), `McpLoginToolTests` (logins, first password, the credential list), the recipient secret test of
+  `McpHostActionTests`, `McpAgentTaskSecretTests` (Configure devices, Edge storage encrypt, Applications passwords and
+  license key), `McpCommanderSecretTests` (VAPIX Commander), and `McpToolTests` / `McpSecretTests` / `McpSkillTests` over
+  every new tool.
 
 ## Administration as built
 
@@ -1040,9 +1105,9 @@ and the tool use the same checks and texts).
   refused by the run.
 - **Delete all devices** `oadm_devices_remove_all_preview`/`_run` (Administrator; `DeviceService.Remove` with every id):
   the plan counts every device and the devices per site; audited "Removed devices" as the caller.
-- **Plugin tools with secrets and files** (SDK `PluginTool.Secrets`, `ICallContext.Uploads`, see "SDK"): a plugin's change
-  declares its secrets and the host declares them on the handle; a `file_id` argument is read through the caller's own
-  uploads.
+- **Plugin tools with secrets and files** (SDK `PluginTool.Secrets`, `ICallContext.Uploads`, see "SDK" and "Secrets"): a
+  plugin's change declares its secrets and the host declares them on the handle; a `file_id` argument is read through the
+  caller's own uploads.
 - **Assistant cards** (`AssistantCards`): each preview above has its card (old → new per setting, "3 settings", the
   fingerprints, the sites, "3 devices"); Run is red for MCP or the Assistant turned off, Accept site nodes off, a site removed
   and Delete all devices. Status lines for the new reads (`AssistantTools.LineOf`: "Reading the server settings", "Looking at
@@ -1057,9 +1122,12 @@ and the tool use the same checks and texts).
 
 - Client support for the MCP tasks extension: if it spreads, `oadm_task_run` may answer a task handle instead of polling.
 - The waiting list keeps no tags or site for a device an agent puts there.
-- The secret channel ("Secrets") exists; its users are wired next: `RecipientChangeTools.SecretOf` (a recipient's or a
-  check's password or configuration file, a password field `{"secret": "<handle>"}`) and the tasks' `TODO(secret-handle)`
-  hooks. Tasks with a `[Secret]` payload (Users, Install certificates) stay not offered until their previews declare slots.
+- Import from ADM with logins needs the import parser on the server (it is the client's `DeviceImportFile`) and a gRPC read
+  of an upload; until then it stays in OADM. Compliance password and file fields stay in OADM until a kind has one (no
+  bundled kind has, and the compliance store does not encrypt settings).
+- A VAPIX Commander command treats every password field as required; an optional one cannot be left empty over MCP.
+- Install certificates checks its PKCS#12 password on each device (a wrong one fails "Nothing was changed" before any
+  write), not when it is entered: `ValidatePayload` cannot read uploads.
 - The client's task details have no Save for a task's result file yet (agents and the assistant have it).
 - The skills extension is declared without fields; when its schema settles, `McpSkill` may list the skill there too.
 

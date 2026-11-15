@@ -18,6 +18,7 @@ using Oadm.Sdk.Plugins;
 using Oadm.Sdk.Vapix;
 using Oadm.Server.Plugins;
 using Oadm.Server.Tests.Support;
+using Oadm.Server.Tools;
 
 using Proto = Oadm.Contracts.V1;
 using Rules = actionrules::Oadm.Plugins.ActionRules;
@@ -101,7 +102,7 @@ public sealed class McpAgentTaskInputTests
             Assert.Equal("object", tasks[id]["input_schema"]!["type"]!.GetValue<string>());
         }
 
-        Assert.Equal(["check", "repair", "retention", "format", "encryptionOff"], tasks[EdgeStorageInfo.TaskPluginId]["input_schema"]!["properties"]!["action"]!["enum"]!.AsArray().Select(v => v!.GetValue<string>()));
+        Assert.Equal(["check", "repair", "retention", "format", "encryptionOff", "encryptionOn"], tasks[EdgeStorageInfo.TaskPluginId]["input_schema"]!["properties"]!["action"]!["enum"]!.AsArray().Select(v => v!.GetValue<string>()));
 
         // The page tasks never become menu entries of the client.
         var menus = await server.Host.Tasks.ListTaskPluginsAsync(new Proto.ListTaskPluginsRequest());
@@ -126,11 +127,9 @@ public sealed class McpAgentTaskInputTests
         Assert.Contains(StoragePayloadRules.StopsRecording, warnings);
         Assert.Equal(tasksBefore, (await server.Host.Tasks.ListAsync(new Proto.ListTasksRequest())).Tasks.Count); // nothing written
 
-        // The page's rules at their fields; encrypt needs a passphrase, so it stays on the page.
+        // The page's rules at their fields (encrypt's passphrase: McpAgentTaskSecretTests).
         var days = Errors(await server.CallToolAsync(key, "oadm_task_preview", Preview(EdgeStorageInfo.TaskPluginId, Filter(card), new JsonObject { ["action"] = "retention" })));
         Assert.Equal(StoragePayloadRules.RetentionRange, days["input.retentionDays"]);
-        var encrypt = Errors(await server.CallToolAsync(key, "oadm_task_preview", Preview(EdgeStorageInfo.TaskPluginId, Filter(card), new JsonObject { ["action"] = "encryptionOn" })));
-        Assert.Contains("input.action", encrypt.Keys);
 
         // An Operator key may check the cards (the page's "Change storage settings") but not format them.
         var operatorKey = await server.CreateKeyAsync(name: "op", roleId: BuiltInRoles.OperatorId.ToString());
@@ -177,9 +176,9 @@ public sealed class McpAgentTaskInputTests
         var dangerous = Errors(await server.CallToolAsync(operatorKey, "oadm_task_preview", Preview(ConfigureIds.Configure, Filter(one), Set("Network.DNSServer1", "10.34.0.250"))));
         Assert.Contains("Configure dangerous parameters", string.Join(" ", dangerous.Values), StringComparison.Ordinal);
 
-        // A password is never taken from an agent.
+        // A password is never taken from an agent: the user enters it through the secret link.
         var secret = Errors(await server.CallToolAsync(adminKey, "oadm_task_preview", Preview(ConfigureIds.Configure, Filter(one), Set("Network.Wireless.Passphrase", "x"))));
-        Assert.Contains(secret, e => e.Key.StartsWith("input.settings", StringComparison.Ordinal) && e.Value.Contains("Set the password in OADM", StringComparison.Ordinal));
+        Assert.Equal(TaskRunTools.SecretFromUser, secret["input.settings[0].value"]);
 
         // Connection settings of an import need "Import connection settings".
         var connection = Errors(await server.CallToolAsync(operatorKey, "oadm_task_preview", Preview(DeviceConfigIds.Import, Filter(one), new JsonObject

@@ -255,7 +255,7 @@ public sealed class PkiPlugin : ICorePlugin, ICorePluginDownloads, IEventSource,
                 throw new DeviceAccessRefusedException(); // the host refuses these first (RequiresAllDevices); fail closed
             }
 
-            if (PkiTools.CertificateCreate.Calls(method) || PkiTools.IsFileTool(method))
+            if (PkiTools.CertificateCreate.Calls(method) || PkiTools.IsFileTool(method) || PkiTools.IsCertificateChange(method))
             {
                 return await PkiTools.InvokeAsync(service, caller, method, payloadJson, ct).ConfigureAwait(false);
             }

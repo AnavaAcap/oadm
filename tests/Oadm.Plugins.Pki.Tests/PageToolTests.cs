@@ -43,7 +43,7 @@ public sealed class PageToolTests
         ICorePlugin core = new PkiPlugin();
         var names = core.Tools.Select(t => t.Name).ToList();
         Assert.Equal(["all_policies", "ca_create", "ca_import", "ca_delete", "ca_key_backup", "server_trust_install", "policy_save", "policy_delete"],
-            names.Except(["certificates", "policies", "certificate_create", "certificate_file", "ca_file"]));
+            names.Except(["certificates", "policies", "certificate_create", "certificate_file", "ca_file", "certificate_import", "certificate_sign"]));
         Assert.Equal(UserRole.Operator, core.RequiredRole("tool.all_policies"));
         Assert.False(core.RequiresAllDevices("tool.all_policies"));
         foreach (var tool in PkiPageTools.Set.Tools.Where(t => t.Changes))
@@ -107,10 +107,14 @@ public sealed class PageToolTests
         var before = pki.Service.Authorities().Count;
 
         var plan = await CallAsync(pki, admin, "tool.ca_import.preview", new JsonObject { ["file_id"] = pfx.Id });
-        Assert.Equal(["password"], plan["needs_secrets"]!.AsArray().Select(n => n!.GetValue<string>()));
+        Assert.Equal(["password"], plan["secrets_needed"]!.AsArray().Select(n => n!["name"]!.GetValue<string>()));
         Assert.Equal(before, pki.Service.Authorities().Count);
         Assert.Equal("file_id", FieldOf(await CallAsync(pki, admin, "tool.ca_import.preview", new JsonObject { ["file_id"] = "0123456789abcdef0123456789abcdef" })));
         Assert.Equal("file_id", FieldOf(await CallAsync(pki, Calls.CallAsAllDevices(), "tool.ca_import.preview", new JsonObject { ["file_id"] = pfx.Id }))); // another session's upload
+
+        // The host checks an entered password with the preview: a wrong one is refused at its field.
+        Assert.Equal("secrets.password", FieldOf(await CallAsync(pki, admin, "tool.ca_import.preview", new JsonObject { ["file_id"] = pfx.Id, ["secrets"] = new JsonObject { ["password"] = "wrong" } })));
+        Assert.Empty((await CallAsync(pki, admin, "tool.ca_import.preview", new JsonObject { ["file_id"] = pfx.Id, ["secrets"] = new JsonObject { ["password"] = "canary-pfx-1" } }))["secrets_needed"]!.AsArray());
 
         var wrong = await CallAsync(pki, admin, "tool.ca_import", new JsonObject { ["file_id"] = pfx.Id, ["secrets"] = new JsonObject { ["password"] = "wrong" } });
         Assert.Equal("secrets.password", FieldOf(wrong));
@@ -123,14 +127,14 @@ public sealed class PageToolTests
 
         // The same CA again: the page's refusal already in the preview.
         var again = await CallAsync(pki, admin, "tool.ca_import.preview", new JsonObject { ["file_id"] = pfx.Id });
-        Assert.Equal(["password"], again["needs_secrets"]!.AsArray().Select(n => n!.GetValue<string>())); // the preview cannot open the file yet
+        Assert.Equal(["password"], again["secrets_needed"]!.AsArray().Select(n => n!["name"]!.GetValue<string>())); // the preview cannot open the file yet
 
         // A PEM file with its key and no password: the preview names the CA and needs no secret.
         using var other = TestCa.Root("Fabrikam Root CA");
         var pem = uploads.Add("fabrikam.pem", TestCa.Ascii(other.ExportCertificatePem() + "\n" + other.GetRSAPrivateKey()!.ExportPkcs8PrivateKeyPem()));
         var plain = await CallAsync(pki, admin, "tool.ca_import.preview", new JsonObject { ["file_id"] = pem.Id });
         Assert.Equal("Fabrikam Root CA", plain["name"]!.GetValue<string>());
-        Assert.Empty(plain["needs_secrets"]!.AsArray());
+        Assert.Empty(plain["secrets_needed"]!.AsArray());
         Assert.Equal(before + 1, pki.Service.Authorities().Count);
     }
 

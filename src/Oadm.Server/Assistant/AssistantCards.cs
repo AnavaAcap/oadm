@@ -118,7 +118,32 @@ internal static class AssistantCards
                     Add(details, "Keeps on the waiting list", waiting.ToString("N0", CultureInfo.InvariantCulture));
                 }
 
+                if (arguments.TryGetProperty("user_name", out var typed) && typed.ValueKind == JsonValueKind.String)
+                {
+                    Add(details, "Also tries the user", typed.GetString());
+                }
+
+                Add(details, "First password rules", Text(answer["first_password_rules"]));
                 count = Number(answer["will_try"]) ?? Number(answer["keep_waiting"]) ?? 0;
+                break;
+            case "oadm_devices_login_preview":
+                Add(details, "Logs in as", Text(answer["user_name"]));
+                Add(details, "Stores the login where it works", Count(count, "device"));
+                card.Destructive = true;
+                break;
+            case "oadm_devices_first_password_preview":
+                Add(details, "Sets the first root password of", Count(count, "device"));
+                Add(details, "Password rules", Text(answer["rules"]));
+                card.Destructive = true;
+                break;
+            case "oadm_credentials_add_preview":
+                Add(details, "Adds to the credential list", Text(answer["user_name"]));
+                (count, unit) = (1, "credential");
+                break;
+            case "oadm_credentials_remove_preview":
+                Add(details, "Removes from the credential list", Text(answer["user_name"]));
+                (count, unit) = (1, "credential");
+                card.Destructive = true;
                 break;
             case "oadm_tasks_cancel_preview":
                 (count, unit) = (Number(answer["will_cancel"]) ?? 0, "task");
@@ -188,6 +213,7 @@ internal static class AssistantCards
                 Add(details, "Type", Text(answer["type"]));
                 Add(details, "Sends to", Text(answer["target"]));
                 Add(details, "Used by", Joined(answer["used_by"]));
+                Add(details, "You enter", Joined(answer["secrets"])); // the labels of the secrets, never a value
                 (count, unit) = (1, "recipient");
                 break;
             case "oadm_recipients_delete_preview":

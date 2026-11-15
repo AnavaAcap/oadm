@@ -31,7 +31,8 @@ longer name is left out and logged.
 
 - `InputType` is the record of the arguments. The host writes its JSON Schema like it does for
   [task payloads](../tasks/#tasks-for-ai-agents): `[Description]` explains a property, `[MaxLength]` and `[Range]` bound it,
-  nothing else is accepted. A `[Secret]` property keeps the tool out. `InputSchema` takes the schema as text instead.
+  nothing else is accepted. A `[Secret]` property keeps the tool out (a change asks for a secret through its plan, see
+  [Secrets](#secrets)). `InputSchema` takes the schema as text instead.
 - `OutputType` is the record of the answer, an object. A text from a device or a user goes only in a value, never in a
   description.
 - `Description`: one to three short sentences. The host checks every call against the schema before your code runs, and an
@@ -131,6 +132,31 @@ internal sealed record SavePlan(string Name) : PluginToolPlan(1, "gate"); // the
 public string? RequiredPermission(string method) => GateTools.Set.RulesMethodOf(method) is "save" ? PermissionKeys.Manage : PermissionKeys.Show;
 public bool IsAudited(string method) => !PluginTool.IsPreviewMethod(method) && GateTools.Set.RulesMethodOf(method) is "save";
 ```
+## Secrets
+
+A change that needs a password, a passphrase or a key never takes it as an argument. Declare it on the tool; the person
+enters it in their own shell or in the assistant's card, never through the model:
+
+```csharp
+private static readonly PluginToolSecret Password = new("password", "password");
+
+.Change<SaveArgs, SavePlan, Saved>(new("gate_save", "Save gate", "Adds or changes a gate.") { Secrets = [Password] }, "save",
+    (plugin, caller, input, ct) => input.Secret("password") is { Length: < 8 }
+        ? throw new PluginToolInputException("secrets.password", "Use at least 8 characters.") // checked when entered
+        : plugin.CheckSaveAsync(caller, input.Args, ct),
+    (plugin, caller, input, plan, ct) => plugin.SaveAsync(caller, plan, input.Secret("password")!, ct))
+```
+
+- The run needs every declared secret, unless the plan says otherwise in `SecretsNeeded`: `[]` when this run needs none (a
+  switch whose secret stays), some of the declared ones, or secrets the plan makes itself (one per password field of a
+  saved command: `new PluginToolSecret("password_1", "password of Set user")`). At most 8.
+- The preview has no value (`input.Secret` is null). When the person enters one, the host calls the check with that value
+  alone; a field error at `secrets.<name>` refuses it and the person corrects it. The run gets every value, with
+  `input.IsRun` true.
+- A tool without `PluginPageTools` puts `secrets_needed` (`PluginToolSecrets.Property`, a list of `PluginToolSecret`) into
+  its preview's answer and reads the values with `PluginToolSecrets.Of(payloadJson)`.
+- Never put a value into an answer, an audit detail, a log line or a stored setting in clear (`ctx.Secrets`).
+
 ## Files
 
 A tool that hands the caller a file (an export, a report, a certificate) sets `ReturnsFile` and puts a `PluginToolFile`
@@ -148,20 +174,6 @@ private key or a PKCS#12 file, except a key backup protected with a password the
 A tool that takes a file has a `file_id` argument: the caller uploads the file first (an agent's upload link, the
 assistant's Attach file). Read it with `caller.Uploads.FindAsync` and `OpenReadAsync`; another user's upload answers like
 an unknown id. In tests set `FakeCallContext.Uploads` to a `FakeUploadedFiles` and `Add` the file.
-
-## Secrets
-
-A change that needs a password or a shared secret declares it, and never takes it as an argument:
-
-```csharp
-new PluginTool("switch_save", "Save switch", "Adds or changes a switch.") { Secrets = [new("shared_secret", "shared secret")] }
-```
-
-The host declares the secret on the preview's handle; the person enters it through the host's secret channel (their own
-shell, or the assistant's card), never through the model. The run gets it once: `input.Secret("shared_secret")`, with
-`input.IsRun` true; the preview never has it, so its check accepts a missing secret. When only some runs need it (a switch
-whose secret stays), the plan names them in a `needs_secrets` list. Never write a secret into an answer, a log line or an
-audit detail.
 
 ## Your duty
 

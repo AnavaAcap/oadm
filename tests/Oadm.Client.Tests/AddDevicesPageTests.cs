@@ -5,6 +5,7 @@ using NSubstitute;
 using Oadm.Client.Api;
 using Oadm.Client.Discovery;
 using Oadm.Client.Infrastructure;
+using Oadm.Contracts.Devices;
 using Oadm.Contracts.V1;
 
 namespace Oadm.Client.Tests;

@@ -40,17 +40,23 @@ public enum PassphrasePolicy
 /// Payload sent from the dialog to the server. It carries the password, so it is kept in memory only
 /// (the task engine never persists payloads) and <see cref="ToString"/> never prints it.
 /// </summary>
+[System.ComponentModel.Description("Add a user, change its password or role, or remove users on the devices. The password is never part of the input: the user enters it.")]
 public sealed class UsersPayload
 {
     /// <summary>Most users one Remove task removes per device.</summary>
     public const int MaxRemoveUsers = 50;
 
+    [System.ComponentModel.Description("Add, Change or Remove.")]
     public UsersMode Mode { get; init; }
 
     /// <summary>The user of Add and Change. Remove uses <see cref="UserNames"/> (this name when that is empty).</summary>
+    [System.ComponentModel.Description("The user of Add and Change: 1 to 14 letters a-z, A-Z and digits.")]
+    [System.ComponentModel.DataAnnotations.MaxLength(CredentialRules.MaxUserNameLength)]
     public string UserName { get; init; } = string.Empty;
 
     /// <summary>Remove mode: every user to remove; one task per device removes all of them.</summary>
+    [System.ComponentModel.Description("Remove: the users to remove, at most 50.")]
+    [System.ComponentModel.DataAnnotations.MaxLength(MaxRemoveUsers)]
     public IReadOnlyList<string>? UserNames { get; init; }
 
     /// <summary>
@@ -63,18 +69,25 @@ public sealed class UsersPayload
             ? [.. UserNames.Select(n => (n ?? string.Empty).Trim()).Distinct(StringComparer.Ordinal)]
             : string.IsNullOrWhiteSpace(UserName) ? [] : [UserName.Trim()];
 
-    /// <summary>New password for Add, or for Change when <see cref="ChangePassword"/> is set. Never logged, never offered to AI agents.</summary>
+    /// <summary>
+    /// New password for Add, or for Change when <see cref="ChangePassword"/> is set. Never logged; an AI agent never sends it
+    /// (the person enters it through the secret channel, <see cref="UsersTaskPlugin.SecretsOf"/>).
+    /// </summary>
     [Oadm.Sdk.Tasks.Secret]
     public string? Password { get; init; }
 
+    [System.ComponentModel.Description("The role of Add, and of Change with changeRole.")]
     public UserRole Role { get; init; } = UserRole.Viewer;
 
+    [System.ComponentModel.Description("PTZ control with the role.")]
     public bool Ptz { get; init; }
 
     /// <summary>Change mode: set a new password.</summary>
+    [System.ComponentModel.Description("Change: set a new password (the user enters it).")]
     public bool ChangePassword { get; init; }
 
     /// <summary>Change mode: set <see cref="Role"/> and <see cref="Ptz"/>.</summary>
+    [System.ComponentModel.Description("Change: set role and ptz.")]
     public bool ChangeRole { get; init; }
 
     public override string ToString() =>
