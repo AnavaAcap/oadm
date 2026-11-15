@@ -326,6 +326,7 @@ internal sealed class FakeServerCertificates : IServerCertificates, IDisposable
 {
     private readonly X509Certificate2 _ca;
     private readonly X509Certificate2 _leaf;
+    private readonly byte[] _leafPfx;
 
     public FakeServerCertificates()
     {
@@ -340,7 +341,10 @@ internal sealed class FakeServerCertificates : IServerCertificates, IDisposable
         request.CertificateExtensions.Add(names.Build());
         using var signed = request.Create(_ca, DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow.AddYears(1), [1, 2, 3, 4]);
         using var withKey = signed.CopyWithPrivateKey(key);
-        _leaf = X509CertificateLoader.LoadPkcs12(withKey.Export(X509ContentType.Pfx), null);
+        // Kept as PKCS#12 bytes: Windows and macOS export a certificate again only when its key was loaded exportable, so every
+        // load hands out a new certificate made from these bytes (Linux allows either way).
+        _leafPfx = withKey.Export(X509ContentType.Pfx);
+        _leaf = X509CertificateLoader.LoadPkcs12(_leafPfx, null);
     }
 
     /// <summary>Set: the policy has no usable certificate.</summary>
@@ -360,7 +364,7 @@ internal sealed class FakeServerCertificates : IServerCertificates, IDisposable
     public Task<HostServerCertificate> LoadAsync(string server, CancellationToken ct) =>
         Interlocked.Increment(ref _loads) > 0 && Problem is { } problem
             ? Task.FromResult(new HostServerCertificate([], problem))
-            : Task.FromResult(new HostServerCertificate([X509CertificateLoader.LoadPkcs12(_leaf.Export(X509ContentType.Pfx), null), X509CertificateLoader.LoadCertificate(_ca.RawData)], null));
+            : Task.FromResult(new HostServerCertificate([X509CertificateLoader.LoadPkcs12(_leafPfx, null), X509CertificateLoader.LoadCertificate(_ca.RawData)], null));
 
     public void Dispose()
     {
