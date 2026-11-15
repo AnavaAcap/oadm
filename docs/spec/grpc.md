@@ -387,8 +387,8 @@ used again.
   answers every key). No answer holds a key or its hash; the id is the key's identity. Called by an access key (an
   Administrator's agent): `Delete` of its own key is FAILED_PRECONDITION "An agent cannot delete its own access key. Delete
   it in OADM.", and `Create` ends the new key at the latest with the caller's own key.
-- **`AssistantService`** (`assistant.proto`, `docs/spec/assistant.md`): `Chat`, `Stop`, `Run`, `End` and `ListModels`
-  need "Use the assistant" (`assistant.use`); FAILED_PRECONDITION "The assistant is off." while it is off.
+- **`AssistantService`** (`assistant.proto`, `docs/spec/assistant.md`): `Chat`, `Stop`, `Run`, `RetryFailed`, `End`,
+  `ListModels` and `Download` need "Use the assistant" (`assistant.use`); FAILED_PRECONDITION "The assistant is off." while it is off.
   `Chat` (server-streaming; the model the user chose, 1 to 200 characters, else INVALID_ARGUMENT "Choose a model." with
   `oadm-field` = `model`; one message of 1 to 8,000 characters, at most 10,000 selected devices, at most 10 attached
   files of the caller's own uploads, else INVALID_ARGUMENT; FAILED_PRECONDITION "Wait for the answer or stop it." while
@@ -414,8 +414,8 @@ used again.
   saved with `Download` like a tool answer's, and `secret` when the run made one (a new access key: its card's title and
   the `file_ref` that `Download` serves once; NOT_FOUND "This access key was fetched already. ..." afterwards). `GetSettings` (signed in: the settings without the key and without a
   model, `has_api_key`, the tokens of today, the status On or Off). `SetSettings` and `Test` (Admin,
-  all devices; INVALID_ARGUMENT with the trailer `oadm-field` = `provider`, `address`, `api_key`, `daily_limit` or
-  `user_daily_limit`; an empty `api_key` keeps the saved one only for the same provider and address, else `api_key` "Enter the API key."). `SetSettings` is audited "Changed
+  all devices; INVALID_ARGUMENT with the trailer `oadm-field` = `provider`, `address`, `api_key`, `daily_limit`,
+  `user_daily_limit`, `steps_per_answer` or `answer_seconds`; an empty `api_key` keeps the saved one only for the same provider and address, else `api_key` "Enter the API key."). `SetSettings` is audited "Changed
   assistant" (never the key) and ends every chat when the assistant is turned off or its provider or address changes.
   `Run` takes `secrets` (the card's secret fields by name, at most 8, each at most 4,096 bytes; docs/spec/mcp.md "Secrets"):
   INVALID_ARGUMENT with `oadm-field` for a name the preview did not declare or a value too long, FAILED_PRECONDITION "Enter

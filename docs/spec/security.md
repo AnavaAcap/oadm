@@ -23,12 +23,12 @@ Part of the OADM spec (`CLAUDE.md` "Feature specs"): read it before you change t
   answer or the chat; the audit entry "Set secret" names the secret and the caller, never the value.
 - **Files for agents** ([mcp.md](mcp.md) "Files"): a tool answers a file reference, never the bytes; the bytes leave only
   through a one-time link bound to the key (MCP) or the user's own chat (assistant), made with the caller's rights at the
-  time of the download and audited "Downloaded file". Never a backup, a private key or a PKCS#12 file, except Back up a CA
-  key of PKI, protected with a password from the secret channel (decision 2026-11-15).
-- **Settings and services by agents** (decision 2026-11-15, [mcp.md](mcp.md) "Server settings and services as built"):
-  previews and runs with the GUI's checks and rights (Administrator where the GUI is), audited like the client; users,
-  roles, device groups, access keys, license keys, plugins on/off, the credential list and backups stay GUI only, so an
-  agent never raises rights.
+  time of the download and audited "Downloaded file". Never a private key or a PKCS#12 file, except Back up a CA key of
+  PKI, protected with a password from the secret channel; a backup only to an administrator, encrypted with its password
+  (decision 2026-11-15).
+- **Settings, services and administration by agents** (decision 2026-11-15, [mcp.md](mcp.md) "Server settings and
+  services as built", "Administration as built", "Access as built"): previews and runs with the client's checks and
+  rights (Administrator where the client is), audited like the client, so an agent never has more rights than its caller.
 
 ## TLS
 

@@ -825,4 +825,4 @@ The detail lives in `plugins/Oadm.Plugins.Pki/README.md`; the map:
 - A limit of devices per switch port: OADM sees no logoff without RADIUS accounting; set the limit on the switch. (The
   802.1X server only caps its open sign-in sessions at 8 per switch port, `docs/spec/radius-server.md` "Limits and load".)
 - Exporting a CA key on its own.
-- Later: a CRL (and maybe OCSP) for RADIUS servers of other vendors; it would need its own list of removed serials.
+- A CRL or OCSP for RADIUS servers of other vendors; it would need its own list of removed serials.
