@@ -19,10 +19,24 @@
     <DockPanel Grid.Row="1">
     <!-- Install or upgrade -->
     <Border DockPanel.Dock="Right" Width="560" Classes="card" Margin="0,0,16,0" IsVisible="{Binding ShowPackageCard}">
-      <Grid RowDefinitions="Auto,Auto,*,Auto">
+      <Grid RowDefinitions="Auto,Auto,Auto,*,Auto">
         <ui:CardHeader Grid.Row="0" Title="{Binding PackageTitle}" Description="{Binding PackageDetails}" />
         <ui:FileRow Grid.Row="1" Margin="0,0,0,10" FileName="{Binding PackageFileName}" Details="{Binding PackageFileDetails}" Error="{Binding PackageError}" Command="{Binding PickPackageCommand}" />
-        <DataGrid Grid.Row="2" Classes="wrapRows" ItemsSource="{Binding Compatibility}" IsReadOnly="True" SelectionMode="Single" CanUserReorderColumns="False" IsVisible="{Binding HasPackage}">
+        <!-- The package per device group: only when OADM cannot decide for a group, or a mapping file of the package decides -->
+        <DataGrid Grid.Row="2" Margin="0,0,0,10" MaxHeight="190" ItemsSource="{Binding Groups}" IsReadOnly="True" SelectionMode="Single" CanUserReorderColumns="False" IsVisible="{Binding ShowGroups}">
+          <DataGrid.Columns>
+            <DataGridTextColumn Header="Devices" Binding="{Binding Label}" Width="*" x:DataType="vm:PackageGroupRow" />
+            <DataGridTemplateColumn Header="Package" Width="210">
+              <DataGridTemplateColumn.CellTemplate>
+                <DataTemplate x:DataType="vm:PackageGroupRow">
+                  <ComboBox Margin="6,4" HorizontalAlignment="Stretch" ItemsSource="{Binding Choices}" SelectedItem="{Binding SelectedChoice}" IsEnabled="{Binding IsChoosable}" PlaceholderText="Choose file" />
+                </DataTemplate>
+              </DataGridTemplateColumn.CellTemplate>
+            </DataGridTemplateColumn>
+            <DataGridTextColumn Header="Decided by" Binding="{Binding Source}" Width="130" x:DataType="vm:PackageGroupRow" />
+          </DataGrid.Columns>
+        </DataGrid>
+        <DataGrid Grid.Row="3" Classes="wrapRows" ItemsSource="{Binding Compatibility}" IsReadOnly="True" SelectionMode="Single" CanUserReorderColumns="False" IsVisible="{Binding HasPackage}">
           <DataGrid.Columns>
             <DataGridTextColumn Header="Device" Binding="{Binding DeviceLabel}" Width="160" x:DataType="vm:DeviceCompatibilityRow" />
             <DataGridTemplateColumn Header="Result" Width="150" SortMemberPath="Verdict">
@@ -41,7 +55,7 @@
             </DataGridTemplateColumn>
           </DataGrid.Columns>
         </DataGrid>
-        <StackPanel Grid.Row="3" Classes="form" Margin="0,10,0,0">
+        <StackPanel Grid.Row="4" Classes="form" Margin="0,10,0,0">
           <!-- Optional license keys, installed right after the application -->
           <StackPanel Orientation="Horizontal" Spacing="12" IsVisible="{Binding HasPackage}">
             <Button Classes="secondary" Command="{Binding PickLicenseKeysCommand}" IsVisible="{Binding MayLicense}">

@@ -296,6 +296,13 @@ public sealed partial class TaskGrpcService(
             plan = Sdk.Tasks.TaskPlan.ByCanRun(task.Plugin, devices);
         }
 
+        // Problems only the plan can find (an upload it read, a choice the user must make): answered like payload errors.
+        if (plan.Errors is { Count: > 0 } planErrors)
+        {
+            reply.Errors.AddRange(planErrors.Select(e => new Proto.PayloadFieldError { Field = e.Field, Message = e.Message }));
+            return reply;
+        }
+
         var known = devices.Select(d => d.Id).ToHashSet();
         var planned = plan.Devices.Where(p => known.Contains(p.DeviceId)).GroupBy(p => p.DeviceId).ToDictionary(g => g.Key, g => g.First());
         var skipped = new Dictionary<string, int>(StringComparer.Ordinal);
@@ -320,6 +327,7 @@ public sealed partial class TaskGrpcService(
             .Select(p => new Proto.NotRunnableGroup { Reason = p.Key, Count = p.Value }));
         reply.Warnings.AddRange(plan.Warnings.Where(w => !string.IsNullOrWhiteSpace(w)));
         reply.Files.AddRange(plan.Files.Select(f => new Proto.PlanFile { Name = f.Name, Sha256 = f.Sha256 }));
+        reply.Details.AddRange((plan.Details ?? []).Where(d => !string.IsNullOrWhiteSpace(d)));
         return reply;
     }
 

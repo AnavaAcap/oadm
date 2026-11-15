@@ -137,6 +137,7 @@ message TaskPlanReply {
   repeated NotRunnableGroup skipped = 5;  // the others by reason (count only), most devices first
   repeated string warnings = 6;
   repeated PlanFile files = 7;            // the uploaded files the run would use (name and SHA-256 from the upload store)
+  repeated string details = 8;            // what the run does in plain lines (the build of each device group), from the plan
 }
 message PlanFile {
   string name = 1;
