@@ -21,8 +21,13 @@ internal sealed class AssistantConversation(string sessionKey, Guid userId, stri
     /// <summary>The turns so far, oldest first: each the user's message and what followed (assistant, tool results).</summary>
     public List<List<ChatMessage>> Turns { get; } = [];
 
-    /// <summary>The previews shown in this chat that may still run: handle to its run tool.</summary>
-    public Dictionary<string, string> Previews { get; } = new(StringComparer.Ordinal);
+    /// <summary>The previews shown in this chat that may still run: handle to its tools and input.</summary>
+    public Dictionary<string, AssistantPreview> Previews { get; } = new(StringComparer.Ordinal);
+
+    /// <summary>The previews of this chat that ran (Try the failed devices again), the newest <see cref="MaxRuns"/>.</summary>
+    public Dictionary<string, AssistantPreview> Runs { get; } = new(StringComparer.Ordinal);
+
+    public const int MaxRuns = 50;
 
     /// <summary>What happened outside the model (a Run) for its next message, as data.</summary>
     public List<string> Notes { get; } = [];
@@ -48,11 +53,15 @@ internal sealed class AssistantConversation(string sessionKey, Guid userId, stri
         {
             Ended = true;
             Previews.Clear();
+            Runs.Clear();
             Turns.Clear();
             Streaming?.Cancel();
         }
     }
 }
+
+/// <summary>A preview the chat showed: its preview tool and input (again for the failed devices) and its run tool.</summary>
+internal sealed record AssistantPreview(string PreviewTool, string RunTool, System.Text.Json.JsonElement Arguments, DateTimeOffset RanAt = default);
 
 /// <summary>
 /// The open chats (docs/spec/assistant.md "Limits"): one per login session (a new conversation id of the session ends the

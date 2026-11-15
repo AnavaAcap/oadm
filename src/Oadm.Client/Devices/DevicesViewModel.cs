@@ -219,6 +219,12 @@ public sealed partial class DevicesViewModel : ObservableObject
     /// <summary>The compliance checks and results of the grid's Compliance columns.</summary>
     public Compliance.ComplianceStore Compliance => _store.Compliance;
 
+    /// <summary>The client's device mirror (the Assistant's counts, links and exports).</summary>
+    public DeviceStore Store => _store;
+
+    /// <summary>The role may use the action (the context menu's checks; true without a session).</summary>
+    public bool Allows(string permission) => Can(permission);
+
     /// <summary>One column per compliance check instead of the Compliance column. Persisted per client.</summary>
     [ObservableProperty]
     public partial bool ExpandCompliance { get; set; }

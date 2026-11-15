@@ -35,6 +35,9 @@ public sealed class AssistantGrpcService(AssistantChats chats, AuditLog audit) :
     public override Task<Proto.AssistantRunReply> Run(Proto.AssistantRunRequest request, ServerCallContext context) =>
         chats.RunAsync(AuthInterceptor.CallerOf(context), request.ConversationId, request.Handle, context.CancellationToken);
 
+    public override Task<Proto.AssistantPreviewCard> RetryFailed(Proto.AssistantRetryRequest request, ServerCallContext context) =>
+        chats.RetryFailedAsync(AuthInterceptor.CallerOf(context), request, context.CancellationToken);
+
     public override Task<Proto.Empty> End(Proto.AssistantConversationRequest request, ServerCallContext context)
     {
         chats.End(AuthInterceptor.CallerOf(context), request.ConversationId);

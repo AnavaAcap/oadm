@@ -211,6 +211,68 @@ public sealed class AssistantChatTests
         Assert.Contains(tasks.Tasks, t => t.Id == taskId && t.Owner.StartsWith(TestServerHost.AdminUserName, StringComparison.Ordinal));
     }
 
+    [Fact]
+    public async Task TryTheFailedDevicesAgainPreviewsTheSameChangeForThemOnlyAsANewCard()
+    {
+        await using var server = await AssistantTestServer.StartAsync();
+        var lobby = await GroupCallers.DeviceAsync(server.Host, 71, "lobby");
+        var lobby2 = await GroupCallers.DeviceAsync(server.Host, 72, "lobby");
+        var vault = await GroupCallers.DeviceAsync(server.Host, 73, "vault");
+        server.Model.Call(("oadm_devices_refresh_preview", AssistantTestServer.Args("""{"filter":{"selection":true}}"""))).Say("Press Run.");
+        var events = await server.ChatAsync("Refresh these", selected: [lobby.Id.ToString(), lobby2.Id.ToString()]);
+        var card = Assert.Single(events, e => Kind(e) == Proto.AssistantEvent.KindOneofCase.Preview).Preview;
+        Assert.Equal(2, card.DeviceCount);
+
+        var retry = new Proto.AssistantRetryRequest { ConversationId = "chat-1", Handle = card.Handle, FailedDeviceIds = { lobby2.Id.ToString() } };
+        var notRun = await Assert.ThrowsAsync<RpcException>(async () => await server.Service().RetryFailedAsync(retry));
+        Assert.Equal(StatusCode.NotFound, notRun.StatusCode); // only a card that ran
+
+        await server.Service().RunAsync(new Proto.AssistantRunRequest { ConversationId = "chat-1", Handle = card.Handle });
+        var again = await server.Service().RetryFailedAsync(retry);
+        Assert.Equal(1, again.DeviceCount);
+        Assert.Equal(card.Title, again.Title);
+        Assert.NotEqual(card.Handle, again.Handle);
+        await server.Service().RunAsync(new Proto.AssistantRunRequest { ConversationId = "chat-1", Handle = again.Handle }); // a card like any other
+
+        // Another chat or user gets NOT_FOUND; a device of the request outside the group is dropped.
+        var otherChat = await Assert.ThrowsAsync<RpcException>(async () => await server.Service().RetryFailedAsync(
+            new Proto.AssistantRetryRequest { ConversationId = "chat-2", Handle = card.Handle, FailedDeviceIds = { lobby.Id.ToString() } }));
+        Assert.Equal(StatusCode.NotFound, otherChat.StatusCode);
+        var user = await GroupCallers.ForTagAsync(server.Host, "lobbyuser", "lobby");
+        server.Model.Call(("oadm_devices_refresh_preview", AssistantTestServer.Args("""{"filter":{"selection":true}}"""))).Say("Press Run.");
+        var mine = (await server.ChatAsync("Refresh it", conversation: "chat-u", invoker: user.Invoker, selected: [lobby.Id.ToString()]))
+            .Single(e => Kind(e) == Proto.AssistantEvent.KindOneofCase.Preview).Preview;
+        await server.Service(user.Invoker).RunAsync(new Proto.AssistantRunRequest { ConversationId = "chat-u", Handle = mine.Handle });
+        var cut = await server.Service(user.Invoker).RetryFailedAsync(
+            new Proto.AssistantRetryRequest { ConversationId = "chat-u", Handle = mine.Handle, FailedDeviceIds = { lobby.Id.ToString(), vault.Id.ToString() } });
+        Assert.Equal(1, cut.DeviceCount);
+        var none = await Assert.ThrowsAsync<RpcException>(async () => await server.Service(user.Invoker).RetryFailedAsync(
+            new Proto.AssistantRetryRequest { ConversationId = "chat-u", Handle = mine.Handle, FailedDeviceIds = { vault.Id.ToString() } }));
+        Assert.Equal((StatusCode.FailedPrecondition, AssistantChats.NoDevicesToRetry), (none.StatusCode, none.Status.Detail));
+    }
+
+    [Fact]
+    public async Task DevicesChosenWithTheAtSignReachTheModelCutToTheGroup()
+    {
+        await using var server = await AssistantTestServer.StartAsync();
+        var lobby = await GroupCallers.DeviceAsync(server.Host, 81, "lobby");
+        var vault = await GroupCallers.DeviceAsync(server.Host, 82, "vault");
+        var user = await GroupCallers.ForTagAsync(server.Host, "lobbyuser", "lobby");
+        server.Model.Say("That one.");
+        var message = new Proto.AssistantMessage { ConversationId = "chat-m", Text = "What about this camera?", Model = "test-model", MentionedDeviceIds = { lobby.Id.ToString(), vault.Id.ToString() } };
+        using (var call = server.Service(user.Invoker).Chat(message))
+        {
+            await foreach (var _ in call.ResponseStream.ReadAllAsync())
+            {
+            }
+        }
+
+        var data = server.Model.Requests[^1].AllText();
+        Assert.Contains("\"devices_the_user_chose\":{\"count\":1", data, StringComparison.Ordinal);
+        Assert.Contains(lobby.Id.ToString(), data, StringComparison.Ordinal);
+        Assert.DoesNotContain(vault.Id.ToString(), data, StringComparison.Ordinal);
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -392,6 +454,34 @@ public sealed class AssistantChatTests
         await server.ChatAsync("And now?", model: "model-b");
         Assert.Equal(["model-a", "model-b"], server.Providers.Connections.Select(c => c.Model));
         Assert.Contains("Remember lobby", server.Model.Requests[^1].AllText(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ReplaceLastDropsTheLastExchangeAndNeedsOne()
+    {
+        await using var server = await AssistantTestServer.StartAsync();
+        var refused = await Assert.ThrowsAsync<RpcException>(() => server.ChatAsync("Hi", replaceLast: true));
+        Assert.Equal(StatusCode.FailedPrecondition, refused.StatusCode);
+        Assert.Equal(AssistantTexts.NothingToRetry, refused.Status.Detail);
+
+        server.Model.Say("About the lobby.").Say("About the yard.").Say("Yard again.").Say("Gate.");
+        await server.ChatAsync("Remember lobby");
+        await server.ChatAsync("Remember yard");
+
+        // Try again: the same text, the old answer gone from what the model sees.
+        await server.ChatAsync("Remember yard", replaceLast: true);
+        var retried = server.Model.Requests[^1].AllText();
+        Assert.Contains("Remember lobby", retried, StringComparison.Ordinal);
+        Assert.DoesNotContain("About the yard.", retried, StringComparison.Ordinal);
+        Assert.Single(server.Model.Requests[^1].Messages, m => m.Role == ChatRole.User && m.Text.Contains("Remember yard", StringComparison.Ordinal));
+
+        // Edit: another text takes the place of the last message.
+        await server.ChatAsync("Remember gate", replaceLast: true);
+        var edited = server.Model.Requests[^1].AllText();
+        Assert.Contains("Remember lobby", edited, StringComparison.Ordinal);
+        Assert.Contains("About the lobby.", edited, StringComparison.Ordinal);
+        Assert.DoesNotContain("Remember yard", edited, StringComparison.Ordinal);
+        Assert.DoesNotContain("Yard again.", edited, StringComparison.Ordinal);
     }
 
     [Fact]

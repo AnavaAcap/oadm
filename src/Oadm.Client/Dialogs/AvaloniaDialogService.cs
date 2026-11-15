@@ -272,6 +272,12 @@ public sealed class AvaloniaDialogService(IOadmApi api, Shell.UserSession? sessi
         return await window.ShowDialog<bool>(owner).ConfigureAwait(true);
     }
 
+    public async Task<bool> ShowDevicePickerAsync(Oadm.Sdk.Client.Controls.DevicePickerViewModel picker)
+    {
+        ArgumentNullException.ThrowIfNull(picker);
+        return CurrentOwner() is { } owner && await new Oadm.Sdk.Client.Controls.DevicePickerWindow(picker).ShowDialog<bool>(owner).ConfigureAwait(true);
+    }
+
     public async Task<bool> ShowRuleEditorAsync(EventRules.RuleEditorViewModel editor)
     {
         ArgumentNullException.ThrowIfNull(editor);

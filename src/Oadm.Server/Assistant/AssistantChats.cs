@@ -47,6 +47,12 @@ public sealed partial class AssistantChats
     public const string NotOffered = "This tool is not offered here.";
     public const string NoChatId = "Open the assistant again.";
 
+    /// <summary>The most ids of the devices chosen with @ the model gets listed with a message (the count always).</summary>
+    public const int MaxMentionedListed = 100;
+
+    /// <summary>Try the failed devices again for a preview without devices.</summary>
+    public const string NoDevicesToRetry = "These devices cannot be tried again. Ask again.";
+
     private readonly ToolRegistry _tools;
     private readonly InProcessCalls _calls;
     private readonly IAssistantProviders _providers;
@@ -131,7 +137,7 @@ public sealed partial class AssistantChats
             throw GrpcGuard.InvalidArgument(AssistantTexts.MessageTooLong);
         }
 
-        if (message.SelectedDeviceIds.Count > AssistantTexts.MaxSelectedDevices)
+        if (message.SelectedDeviceIds.Count > AssistantTexts.MaxSelectedDevices || message.MentionedDeviceIds.Count > AssistantTexts.MaxSelectedDevices)
         {
             throw GrpcGuard.InvalidArgument(AssistantTexts.TooManySelected);
         }
@@ -153,6 +159,17 @@ public sealed partial class AssistantChats
             if (conversation.Streaming is not null)
             {
                 throw GrpcGuard.FailedPrecondition(AssistantTexts.Busy);
+            }
+
+            // Try again and Edit: the last user message and its answer go, this message takes their place.
+            if (message.ReplaceLast)
+            {
+                if (conversation.Turns.Count == 0)
+                {
+                    throw GrpcGuard.FailedPrecondition(AssistantTexts.NothingToRetry);
+                }
+
+                conversation.Turns.RemoveAt(conversation.Turns.Count - 1);
             }
 
             streaming = CancellationTokenSource.CreateLinkedTokenSource(ct);
@@ -177,6 +194,7 @@ public sealed partial class AssistantChats
         try
         {
             var selection = await SelectionAsync(caller, message.SelectedDeviceIds, ct).ConfigureAwait(false);
+            var mentioned = await SelectionAsync(caller, message.MentionedDeviceIds, ct).ConfigureAwait(false);
             var files = await FilesAsync(caller, message.Attachments, ct).ConfigureAwait(false);
             var showNotice = false;
             lock (conversation.Gate)
@@ -193,7 +211,7 @@ public sealed partial class AssistantChats
                 await emit(new Proto.AssistantEvent { Notice = AssistantTexts.Notice(settings.Provider) }).ConfigureAwait(false);
             }
 
-            await AnswerAsync(settings, model, conversation, ToolCallerOf(caller, selection), UserMessage(conversation, text, selection, files), emit, streaming, spend, ct).ConfigureAwait(false);
+            await AnswerAsync(settings, model, conversation, ToolCallerOf(caller, selection), UserMessage(conversation, text, selection, mentioned, files), emit, streaming, spend, ct).ConfigureAwait(false);
         }
         finally
         {
@@ -256,13 +274,26 @@ public sealed partial class AssistantChats
         return files;
     }
 
-    /// <summary>The user's message: the text, then what came with it as data (the selection's count, the files, what the user ran).</summary>
-    private static ChatMessage UserMessage(AssistantConversation conversation, string text, IReadOnlyList<string> selection, IReadOnlyList<Proto.UploadedFileInfo> files)
+    /// <summary>
+    /// The user's message: the text, then what came with it as data (the selection's count, the devices chosen with @, the
+    /// files, what the user ran).
+    /// </summary>
+    private static ChatMessage UserMessage(AssistantConversation conversation, string text, IReadOnlyList<string> selection, IReadOnlyList<string> mentioned,
+        IReadOnlyList<Proto.UploadedFileInfo> files)
     {
         var data = new JsonObject();
         if (selection.Count > 0)
         {
             data["selected_devices"] = selection.Count;
+        }
+
+        if (mentioned.Count > 0)
+        {
+            data["devices_the_user_chose"] = new JsonObject
+            {
+                ["count"] = mentioned.Count,
+                ["ids"] = new JsonArray([.. mentioned.Take(MaxMentionedListed).Select(id => (JsonNode)JsonValue.Create(id)!)]),
+            };
         }
 
         if (files.Count > 0)
@@ -595,13 +626,7 @@ public sealed partial class AssistantChats
         var answer = result.Answer!;
         if (AssistantTools.IsPreview(tool.Name) && answer["handle"] is JsonValue value && value.TryGetValue<string>(out var handle) && handle.Length > 0)
         {
-            var runTool = AssistantTools.RunOf(tool.Name);
-            lock (conversation.Gate)
-            {
-                conversation.Previews[handle] = runTool;
-            }
-
-            var card = AssistantCards.Build(tool, _tools.TryGet(runTool, out var run) ? run : null, handle, answer, arguments);
+            var card = RememberPreview(conversation, tool, handle, answer, arguments, caller);
             await emit(new Proto.AssistantEvent { Preview = card }).ConfigureAwait(false);
             answer = (JsonObject)answer.DeepClone();
             answer.Remove("handle");
@@ -637,6 +662,42 @@ public sealed partial class AssistantChats
         }
 
         return Result(request, answer);
+    }
+
+    /// <summary>The preview's card; the chat keeps its tools and input for Run and Try the failed devices again.</summary>
+    private Proto.AssistantPreviewCard RememberPreview(AssistantConversation conversation, OadmTool tool, string handle, JsonObject answer, JsonElement arguments,
+        ToolCaller caller)
+    {
+        var runTool = AssistantTools.RunOf(tool.Name);
+        lock (conversation.Gate)
+        {
+            conversation.Previews[handle] = new AssistantPreview(tool.Name, runTool, Original(arguments, caller));
+        }
+
+        return AssistantCards.Build(tool, _tools.TryGet(runTool, out var run) ? run : null, handle, answer, arguments);
+    }
+
+    /// <summary>
+    /// The input of a preview as the model gave it, with the selection written out as ids (the selection of a later message
+    /// differs), so Try the failed devices again repeats exactly this preview.
+    /// </summary>
+    private static JsonElement Original(JsonElement arguments, ToolCaller caller)
+    {
+        if (arguments.ValueKind != JsonValueKind.Object || !arguments.TryGetProperty("filter", out var filter) || filter.ValueKind != JsonValueKind.Object
+            || !filter.TryGetProperty(SelectionTools.FilterProperty, out var flag) || flag.ValueKind != JsonValueKind.True)
+        {
+            return arguments.Clone();
+        }
+
+        var copy = JsonNode.Parse(arguments.GetRawText())!.AsObject();
+        var rewritten = copy["filter"]!.AsObject();
+        rewritten.Remove(SelectionTools.FilterProperty);
+        if (rewritten["ids"] is not JsonArray)
+        {
+            rewritten["ids"] = new JsonArray([.. (caller.Selection ?? []).Select(id => (JsonNode)JsonValue.Create(id)!)]);
+        }
+
+        return JsonSerializer.SerializeToElement(copy);
     }
 
     private static FunctionResultContent Result(FunctionCallContent request, JsonObject answer) => new(request.CallId, answer.ToJsonString(ToolAnswers.Json));
@@ -758,16 +819,23 @@ public sealed partial class AssistantChats
         ArgumentNullException.ThrowIfNull(caller);
         await OnAsync(ct).ConfigureAwait(false);
         var conversation = _conversations.Find(caller.TokenHash, conversationId ?? string.Empty) ?? throw GrpcGuard.NotFound(AssistantTexts.PreviewEnded);
-        string? runTool;
+        AssistantPreview? preview;
         lock (conversation.Gate)
         {
-            if (string.IsNullOrEmpty(handle) || !conversation.Previews.Remove(handle, out runTool))
+            if (string.IsNullOrEmpty(handle) || !conversation.Previews.Remove(handle, out preview))
             {
                 throw GrpcGuard.NotFound(AssistantTexts.PreviewEnded);
             }
 
             conversation.LastUsed = _time.GetUtcNow();
+            conversation.Runs[handle] = preview with { RanAt = _time.GetUtcNow() };
+            if (conversation.Runs.Count > AssistantConversation.MaxRuns)
+            {
+                conversation.Runs.Remove(conversation.Runs.MinBy(r => r.Value.RanAt).Key);
+            }
         }
+
+        var runTool = preview.RunTool;
 
         if (!_tools.TryGet(runTool, out _))
         {
@@ -794,6 +862,72 @@ public sealed partial class AssistantChats
         }
 
         return reply;
+    }
+
+    /// <summary>
+    /// Try the failed devices again: the preview tool of a card this user ran in this chat, with the same input restricted to
+    /// <paramref name="failedDeviceIds"/> (cut to the caller's view, as a selection), as a new card that needs Run.
+    /// </summary>
+    public async Task<Proto.AssistantPreviewCard> RetryFailedAsync(AuthenticatedCaller caller, Proto.AssistantRetryRequest request, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(caller);
+        ArgumentNullException.ThrowIfNull(request);
+        await OnAsync(ct).ConfigureAwait(false);
+        if (request.FailedDeviceIds.Count == 0 || request.FailedDeviceIds.Count > AssistantTexts.MaxSelectedDevices)
+        {
+            throw GrpcGuard.InvalidArgument(AssistantTexts.TooManySelected);
+        }
+
+        var conversation = _conversations.Find(caller.TokenHash, request.ConversationId ?? string.Empty) ?? throw GrpcGuard.NotFound(AssistantTexts.PreviewEnded);
+        AssistantPreview? ran;
+        lock (conversation.Gate)
+        {
+            if (string.IsNullOrEmpty(request.Handle) || !conversation.Runs.TryGetValue(request.Handle, out ran))
+            {
+                throw GrpcGuard.NotFound(AssistantTexts.PreviewEnded);
+            }
+
+            conversation.LastUsed = _time.GetUtcNow();
+        }
+
+        if (!_tools.TryGet(ran.PreviewTool, out var tool) || ran.Arguments.ValueKind != JsonValueKind.Object || !ran.Arguments.TryGetProperty("filter", out _))
+        {
+            throw GrpcGuard.FailedPrecondition(NoDevicesToRetry);
+        }
+
+        var failed = await SelectionAsync(caller, request.FailedDeviceIds, ct).ConfigureAwait(false);
+        if (failed.Count == 0)
+        {
+            throw GrpcGuard.FailedPrecondition(NoDevicesToRetry);
+        }
+
+        var arguments = JsonNode.Parse(ran.Arguments.GetRawText())!.AsObject();
+        var filter = arguments["filter"] as JsonObject ?? [];
+        filter.Remove("ids");
+        filter[SelectionTools.FilterProperty] = true;
+        arguments["filter"] = filter;
+        var input = JsonSerializer.SerializeToElement(arguments);
+        var toolCaller = ToolCallerOf(caller, failed);
+        var result = await _tools.CallAsync(toolCaller, tool.Name, input, ct).ConfigureAwait(false);
+        if (result.IsError)
+        {
+            throw GrpcGuard.FailedPrecondition(result.Error!);
+        }
+
+        if (result.Answer!["handle"] is not JsonValue value || !value.TryGetValue<string>(out var handle) || handle.Length == 0)
+        {
+            // Nothing to change for them now (e.g. the tags are there): the preview's own warning says why.
+            throw GrpcGuard.FailedPrecondition(result.Answer["warnings"] is JsonArray { Count: > 0 } warnings && Text(warnings[0]) is { Length: > 0 } warning ? warning : NoDevicesToRetry);
+        }
+
+        var card = RememberPreview(conversation, tool, handle, result.Answer, input, toolCaller);
+        lock (conversation.Gate)
+        {
+            conversation.Notes.Add("The user asked to try the failed devices of a run again; a new preview of " + tool.Name + " for "
+                + failed.Count.ToString(System.Globalization.CultureInfo.InvariantCulture) + " devices waits for Run.");
+        }
+
+        return card;
     }
 
     private static RpcException FieldError(string field, string message) =>

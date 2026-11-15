@@ -280,7 +280,7 @@ public sealed class AssistantLimitsTests
         using var conversations = new AssistantConversations(time);
         var user = Guid.NewGuid();
         var chat = conversations.Open("session", user, "chat-1");
-        chat.Previews["handle"] = "oadm_tags_assign_run";
+        chat.Previews["handle"] = new AssistantPreview("oadm_tags_assign_preview", "oadm_tags_assign_run", default);
         time.Advance(AssistantConversations.Idle - TimeSpan.FromMinutes(1));
         Assert.Same(chat, conversations.Find("session", "chat-1"));
         time.Advance(AssistantConversations.Idle + TimeSpan.FromMinutes(1));

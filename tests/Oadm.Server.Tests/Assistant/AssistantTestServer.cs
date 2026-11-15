@@ -238,9 +238,9 @@ internal sealed class AssistantTestServer : IAsyncDisposable
 
     /// <summary>One message and every event of its answer.</summary>
     public async Task<List<Proto.AssistantEvent>> ChatAsync(string text, string conversation = "chat-1", CallInvoker? invoker = null,
-        IEnumerable<string>? selected = null, IEnumerable<Proto.AssistantAttachment>? attachments = null, string model = "test-model")
+        IEnumerable<string>? selected = null, IEnumerable<Proto.AssistantAttachment>? attachments = null, string model = "test-model", bool replaceLast = false)
     {
-        var message = new Proto.AssistantMessage { ConversationId = conversation, Text = text, Model = model };
+        var message = new Proto.AssistantMessage { ConversationId = conversation, Text = text, Model = model, ReplaceLast = replaceLast };
         message.SelectedDeviceIds.AddRange(selected ?? []);
         message.Attachments.AddRange(attachments ?? []);
         using var call = Service(invoker).Chat(message);

@@ -496,10 +496,160 @@
   <Style Selector="StackPanel.chatItem">
     <Setter Property="Spacing" Value="12" />
   </Style>
-  <Style Selector="Border.chatComposer">
+  <!-- The icon buttons below an answer (Copy, Try again): the first icon lines up with the text's left edge and the gaps
+       around the row are the content's own; the hover areas reach into them (like Button.iconOnly.flush). -->
+  <Style Selector="StackPanel.chatActions">
+    <Setter Property="Orientation" Value="Horizontal" />
+    <Setter Property="Margin" Value="-7,-8,0,-8" />
+    <Setter Property="HorizontalAlignment" Value="Left" />
+  </Style>
+  <!-- The empty Assistant panel: the mark, the question, the live counts (Button.startChip, pills) and the suggestions
+       (Button.startCard, an icon and one line on the raised surface, two per row) -->
+  <Style Selector="StackPanel.chatStart">
+    <Setter Property="Spacing" Value="16" />
+    <Setter Property="VerticalAlignment" Value="Center" />
+    <Setter Property="Margin" Value="0,0,16,12" />
+  </Style>
+  <Style Selector="Button.startChip">
+    <Setter Property="Background" Value="{StaticResource Oadm.SurfaceRaisedBrush}" />
+    <Setter Property="Foreground" Value="{StaticResource Oadm.TextPrimaryBrush}" />
     <Setter Property="BorderBrush" Value="{StaticResource Oadm.BorderBrush}" />
-    <Setter Property="BorderThickness" Value="0,1,0,0" />
-    <Setter Property="Padding" Value="0,12,0,0" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="CornerRadius" Value="14" />
+    <Setter Property="Padding" Value="12,5" />
+    <Setter Property="MinHeight" Value="0" />
+  </Style>
+  <Style Selector="Button.startChip:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="Background" Value="{StaticResource Oadm.SurfaceHoverBrush}" />
+    <Setter Property="BorderBrush" Value="{StaticResource Oadm.BorderBrush}" />
+    <Setter Property="Foreground" Value="{StaticResource Oadm.TextPrimaryBrush}" />
+  </Style>
+  <Style Selector="Button.startCard">
+    <Setter Property="Background" Value="{StaticResource Oadm.SurfaceRaisedBrush}" />
+    <Setter Property="Foreground" Value="{StaticResource Oadm.TextPrimaryBrush}" />
+    <Setter Property="BorderBrush" Value="{StaticResource Oadm.BorderBrush}" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="CornerRadius" Value="{StaticResource Oadm.CardCornerRadius}" />
+    <Setter Property="Padding" Value="12" />
+    <Setter Property="HorizontalAlignment" Value="Stretch" />
+    <Setter Property="VerticalAlignment" Value="Stretch" />
+    <Setter Property="HorizontalContentAlignment" Value="Left" />
+    <Setter Property="VerticalContentAlignment" Value="Top" />
+  </Style>
+  <Style Selector="Button.startCard ui|OadmIcon">
+    <Setter Property="Foreground" Value="{StaticResource Oadm.AccentHoverBrush}" />
+  </Style>
+  <Style Selector="Button.startCard:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="Background" Value="{StaticResource Oadm.SurfaceHoverBrush}" />
+    <Setter Property="BorderBrush" Value="{StaticResource Oadm.BorderBrush}" />
+    <Setter Property="Foreground" Value="{StaticResource Oadm.TextPrimaryBrush}" />
+  </Style>
+  <Style Selector="Panel.chatUserRow">
+    <Setter Property="Background" Value="{StaticResource Oadm.TransparentBrush}" />
+  </Style>
+  <!-- The Assistant's message box, like the chat apps: one rounded box in the input colours holding the attached files, the
+       text (no border of its own: TextBox.composer) and the row of Attach file, the model and the send arrow; the accent
+       border while it has the focus, the error border while its problem shows below it. -->
+  <Style Selector="Border.composer">
+    <Setter Property="Background" Value="{StaticResource Oadm.InputBackgroundBrush}" />
+    <Setter Property="BorderBrush" Value="{StaticResource Oadm.InputBorderBrush}" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="CornerRadius" Value="{StaticResource Oadm.CardCornerRadius}" />
+    <Setter Property="Padding" Value="8" />
+  </Style>
+  <Style Selector="Border.composer:focus-within">
+    <Setter Property="BorderBrush" Value="{StaticResource Oadm.AccentBrush}" />
+  </Style>
+  <Style Selector="Border.composer.error, Border.composer.error:focus-within">
+    <Setter Property="BorderBrush" Value="{StaticResource Oadm.StatusErrorBrush}" />
+  </Style>
+  <!-- The Assistant's send arrow and Stop (CLAUDE.md "Icon-only buttons": the one filled icon button, like the chat apps):
+       a 32 px accent circle; .quiet while a preview card's Run is the panel's main button (one accent per view). -->
+  <Style Selector="Button.send">
+    <Setter Property="Width" Value="32" />
+    <Setter Property="Height" Value="32" />
+    <Setter Property="MinHeight" Value="0" />
+    <Setter Property="Padding" Value="0" />
+    <Setter Property="CornerRadius" Value="16" />
+    <Setter Property="BorderThickness" Value="0" />
+    <Setter Property="HorizontalContentAlignment" Value="Center" />
+    <Setter Property="VerticalContentAlignment" Value="Center" />
+    <Setter Property="Background" Value="{StaticResource Oadm.AccentBrush}" />
+  </Style>
+  <Style Selector="Button.send ui|OadmIcon">
+    <Setter Property="Foreground" Value="{StaticResource Oadm.TextOnAccentBrush}" />
+  </Style>
+  <Style Selector="Button.send:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="Background" Value="{StaticResource Oadm.AccentHoverBrush}" />
+  </Style>
+  <Style Selector="Button.send:pressed /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="Background" Value="{StaticResource Oadm.AccentPressedBrush}" />
+  </Style>
+  <Style Selector="Button.send:disabled /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="Background" Value="{StaticResource Oadm.AccentDisabledBrush}" />
+  </Style>
+  <Style Selector="Button.send:disabled ui|OadmIcon">
+    <Setter Property="Foreground" Value="{StaticResource Oadm.TextOnAccentDisabledBrush}" />
+  </Style>
+  <Style Selector="Button.send.quiet">
+    <Setter Property="Background" Value="{StaticResource Oadm.SurfaceRaisedBrush}" />
+  </Style>
+  <Style Selector="Button.send.quiet ui|OadmIcon">
+    <Setter Property="Foreground" Value="{StaticResource Oadm.TextPrimaryBrush}" />
+  </Style>
+  <Style Selector="Button.send.quiet:pointerover /template/ ContentPresenter#PART_ContentPresenter, Button.send.quiet:pressed /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="Background" Value="{StaticResource Oadm.InputBorderBrush}" />
+  </Style>
+  <Style Selector="Button.send.quiet:disabled /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="Background" Value="{StaticResource Oadm.SurfaceRaisedBrush}" />
+  </Style>
+  <Style Selector="Button.send.quiet:disabled ui|OadmIcon">
+    <Setter Property="Foreground" Value="{StaticResource Oadm.TextDisabledBrush}" />
+  </Style>
+  <!-- Go to the latest: a round icon button floating over the end of the conversation, on the panel's surface with a
+       border so it stays readable over any entry -->
+  <Style Selector="Button.jumpToLatest">
+    <Setter Property="Width" Value="32" />
+    <Setter Property="Height" Value="32" />
+    <Setter Property="MinHeight" Value="0" />
+    <Setter Property="Padding" Value="0" />
+    <Setter Property="CornerRadius" Value="16" />
+    <Setter Property="HorizontalContentAlignment" Value="Center" />
+    <Setter Property="VerticalContentAlignment" Value="Center" />
+    <Setter Property="Background" Value="{StaticResource Oadm.SurfaceRaisedBrush}" />
+    <Setter Property="BorderBrush" Value="{StaticResource Oadm.BorderBrush}" />
+    <Setter Property="BorderThickness" Value="1" />
+  </Style>
+  <Style Selector="Button.jumpToLatest ui|OadmIcon">
+    <Setter Property="Foreground" Value="{StaticResource Oadm.TextPrimaryBrush}" />
+  </Style>
+  <Style Selector="Button.jumpToLatest:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="Background" Value="{StaticResource Oadm.SurfaceHoverBrush}" />
+    <Setter Property="BorderBrush" Value="{StaticResource Oadm.BorderBrush}" />
+  </Style>
+  <Style Selector="Button.jumpToLatest:pointerover ui|OadmIcon">
+    <Setter Property="Foreground" Value="{StaticResource Oadm.AccentHoverBrush}" />
+  </Style>
+  <!-- Files dragged over the Assistant panel: an accent frame over it with "Drop files to attach" -->
+  <Style Selector="Border.dropHint">
+    <Setter Property="Background" Value="{StaticResource Oadm.OverlayBrush}" />
+    <Setter Property="BorderBrush" Value="{StaticResource Oadm.AccentBrush}" />
+    <Setter Property="BorderThickness" Value="2" />
+    <Setter Property="CornerRadius" Value="{StaticResource Oadm.CardCornerRadius}" />
+    <Setter Property="IsHitTestVisible" Value="False" />
+  </Style>
+  <!-- The user's last message: Edit shows left of it while the pointer is over the row -->
+  <Style Selector="Panel.chatUserRow Button.hoverAction">
+    <Setter Property="Opacity" Value="0" />
+  </Style>
+  <Style Selector="Panel.chatUserRow:pointerover Button.hoverAction, Panel.chatUserRow Button.hoverAction:focus">
+    <Setter Property="Opacity" Value="1" />
+  </Style>
+  <!-- Thinking: a small ring and the word where the answer will appear -->
+  <Style Selector="ui|ProgressRing.thinking">
+    <Setter Property="Width" Value="16" />
+    <Setter Property="Height" Value="16" />
+    <Setter Property="Thickness" Value="2" />
   </Style>
   <!-- c:MarkdownText (the Assistant's answers): blocks 8 px apart, headings like section titles, list markers secondary,
        table cells with a line below. -->
@@ -1033,6 +1183,23 @@
     <Setter Property="BorderBrush" Value="{StaticResource Oadm.AccentBrush}" />
     <Setter Property="BorderThickness" Value="1" />
   </Style>
+  <!-- The Assistant's message box (Border.composer above): its text and model picker, after the input styles they adapt -->
+  <!-- The text inside the box: starts at one line, grows to 200 px, then scrolls; its left edge on the chips' and the
+       icons of the buttons below it (7 px in, like an icon button's padding) -->
+  <Style Selector="TextBox.composer">
+    <Setter Property="Background" Value="{StaticResource Oadm.TransparentBrush}" />
+    <Setter Property="BorderThickness" Value="0" />
+    <Setter Property="MinHeight" Value="0" />
+    <Setter Property="MaxHeight" Value="200" />
+    <Setter Property="Padding" Value="7,4,7,4" />
+    <Setter Property="VerticalContentAlignment" Value="Top" />
+    <!-- The box around it shows the focus -->
+    <Setter Property="FocusAdorner" Value="{x:Null}" />
+  </Style>
+  <Style Selector="TextBox.composer /template/ Border#PART_BorderElement, TextBox.composer:pointerover /template/ Border#PART_BorderElement, TextBox.composer:focus /template/ Border#PART_BorderElement">
+    <Setter Property="Background" Value="{StaticResource Oadm.TransparentBrush}" />
+    <Setter Property="BorderThickness" Value="0" />
+  </Style>
   <Style Selector="NumericUpDown">
     <!-- The inner text box takes padding and alignment from the NumericUpDown (TemplateBinding). -->
     <Setter Property="VerticalContentAlignment" Value="Center" />
@@ -1102,6 +1269,19 @@
   <!-- The focused select or number field shows it like a focused text box (also after a click, not only with Tab). -->
   <Style Selector="ComboBox:focus /template/ Border#Background, ComboBox:focus:pointerover /template/ Border#Background">
     <Setter Property="BorderBrush" Value="{StaticResource Oadm.AccentBrush}" />
+  </Style>
+  <!-- The model picker in the box's row: flat like a command button, its surface only on hover -->
+  <Style Selector="ComboBox.composerModel">
+    <Setter Property="Background" Value="{StaticResource Oadm.TransparentBrush}" />
+    <Setter Property="BorderBrush" Value="{StaticResource Oadm.TransparentBrush}" />
+  </Style>
+  <Style Selector="ComboBox.composerModel /template/ Border#Background">
+    <Setter Property="Background" Value="{StaticResource Oadm.TransparentBrush}" />
+    <Setter Property="BorderBrush" Value="{StaticResource Oadm.TransparentBrush}" />
+  </Style>
+  <Style Selector="ComboBox.composerModel:pointerover /template/ Border#Background">
+    <Setter Property="Background" Value="{StaticResource Oadm.SurfaceRaisedBrush}" />
+    <Setter Property="BorderBrush" Value="{StaticResource Oadm.TransparentBrush}" />
   </Style>
   <Style Selector="NumericUpDown:focus-within /template/ ButtonSpinner#PART_Spinner">
     <Setter Property="BorderBrush" Value="{StaticResource Oadm.AccentBrush}" />

@@ -49,6 +49,7 @@ public static class AssistantTexts
     // Refusals and errors (gRPC status details and AssistantDone.error).
     public const string IsOff = "The assistant is off.";
     public const string Busy = "Wait for the answer or stop it.";
+    public const string NothingToRetry = "There is nothing to try again.";
     public const string DailyLimit = "The assistant reached today's limit. It works again tomorrow.";
     public const string PreviewEnded = "This preview has ended. Ask again.";
     public const string NoAnswer = "The provider did not answer. Try again.";

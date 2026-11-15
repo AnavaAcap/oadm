@@ -266,6 +266,7 @@ public static class AccessPolicy
         ["/oadm.v1.AssistantService/Chat"] = AccessRule.Needs(HostPermissions.AssistantUse),
         ["/oadm.v1.AssistantService/Stop"] = AccessRule.Needs(HostPermissions.AssistantUse),
         ["/oadm.v1.AssistantService/Run"] = AccessRule.Needs(HostPermissions.AssistantUse),
+        ["/oadm.v1.AssistantService/RetryFailed"] = AccessRule.Needs(HostPermissions.AssistantUse),
         ["/oadm.v1.AssistantService/End"] = AccessRule.Needs(HostPermissions.AssistantUse),
         ["/oadm.v1.AssistantService/ListModels"] = AccessRule.Needs(HostPermissions.AssistantUse),
         ["/oadm.v1.AssistantService/GetSettings"] = AccessRule.SignedIn,

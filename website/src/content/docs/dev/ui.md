@@ -246,14 +246,14 @@ Icons are resources of the client, available to plugin windows at runtime. A plu
 compile time, so use `DynamicResource` in XAML (`Icon="{DynamicResource Icon.refresh}"`). An `IconKey` property (a
 task's menu icon, a toolbar button) takes the key without `Icon.` (`IconKey="refresh"`). The keys:
 
-`activity`, `add`, `app`, `arrowUpRight`, `audit`, `barChart`, `bell`, `braces`, `calendarClock`, `cancel`, `check`, `chevronDown`, `chevronLeft`, `chevronRight`,
+`activity`, `add`, `app`, `arrowDown`, `arrowUp`, `arrowUpRight`, `audit`, `barChart`, `bell`, `braces`, `calendarClock`, `cancel`, `check`, `chevronDown`, `chevronLeft`, `chevronRight`,
 `chevronUp`, `circle`, `circleCheck`, `clipboardCheck`, `clock`, `close`, `cloud`, `cloudCheck`, `columns`, `command`, `compare`, `copy`,
 `crossing`, `deleteAll`, `details`, `devices`, `download`, `edit`, `eraser`, `export`, `externalLink`, `eye`, `eyeOff`,
 `file`, `filter`, `firmware`, `flame`, `flow`, `focus`, `focusArea`, `folder`, `gauge`, `globe`, `grid`, `gridAdd`,
 `groupBy`, `hardDrive`, `hardDriveDownload`, `hash`, `help`, `hold`, `home`, `hourglass`, `identify`, `info`, `key`, `layers`, `lightbulb`,
 `lock`, `lockOpen`, `log`, `logout`, `logs`, `maximize`, `merge`, `metronome`, `minimize`, `more`, `network`, `panelClose`,
-`panelOpen`, `pause`, `pin`, `plugin`, `polygon`, `range`, `redo`, `refresh`, `remove`, `restart`, `route`, `save`, `scan`,
-`search`, `send`, `server`, `settings`, `shield`, `shieldAlert`, `sliders`, `snapshot`, `squareA`, `squareActivity`,
+`panelOpen`, `pause`, `pin`, `plugin`, `polygon`, `range`, `redo`, `refresh`, `remove`, `restart`, `rotateCcw`, `route`, `save`, `scan`,
+`search`, `send`, `server`, `settings`, `shield`, `shieldAlert`, `sliders`, `snapshot`, `square`, `squareA`, `squareActivity`,
 `squareB`, `squareFunction`, `start`, `stop`, `tag`, `tasks`, `text`, `thermometer`, `toggle`, `triangleAlert`, `undo`, `upload`, `user`,
 `users`, `video`, `workflow`, `wrench`, `zap`.
 
