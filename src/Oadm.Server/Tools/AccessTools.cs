@@ -56,7 +56,7 @@ internal sealed class OneTimeSecret
     }
 
     /// <summary>A file of the secret for <see cref="ToolHandles"/>: its bytes are made when the link or card fetches it, once.</summary>
-    public PlannedDownload AsDownload(string fileName) => new(fileName, "text/plain", OpenAsync) { Size = null };
+    public PlannedDownload AsDownload(string fileName) => new(fileName, "text/plain", (_, ct) => OpenAsync(ct)) { Size = null };
 
     /// <summary>A read-only stream over the bytes that wipes them when it is closed.</summary>
     private sealed class WipedStream : MemoryStream

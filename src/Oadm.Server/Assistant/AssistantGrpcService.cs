@@ -48,7 +48,7 @@ public sealed class AssistantGrpcService(AssistantChats chats, AuditLog audit, I
         }
 
         var ct = context.CancellationToken;
-        var content = await file.Open(ct).ConfigureAwait(false);
+        var content = await file.Open(caller, ct).ConfigureAwait(false); // the user's rights now
         long sent = 0;
         try
         {
