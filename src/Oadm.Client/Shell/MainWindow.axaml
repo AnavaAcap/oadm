@@ -91,15 +91,9 @@
           </Panel>
           <!-- Help: the offline docs in a window of their own -->
           <ui:ToolbarButton x:Name="TitleHelp" Text="Help" IconKey="help" IsIconOnly="True" Command="{Binding OpenHelpCommand}" />
-          <!-- Initial avatar + name: the account menu, Your role (what the role allows) and, for roles that may use AI agents,
-               Access keys (docs/spec/mcp.md) -->
-          <Button x:Name="TitleUser" Classes="titleUser" ToolTip.Tip="{Binding UserTooltip}">
-            <Button.Flyout>
-              <MenuFlyout Placement="BottomEdgeAlignedRight">
-                <MenuItem x:Name="TitleMyRole" Header="Your role" Command="{Binding ShowMyRoleCommand}" />
-                <MenuItem x:Name="TitleAccessKeys" Header="Access keys" Command="{Binding ShowAccessKeysCommand}" IsVisible="{Binding CanUseAiAgents}" />
-              </MenuFlyout>
-            </Button.Flyout>
+          <!-- Initial avatar + name: the account; a click shows what the user's role allows -->
+          <Button x:Name="TitleUser" Classes="titleUser" Command="{Binding ShowMyRoleCommand}"
+                  ToolTip.Tip="{Binding UserTooltip}">
             <StackPanel Orientation="Horizontal" Spacing="6">
               <Border Classes="avatar">
                 <TextBlock Text="{Binding UserInitial}" />

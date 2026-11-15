@@ -17,6 +17,64 @@ namespace Oadm.Core.Persistence.Migrations
 #pragma warning disable 612, 618
             modelBuilder.HasAnnotation("ProductVersion", "10.0.13");
 
+            modelBuilder.Entity("Oadm.Core.Auth.AccessKeyEntity", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("AllDevices")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("CreatedBy")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("CreatedUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid?>("DeviceGroupId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("ExpiresUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("LastUsedUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("NormalizedName")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid>("RoleId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("TokenHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("DeviceGroupId");
+
+                    b.HasIndex("NormalizedName")
+                        .IsUnique();
+
+                    b.HasIndex("RoleId");
+
+                    b.HasIndex("TokenHash")
+                        .IsUnique();
+
+                    b.ToTable("AccessKeys", (string)null);
+                });
+
             modelBuilder.Entity("Oadm.Core.Auth.AuditEntryEntity", b =>
                 {
                     b.Property<long>("Id")
@@ -74,20 +132,6 @@ namespace Oadm.Core.Persistence.Migrations
 
                     b.Property<DateTime>("ExpiresUtc")
                         .HasColumnType("TEXT");
-
-                    b.Property<int>("Kind")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<DateTime?>("LastUsedUtc")
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("Name")
-                        .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("TEXT");
-
-                    b.Property<bool>("ReadOnly")
-                        .HasColumnType("INTEGER");
 
                     b.Property<bool>("Remember")
                         .HasColumnType("INTEGER");
@@ -1060,6 +1104,20 @@ namespace Oadm.Core.Persistence.Migrations
                         .IsUnique();
 
                     b.ToTable("Sites", (string)null);
+                });
+
+            modelBuilder.Entity("Oadm.Core.Auth.AccessKeyEntity", b =>
+                {
+                    b.HasOne("Oadm.Core.DeviceGroups.DeviceGroup", null)
+                        .WithMany()
+                        .HasForeignKey("DeviceGroupId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Oadm.Core.Auth.RoleEntity", null)
+                        .WithMany()
+                        .HasForeignKey("RoleId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("Oadm.Core.Auth.AuthTokenEntity", b =>

@@ -71,12 +71,12 @@ Set `Changes` and the host makes two tools, `<name>_preview` and `<name>_run`. I
 - `tool.<name>` does the change. The run tool takes only the handle of a preview, once, within 10 minutes, and calls it
   with the same arguments, so check everything again. Give `RunOutputType` for its answer.
 
-Set `Destructive` for a change that removes something. A Read only caller gets the previews and never the runs.
+Set `Destructive` for a change that removes something.
 
 ## Your duty
 
-The host trusts what you declare. A tool without `Changes`, and every `tool.<name>.preview`, is offered to Read only keys,
-so it must never write: not to OADM, not to a device, not to a file. Anything that writes is a change with a preview and a
+The host trusts what you declare. A tool without `Changes`, and every `tool.<name>.preview`, is announced as a read and
+offered with only the permission you name, so it must never write: not to OADM, not to a device, not to a file. Anything that writes is a change with a preview and a
 run. Never return a password, private key, license key or token, and keep texts from devices and users in their own
 fields, never in a message.
 

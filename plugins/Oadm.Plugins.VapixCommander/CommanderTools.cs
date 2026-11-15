@@ -58,7 +58,7 @@ internal static class CommanderTools
     internal const string NeedsSecretOrFile = "This command needs a password or a file. Run it on the VAPIX Commander page.";
     internal const string IsDangerous = "This command can restart or reset devices or cut them off the network. Run it on the VAPIX Commander page.";
     internal const string HasOwnTask = "OADM has its own task for this. Take it from oadm_tasks_catalog.";
-    internal const string NotForAgents = "This command is not offered to AI agents. Take one from oadm_vapix_commands.";
+    internal const string NotForAgents = "This command is not offered over MCP. Take one from oadm_vapix_commands.";
 
     /// <summary>
     /// Paths whose changes OADM's own tasks make (date and time, NTP, applications, AXIS OS, restart, users, network): a command

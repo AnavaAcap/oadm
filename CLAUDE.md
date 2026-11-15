@@ -191,10 +191,12 @@ must never break.
 - **[MCP server](docs/spec/mcp.md)** (all four stages built: the endpoint, access keys, the read tools, tasks with
   preview and run, file links, device actions, tags, sites, compliance, event rules, plugin tools, the skill and Connect
   an agent):
-  AI agents do what a user can in the client, through the server's gRPC services in process with an access key (the
-  user's role and device group, `InProcessCalls`); the tools are one registry that knows nothing of MCP (`ToolRegistry`,
-  the caller a parameter, never the HTTP request; MCP is a thin adapter: transport, access keys, its own limits); off by default, own port (TCP 5082) with the certificate of the PKI
-  policy AI agents ("MCP" only in the config snippet and the docs); access keys stored only as SHA-256, never a session;
+  AI agents do what a user can in the client, through the server's gRPC services in process with an access key
+  (`InProcessCalls`); the tools are one registry that knows nothing of MCP (`ToolRegistry`,
+  the caller a parameter, never the HTTP request; MCP is a thin adapter: transport, access keys, its own limits); off by
+  default, own port (TCP 5082) with the certificate of the PKI policy MCP server; "MCP" is the feature's UI name (Settings
+  card AI, section MCP); access keys only by administrators there, each an identity of its own with a name, a role, its
+  devices (all or one group) and an end, audit user and task owner "MCP <name>", stored only as SHA-256, never a session;
   every change is preview then run; never all devices in a result (pages with the total and a sort-key cursor, logs with
   `more` instead of a total, answers at most 32 KB); no secrets over MCP; rights and settings GUI only.
 - **[Load test](docs/spec/load-test.md)** (core plugin `oadm.load-test`, off by default): a load test of the chosen

@@ -34,7 +34,7 @@ public sealed partial class McpToolTests
     /// <summary>The tools of the areas stage 3 (tags, sites, compliance, event rules, the event log): <see cref="McpAreaToolTests"/>.</summary>
     private static readonly string[] AreaTools = McpAreaToolTests.ToolNames;
 
-    /// <summary>The tools that change something (rule 2: each with its preview; a Read only key lists none).</summary>
+    /// <summary>The tools that change something (rule 2: each with its preview).</summary>
     private static readonly string[] WriteTools =
     [
         "oadm_devices_add_run", "oadm_devices_credentials_run", "oadm_devices_refresh_run", "oadm_devices_remove_run", "oadm_files_delete_run",
@@ -49,7 +49,7 @@ public sealed partial class McpToolTests
         .. McpAreaToolTests.RunTools,
     ];
 
-    /// <summary>Previews that act outside OADM (the add scan): no plain read, so not announced as one and not offered to Read only keys.</summary>
+    /// <summary>Previews that act outside OADM (the add scan): no plain read, so not announced as one.</summary>
     private static readonly string[] ActsOutsideTools = ["oadm_devices_add_preview"];
 
     [GeneratedRegex("^oadm_[a-z0-9_]+$")]
@@ -192,16 +192,13 @@ public sealed partial class McpToolTests
     }
 
     [Fact]
-    public async Task AReadOnlyKeyListsNoToolThatChangesSomething()
+    public async Task TheServerInfoNamesTheKeyAndTheLimitsOfMcp()
     {
         await using var server = await McpTestServer.StartAsync();
-        var key = await server.CreateKeyAsync(readOnly: true);
-        var reply = await server.PostAsync(key, McpTestServer.Request("tools/list"));
-        var tools = reply.Body!["result"]!["tools"]!.AsArray();
-        Assert.NotEmpty(tools);
-        Assert.All(tools, t => Assert.True(t!["annotations"]!["readOnlyHint"]!.GetValue<bool>()));
+        var key = await server.CreateKeyAsync();
         var info = await server.ToolAsync(key, "oadm_server_info");
-        Assert.True(info["read_only"]!.GetValue<bool>());
+        Assert.False(info.ContainsKey("read_only"));
+        Assert.Equal("MCP agent", info["user"]!.GetValue<string>());
         Assert.Equal("agent", info["access_key"]!["name"]!.GetValue<string>());
         Assert.Equal(McpAccess.CallsAtOnce, info["limits"]!["calls_at_once"]!.GetValue<int>()); // the limits of MCP, the channel
         Assert.Equal(McpAccess.ChangesPerMinute, info["limits"]!["changes_per_minute"]!.GetValue<int>());
@@ -213,7 +210,7 @@ public sealed partial class McpToolTests
     {
         await using var server = await McpTestServer.StartAsync();
         var roles = new Proto.RoleService.RoleServiceClient(server.Host.Invoker);
-        var saved = await roles.SaveRolesAsync(new Proto.SaveRolesRequest { Roles = { new Proto.RoleChange { Name = "Agents", Permissions = { HostPermissions.McpUse } } } });
+        var saved = await roles.SaveRolesAsync(new Proto.SaveRolesRequest { Roles = { new Proto.RoleChange { Name = "Agents", Permissions = { } } } });
         var role = saved.Roles.Single(r => r.Name == "Agents");
         var agent = await server.Host.InvokerForRoleAsync("agent1", Guid.Parse(role.Id));
         var key = await server.CreateKeyAsync(agent);
@@ -227,94 +224,8 @@ public sealed partial class McpToolTests
         Assert.Contains("Your role does not allow: See the server log.", denied["content"]![0]!["text"]!.GetValue<string>(), StringComparison.Ordinal);
 
         // A new role applies to the next call.
-        await roles.SaveRolesAsync(new Proto.SaveRolesRequest { Roles = { new Proto.RoleChange { Id = role.Id, Name = "Agents", Permissions = { HostPermissions.McpUse, HostPermissions.LogsServer } } } });
-        Assert.Contains("oadm_logs_search", await server.ToolNamesAsync(key));
-
-        // Without "Use AI agents" the key lists nothing and every call is refused.
         await roles.SaveRolesAsync(new Proto.SaveRolesRequest { Roles = { new Proto.RoleChange { Id = role.Id, Name = "Agents", Permissions = { HostPermissions.LogsServer } } } });
-        Assert.Empty(await server.ToolNamesAsync(key));
-        var refused = await server.CallToolAsync(key, "oadm_server_info");
-        Assert.True(refused["isError"]!.GetValue<bool>());
-        Assert.Contains("Your role does not allow: Use AI agents.", refused["content"]![0]!["text"]!.GetValue<string>(), StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public async Task OnlyARoleWithUseAiAgentsCreatesKeysAndBuiltInRolesOtherThanAdministratorHaveItOff()
-    {
-        await using var server = await McpTestServer.StartAsync();
-        var matrix = await new Proto.RoleService.RoleServiceClient(server.Host.Invoker).GetMatrixAsync(new Proto.Empty());
-        Assert.Contains(matrix.Permissions, p => p.Key == HostPermissions.McpUse);
-        foreach (var builtIn in matrix.Roles.Where(r => r.Kind is Proto.RoleKind.Operator or Proto.RoleKind.Viewer))
-        {
-            Assert.DoesNotContain(HostPermissions.McpUse, builtIn.Permissions);
-        }
-
-        var operatorCalls = await server.Host.InvokerForUserAsync("op", Oadm.Sdk.Plugins.UserRole.Operator);
-        var refused = await Assert.ThrowsAsync<Grpc.Core.RpcException>(async () => await server.CreateKeyAsync(operatorCalls));
-        Assert.Equal(Grpc.Core.StatusCode.PermissionDenied, refused.StatusCode);
-    }
-
-    [Fact]
-    public async Task ADeletedKeyANewPasswordOrADisabledUserEndTheKeyAtOnce()
-    {
-        await using var server = await McpTestServer.StartAsync();
-        var keys = new Proto.AccessKeyService.AccessKeyServiceClient(server.Host.Invoker);
-        var first = await server.CreateKeyAsync(name: "first");
-        Assert.Equal(200, (await server.PostAsync(first, McpTestServer.Request("tools/list"))).Status);
-        var listed = Assert.Single((await keys.ListMineAsync(new Proto.Empty())).Keys);
-        Assert.Equal("first", listed.Name);
-        Assert.NotNull(listed.LastUsed);
-        await keys.DeleteAsync(new Proto.AccessKeyIdRequest { Id = listed.Id });
-        Assert.Equal(401, (await server.PostAsync(first, McpTestServer.Request("tools/list"))).Status);
-
-        var role = await GroupCallers.EverythingRoleAsync(server.Host);
-        var user = await server.Host.Users.AddAsync(new Proto.AddUserRequest { UserName = "tech", Password = "pw", RoleId = role.ToString(), AllDevices = true });
-        var tech = await server.Host.InvokerForRoleAsync("tech", role);
-        var second = await server.CreateKeyAsync(tech, name: "second");
-        Assert.Equal(200, (await server.PostAsync(second, McpTestServer.Request("tools/list"))).Status);
-        await server.Host.Users.UpdateAsync(new Proto.UpdateUserRequest { Id = user.Id, NewPassword = "new" });
-        Assert.Equal(401, (await server.PostAsync(second, McpTestServer.Request("tools/list"))).Status);
-
-        tech = await server.Host.InvokerForRoleAsync("tech", role);
-        var third = await server.CreateKeyAsync(tech, name: "third");
-        await server.Host.Users.UpdateAsync(new Proto.UpdateUserRequest { Id = user.Id, Disabled = true });
-        Assert.Equal(401, (await server.PostAsync(third, McpTestServer.Request("tools/list"))).Status);
-        var audit = (await server.Host.Audit.ListAsync(new Proto.ListAuditRequest())).Entries;
-        Assert.Contains(audit, e => e.Action == AuditActions.AccessKeyCreated && e.Target == "first" && e.UserName == TestServerHost.AdminUserName);
-        Assert.Contains(audit, e => e.Action == AuditActions.AccessKeyDeleted && e.Target == "admin: first");
-    }
-
-    [Fact]
-    public async Task KeysHaveANameUniquePerUserAndOneOfThreeLifetimesAndAdministratorsSeeAndDeleteEveryKey()
-    {
-        await using var server = await McpTestServer.StartAsync();
-        await server.CreateKeyAsync(name: "laptop");
-        var taken = await Assert.ThrowsAsync<Grpc.Core.RpcException>(async () => await server.CreateKeyAsync(name: "LAPTOP"));
-        Assert.Equal(AccessKeyTexts.NameTaken, taken.Status.Detail);
-        var days = await Assert.ThrowsAsync<Grpc.Core.RpcException>(async () => await server.CreateKeyAsync(name: "other", days: 7));
-        Assert.Equal(AccessKeyTexts.ChooseDays, days.Status.Detail);
-        var empty = await Assert.ThrowsAsync<Grpc.Core.RpcException>(async () => await server.CreateKeyAsync(name: " "));
-        Assert.Equal(AccessKeyTexts.EnterName, empty.Status.Detail);
-
-        var role = await GroupCallers.EverythingRoleAsync(server.Host);
-        var tech = await server.Host.InvokerForRoleAsync("tech", role);
-        await server.CreateKeyAsync(tech, name: "laptop", days: 365); // the same name for another user
-        var keys = new Proto.AccessKeyService.AccessKeyServiceClient(server.Host.Invoker);
-        var all = (await keys.ListAllAsync(new Proto.Empty())).Keys;
-        Assert.Equal(["admin", "tech"], all.Select(k => k.UserName).Order(StringComparer.Ordinal));
-        var techKey = all.Single(k => k.UserName == "tech");
-        Assert.Equal(365, (int)Math.Round((techKey.Expires.ToDateTime() - techKey.Created.ToDateTime()).TotalDays));
-
-        var techKeys = new Proto.AccessKeyService.AccessKeyServiceClient(tech);
-        Assert.Single((await techKeys.ListMineAsync(new Proto.Empty())).Keys);
-        var notHis = await Assert.ThrowsAsync<Grpc.Core.RpcException>(async () =>
-            await techKeys.DeleteAsync(new Proto.AccessKeyIdRequest { Id = all.Single(k => k.UserName == "admin").Id }));
-        Assert.Equal(Grpc.Core.StatusCode.NotFound, notHis.StatusCode);
-        var listAll = await Assert.ThrowsAsync<Grpc.Core.RpcException>(async () => await techKeys.ListAllAsync(new Proto.Empty()));
-        Assert.Equal(Grpc.Core.StatusCode.PermissionDenied, listAll.StatusCode);
-
-        var left = await keys.DeleteAnyAsync(new Proto.AccessKeyIdRequest { Id = techKey.Id });
-        Assert.Equal(["admin"], left.Keys.Select(k => k.UserName));
+        Assert.Contains("oadm_logs_search", await server.ToolNamesAsync(key));
     }
 
     [Fact]

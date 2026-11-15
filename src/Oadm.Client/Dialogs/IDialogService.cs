@@ -41,6 +41,9 @@ public interface IDialogService
     /// <summary>The dialog for a new role, a copy or a rename (<see cref="Oadm.Client.Settings.RolesViewModel.IsEditorOpen"/>).</summary>
     Task ShowRoleFormAsync(Oadm.Client.Settings.RolesViewModel roles);
 
+    /// <summary>The dialog Create access key of the Settings card AI, section MCP; it shows the new key once.</summary>
+    Task ShowAccessKeyFormAsync(Oadm.Client.Settings.AccessKeyFormViewModel form) => Task.CompletedTask;
+
     /// <summary>The "RTSP port in OADM" dialog of the context menu's OADM submenu; true when saved.</summary>
     Task<bool> ShowRtspPortAsync(Oadm.Client.Devices.RtspPortViewModel rtspPort);
 

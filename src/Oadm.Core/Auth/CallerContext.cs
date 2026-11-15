@@ -31,16 +31,15 @@ public sealed record AuthenticatedCaller(Guid UserId, string UserName, Guid Role
     public bool IsAdmin => BuiltInRoles.IsAdministrator(RoleId);
 
     /// <summary>
-    /// The user of the audit entries this caller causes; null: <see cref="UserName"/>. An AI agent's caller is "&lt;user&gt; via
-    /// access key &lt;name&gt;" (docs/spec/mcp.md "Access keys").
+    /// The user of the audit entries this caller causes; null: <see cref="UserName"/>.
     /// </summary>
     public string? AuditUserName { get; init; }
 
     /// <summary>
-    /// The caller is a Read only access key (docs/spec/mcp.md "Access keys"): the server refuses it every gRPC method that is not a
-    /// read (<c>InProcessCalls</c>) and every plugin method that no read tool names, whatever a tool says of itself.
+    /// The caller is an access key of the MCP server (docs/spec/mcp.md "Access keys"), an identity of its own: <see cref="UserId"/>
+    /// is the key's id and <see cref="UserName"/> "MCP &lt;key name&gt;" (audit log, task owner); no user row exists for it.
     /// </summary>
-    public bool ReadOnly { get; init; }
+    public bool IsAccessKey { get; init; }
 
     /// <summary>Admin for the Administrator role, Operator for every other.</summary>
     public UserRole Role => IsAdmin ? UserRole.Admin : UserRole.Operator;

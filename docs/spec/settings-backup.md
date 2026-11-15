@@ -43,8 +43,8 @@ for `zero_conf_seconds`). Settings page labels in quotes.
   Discovery, Tasks, Security, Server, saved together by **Save** and **Reload** in a row of their own below them ("Saves
   Polling, Discovery, Tasks, Security and Server"); operators see the values as plain text without Save and Reload
   ("Only administrators can change server settings."). Right: **Backup and restore** (administrators), **License** (every
-  user, `docs/spec/licensing.md`), **AI agents** (every user, administrators change it with its own Turn on, Turn off and
-  Save; setting `Mcp`, `docs/spec/mcp.md`), **Support** (administrators). Narrower than 1,100 px (`SettingsView.TwoColumnWidth`) the
+  user, `docs/spec/licensing.md`), **AI** with its section **MCP** (every user, administrators change it with its own Turn on, Turn off and
+  Save, and manage its access keys; setting `Mcp`, `docs/spec/mcp.md`), **Support** (administrators). Narrower than 1,100 px (`SettingsView.TwoColumnWidth`) the
   right column moves below the server settings.
 - Every card folds and starts closed (`Controls/CollapsibleCard`, `docs/spec/visual-style.md`); a card opens by itself
   when an input in it shows a validation error.
@@ -84,7 +84,7 @@ Core `Oadm.Core.Backup` (`BackupFile`, `BackupArchive`), server `Oadm.Server.Bac
   AES-256-GCM with its own nonce and the associated data SHA-256(header) | chunk number | last flag (no reordering, cutting
   or header change unnoticed). The key check names a wrong password apart from a damaged file. Passwords 8..256 characters.
 - **Content** (`BackupArchive`): `manifest.json` (counts per area, plugin packages, plugin data folders), `oadm.db` (a
-  consistent `VACUUM INTO` copy without the login sessions and MyAxis sign-ins), `master.key` (only inside the encrypted body; a backup restores
+  consistent `VACUUM INTO` copy without the login sessions, the MCP access keys and MyAxis sign-ins), `master.key` (only inside the encrypted body; a backup restores
   on another computer and every stored password and plugin secret stays readable), `plugin-data/**` (files in use skipped).
   Not in it: the server's TLS certificate (the target keeps its own), `install.json` (this installation's ID and the OADM
   PRO trials started here, so a running trial never moves to another computer, `docs/spec/licensing.md` "Trial"), uploads,

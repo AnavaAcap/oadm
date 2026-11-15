@@ -79,7 +79,7 @@ internal static class DeviceChangeTools
     public static readonly TimeSpan ScanWait = TimeSpan.FromSeconds(90);
 
     /// <summary>The source "Source" of the waiting entries an agent keeps.</summary>
-    public const string WaitingSource = "AI agents";
+    public const string WaitingSource = "MCP";
 
     public const string NoDevices = "No device matches the filter.";
     public const string RemoveNeedsAFilter = "Name the devices to remove with a filter. An empty filter would remove every device.";

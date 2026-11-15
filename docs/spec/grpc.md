@@ -42,7 +42,7 @@ used again.
   anything but a start page; the start page is the only change the Administrator role accepts, else
   FAILED_PRECONDITION; FAILED_PRECONDITION for a `version` older than the stored role: "Another administrator changed the
   role X meanwhile. Click Discard and make your changes again.", version 0 = no check; INVALID_ARGUMENT names, over 50
-  custom roles), `DeleteRole(id)` (custom roles without users), `Mine` (the caller's role name, its permissions with names and
+  custom roles), `DeleteRole(id)` (custom roles without users and without MCP access keys; FAILED_PRECONDITION naming them), `Mine` (the caller's role name, its permissions with names and
   `devices = 4`: all devices or the group's name, its summary without excepted devices, site and tag names, single
   device count, the view's device_count). `ServerSettings.roles_notice = 22` (administrators only): what operators lost
   with the upgrade to roles.
@@ -52,7 +52,7 @@ used again.
   (audited "Created device group" / "Changed device group"; INVALID_ARGUMENT, ALREADY_EXISTS name, NOT_FOUND,
   FAILED_PRECONDITION older revision "Another administrator changed this device group meanwhile. ...",
   RESOURCE_EXHAUSTED over 200), `Delete` (reply `user_names` who have no devices now, `disabled` "3 compliance checks";
-  audited "Deleted device group"), `Preview(rules, group_id)` (`device_count`, `total_devices`: the editor's live count).
+  audited "Deleted device group"; FAILED_PRECONDITION naming the MCP access keys that use it), `Preview(rules, group_id)` (`device_count`, `total_devices`: the editor's live count).
   `DeviceGroupRules` {this_server, site_ids, tag_ids, serials, except_serials}. `DeviceOwner` {all_devices, group_id,
   group_name} is the owner of shared objects (`ComplianceCheckSummary.owner = 19`; unset in a save = the caller's devices
   for a new object, keep for a changed one; only administrators change it). Event rules have no owner: `RuleSummary` 11
@@ -77,7 +77,7 @@ used again.
     "Measured"); no filter, rows or counts answers the view's cached count. Ids in the filter read only those devices: any
     one that is unknown or outside the view refuses the request (NOT_FOUND, like every method); INVALID_ARGUMENT for a sort,
     count field, limit or id it does not know.
-  - `Resolve(filter, shown)` (signed in, like `Search`; the AI agents' device previews; **in process only**): the ids of the
+  - `Resolve(filter, shown)` (signed in, like `Search`; the MCP tools' device previews; **in process only**): the ids of the
     filter's devices in the caller's view in address order and the first `shown` rows, so a run takes a fixed list.
   - `SetStoredCredentials(device_ids, credential_id)` (Administrator, the rule of `SettingsService.ListCredentials`;
     audited "Set device credentials"): the login of an entry of the credential list, so no password is sent or answered.
@@ -139,10 +139,10 @@ used again.
   (`AddDeviceTexts.CannotAdd`); a managed device outside the caller's devices is sent with only its id, entered address
   and ALREADY_ADDED. Details: `docs/spec/add-devices.md`.
   - `End(session)` ("Add and remove devices", the owner only): stops the session and forgets its owner and its logins at
-    once, so no login with the credential list goes on (`Stop` keeps the logins for Add); the AI agents' add run.
+    once, so no login with the credential list goes on (`Stop` keeps the logins for Add); the MCP add run.
   - `StartRangeScan` and `ProbeAddress` take `own_networks_only` (bare IP addresses inside a network of the server's
     interfaces or of an online site node, else INVALID_ARGUMENT naming the allowed networks) and `no_logins` (the devices
-    are only looked at; a user name and password are refused): the AI agents' add preview.
+    are only looked at; a user name and password are refused): the MCP add preview.
 - **`AddDevicesService`** (`adddevices.proto`): `RetryAuth(session_id, discovered_id, user_name, password,
   save_to_credential_list, related_session_ids = 6)` (returns the updated DiscoveredDevice, also pushed to the stream; on
   success the credential is tried on the failed devices of the session and of the related sessions; NOT_FOUND,
@@ -205,7 +205,7 @@ used again.
   15 min) and reach tasks through `IUploadedFiles`. An upload belongs to the caller's user and session (`UploadOwner` in
   the `.json`): `Delete`, `BackupService.Inspect` / `Restore` and the tasks that user starts in that session see it; for
   anyone else its id answers NOT_FOUND like an unknown one.
-  - `List` (signed in): the caller's own finished uploads, newest first, with `created` (the AI agents' `oadm_files_list`).
+  - `List` (signed in): the caller's own finished uploads, newest first, with `created` (the MCP tool `oadm_files_list`).
 - **`PluginService`** (`plugins.proto`):
   - `ListCorePlugins`: the rail pages; `CorePluginInfo.no_page = 4` for a core plugin without a page (`ICorePlugin.HasPage`
     false: no rail entry).
@@ -258,8 +258,6 @@ used again.
     `AddOnLayout.Digest`, SHA-256 over one "path sha256" line per file sorted by path; NOT_FOUND unknown or not installed;
     FAILED_PRECONDITION over 24 MB or while the same session waits for one already). A server without add-ons
     (UNIMPLEMENTED, an older server): clients hide the card.
-  - `Invoke`: a Read only access key may call only the methods of a plugin's read tools and the previews of its change
-    tools, never a method the plugin audits.
 - **`SettingsService`** (`settings.proto`): `Get`, `Set` (field numbers in `docs/spec/settings-backup.md`; 0 or unset keeps
   the stored value; read-only `server_version = 21` and `key_replaced = 20` in both replies), `ListCredentials`,
   `AddCredential(user_name, password)` (INVALID_ARGUMENT, RESOURCE_EXHAUSTED over 20 entries; an identical pair returns the
@@ -281,8 +279,8 @@ used again.
   is no longer available.", the camera is never asked; the RTSP port methods refuse the whole selection); `Watch` ends
   with that NOT_FOUND when its device leaves the view.
   - `GetSnapshot(device_id, camera, max_width, compression)` (Live view permission, device group): one JPEG of the largest
-    size at most `max_width` (the AI agents' `oadm_devices_snapshot`). At most 30 pictures a minute per user, all sessions and access keys
-    together (RESOURCE_EXHAUSTED "Too many pictures. Wait a minute."); audited once per user and minute with the counts of
+    size at most `max_width` (the MCP tool `oadm_devices_snapshot`). At most 30 pictures a minute per caller (a user's sessions together, each
+    MCP access key alone; RESOURCE_EXHAUSTED "Too many pictures. Wait a minute."); audited once per caller and minute with the counts of
     pictures and devices.
 - **`EventService`** (`events.proto`, `docs/spec/event-rules.md`; every method `AccessRule.AllDevices`, rules have no
   owner): `GetCatalog`, `ListRules`, `WatchRules`, `GetRule` (password values never included), `SaveRule`, `DeleteRule`,
@@ -348,16 +346,18 @@ used again.
   "Signed in to MyAxis"; FAILED_PRECONDITION "MyAxis did not accept the sign-in. Try again."; UNAVAILABLE "MyAxis could
   not be reached. Check the server's internet access."), `SignOut` (deletes it, audited "Signed out of MyAxis" when there
   was one; always succeeds). The session never comes back in an answer.
-- **`McpService`** (`mcp.proto`, `docs/spec/mcp.md`, the Settings card AI agents): `Get` (signed in: on, port, Listen on,
+- **`McpService`** (`mcp.proto`, `docs/spec/mcp.md`, the Settings card AI, section MCP): `Get` (signed in: on, port, Listen on,
   running, the status text, PKI there, the certificate and its names; the interfaces for the Administrator role only),
-  `Set` (Admin, all devices; audited "Changed AI agents" with what changed; INVALID_ARGUMENT for a port outside 1025 to
+  `Set` (Admin, all devices; audited "Changed MCP server" with what changed; INVALID_ARGUMENT for a port outside 1025 to
   65535 or an unknown interface, FAILED_PRECONDITION "PKI is not running. The server log says why."), `GetCaCertificate` (signed
   in: the issuers of the MCP server's certificate as PEM, `oadm-ca.pem`; NOT_FOUND without one).
   - `GetSkill` (signed in): the skill `oadm` as `oadm-skill.zip` (**Download skill**).
-- **`AccessKeyService`** (`mcp.proto`, `docs/spec/mcp.md` "Access keys"): `ListMine`, `Delete` (signed in, the caller's own
-  keys; NOT_FOUND "The access key no longer exists." also for another user's), `Create` ("Use AI agents"; INVALID_ARGUMENT
-  with the field's text, RESOURCE_EXHAUSTED at 20 keys; the reply holds the key once), `ListAll`, `DeleteAny` (Admin). No
-  answer holds a key or its hash, only an opaque id.
+- **`AccessKeyService`** (`mcp.proto`, `docs/spec/mcp.md` "Access keys"), every method `AccessRule.Admin`: `List` (every
+  key by name with its role, devices, who made it, created, expires, last used), `Create` (name, days, role, all devices or
+  a device group; INVALID_ARGUMENT with the field's text and the trailer `oadm-field` = `name`, `role`, `devices` or `days`;
+  RESOURCE_EXHAUSTED at 100 keys; an Administrator key gets all devices; the reply holds the key once; audited "Created
+  access key"), `Delete` (ends the key at once, audited "Deleted access key"; NOT_FOUND "The access key no longer exists.";
+  answers every key). No answer holds a key or its hash; the id is the key's identity.
 - **`SupportService`** (`support.proto`, `docs/spec/settings-backup.md` "Support report"): `CreateReport` (Admin, audited
   "Created support report"; stream of `DownloadChunk`: name and length first, 256 KB chunks, uncompressed).
 - **`BackupService`** (`backup.proto`, Admin): `GetState`, `SetSchedule`, `Create`, `Download`, `Delete`, `Inspect`,

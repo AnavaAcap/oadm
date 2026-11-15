@@ -1,0 +1,61 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:ui="using:Oadm.Sdk.Client.Controls"
+        xmlns:settings="using:Oadm.Client.Settings"
+        x:Class="Oadm.Client.Settings.AccessKeyFormWindow"
+        x:DataType="settings:AccessKeyFormViewModel"
+        Title="Create access key"
+        Width="520" SizeToContent="Height" CanResize="False"
+        WindowStartupLocation="CenterOwner"
+        ShowInTaskbar="False"
+        WindowDecorations="BorderOnly">
+  <!-- Settings card AI, section MCP, Create access key (docs/spec/mcp.md "Access keys"): single operation, the form in
+       Border.dialogBody. After Create the same dialog shows the key once with Copy; the footer's Cancel becomes Close. -->
+  <Grid RowDefinitions="Auto,Auto,Auto">
+    <ui:DialogTitleBar Grid.Row="0" Text="Create access key" />
+
+    <Border Grid.Row="1" Classes="dialogBody">
+      <StackPanel Classes="form">
+        <StackPanel Classes="form" IsVisible="{Binding IsForm}">
+          <ui:FormField Label="Name">
+            <TextBox x:Name="KeyName" Text="{Binding Name}" PlaceholderText="e.g. Lobby-bot" MaxLength="64" />
+          </ui:FormField>
+          <ui:FormField Label="Role">
+            <ComboBox x:Name="KeyRole" ItemsSource="{Binding Roles}" SelectedItem="{Binding Role}" PlaceholderText="Choose a role"
+                      HorizontalAlignment="Stretch" />
+          </ui:FormField>
+          <ui:FormField Label="Devices" Hint="{Binding DevicesHint}">
+            <ComboBox x:Name="KeyDevices" ItemsSource="{Binding DeviceOptions}" SelectedItem="{Binding Devices}" IsEnabled="{Binding IsDevicesEnabled}"
+                      HorizontalAlignment="Stretch" />
+          </ui:FormField>
+          <ui:FormField Label="Expires">
+            <ComboBox x:Name="KeyExpires" ItemsSource="{x:Static settings:AccessKeyFormViewModel.Lifetimes}" SelectedItem="{Binding Lifetime}"
+                      HorizontalAlignment="Left" Width="160" />
+          </ui:FormField>
+        </StackPanel>
+
+        <!-- The new key, once: OADM keeps only its hash. Like the Server ID of the License card: the value and Copy. -->
+        <ui:FormField x:Name="NewKeyBox" Label="Access key" LabelAbove="True" Classes="wide" IsVisible="{Binding HasNewKey}">
+          <StackPanel Spacing="4">
+            <DockPanel>
+              <Button DockPanel.Dock="Right" Classes="toolbar iconOnly" ToolTip.Tip="Copy access key" Command="{Binding CopyKeyCommand}"
+                      VerticalAlignment="Center" Margin="4,0,0,0">
+                <ui:OadmIcon Data="{StaticResource Icon.copy}" />
+              </Button>
+              <SelectableTextBlock x:Name="NewKeyText" Classes="mono" Text="{Binding NewKey}" VerticalAlignment="Center" TextWrapping="Wrap" />
+            </DockPanel>
+            <TextBlock Classes="warning" Text="{x:Static settings:AccessKeyWords.CopyNow}" TextWrapping="Wrap" />
+          </StackPanel>
+        </ui:FormField>
+
+        <TextBlock Text="{Binding Message}" Classes="secondary" TextWrapping="Wrap"
+                   IsVisible="{Binding Message, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+      </StackPanel>
+    </Border>
+
+    <ui:DialogFooter Grid.Row="2" CancelText="{Binding CloseText}" CancelCommand="{Binding CloseCommand}">
+      <Button x:Name="CreateKey" Classes="primary" IsDefault="True" Content="Create" Command="{Binding CreateCommand}" IsVisible="{Binding IsForm}"
+              ToolTip.Tip="{Binding CreateTip}" ToolTip.ShowOnDisabled="True" />
+    </ui:DialogFooter>
+  </Grid>
+</Window>

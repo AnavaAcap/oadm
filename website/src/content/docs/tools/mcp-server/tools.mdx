@@ -1,19 +1,19 @@
 ---
-title: Tools of AI agents
+title: MCP tools
 description: Every tool an AI agent can call in OADM, what it does, and whether it changes something.
 ---
 
 {/* Written by McpPluginToolTests.TheToolsPageOfTheDocsListsEveryToolAsTheServerOffersIt (OADM_WRITE_DOCS=1): do not edit by hand. */}
 
-These are the tools an agent can be offered. It sees only the ones its user's role allows, of the plugins that are on.
-A Read only key sees no tool that changes something. A change is always two tools: the preview checks everything and
-changes nothing, the run takes only the preview's handle and runs after the user agreed.
+These are the tools an agent can be offered. It sees only the ones the role of its access key allows, of the plugins that are on.
+A change is always two tools: the preview checks everything and changes nothing, the run takes only the preview's handle
+and runs after the user agreed.
 
 ## Server
 
 | Tool | Kind | What it does |
 | --- | --- | --- |
-| `oadm_server_info` | Read | The OADM server, your user, role and what it allows, the limits of this server and how many devices you see. Call it first. |
+| `oadm_server_info` | Read | The OADM server, who you are, your role and what it allows, the limits of this server and how many devices you see. Call it first. |
 | `oadm_settings_get` | Read | The server settings OADM shows every user, read only: how it scans, retries, runs tasks and checks clocks. Change them in OADM. |
 
 ## Devices

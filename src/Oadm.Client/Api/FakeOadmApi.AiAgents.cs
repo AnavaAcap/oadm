@@ -9,8 +9,8 @@ using Oadm.Contracts.V1;
 namespace Oadm.Client.Api;
 
 /// <summary>
-/// Fake McpService and AccessKeyService so <c>--fake</c> shows the Settings card AI agents and the access keys: off at the
-/// start with a certificate from the PKI policy, keys of the fake user and of a second user, the key itself shown once.
+/// Fake McpService and AccessKeyService so <c>--fake</c> shows the Settings card AI, section MCP, and its access keys: off at
+/// the start with a certificate from the PKI policy, one key with the role Viewer, a new key shown once.
 /// </summary>
 public sealed partial class FakeOadmApi
 {
@@ -18,12 +18,78 @@ public sealed partial class FakeOadmApi
     [
         new AccessKey
         {
-            Id = "6b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e", UserName = "tech2", Name = "Laptop", ReadOnly = true,
+            Id = "6b1c2d3e-4f5a-6b7c-8d9e-0f1a2b3c4d5e", Name = "Health check", RoleId = ViewerRoleId, RoleName = "Viewer", AllDevices = true,
+            CreatedBy = "admin",
             Created = Timestamp.FromDateTime(new DateTime(2026, 10, 2, 8, 0, 0, DateTimeKind.Utc)),
             Expires = Timestamp.FromDateTime(new DateTime(2026, 12, 31, 8, 0, 0, DateTimeKind.Utc)),
             LastUsed = Timestamp.FromDateTime(new DateTime(2026, 11, 13, 16, 20, 0, DateTimeKind.Utc)),
         },
     ];
+
+    public Task<IReadOnlyList<AccessKey>> ListAccessKeysAsync(CancellationToken ct)
+    {
+        lock (_gate)
+        {
+            ThrowIfOffline();
+            return Task.FromResult(KeysNow());
+        }
+    }
+
+    public Task<CreatedAccessKey> CreateAccessKeyAsync(CreateAccessKeyRequest request, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        lock (_gate)
+        {
+            ThrowIfOffline();
+            SeedGroupsLocked();
+            var clean = request.Name.Trim();
+            if (_accessKeys.Any(k => string.Equals(k.Name, clean, StringComparison.OrdinalIgnoreCase)))
+            {
+                throw KeyRefused("name", "An access key with this name exists.");
+            }
+
+            var role = _roles.FirstOrDefault(r => r.Id == request.RoleId) ?? throw KeyRefused("role", "The role does not exist (any more).");
+            var admin = role.Kind == RoleKind.Administrator;
+            var group = admin || request.AllDevices ? null
+                : _groups.FirstOrDefault(g => g.Id == request.DeviceGroupId) ?? throw KeyRefused("devices", "The device group does not exist (any more).");
+            var now = DateTime.UtcNow;
+            var key = new AccessKey
+            {
+                Id = Guid.NewGuid().ToString(),
+                Name = clean,
+                RoleId = role.Id,
+                RoleName = role.Name,
+                AllDevices = group is null,
+                DeviceGroupId = group?.Id ?? string.Empty,
+                DeviceGroupName = group?.Name ?? string.Empty,
+                CreatedBy = "admin",
+                Created = Timestamp.FromDateTime(now),
+                Expires = Timestamp.FromDateTime(now.AddDays(request.Days)),
+            };
+            _accessKeys.Add(key);
+            var secret = "oadm_" + Convert.ToBase64String(RandomNumberGenerator.GetBytes(32)).TrimEnd('=').Replace('+', '-').Replace('/', '_');
+            return Task.FromResult(new CreatedAccessKey { Key = key, Secret = secret });
+        }
+    }
+
+    public Task<IReadOnlyList<AccessKey>> DeleteAccessKeyAsync(string id, CancellationToken ct)
+    {
+        lock (_gate)
+        {
+            ThrowIfOffline();
+            if (_accessKeys.RemoveAll(k => k.Id == id) == 0)
+            {
+                throw new RpcException(new Status(StatusCode.NotFound, "The access key no longer exists."));
+            }
+
+            return Task.FromResult(KeysNow());
+        }
+    }
+
+    private IReadOnlyList<AccessKey> KeysNow() => [.. _accessKeys.OrderBy(k => k.Name, StringComparer.OrdinalIgnoreCase)];
+
+    private static RpcException KeyRefused(string field, string text) =>
+        new(new Status(StatusCode.InvalidArgument, text), new Metadata { { "oadm-field", field } });
 
     private McpSettings _mcp = new() { Enabled = false, Port = 5082, ListenOn = string.Empty };
 
@@ -81,59 +147,6 @@ public sealed partial class FakeOadmApi
 
         return Task.FromResult(new McpSkillZip { FileName = "oadm-skill.zip", Content = Google.Protobuf.ByteString.CopyFrom(stream.ToArray()) });
     }
-
-    public Task<IReadOnlyList<AccessKey>> ListAccessKeysAsync(bool everyUser, CancellationToken ct)
-    {
-        lock (_gate)
-        {
-            ThrowIfOffline();
-            return Task.FromResult(KeysOf(everyUser));
-        }
-    }
-
-    public Task<CreatedAccessKey> CreateAccessKeyAsync(string name, int days, bool readsOnly, CancellationToken ct)
-    {
-        lock (_gate)
-        {
-            ThrowIfOffline();
-            var clean = (name ?? string.Empty).Trim();
-            if (_accessKeys.Any(k => k.UserName == "admin" && string.Equals(k.Name, clean, StringComparison.OrdinalIgnoreCase)))
-            {
-                throw new RpcException(new Status(StatusCode.InvalidArgument, "You already have an access key with this name."));
-            }
-
-            var now = DateTime.UtcNow;
-            var key = new AccessKey
-            {
-                Id = Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(16)),
-                UserName = "admin",
-                Name = clean,
-                ReadOnly = readsOnly,
-                Created = Timestamp.FromDateTime(now),
-                Expires = Timestamp.FromDateTime(now.AddDays(days)),
-            };
-            _accessKeys.Add(key);
-            var secret = "oadm_" + Convert.ToBase64String(RandomNumberGenerator.GetBytes(32)).TrimEnd('=').Replace('+', '-').Replace('/', '_');
-            return Task.FromResult(new CreatedAccessKey { Key = key, Secret = secret });
-        }
-    }
-
-    public Task<IReadOnlyList<AccessKey>> DeleteAccessKeyAsync(string id, bool anyUser, CancellationToken ct)
-    {
-        lock (_gate)
-        {
-            ThrowIfOffline();
-            if (_accessKeys.RemoveAll(k => k.Id == id && (anyUser || k.UserName == "admin")) == 0)
-            {
-                throw new RpcException(new Status(StatusCode.NotFound, "The access key no longer exists."));
-            }
-
-            return Task.FromResult(KeysOf(anyUser));
-        }
-    }
-
-    private IReadOnlyList<AccessKey> KeysOf(bool everyUser) =>
-        [.. _accessKeys.Where(k => everyUser || k.UserName == "admin").OrderBy(k => k.UserName, StringComparer.OrdinalIgnoreCase).ThenByDescending(k => k.Created.ToDateTime())];
 
     private McpState McpStateNow()
     {

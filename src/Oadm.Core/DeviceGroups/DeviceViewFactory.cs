@@ -22,8 +22,11 @@ public sealed class DeviceViewFactory
     private readonly ConcurrentDictionary<Guid, IdsEntry> _ids = new();
     private readonly ConcurrentDictionary<Guid, SiteCountsEntry> _siteCounts = new();
 
-    public DeviceViewFactory(DeviceGroupStore groups, DeviceScopeCatalog catalog, DeviceRepository devices, IDeviceChangeFeed feed, UserStore users)
+    private readonly AccessKeyStore? _keys;
+
+    public DeviceViewFactory(DeviceGroupStore groups, DeviceScopeCatalog catalog, DeviceRepository devices, IDeviceChangeFeed feed, UserStore users, AccessKeyStore? keys = null)
     {
+        _keys = keys;
         ArgumentNullException.ThrowIfNull(groups);
         ArgumentNullException.ThrowIfNull(catalog);
         ArgumentNullException.ThrowIfNull(devices);
@@ -91,6 +94,12 @@ public sealed class DeviceViewFactory
     public async Task<DeviceView> ForUserAsync(Guid userId, CancellationToken ct)
     {
         var user = await _users.GetAsync(userId, ct).ConfigureAwait(false); // one row by its key, never the whole table
+        if (user is null && _keys is not null && await _keys.GetAsync(userId, ct).ConfigureAwait(false) is { } key)
+        {
+            // An AI agent's access key is an identity of its own: its devices as stored now (an ended or deleted key: none).
+            return await ForScopeAsync(BuiltInRoles.IsAdministrator(key.RoleId) ? DeviceScope.All : key.Devices, key.AgentName, ct, userId).ConfigureAwait(false);
+        }
+
         if (user is null || user.Disabled)
         {
             return await ForScopeAsync(DeviceScope.None, user?.UserName, ct, userId).ConfigureAwait(false);

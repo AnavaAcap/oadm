@@ -22,7 +22,7 @@ namespace Oadm.Server.Tests.Mcp;
 /// <summary>
 /// The tools of the core plugins (docs/spec/mcp.md "Plugins", "SDK" <c>ICorePlugin.Tools</c>): listed while the plugin is on and
 /// the caller's role has the permission, named by the plugin's area, strict schemas, paged lists, a change as a preview and a
-/// run through the plugin's own invoke path, device groups, Read only keys, the audit log, and the size of an answer. The
+/// run through the plugin's own invoke path, device groups, roles, the audit log, and the size of an answer. The
 /// plugin here is a test plugin; the bundled plugins have their own tests in their test projects.
 /// </summary>
 public sealed class McpPluginToolTests
@@ -157,7 +157,7 @@ public sealed class McpPluginToolTests
         // The run is the plugin's audited method, as the key's user; the preview leaves no entry.
         var audit = (await server.Host.Audit.ListAsync(new Proto.ListAuditRequest())).Entries.Where(e => e.Action == AuditActions.PluginCall).ToList();
         var entry = Assert.Single(audit);
-        Assert.Equal(AuditActions.ViaAccessKey(TestServerHost.AdminUserName, "agent"), entry.UserName);
+        Assert.Equal(Oadm.Core.Auth.AccessKeyStore.AgentNameOf("agent"), entry.UserName);
     }
 
     [Fact]
@@ -193,28 +193,11 @@ public sealed class McpPluginToolTests
     }
 
     [Fact]
-    public async Task AReadOnlyKeyListsThePreviewsAndTheReadsButNoRunAndRefusesOne()
-    {
-        await using var server = await StartAsync();
-        var key = await server.CreateKeyAsync(readOnly: true);
-        var names = await server.ToolNamesAsync(key);
-        Assert.Contains("oadm_notes_notes", names);
-        Assert.Contains("oadm_notes_note_create_preview", names);
-        Assert.DoesNotContain("oadm_notes_note_create_run", names);
-        Assert.DoesNotContain("oadm_notes_note_delete_run", names);
-
-        var preview = await server.ToolAsync(key, "oadm_notes_note_create_preview", new JsonObject { ["name"] = "Read only" });
-        var run = await server.CallToolAsync(key, "oadm_notes_note_create_run", new JsonObject { ["handle"] = preview["handle"]!.GetValue<string>() });
-        Assert.True(run["isError"]!.GetValue<bool>());
-        Assert.Equal(0, Notes(server).Created);
-    }
-
-    [Fact]
     public async Task ARoleListsOnlyTheToolsItsPermissionsAllow()
     {
         await using var server = await StartAsync();
         var roles = new Proto.RoleService.RoleServiceClient(server.Host.Invoker);
-        var saved = await roles.SaveRolesAsync(new Proto.SaveRolesRequest { Roles = { new Proto.RoleChange { Name = "Agents", Permissions = { HostPermissions.McpUse } } } });
+        var saved = await roles.SaveRolesAsync(new Proto.SaveRolesRequest { Roles = { new Proto.RoleChange { Name = "Agents", Permissions = { } } } });
         var role = saved.Roles.Single(r => r.Name == "Agents");
         var key = await server.CreateKeyAsync(await server.Host.InvokerForRoleAsync("agent1", Guid.Parse(role.Id)));
 
@@ -225,13 +208,13 @@ public sealed class McpPluginToolTests
         Assert.Contains("Your role does not allow:", ErrorText(denied), StringComparison.Ordinal);
 
         // "Show" lists the reads and the previews' siblings only when their own permission is there too.
-        await roles.SaveRolesAsync(new Proto.SaveRolesRequest { Roles = { new Proto.RoleChange { Id = role.Id, Name = "Agents", Permissions = { HostPermissions.McpUse, PermissionKeys.Of(NotesPlugin.PluginId, PermissionKeys.Show) } } } });
+        await roles.SaveRolesAsync(new Proto.SaveRolesRequest { Roles = { new Proto.RoleChange { Id = role.Id, Name = "Agents", Permissions = { PermissionKeys.Of(NotesPlugin.PluginId, PermissionKeys.Show) } } } });
         var shown = await server.ToolNamesAsync(key);
         Assert.Contains("oadm_notes_notes", shown);
         Assert.DoesNotContain("oadm_notes_note_create_preview", shown); // "manage" is the plugin's rule for creating
         Assert.DoesNotContain("oadm_notes_note_create_run", shown);
 
-        await roles.SaveRolesAsync(new Proto.SaveRolesRequest { Roles = { new Proto.RoleChange { Id = role.Id, Name = "Agents", Permissions = { HostPermissions.McpUse, PermissionKeys.Of(NotesPlugin.PluginId, PermissionKeys.Show), PermissionKeys.Of(NotesPlugin.PluginId, PermissionKeys.Manage) } } } });
+        await roles.SaveRolesAsync(new Proto.SaveRolesRequest { Roles = { new Proto.RoleChange { Id = role.Id, Name = "Agents", Permissions = { PermissionKeys.Of(NotesPlugin.PluginId, PermissionKeys.Show), PermissionKeys.Of(NotesPlugin.PluginId, PermissionKeys.Manage) } } } });
         Assert.Contains("oadm_notes_note_create_run", await server.ToolNamesAsync(key));
     }
 
@@ -311,8 +294,8 @@ public sealed class McpPluginToolTests
         return server;
     }
 
-    /// <summary>The page of the user docs that lists every tool an agent can be offered (website/src/content/docs/tools/ai-agents/tools.mdx).</summary>
-    private static readonly string ToolsPage = Oadm.Tests.Shared.TestRepository.Path("website", "src", "content", "docs", "tools", "ai-agents", "tools.mdx");
+    /// <summary>The page of the user docs that lists every tool an agent can be offered (website/src/content/docs/tools/mcp-server/tools.mdx).</summary>
+    private static readonly string ToolsPage = Oadm.Tests.Shared.TestRepository.Path("website", "src", "content", "docs", "tools", "mcp-server", "tools.mdx");
 
     [Fact]
     public async Task TheToolsPageOfTheDocsListsEveryToolAsTheServerOffersIt()
@@ -343,15 +326,15 @@ public sealed class McpPluginToolTests
     private static readonly string[] Intro =
     [
         "---",
-        "title: Tools of AI agents",
+        "title: MCP tools",
         "description: Every tool an AI agent can call in OADM, what it does, and whether it changes something.",
         "---",
         "",
         "{/* Written by McpPluginToolTests.TheToolsPageOfTheDocsListsEveryToolAsTheServerOffersIt (OADM_WRITE_DOCS=1): do not edit by hand. */}",
         "",
-        "These are the tools an agent can be offered. It sees only the ones its user's role allows, of the plugins that are on.",
-        "A Read only key sees no tool that changes something. A change is always two tools: the preview checks everything and",
-        "changes nothing, the run takes only the preview's handle and runs after the user agreed.",
+        "These are the tools an agent can be offered. It sees only the ones the role of its access key allows, of the plugins that are on.",
+        "A change is always two tools: the preview checks everything and changes nothing, the run takes only the preview's handle",
+        "and runs after the user agreed.",
     ];
 
     /// <summary>The tools grouped by their area (the word after <c>oadm_</c>), each with its kind and description, as Markdown.</summary>
@@ -498,18 +481,15 @@ public sealed class McpPluginToolTests
         }
 
         // The run is the page's audited Create, in the name of the key's user.
-        Assert.Contains((await server.Host.Audit.ListAsync(new Proto.ListAuditRequest())).Entries, e => e.Action == AuditActions.PluginCall && e.UserName == AuditActions.ViaAccessKey(TestServerHost.AdminUserName, "agent"));
+        Assert.Contains((await server.Host.Audit.ListAsync(new Proto.ListAuditRequest())).Entries, e => e.Action == AuditActions.PluginCall && e.UserName == Oadm.Core.Auth.AccessKeyStore.AgentNameOf("agent"));
 
-        // A user without "Manage the certificate authority" lists the reads but not Create; a Read only key lists no run.
+        // A user without "Manage the certificate authority" lists the reads but not Create.
         var roles = new Proto.RoleService.RoleServiceClient(server.Host.Invoker);
-        var saved = await roles.SaveRolesAsync(new Proto.SaveRolesRequest { Roles = { new Proto.RoleChange { Name = "Viewers", Permissions = { HostPermissions.McpUse, PermissionKeys.Of("oadm.pki", PermissionKeys.Show) } } } });
+        var saved = await roles.SaveRolesAsync(new Proto.SaveRolesRequest { Roles = { new Proto.RoleChange { Name = "Viewers", Permissions = { PermissionKeys.Of("oadm.pki", PermissionKeys.Show) } } } });
         var viewer = await server.CreateKeyAsync(await server.Host.InvokerForRoleAsync("viewer1", Guid.Parse(saved.Roles.Single(r => r.Name == "Viewers").Id)));
         var viewerTools = await server.ToolNamesAsync(viewer);
         Assert.Contains("oadm_pki_certificates", viewerTools);
         Assert.DoesNotContain("oadm_pki_certificate_create_preview", viewerTools);
-        var readOnly = await server.ToolNamesAsync(await server.CreateKeyAsync(name: "ro", readOnly: true));
-        Assert.Contains("oadm_pki_certificate_create_preview", readOnly);
-        Assert.DoesNotContain("oadm_pki_certificate_create_run", readOnly);
     }
 
     // ---- the test plugins ----

@@ -9,10 +9,9 @@ Each entry is one short line in plain words (what the user gets, not how); no ne
 
 ### Added
 
-- AI agents: agents such as Claude Code work with your devices and tasks through an access key, turned on in Settings.
+- MCP server: agents such as Claude Code work with your devices and tasks through access keys, set up in Settings, AI.
 - Tasks: a run with settings the task does not accept starts no task and says why.
-- Permissions: the role right Use AI agents, and every user's access keys with Delete.
-- Plugin SDK 0.13.0: the certificates of the servers OADM runs, the permission Use AI agents, tasks for AI agents (payload schema, payload check, plan) and plugin tools.
+- Plugin SDK 0.13.0: the certificates of the servers OADM runs, and tasks and tools for MCP (payload schema, payload check, plan).
 
 ## [5.0.0] - 2026-11-13
 

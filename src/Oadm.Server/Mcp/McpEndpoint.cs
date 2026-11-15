@@ -20,7 +20,7 @@ namespace Oadm.Server.Mcp;
 /// <summary>Where and with which certificate the MCP server listens.</summary>
 /// <param name="Port">The TCP port.</param>
 /// <param name="Addresses">The addresses of the chosen interface; null for every interface.</param>
-/// <param name="Certificate">The certificate with its key (PKI's policy AI agents).</param>
+/// <param name="Certificate">The certificate with its key (PKI's policy MCP server).</param>
 /// <param name="Issuers">Its issuers, sent with it so agents can build the chain to the CA they trust.</param>
 public sealed record McpListenOptions(int Port, IReadOnlyList<IPAddress>? Addresses, X509Certificate2 Certificate, IReadOnlyList<X509Certificate2> Issuers);
 
@@ -32,10 +32,10 @@ public sealed record McpListenOptions(int Port, IReadOnlyList<IPAddress>? Addres
 /// -32020). In front of it: a browser origin other than the server (a name of its certificate) is refused (403), bodies are at most
 /// <see cref="MaxBodyBytes"/> (413), every request needs a valid access key (401) and each key at most
 /// <see cref="McpAccess.CallsPerSecond"/> calls a second, <see cref="McpAccess.CallsAtOnce"/> at once and
-/// <see cref="McpAccess.ChangesPerMinute"/> changes a minute (and its user's keys together the same, the whole port at most
+/// <see cref="McpAccess.ChangesPerMinute"/> changes a minute per key (the whole port at most
 /// <see cref="McpAccess.CallsInPort"/> at once; 429; the changes and the camera pictures, <see cref="LiveView.SnapshotAudit.PicturesPerMinute"/> a minute per
-/// user, are counted from the tool name of the call itself); file transfers have their own places (<see cref="McpAccess.TransfersAtOnce"/> per
-/// user, <see cref="McpAccess.TransfersInPort"/> on the port) and must keep up <see cref="TransferMinBytesPerSecond"/> and end within <see cref="McpFiles.TransferBudget"/>, and "Use AI agents" for the files and the skill too (403). Answers are not
+/// caller, are counted from the tool name of the call itself); file transfers have their own places (<see cref="McpAccess.TransfersAtOnce"/> per
+/// key, <see cref="McpAccess.TransfersInPort"/> on the port) and must keep up <see cref="TransferMinBytesPerSecond"/> and end within <see cref="McpFiles.TransferBudget"/>. Answers are not
 /// compressed (no gzip: the SDK's event stream stays as it is; they are at most <see cref="ToolAnswers.MaxBytes"/>).
 /// </summary>
 public static class McpEndpoint
@@ -99,12 +99,8 @@ public static class McpEndpoint
                 };
             })
             .WithHttpTransport(o => o.Stateless = true)
-            .WithListResourcesHandler((request, ct) => ValueTask.FromResult(Allowed(access, request.Services) ? McpSkill.List() : new ListResourcesResult()))
-            .WithReadResourceHandler((request, ct) =>
-            {
-                Allowed(access, request.Services, refuse: true);
-                return ValueTask.FromResult(McpSkill.Read(request.Params?.Uri));
-            })
+            .WithListResourcesHandler((request, ct) => ValueTask.FromResult(McpSkill.List()))
+            .WithReadResourceHandler((request, ct) => ValueTask.FromResult(McpSkill.Read(request.Params?.Uri)))
             .WithListToolsHandler((request, ct) => ValueTask.FromResult(tools.List(CallerOf(request.Services))))
             .WithCallToolHandler(async (request, ct) =>
             {
@@ -173,18 +169,6 @@ public static class McpEndpoint
 
         var host = IPAddress.TryParse(chosen, out var ip) && ip.AddressFamily == System.Net.Sockets.AddressFamily.InterNetworkV6 ? "[" + chosen + "]" : chosen;
         return string.Create(System.Globalization.CultureInfo.InvariantCulture, $"https://{host}:{port}{FilesPath}");
-    }
-
-    /// <summary>The skill and its resources need "Use AI agents" like the tools do (the list is empty, a read is refused).</summary>
-    private static bool Allowed(McpAccess access, IServiceProvider? services, bool refuse = false)
-    {
-        var caller = CallerOf(services);
-        if (access.ChannelRefusal(caller) is not { } text)
-        {
-            return true;
-        }
-
-        return refuse ? throw new ModelContextProtocol.McpProtocolException(text, ModelContextProtocol.McpErrorCode.InvalidRequest) : false;
     }
 
     /// <summary>The tool caller the guard made from the access key (the only thing of the request the tools get).</summary>
@@ -258,13 +242,6 @@ public static class McpEndpoint
             return;
         }
 
-        // "Use AI agents" for the file routes (the tools and the skill check it themselves): a key whose role lost it neither sends nor fetches a file.
-        if (upload is not null && access.ChannelRefusal(caller) is { } denied)
-        {
-            await RefuseAsync(http, StatusCodes.Status403Forbidden, denied).ConfigureAwait(false);
-            return;
-        }
-
         if (upload is not null)
         {
             using var uploading = access.TryStartTransfer(caller); // a pool of its own: a slow transfer never takes the places of /mcp calls
@@ -309,8 +286,8 @@ public static class McpEndpoint
     }
 
     /// <summary>
-    /// Counts the call of <paramref name="name"/> against the key's and the user's limit of changes; over it the answer is HTTP 429
-    /// with Retry-After 60 (nothing was counted, nothing runs). A call the registry refuses (role, Read only, "Use AI agents") and an
+    /// Counts the call of <paramref name="name"/> against the key's limit of changes; over it the answer is HTTP 429
+    /// with Retry-After 60 (nothing was counted, nothing runs). A call the registry refuses (the key's role and devices) and an
     /// unknown tool count against no limit. The pictures are counted by <c>GetSnapshot</c> itself, for every channel; here only a user who
     /// has used them up is answered 429 before the call goes on.
     /// </summary>

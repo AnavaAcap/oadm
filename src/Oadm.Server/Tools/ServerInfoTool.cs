@@ -12,8 +12,8 @@ using Proto = Oadm.Contracts.V1;
 namespace Oadm.Server.Tools;
 
 /// <summary>
-/// <c>oadm_server_info</c>, the first call (docs/spec/mcp.md "Tools"): the server's version, the key's user, role and what it
-/// allows, Read only, the limits and how many devices the user sees. Through <c>AuthService.Me</c>, <c>SettingsService.Get</c>
+/// <c>oadm_server_info</c>, the first call (docs/spec/mcp.md "Tools"): the server's version, the key's name, role and what it
+/// allows, the limits and how many devices it sees. Through <c>AuthService.Me</c>, <c>SettingsService.Get</c>
 /// and <c>DeviceService.Search</c> (the count only).
 /// </summary>
 internal static class ServerInfoTool
@@ -24,7 +24,7 @@ internal static class ServerInfoTool
     public static OadmTool Create(Func<PermissionCatalog> catalog) => new(
         "oadm_server_info",
         "Server info",
-        "The OADM server, your user, role and what it allows, the limits of this server and how many devices you see. Call it first.",
+        "The OADM server, who you are, your role and what it allows, the limits of this server and how many devices you see. Call it first.",
         Object(null, []),
         OutObject(null,
         [
@@ -33,19 +33,18 @@ internal static class ServerInfoTool
                 P("name", Out("string", "The product.")),
                 P("version", Out("string", "The server's version.")),
             ], "name", "version")),
-            P("user", Out("string", "The user of the access key.")),
-            P("role", Out("string", "The user's role.")),
+            P("user", Out("string", "Who you are in OADM: the name of the audit log and of your tasks.")),
+            P("role", Out("string", "Your role.")),
             P("all_permissions", Out("boolean", "The role allows everything (Administrator).")),
             P("permissions", OutList("What the role allows.", OutObject(null,
             [
                 P("key", Out("string", "The permission.")),
                 P("name", Out("string", "Its name in OADM.")),
             ], "key", "name"))),
-            P("devices", OutObject("The devices the user sees.", [
+            P("devices", OutObject("The devices you see.", [
                 P("count", Out("integer", "How many.")),
-                P("scope", Out("string", "All devices, or the user's device group.")),
+                P("scope", Out("string", "All devices, or your device group.")),
             ], "count", "scope")),
-            P("read_only", Out("boolean", "You can only read: no tool that changes something.")),
             P("access_key", OrNull(OutObject("The access key of the call; null without one.",
             [
                 P("name", Out("string", "The key's name.")),
@@ -60,7 +59,7 @@ internal static class ServerInfoTool
                 P("rows_max", Out("integer", "Rows of a list page at most.")),
                 P("answer_max_bytes", Out("integer", "The largest answer.")),
             ], "calls_per_second", "calls_at_once", "changes_per_minute", "rows_default", "rows_max", "answer_max_bytes")),
-        ], "server", "user", "role", "all_permissions", "permissions", "devices", "read_only", "access_key", "limits"),
+        ], "server", "user", "role", "all_permissions", "permissions", "devices", "access_key", "limits"),
         [MePath, SettingsPath, DeviceTools.SearchPath],
         call => RunAsync(call, catalog()));
 
@@ -88,7 +87,6 @@ internal static class ServerInfoTool
             ["all_permissions"] = me.AllPermissions,
             ["permissions"] = permissions,
             ["devices"] = new JsonObject { ["count"] = devices.Total, ["scope"] = scope },
-            ["read_only"] = call.Caller.ReadOnly,
             ["access_key"] = channel.KeyName is { } keyName
                 ? new JsonObject
                 {

@@ -1,72 +1,74 @@
 ---
-title: AI agents
-description: Let an AI agent look at your devices and roll out changes in OADM, with your rights.
+title: MCP server
+description: Let an AI agent look at your devices and roll out changes in OADM, with the role and devices of its access key.
 ---
 
 import { Steps, Aside } from '@astrojs/starlight/components';
 import { Image } from 'astro:assets';
 import settings from '../../../assets/screens/ai-agents-settings.png';
 import accessKeys from '../../../assets/screens/ai-agents-access-keys.png';
-import permissionsKeys from '../../../assets/screens/ai-agents-permissions-keys.png';
 
-An AI agent such as Claude Code or VS Code can work in OADM like you do: look at your devices, check
-their health, and run tasks on many devices. It signs in with an **access key** and has the rights of the user who made
-the key. The agent never sees a password.
+An AI agent such as Claude Code or VS Code connects to OADM over MCP and works like a user: it looks at your devices,
+checks their health and runs tasks on many devices. It signs in with an **access key**. Each key has its own role and
+devices, so you decide what each agent may do. The agent never sees a password.
 
-AI agents are part of the OADM server. They are off until an administrator turns them on.
+The MCP server is part of the OADM server. It is off until an administrator turns it on.
 
-<Image src={settings} alt="The AI agents card in Settings: port, Listen on, the certificate, Connect an agent and the status Running on port 5082" class="screen" />
+<Image src={settings} alt="The card AI in Settings, section MCP: port, Listen on, the certificate, the status Running on port 5082, Connect an agent and the access keys" class="screen" />
 
 ## Turn it on
 
 <Steps>
 
-1. Open **Settings** and the card **AI agents**.
+1. Open **Settings**, the card **AI**, section **MCP**.
 2. Choose the **Port** (default 5082) and **Listen on**, the interface the agents reach the server on.
 3. Click **Turn on**. The status next to the buttons shows **Running on port 5082**.
 
 </Steps>
 
-Agents connect over HTTPS. The certificate comes from the **AI agents** policy of the [PKI](../pki/) page, and the first
-**Turn on** makes its own certificate, **MCP Server Certificate**. You can choose another one in that policy. When PKI is
-not running, the card says "PKI is not running. The server log says why." On Windows the installed server opens the port
-in the firewall while AI agents are on. On Linux and macOS open it yourself if a firewall runs.
+Agents connect over HTTPS. The certificate comes from the **MCP server** policy of the [PKI](../pki/) page, and the
+first **Turn on** makes its own certificate, **MCP Server Certificate**. You can choose another one in that policy. When
+PKI is not running, the card says "PKI is not running. The server log says why." On Windows the installed server opens
+the port in the firewall while the MCP server is on. On Linux and macOS open it yourself if a firewall runs.
 
 **Turn off** closes the port. Agents can no longer connect.
 
 ## Create an access key
 
-You need the permission **Use AI agents**. Only administrators have it at first: give it to other roles on the
-Permissions page.
+Only administrators create and delete access keys.
 
 <Steps>
 
-1. Open the account menu (your name, top right) and click **Access keys**.
-2. Enter a **Name** for the agent or the computer (letters, digits, spaces, `-`, `_` and `.`), choose how long the key lasts (30, 90 or 365 days) and click
-   **Create**.
-3. Click the copy button next to the new key and keep it where the agent can read it.
+1. In **Settings**, card **AI**, section **MCP**, click **Create access key** next to **Access keys**.
+2. Enter a **Name** for the agent (letters, digits, spaces, `-`, `_` and `.`).
+3. Choose the **Role**. The role decides what the agent may do: a role like Viewer gives an agent that only looks.
+4. Choose the **Devices**: **All devices** or one [device group](../../admin/device-groups/). A key with the
+   Administrator role always has all devices.
+5. Choose when it **Expires** (30, 90 or 365 days) and click **Create**.
+6. Click the copy button next to the new key and keep it where the agent can read it.
 
 </Steps>
 
-<Image src={accessKeys} alt="The Access keys dialog: a new key Laptop, shown once with its copy button, and the list of your keys" class="screen" />
+<Image src={accessKeys} alt="The Create access key dialog after Create: the new key, shown once with its copy button" class="screen" />
 
-No password is asked: you are signed in. OADM shows the key once and cannot show it again. Lost it? Delete it and create a new one. Each user can have 20 keys.
+OADM shows the key once and cannot show it again. Lost it? Delete it and create a new one.
 
-**Read only** gives the agent a key that looks but changes nothing. Use it for reports and health checks.
+The list under **Access keys** shows each key with its role, devices, when it was created, when it expires and when it
+was last used. **Delete** asks first and ends the key at once.
 
-A key ends when you delete it, when its user is disabled or gets a new password, or on its expiry date. Administrators
-see and delete the keys of every user on the Permissions page.
+A key is not a login of the person who made it. It keeps working when that person changes. A change of its role or of
+its device group applies to the agent's next call.
 
-<Image src={permissionsKeys} alt="The Permissions page with the Access keys card: every user's keys with created, expires, last used and Read only" class="screen" />
+A key ends when you delete it or on its expiry date. Restoring a backup ends every key. A role or device group that a
+key uses cannot be deleted: delete the key first.
 
 ## Connect an agent
 
-While AI agents run, **Connect an agent** on the card shows the setting for each client with this server's address.
-Click the copy button next to it.
+While the MCP server runs, **Connect an agent** on the card has one row per client with this server's address:
 
-- **Claude Code**: a `claude mcp add` command for a terminal.
-- **.mcp.json**: the same for a project folder.
-- **VS Code**: the entry for `.vscode/mcp.json`. VS Code asks for the key when it connects.
+- **Claude Code**: the `claude mcp add` command for a terminal. Click the copy button.
+- **.mcp.json**: for a project folder. Copy it, or download the file.
+- **VS Code**: for `.vscode/mcp.json`. Copy it, or download the file. VS Code asks for the key when it connects.
 
 Claude Desktop is not listed until a bridge is tested with this server.
 
@@ -87,14 +89,14 @@ and put the folder `oadm` from the ZIP file where your agent reads its skills.
 
 ## What agents can do
 
-Every tool with what it does: [Tools of AI agents](./tools/).
+Every tool with what it does: [MCP tools](./tools/).
 
 - Look at devices: counts by status, model, AXIS OS version, site or tag, lists with filters, the details of one
   device, one picture of a camera.
 - Read tasks and their results, the server log, the audit log and the event log.
 - Run tasks on many devices, such as restart, date and time, Upgrade AXIS OS, network settings, applications or
-  certificates. A task shows in your Tasks list like one you started. Its owner is "your name@AI agent key name". Cancel
-  tasks.
+  certificates. A task shows in the Tasks list like any other. Its owner is "MCP" and the key's name, for example
+  "MCP Lobby-bot". Cancel tasks.
 - Refresh, remove and add devices, and set their login from the credential list by its name. Agents add only
   addresses in the networks of the server or a site, at most 200 devices at a time.
 - Add and remove tags, read sites and compliance results, and create, change or delete event rules.
@@ -109,9 +111,8 @@ Every change has two steps. The agent asks OADM for a **preview** that checks ev
 what would run, on which devices, what is skipped and why, and any warning. Only after you agree does the agent run it,
 and the run can only do what the preview showed.
 
-A user with a [device group](../../admin/device-groups/) gets only the devices of the group, through an agent too. A
-role without a permission does not get the tools for it. The audit log names the user and the key: "your name via access
-key Laptop".
+A key with a device group gets only the devices of the group. A role without a permission does not get the tools for
+it. The audit log names the key: "MCP Lobby-bot".
 
 ## What agents cannot do
 
@@ -120,16 +121,15 @@ key Laptop".
 - Change users, roles, device groups, access keys, the license, plugins or the server settings, restore a backup or
   delete all devices or tasks.
 - Show live video.
-- Do more than the user of the key. A Read only key lists no tool that changes something.
+- Do more than the role and devices of their key.
 
 Texts that come from devices, such as names, locations and log lines, are data for the agent, never orders.
 
 ## Limits
 
-A key can make 20 calls a second, 10 changes and 30 camera pictures a minute, and all keys of one user together the
-same. A key has at most 4 calls waiting for an answer. A list answers at most 200 rows at a time, with the total; a log
-says whether more lines follow instead. No answer is larger than 32 KB. An agent asks for a summary first and narrows
-with filters.
+A key can make 20 calls a second, 10 changes and 30 camera pictures a minute. A key has at most 4 calls waiting for an
+answer. A list answers at most 200 rows at a time, with the total; a log says whether more lines follow instead. No
+answer is larger than 32 KB. An agent asks for a summary first and narrows with filters.
 
 ## Troubleshooting
 
@@ -137,10 +137,10 @@ with filters.
 |---|---|
 | **PKI is not running. The server log says why.** | Open the Logs page and look for the PKI error. |
 | **Port 5082 cannot be opened** | Another program uses the port. Choose another port and save. |
-| The agent says **The access key is not valid. Create a new one in OADM under Access keys.** | The key is wrong, deleted or has ended. Create a new one. |
+| The agent says **The access key is not valid. An administrator creates a new one in OADM under Settings, AI.** | The key is wrong, deleted or has ended. Create a new one. |
 | The agent does not trust the server | Trust the CA once: **Download CA certificate** on the card. |
-| The agent says **This access key is Read only.** | Create a key without **Read only** for changes. |
-| The agent has no tool for something | The key's user does not have the permission, or the plugin is off. Check the role on the Permissions page. |
+| The agent has no tool for something | The key's role does not have the permission, or the plugin is off. Check the role on the Permissions page. |
+| **The access key Lobby-bot has the role Agents. Delete the key first.** | A key uses the role or device group you want to delete. Delete the key first. |
 | **Too many calls with this access key. Wait a second.** | The agent waits a second and tries again. |
 | **Too many calls at once. Wait for an answer.** | The agent waits for its other calls to answer. |
 | **Too many changes with this access key. Wait a minute.** | The agent made 10 changes in a minute. It waits. |

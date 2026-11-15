@@ -396,6 +396,13 @@ public sealed partial class RoleStore(IDbContextFactory<OadmDbContext> dbFactory
                     : $"{users} users have the role {role.Name}. Give them another role first.");
             }
 
+            // An access key keeps its role like a user (docs/spec/mcp.md "Access keys"): refused, naming the keys.
+            var keys = await AccessKeyStore.NamesWithRoleAsync(db, id, ct).ConfigureAwait(false);
+            if (keys.Count > 0)
+            {
+                throw new AuthException(AuthError.Precondition, AccessKeyTexts.RoleInUse(role.Name, keys));
+            }
+
             db.Roles.Remove(role);
             await db.SaveChangesAsync(ct).ConfigureAwait(false);
             _snapshot = Snapshot.From(await db.Roles.AsNoTracking().ToListAsync(ct).ConfigureAwait(false));
