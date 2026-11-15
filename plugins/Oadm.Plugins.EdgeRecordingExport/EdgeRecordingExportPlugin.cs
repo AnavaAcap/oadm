@@ -1,6 +1,7 @@
 using System.Text.Json;
 
 using Oadm.Plugins.EdgeRecordingExport.Recordings;
+using Oadm.Plugins.EdgeRecordingExport.Tools;
 using Oadm.Sdk.Plugins;
 
 namespace Oadm.Plugins.EdgeRecordingExport;
@@ -45,9 +46,16 @@ public sealed class EdgeRecordingExportPlugin : ICorePlugin, ICorePluginDownload
     public string? RequiredPermission(string method) => method switch
     {
         EdgeRecordingMethods.Search => PermissionKeys.Show,
+        _ when RecordingTools.Search.Calls(method) => PermissionKeys.Show,
         EdgeRecordingMethods.Export => EdgeRecordingInfo.ExportKey,
         _ => null,
     };
+
+    /// <summary>The read-only tool <c>oadm_recordings_search</c> (docs/spec/mcp.md "Plugins"): the page's search, "show".</summary>
+    public IReadOnlyList<PluginTool> Tools => RecordingTools.All;
+
+    /// <summary>The tools are named <c>oadm_recordings_...</c>.</summary>
+    public string? ToolArea => "recordings";
 
     /// <summary>Every downloaded recording is in the audit log (camera and time range).</summary>
     public bool IsAudited(string method) => method == EdgeRecordingMethods.Export;
@@ -76,8 +84,16 @@ public sealed class EdgeRecordingExportPlugin : ICorePlugin, ICorePluginDownload
         {
             EdgeRecordingMethods.Search => JsonSerializer.Serialize(
                 await service.SearchAsync(caller, Read<SearchRequest>(payloadJson), ct).ConfigureAwait(false), EdgeRecordingInfo.Json),
+            _ when method == RecordingTools.Search.Method => await SearchToolAsync(service, caller, payloadJson, ct).ConfigureAwait(false),
             _ => throw new ArgumentException($"Unknown method '{method}'.", nameof(method)),
         };
+    }
+
+    /// <summary>The tool's search: the page's search of one camera (the caller's devices only), then one page of its recordings.</summary>
+    private static async Task<string> SearchToolAsync(EdgeRecordingService service, ICallContext caller, string? payloadJson, CancellationToken ct)
+    {
+        var (request, errors) = RecordingTools.RequestOf(payloadJson);
+        return request is null ? errors! : RecordingTools.Answer(await service.SearchAsync(caller, request, ct).ConfigureAwait(false), payloadJson);
     }
 
     /// <summary>Only through the user's call (<see cref="OpenDownloadAsync(ICallContext, string, string?, CancellationToken)"/>).</summary>
