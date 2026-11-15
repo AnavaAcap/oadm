@@ -187,7 +187,7 @@ public sealed class PageToolTests
         {
             using var copy = new MemoryStream();
             await download.Content.CopyToAsync(copy);
-            using var restored = X509CertificateLoader.LoadPkcs12(copy.ToArray(), "canary-backup-1", X509KeyStorageFlags.EphemeralKeySet);
+            using var restored = X509CertificateLoader.LoadPkcs12(copy.ToArray(), "canary-backup-1", OperatingSystem.IsMacOS() ? X509KeyStorageFlags.DefaultKeySet : X509KeyStorageFlags.EphemeralKeySet);
             Assert.True(restored.HasPrivateKey);
         }
 

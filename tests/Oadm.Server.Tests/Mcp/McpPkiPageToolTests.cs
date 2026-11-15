@@ -119,7 +119,7 @@ public sealed class McpPkiPageToolTests
         using (var fetched = await SendAsync(server, HttpMethod.Get, key, link["url"]!.GetValue<string>()))
         {
             Assert.Equal(HttpStatusCode.OK, fetched.StatusCode);
-            using var restored = X509CertificateLoader.LoadPkcs12(await fetched.Content.ReadAsByteArrayAsync(), Canary, X509KeyStorageFlags.EphemeralKeySet);
+            using var restored = X509CertificateLoader.LoadPkcs12(await fetched.Content.ReadAsByteArrayAsync(), Canary, OperatingSystem.IsMacOS() ? X509KeyStorageFlags.DefaultKeySet : X509KeyStorageFlags.EphemeralKeySet);
             Assert.True(restored.HasPrivateKey);
         }
 
