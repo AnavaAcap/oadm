@@ -79,15 +79,15 @@ public sealed partial class ImportConfigViewModel : ObservableObject
 {
     public const string Title = DeviceConfigIds.ImportName;
 
-    public const string IdentityNote = "Host name, IP address and device names stay as they are on each device.";
+    public const string IdentityNote = ImportTexts.IdentityNote;
 
-    public const string PasswordNote = "The file has no passwords. Event recipients that need one must get it again.";
+    public const string PasswordNote = ImportTexts.PasswordNote;
 
     /// <summary>Warning below the settings areas when the file has connection settings (off by default).</summary>
-    public const string ConnectionNote = "Connection settings (HTTPS, ports, login method, IEEE 802.1X, IPv6, DNS, network link, web interface) can make the devices unreachable.";
+    public const string ConnectionNote = ImportTexts.ConnectionNote;
 
     /// <summary>Added to the confirmation when the connection settings are chosen.</summary>
-    public const string UnreachableWarning = "The devices may become unreachable.";
+    public const string UnreachableWarning = ImportTexts.UnreachableWarning;
 
     private readonly IReadOnlyList<IDeviceInfo> _devices;
     private readonly IConfigFileSource _files;
@@ -189,7 +189,7 @@ public sealed partial class ImportConfigViewModel : ObservableObject
                 return "The file has no settings OADM imports";
             }
 
-            return Sections.Any(s => s.IsChecked) ? null : "Choose at least one settings area";
+            return Sections.Any(s => s.IsChecked) ? null : ImportPayload.ChooseArea;
         }
     }
 
@@ -397,7 +397,7 @@ public sealed partial class ImportConfigViewModel : ObservableObject
         }
 
         var devices = DeviceConfigIds.Count(_targets.Count, "device");
-        var question = $"Import the configuration into {devices}? The settings in the file replace the current ones.";
+        var question = $"Import the configuration into {devices}? {ImportTexts.ReplaceNote}";
         if (Sections.Any(s => s.Key == ConfigSections.Connection && s.IsChecked))
         {
             question += " " + UnreachableWarning;

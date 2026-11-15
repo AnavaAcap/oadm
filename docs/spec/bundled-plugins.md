@@ -656,8 +656,8 @@ import, `/config/rest/$export`, `$import`, like its web interface), **Configure 
   imported, never accounts (no lock-out); only the seven areas OADM knows are imported, any other
   area of a file and the left-out part of the password policy area are shown as not imported and never sent; the same model only
   ("Nothing was changed" otherwise); no backup by OADM (export first); the device validates and OADM shows its answer per
-  area, one failed area does not stop the others; a ZIP entry must carry the device's MAC address; Export is a dialog,
-  never a task.
+  area, one failed area does not stop the others; a ZIP entry must carry the device's MAC address; Export is a dialog
+  in the client (an agent's run is a read-only task whose result is the export in its log).
 - **Configure devices** rules that must hold: values come from the source (a device or an ADM `.cfg` file), definitions
   are read once per model and AXIS OS (one `listdefinitions` request while it stays below the 1 MB XML limit, else per
   group); internal, hidden, read-only, constant, write-only and write-level-7 parameters are never offered; each device
@@ -670,13 +670,17 @@ import, `/config/rest/$export`, `$import`, like its web interface), **Configure 
   same name is replaced, a schedule with the same name and recurrence used again (applying twice changes nothing more);
   ADM files are read and written byte for byte (format 3, known from files only, ADM is never decompiled), passwords in
   them like ADM; password values never reach a log or an error text. **Create configuration file** is a dialog for one
-  device, never a task.
+  device in the client (an agent's run is a read-only task, the file in its log, without passwords).
 - MCP and Assistant ([mcp.md](mcp.md)): the read-only tools `oadm_config_parameters`, `oadm_config_action_rules` and
   `oadm_config_stream_profiles` of the package's core plugin without a page (`Tools/DeviceConfigToolsPlugin`). Rules that
   must hold: read only, with the dialog's read code (`DeviceSettingsReader`), never a second VAPIX implementation; only
   devices of the caller's view; Configure devices' permissions (`configure` or `dangerous`); passwords, secrets,
   community strings and tokens are never answered; bounded (8 devices at a time, 40 s, then the rest counts as not read;
-  at most 20 rows, about 30 KB).
+  at most 20 rows, about 30 KB). The four tasks have agent inputs (`AgentPayloads.cs`, decision 2026-11-15), offered by
+  the host's task tools: an agent never sends a password or a secret value ("Set the password in OADM."; a password
+  parameter is skipped on the device whatever its name) and never a device address; Configure devices' `dangerous` and
+  Import's `connection` rights hold as in the dialogs; Import takes one uploaded `.json` for every device of its model
+  (no ZIP); the plans come from the cached devices and the uploaded file only and carry the dialogs' warnings.
 - Device groups: the source device of Configure devices and Create configuration file is read with the user's query
   (only devices of the user's view); configuration files stay on the client (an import uploads its file for its own
   run), so the server keeps no shared file with saved passwords that a group user could use.

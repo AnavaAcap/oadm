@@ -77,6 +77,66 @@ public sealed class ConfigureDevicesTask : ITaskPlugin, ITaskPluginQuery
         }
     }
 
+    /// <summary>
+    /// The input for AI agents (SDK 0.13.0): parameters, action rules, schedules and stream profiles, never a password
+    /// (<see cref="ConfigurePayload.SetPasswordInOadm"/>; TODO(secret-handle)).
+    /// </summary>
+    public Type? PayloadType => typeof(ConfigureMcpPayload);
+
+    /// <summary>The names the task reads.</summary>
+    public System.Text.Json.JsonSerializerOptions? PayloadJsonOptions => ConfigurePayload.JsonOptions;
+
+    /// <summary>The payload's rules (<see cref="ConfigurePayload.Check"/>) before any task starts, each at its JSON field.</summary>
+    public IReadOnlyList<Oadm.Sdk.Tasks.PayloadError> ValidatePayload(string? payloadJson, ICallContext caller) =>
+        ConfigurePayload.Check(payloadJson).Errors;
+
+    /// <summary>Said in every plan that sets parameters: the values are checked on each device when its task runs.</summary>
+    public const string CheckedOnDeviceNote = "Each device checks the values against its own parameters first; one it does not have or refuses is skipped.";
+
+    public const string RulesReplacedNote = "Action rules of the same name on the devices are replaced.";
+
+    public const string ProfilesReplacedNote = "Stream profiles of the same name on the devices are replaced.";
+
+    /// <summary>
+    /// The plan from the cached device data: the devices the task can run on, and the dialog's warnings: the dangerous parameters
+    /// with their reason (written last), what is replaced. Values that differ per device (host name, device names) skip every
+    /// device of a run of several, like the dialog does not offer them there.
+    /// </summary>
+    public Task<Oadm.Sdk.Tasks.TaskPlan> PlanAsync(string? payloadJson, IReadOnlyList<IDeviceInfo> devices, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(devices);
+        var payload = ConfigurePayload.Parse(payloadJson);
+        var plan = Oadm.Sdk.Tasks.TaskPlan.ByCanRun(this, devices);
+        if (devices.Count > 1 && payload.Parameters.Any(p => DangerousParameters.IsPerDevice(p.Name)))
+        {
+            plan = new Oadm.Sdk.Tasks.TaskPlan([.. devices.Select(d => new Oadm.Sdk.Tasks.TaskPlanDevice(d.Id, DangerousParameters.PerDeviceNote))]);
+        }
+
+        var warnings = new List<string>();
+        foreach (var group in payload.Parameters.Where(p => DangerousParameters.IsDangerous(p.Name)).GroupBy(p => DangerousParameters.Reason(p.Name)!, StringComparer.Ordinal))
+        {
+            var names = group.Select(p => p.Name).ToList();
+            warnings.Add(string.Join(", ", names.Take(MaxNamed)) + (names.Count > MaxNamed ? string.Create(CultureInfo.InvariantCulture, $" (+{names.Count - MaxNamed} more)") : string.Empty) + ": " + group.Key);
+        }
+
+        if (payload.Parameters.Count > 0)
+        {
+            warnings.Add(CheckedOnDeviceNote);
+        }
+
+        if (payload.Rules.Count > 0)
+        {
+            warnings.Add(RulesReplacedNote);
+        }
+
+        if (payload.StreamProfiles.Count > 0)
+        {
+            warnings.Add(ProfilesReplacedNote);
+        }
+
+        return Task.FromResult(plan with { Warnings = warnings });
+    }
+
     /// <summary>The user's query (SDK 0.4.0): reads only the queried device, which the host checked against the user's view.</summary>
     public Task<string?> QueryAsync(ITaskQueryContext ctx, ICallContext caller, IDeviceInfo device, string method, string? payloadJson, CancellationToken ct) =>
         QueryAsync(ctx, device, method, payloadJson, ct);
@@ -158,7 +218,7 @@ public sealed class ConfigureDevicesTask : ITaskPlugin, ITaskPluginQuery
         var written = new List<NameValue>();
         if (normal.Count > 0)
         {
-            await SetParametersAsync(ctx, Steps.SetParameters, normal, definitions, secrets, written, failures, ct).ConfigureAwait(false);
+            await SetParametersAsync(ctx, Steps.SetParameters, normal, definitions, secrets, written, failures, payload.FromAgent, ct).ConfigureAwait(false);
         }
 
         // The source device keeps its own rules, schedules and profiles: writing them back would only recreate them.
@@ -292,7 +352,7 @@ public sealed class ConfigureDevicesTask : ITaskPlugin, ITaskPluginQuery
 
         if (dangerous.Count > 0)
         {
-            await SetParametersAsync(ctx, Steps.SetConnection, dangerous, definitions, secrets, written, failures, ct).ConfigureAwait(false);
+            await SetParametersAsync(ctx, Steps.SetConnection, dangerous, definitions, secrets, written, failures, payload.FromAgent, ct).ConfigureAwait(false);
         }
 
         if (payload.Parameters.Count > 0)
@@ -357,7 +417,7 @@ public sealed class ConfigureDevicesTask : ITaskPlugin, ITaskPluginQuery
     /// sent again.
     /// </summary>
     private static Task SetParametersAsync(ITaskExecutionContext ctx, string name, List<NameValue> parameters, Dictionary<string, ParamDefinition> definitions,
-        IReadOnlyCollection<string> secrets, List<NameValue> written, List<string> failures, CancellationToken ct) =>
+        IReadOnlyCollection<string> secrets, List<NameValue> written, List<string> failures, bool noPasswords, CancellationToken ct) =>
         Isolated(ctx, name, failures, secrets, async step =>
         {
             var apply = new List<NameValue>();
@@ -371,6 +431,11 @@ public sealed class ConfigureDevicesTask : ITaskPlugin, ITaskPluginQuery
                 else if (!definitions.TryGetValue(parameter.Name, out var definition))
                 {
                     skipped.Add(parameter.Name + " (not on this device)");
+                }
+                else if (noPasswords && definition.Kind == ParamKind.Password)
+                {
+                    // An agent's payload never sets a password, whatever its name says (TODO(secret-handle): a secret handle).
+                    skipped.Add($"{parameter.Name} ({ConfigurePayload.SetPasswordInOadm.TrimEnd('.')})");
                 }
                 else if (ParamRules.Problem(definition, parameter.Value) is { } problem)
                 {
@@ -549,7 +614,11 @@ public sealed class ConfigureDevicesTask : ITaskPlugin, ITaskPluginQuery
         string.Join("; ", items.Take(MaxNamed)) + (items.Count > MaxNamed ? string.Create(CultureInfo.InvariantCulture, $" (+{items.Count - MaxNamed} more)") : string.Empty);
 }
 
-/// <summary>"Create configuration file" (Maintenance, one device): a read-only dialog that saves an ADM file, never a task.</summary>
+/// <summary>
+/// "Create configuration file" (Maintenance, one device): in the client a read-only dialog that saves an ADM file and runs no
+/// task; an AI agent's run (<see cref="CreateConfigFileMcpPayload"/>) is a read-only task per device whose result is the file
+/// in its log.
+/// </summary>
 public sealed class CreateConfigFileTask : ITaskPlugin, ITaskPluginQuery
 {
     public string Id => ConfigureIds.Create;
@@ -568,8 +637,120 @@ public sealed class CreateConfigFileTask : ITaskPlugin, ITaskPluginQuery
 
     public string? NotSupportedReason(IDeviceInfo device) => ConfigureSupport.NotSupportedReason(device);
 
-    public Task ExecuteAsync(ITaskExecutionContext ctx, IDeviceInfo device, string? payloadJson, CancellationToken ct) =>
-        throw new InvalidOperationException("\"Create configuration file\" only reads; it never runs as a task.");
+    private readonly TimeProvider _time;
+
+    public CreateConfigFileTask()
+        : this(TimeProvider.System)
+    {
+    }
+
+    public CreateConfigFileTask(TimeProvider time)
+    {
+        ArgumentNullException.ThrowIfNull(time);
+        _time = time;
+    }
+
+    public static class Steps
+    {
+        public const string Read = "Read settings";
+        public const string Create = "Create configuration file";
+    }
+
+    /// <summary>
+    /// The input for AI agents (SDK 0.13.0): the parameters, action rules and stream profiles to save. The dialog saves its file
+    /// itself and never runs a task.
+    /// </summary>
+    public Type? PayloadType => typeof(CreateConfigFileMcpPayload);
+
+    public System.Text.Json.JsonSerializerOptions? PayloadJsonOptions => CreateConfigFileRequest.JsonOptions;
+
+    public IReadOnlyList<Oadm.Sdk.Tasks.PayloadError> ValidatePayload(string? payloadJson, ICallContext caller) =>
+        CreateConfigFileRequest.Check(payloadJson).Errors;
+
+    /// <summary>
+    /// Read only: reads the device like the dialog (<see cref="DeviceSettingsReader"/>), takes the chosen settings without any
+    /// password or secret value, and writes the ADM file into the task's log (<see cref="TaskFileResult"/>; TODO(download-link)).
+    /// Chosen settings the device does not have end Done with warnings.
+    /// </summary>
+    public async Task ExecuteAsync(ITaskExecutionContext ctx, IDeviceInfo device, string? payloadJson, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(ctx);
+        ArgumentNullException.ThrowIfNull(device);
+        var (request, errors) = CreateConfigFileRequest.Check(payloadJson);
+        if (errors.Count > 0)
+        {
+            throw new ArgumentException(errors[0].Message, nameof(payloadJson));
+        }
+
+        ctx.PlanSteps(Steps.Read, Steps.Create);
+        DeviceSettings settings;
+        using (var step = ctx.BeginStep(Steps.Read))
+        {
+            if (TaskSupportReasons.ForStatus(device) is { } refused)
+            {
+                throw new ConfigDeviceException(refused + ".");
+            }
+
+            var apis = await ctx.Vapix.GetApiListAsync(ct).ConfigureAwait(false);
+            if (apis.Count > 0 && !apis.Any(a => string.Equals(a.Id, ConfigureDevicesTask.ParamApi, StringComparison.OrdinalIgnoreCase)))
+            {
+                throw new ConfigDeviceException("The device has no parameter API.");
+            }
+
+            settings = await DeviceSettingsReader.ReadAsync(ctx.Vapix, device, full: true, ct).ConfigureAwait(false);
+            if (settings.Error is { } error)
+            {
+                throw new ConfigDeviceException(error);
+            }
+
+            foreach (var problem in settings.Problems)
+            {
+                ctx.Log(TaskLogLevel.Warning, problem);
+            }
+
+            step.Complete($"{ModelNames.Display(settings.Model ?? device.Model)}, AXIS OS {settings.Firmware ?? device.FirmwareVersion}");
+        }
+
+        using (var step = ctx.BeginStep(Steps.Create))
+        {
+            var chosen = request!.Choose(settings);
+            if (chosen.IsEmpty)
+            {
+                throw new ConfigDeviceException("None of the chosen settings are on this device: " + string.Join("; ", chosen.Missing.Take(ConfigureDevicesTask.MaxNamed)));
+            }
+
+            var config = new AdmConfig
+            {
+                Model = ModelNames.Display(settings.Model ?? device.Model),
+                FirmwareVersion = settings.Firmware ?? device.FirmwareVersion ?? AdmConfig.Generic,
+                MacAddress = settings.Serial ?? device.Serial,
+                Generated = _time.GetUtcNow(),
+                Parameters = chosen.Parameters,
+                // Like the dialog and ADM: with a rule, every schedule of the device goes into the file.
+                Schedules = chosen.Rules.Count > 0 ? settings.Schedules : [],
+                Rules = chosen.Rules,
+                StreamProfiles = chosen.Profiles,
+            };
+            var bytes = AdmConfigFile.Write(config);
+            var name = AdmConfigFile.SuggestedFileName(settings.Model ?? device.Model, settings.Firmware);
+            TaskFileResult.Log(ctx, name, bytes);
+            foreach (var missing in chosen.Missing)
+            {
+                ctx.Log(TaskLogLevel.Warning, "Not on this device: " + missing);
+            }
+
+            var summary = TaskFileResult.Summary(name, bytes.Length);
+            if (chosen.Missing.Count > 0)
+            {
+                step.Warn(string.Create(CultureInfo.InvariantCulture, $"{summary}, {chosen.Missing.Count:N0} not on this device: ")
+                    + string.Join("; ", chosen.Missing.Take(ConfigureDevicesTask.MaxNamed)));
+            }
+            else
+            {
+                step.Complete(summary);
+            }
+        }
+    }
 
     /// <summary>The user's query (SDK 0.4.0): reads only the queried device, which the host checked against the user's view.</summary>
     public Task<string?> QueryAsync(ITaskQueryContext ctx, ICallContext caller, IDeviceInfo device, string method, string? payloadJson, CancellationToken ct) =>
