@@ -5,7 +5,7 @@ description: "Offer steps of your core plugin to AI agents and other programs: t
 
 A **tool** is one step of your core plugin that a program can take without the plugin's page: read the certificate list,
 create a certificate. OADM lists your tools while the plugin is on and the caller's role has the permission. A tool is not
-tied to one channel: AI agents use it today, a built-in assistant can use it later (SDK 0.13.0).
+tied to one channel: AI agents over MCP and the Assistant in OADM use the same tools (SDK 0.13.0).
 
 ## Declare the tools
 

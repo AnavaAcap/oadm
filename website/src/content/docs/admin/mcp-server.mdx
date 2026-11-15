@@ -84,7 +84,8 @@ named in the variable `NODE_EXTRA_CA_CERTS`. For other agents add the file to th
 
 The skill `oadm` tells an agent how to work with OADM: look at a summary first, narrow the devices with filters, show
 you the plan and the skipped devices before it runs anything, and never ask for passwords. It also has a workflow each for
-an AXIS OS rollout, a network change, certificates and a health check.
+an AXIS OS rollout, a network change, Configure devices, certificates, a health check, one device's troubles,
+vulnerabilities, failed tasks, event rules, applications, SD cards and sites.
 
 The server hands the skill to agents that support it. For an agent that does not, click **Download skill** on the card
 and put the folder `oadm` from the ZIP file where your agent reads its skills.
@@ -132,7 +133,7 @@ Every tool with what it does: [MCP tools](./tools/).
   applications or the action rules of chosen devices, save and delete device triggers, dashboards, text readers, vision
   pipelines, saved views and saved commands, press a dashboard button, start a load test, add a static DHCP lease or
   release one, change the recipients and schedules on the devices. Each needs the same permission as on the page. Live
-  video, reports and file exports stay in OADM.
+  video stays in OADM.
 - Run commands of the [VAPIX Commander](../../tools/vapix-commander/) library and saved commands on many devices, for settings
   no task covers (siren and light, PTZ and more). Not offered: dangerous commands, commands with a file, and changes
   OADM's own tasks make. A value that looks like a password in an answer shows as `***`.

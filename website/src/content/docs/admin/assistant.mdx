@@ -98,9 +98,7 @@ Every change and every camera picture is in the audit log under your name, as if
 ## What it cannot do
 
 - Read passwords, keys or tokens, or take one from the chat: a password goes only into a card's password field.
-- Change the credential list.
-- Make a change your role may not make in OADM. Users, roles, device groups, access keys, the license, plugins, backups,
-  the version, server settings and services it changes only as a card you run, with the rights you have in OADM.
+- Make a change your role may not make in OADM, or any change without your click on **Run**.
 - Show live video.
 - Remember a chat: closing the panel or signing out forgets it.
 
@@ -118,5 +116,5 @@ minutes) how long. An answer that takes longer stops with "The provider did not 
 |---|---|
 | No chat button in the title bar | The assistant is off, or your role lacks **Use the assistant**. |
 | "This model cannot use tools. Choose another one." | Choose another model next to **Send**. Many small Ollama models cannot. |
-| "The assistant reached today's limit. It works again tomorrow." | Wait, or raise the **Daily limit** in Settings. |
+| "The assistant reached today's limit. It works again tomorrow." | Wait, or raise the **Daily limit** on the card **Assistant**. |
 | **Test** shows an error from the provider | Check the API key or the address and that the server reaches the provider. |
