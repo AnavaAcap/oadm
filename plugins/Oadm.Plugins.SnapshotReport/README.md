@@ -81,6 +81,13 @@ cameras of the user's view. A report is a job of its user (`ctx.Jobs`): it takes
 and another user's id answers like an unknown one. The overload without a call (in-process callers) uses the plugin's
 context, which refuses in a group user's call. See [device groups](../../docs/spec/device-scope.md).
 
+## MCP
+
+`Tools/SnapshotTools` (`ICorePlugin.Tools`, area `snapshot_report`, docs/spec/mcp.md): the read-only tool
+`oadm_snapshot_report_sources` lists the tiles of 1 to 20 chosen cameras (one per video source, the facts the report
+prints, the error of a camera that cannot be shown), with the sources the page keeps (read from a camera only when not
+kept). Pictures come from `oadm_devices_snapshot`; the PDF stays in the page. Right "show".
+
 ## Tests
 
 `tests/Oadm.Plugins.SnapshotReport.Tests`: the device-group canary `CanaryTests`, source expansion, request and error
