@@ -114,6 +114,19 @@ Keys `task:oadm.users:add`, `:update`, `:remove` (all three full device control)
 key of the payload's mode; the dialog shows only the modes the role has and starts in the first of them. Operator
 default: add and update, not remove.
 
+## AI agents
+
+Offered over MCP and in the Assistant (SDK 0.13.0, docs/spec/mcp.md "Secrets", `UsersTaskPlugin.Agent.cs`): the input is
+the dialog's `UsersPayload` without `password` (`[Secret]`, left out of the schema). `SecretsOf` declares the slot
+`password` (label "password") for Add and for Change with `changePassword`; Remove and a role change need none. The person
+enters it through the secret link or the Assistant card; a value is checked at once with `ValidatePayload` (the base rule:
+1-64 printable ASCII); the run gets it in the payload, in memory only. `ValidatePayload` answers the dialog's rules at their
+fields (`userName`, `userNames`, `role`, `changePassword`, `password`). `PlanAsync` (cached data): `CanRun`, a device whose
+stored login is the user a change or removal names is skipped ("OADM uses this account on the device."), warnings say
+what is set ("Sets the password of user joe.", never the value) and that each device checks its own password rules; the
+task still reads the passphrase policy and the OADM account and refuses a lock-out before the write. Tests:
+`AgentTaskInputTests`, server `McpUsersPkiSecretTests`.
+
 ## Device groups
 
 The tasks run only on devices of the user's view and touch only their own device; the query `listUsers` reads only the

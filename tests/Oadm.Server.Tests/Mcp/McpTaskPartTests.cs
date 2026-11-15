@@ -93,12 +93,10 @@ public sealed class McpTaskPartTests
         ];
         Assert.All(offered, id => Assert.Contains(id, tasks));
 
-        // A password (users, install certificates) or a new trust anchor on the devices (install CA certificates: the dialog
-        // shows each one to the person) stays in OADM.
-        string[] notOffered = [PkiTaskIds.Install, PkiTaskIds.InstallCa];
-        Assert.Contains(UsersTaskPlugin.PluginId, tasks); // its password comes through the secret channel
-        Assert.All(notOffered, id => Assert.DoesNotContain(id, tasks));
-        Assert.All(notOffered, id => Assert.Null(TaskPayloadSchemas.Of(server.Host.Get<PluginRegistry>().TryGetTaskPlugin(id, out var plugin) ? plugin.Plugin : throw new InvalidOperationException(id))));
+        // A password (users, install certificates) comes through the secret channel, never as an input; install CA
+        // certificates lists each CA in its plan for the person to confirm (decision 2026-11-15).
+        Assert.All([UsersTaskPlugin.PluginId, PkiTaskIds.Install, PkiTaskIds.InstallCa], id => Assert.Contains(id, tasks));
+        Assert.DoesNotContain("password", TaskPayloadSchemas.Of(server.Host.Get<PluginRegistry>().TryGetTaskPlugin(PkiTaskIds.Install, out var install) ? install.Plugin : throw new InvalidOperationException())!["properties"]!.AsObject().Select(p => p.Key));
 
         var firmware = TaskPayloadSchemas.Of(new FirmwareTaskPlugin())!;
         Assert.Equal(["files"], firmware["required"]!.AsArray().Select(r => r!.GetValue<string>()));
@@ -324,12 +322,12 @@ public sealed class McpTaskPartTests
         var clock = await RefusedAsync(server, key, PkiTaskIds.Dot1xEnable, Filter(device), new JsonObject { ["clockConfirmed"] = true });
         Assert.Equal(ToolInputTexts.Unknown, clock["input.clockConfirmed"]);
 
-        // Install CA certificates is not offered: an agent could bring any certificate as a trust anchor.
+        // Install CA certificates checks every certificate before the plan: no certificate, no plan.
         var ca = await RefusedAsync(server, key, PkiTaskIds.InstallCa, Filter(device), new JsonObject
         {
             ["certificates"] = new JsonArray(new JsonObject { ["name"] = "Acme", ["pem"] = "not a certificate" }),
         });
-        Assert.Equal(TaskRunTools.NotOffered, ca["task"]);
+        Assert.Contains("input.certificates", ca.Keys);
     }
 
     [Fact]

@@ -68,7 +68,40 @@ internal static class PkiTools
         ReturnsFile = true,
     };
 
-    public static IReadOnlyList<PluginTool> All { get; } = [Certificates, Policies, CertificateCreate, CertificateFile, CaFile];
+    public static readonly PluginTool CertificateImport = new("certificate_import", "Import certificate",
+        "Imports a certificate (PEM or DER) or a PKCS#12 file (.pfx, .p12) with its key into the certificate list, from an upload link. The PKCS#12 password is entered by the user, never sent by you.")
+    {
+        InputType = typeof(ImportArgs),
+        OutputType = typeof(ImportPlanAnswer),
+        RunOutputType = typeof(CreateRunAnswer),
+        JsonOptions = Json,
+        Changes = true,
+        Permission = PermissionKeys.Manage,
+        TakesUpload = true,
+    };
+
+    public static readonly PluginTool CertificateSign = new("certificate_sign", "Sign certificate request",
+        "Signs a certificate request (PKCS#10 PEM text) with an issuing policy; the names come from the request. The run hands out the certificate as a file.")
+    {
+        InputType = typeof(SignArgs),
+        OutputType = typeof(SignPlanAnswer),
+        RunOutputType = typeof(SignRunAnswer),
+        JsonOptions = Json,
+        Changes = true,
+        Permission = PermissionKeys.Manage,
+        ReturnsFile = true,
+    };
+
+    public static IReadOnlyList<PluginTool> All { get; } = [Certificates, Policies, CertificateCreate, CertificateFile, CaFile, CertificateImport, CertificateSign];
+
+    /// <summary>The secret of a PKCS#12 import.</summary>
+    public static readonly PluginToolSecret Pkcs12Password = new("password", "PKCS#12 password");
+
+    /// <summary>The plan's name before the password opened the file.</summary>
+    public const string NameAfterPassword = "Shown after the password opened the file.";
+
+    /// <summary>The longest request text.</summary>
+    public const int MaxRequestLength = 16 * 1024;
 
     /// <summary>The formats a tool hands out: the certificate alone, never a format with a key (PKCS#12).</summary>
     public static IReadOnlyList<string> FileFormats { get; } = [CertificateFormats.Pem, CertificateFormats.Der];
@@ -138,7 +171,10 @@ internal static class PkiTools
     /// <summary>True for the tool methods that only read (the same rule as the page's reads).</summary>
     public static bool IsRead(string method) => method == Certificates.Method || method == Policies.Method;
 
-    public static bool IsToolMethod(string method) => IsRead(method) || CertificateCreate.Calls(method) || IsFileTool(method);
+    public static bool IsToolMethod(string method) => IsRead(method) || CertificateCreate.Calls(method) || IsFileTool(method) || IsCertificateChange(method);
+
+    /// <summary>A method of Import certificate or Sign certificate request (a preview or a run).</summary>
+    public static bool IsCertificateChange(string method) => CertificateImport.Calls(method) || CertificateSign.Calls(method);
 
     public static async Task<string?> InvokeAsync(PkiService service, ICallContext caller, string method, string? payloadJson, CancellationToken ct)
     {
@@ -162,6 +198,16 @@ internal static class PkiTools
             return FileOf(method, payloadJson);
         }
 
+        if (CertificateImport.Calls(method))
+        {
+            return await ImportAsync(service, caller, PluginTool.IsPreviewMethod(method), payloadJson, ct).ConfigureAwait(false);
+        }
+
+        if (CertificateSign.Calls(method))
+        {
+            return await SignAsync(service, caller, PluginTool.IsPreviewMethod(method), payloadJson, ct).ConfigureAwait(false);
+        }
+
         var args = Read<CreateArgs>(payloadJson);
         var request = RequestOf(service, args, out var fieldErrors);
         if (fieldErrors.Count > 0)
@@ -177,6 +223,118 @@ internal static class PkiTools
 
         var reply = await service.CreateCertificateAsync(request, caller.UserName, ct).ConfigureAwait(false);
         return reply.Ok ? Serialize(new CreateRunAnswer(reply.Id!, reply.Name!)) : Refused(reply);
+    }
+
+    /// <summary>
+    /// Import certificate: the page's Import with the file the host read from the caller's upload. The preview runs every check
+    /// of Import and stores nothing; a PKCS#12 file that does not open without a password needs the person's "PKCS#12
+    /// password" (a check of an entered one answers a wrong password at <c>secrets.password</c>); the run imports it.
+    /// </summary>
+    private static async Task<string?> ImportAsync(PkiService service, ICallContext caller, bool preview, string? payloadJson, CancellationToken ct)
+    {
+        var node = System.Text.Json.Nodes.JsonNode.Parse(string.IsNullOrWhiteSpace(payloadJson) ? "{}" : payloadJson) as System.Text.Json.Nodes.JsonObject ?? [];
+        var file = node["file_base64"]?.GetValue<string>();
+        var fileName = node["file_name"]?.GetValue<string>();
+        if (string.IsNullOrEmpty(file))
+        {
+            return PluginToolErrors.Answer([new("file_id", "Choose a file.")]);
+        }
+
+        var secrets = PluginToolSecrets.Of(payloadJson);
+        var password = secrets.GetValueOrDefault(Pkcs12Password.Name);
+        var request = new ImportCertificateRequest(file, fileName, password);
+        var check = await service.ImportCertificateAsync(request, caller.UserName, ct, dryRun: true).ConfigureAwait(false);
+        var wrongPassword = check.Errors?.ContainsKey(CertificateFields.Password) == true;
+        if (preview && wrongPassword && password is null)
+        {
+            // The file needs its password: the person enters it, and the plan names the certificate once it opens.
+            return Serialize(new ImportPlanAnswer(1, "certificate", fileName ?? string.Empty, NameAfterPassword, true) { SecretsNeeded = [Pkcs12Password] });
+        }
+
+        if (wrongPassword)
+        {
+            return PluginToolErrors.Answer([new(PluginToolSecrets.ValuesProperty + "." + Pkcs12Password.Name, check.Errors![CertificateFields.Password])]);
+        }
+
+        if (check.Errors is { Count: > 0 } || check.Error is not null)
+        {
+            return ImportRefused(check);
+        }
+
+        if (preview)
+        {
+            var pkcs12 = PkiService.LooksLikePkcs12(Convert.FromBase64String(file));
+            return Serialize(new ImportPlanAnswer(1, "certificate", fileName ?? string.Empty, check.Name ?? string.Empty, pkcs12)
+            {
+                SecretsNeeded = pkcs12 && password is not null ? [Pkcs12Password] : null,
+            });
+        }
+
+        var reply = await service.ImportCertificateAsync(request, caller.UserName, ct).ConfigureAwait(false);
+        return reply.Ok ? Serialize(new CreateRunAnswer(reply.Id!, reply.Name!)) : ImportRefused(reply);
+    }
+
+    private static string ImportRefused(CertificateActionReply reply)
+    {
+        if (reply.Errors is { Count: > 0 } fields)
+        {
+            return PluginToolErrors.Answer(fields.Select(f => new KeyValuePair<string, string>(f.Key == CertificateFields.Password ? "secrets.password" : "file_id", f.Value)));
+        }
+
+        throw new InvalidOperationException(reply.Error ?? PluginJson.UnreadableRequest);
+    }
+
+    /// <summary>
+    /// Sign certificate request: the page's Sign request with the request text. The preview checks and signs in memory, stores
+    /// nothing; the run stores the certificate and hands it out as a PEM file (the download of the Certificates card).
+    /// </summary>
+    private static async Task<string?> SignAsync(PkiService service, ICallContext caller, bool preview, string? payloadJson, CancellationToken ct)
+    {
+        var args = Read<SignArgs>(payloadJson);
+        var errors = new List<KeyValuePair<string, string>>();
+        var policyId = Guid.Empty;
+        if (args.PolicyId is { Length: > 0 } text)
+        {
+            if (!Guid.TryParse(text, out policyId))
+            {
+                errors.Add(new("policy_id", CertificateRules.ChoosePolicy));
+            }
+        }
+        else if (CertificateRules.PolicyKindOf(args.Use) is { } kind && service.Policies.PoliciesOf(kind) is { Count: 1 } only)
+        {
+            policyId = only[0].Id;
+        }
+
+        if (string.IsNullOrWhiteSpace(args.Request))
+        {
+            errors.Add(new("request", "Enter the certificate request (PEM)."));
+        }
+
+        if (errors.Count > 0)
+        {
+            return PluginToolErrors.Answer(errors);
+        }
+
+        var request = new SignCertificateRequest(policyId, Convert.ToBase64String(System.Text.Encoding.ASCII.GetBytes(args.Request!)), "request.csr");
+        var reply = await service.SignCertificateAsync(request, caller.UserName, ct, dryRun: preview).ConfigureAwait(false);
+        if (reply.Errors is { Count: > 0 } fields)
+        {
+            return PluginToolErrors.Answer(fields.Select(f => new KeyValuePair<string, string>(f.Key == CertificateFields.Policy ? "policy_id" : "request", f.Value)));
+        }
+
+        if (reply.Error is not null)
+        {
+            throw new InvalidOperationException(reply.Error);
+        }
+
+        var policy = service.Policies.PoliciesOf(PolicyKinds.HttpsCertificate).Concat(service.Policies.PoliciesOf(PolicyKinds.Dot1xCertificate)).FirstOrDefault(p => p.Id == policyId);
+        if (preview)
+        {
+            return Serialize(new SignPlanAnswer(1, "certificate", reply.Name ?? string.Empty, policyId.ToString(), policy?.Name ?? string.Empty));
+        }
+
+        var file = new PluginToolFile(CertificateMethods.Download, PkiJson.Serialize(new DownloadCertificateRequest(reply.Id!, CertificateFormats.Pem)), FileNameOf("certificate", CertificateFormats.Pem), MediaTypeOf(CertificateFormats.Pem));
+        return Serialize(new SignRunAnswer(reply.Id!, reply.Name!, file));
     }
 
     private static async Task<string?> ListAsync(PkiService service, ICallContext caller, string? payloadJson, CancellationToken ct)
@@ -387,6 +545,35 @@ internal static class PkiTools
     internal sealed record FileAnswer(
         [property: Description("pem or der.")] string Format,
         [property: Description("The certificate file; fetch it with oadm_files_download_link.")] PluginToolFile? File);
+
+    internal sealed record ImportArgs(
+        [property: Description("The file id of an upload link: a certificate (.crt, .cer, .pem) or a PKCS#12 file (.pfx, .p12) with its key, at most 1 MB."), MaxLength(64)] string FileId);
+
+    internal sealed record ImportPlanAnswer(
+        int WillChange,
+        string Unit,
+        [property: Description("The uploaded file.")] string File,
+        [property: Description("The certificate's name.")] string Name,
+        [property: Description("A PKCS#12 file: its key is kept encrypted in OADM.")] bool WithKey)
+        : PluginToolPlan(WillChange, Unit);
+
+    internal sealed record SignArgs(
+        [property: Description("The certificate request (PKCS#10) as PEM text, its line breaks written as spaces. Not a secret: it holds no key."), MaxLength(MaxRequestLength)] string? Request,
+        [property: Description("https or dot1x: the use when the policy is left out."), MaxLength(8)] string? Use = null,
+        [property: Description("The issuing policy from oadm_pki_policies; leave out when the use has only one."), MaxLength(36)] string? PolicyId = null);
+
+    internal sealed record SignPlanAnswer(
+        int WillChange,
+        string Unit,
+        [property: Description("The name from the request.")] string Name,
+        string PolicyId,
+        string PolicyName)
+        : PluginToolPlan(WillChange, Unit);
+
+    internal sealed record SignRunAnswer(
+        [property: Description("The id of the new certificate in oadm_pki_certificates.")] string Id,
+        string Name,
+        [property: Description("The signed certificate (PEM); fetch it with oadm_files_download_link.")] PluginToolFile? File);
 
     internal sealed record CreateRunAnswer(
         [property: Description("The id of the new certificate in oadm_pki_certificates.")] string Id,

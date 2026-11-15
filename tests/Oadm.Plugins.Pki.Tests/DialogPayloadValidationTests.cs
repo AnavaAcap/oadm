@@ -153,12 +153,17 @@ public sealed class DialogPayloadValidationTests
     public async Task Tasks_without_a_check_of_their_own_accept_the_payloads_of_their_dialogs()
     {
         await using var pki = await PkiHarness.StartAsync();
-        var install = PkiJson.Serialize(new InstallPayload());
-        foreach (var id in new[] { PkiTaskIds.Install, PkiTaskIds.View })
+        AssertAccepted(Task(pki, PkiTaskIds.View), "{}");
+        AssertAccepted(Task(pki, PkiTaskIds.View), null);
+
+        // Install certificates checks what needs no file (AI agents send it too): what its dialog sends passes.
+        foreach (var payload in new[]
         {
-            AssertAccepted(Task(pki, id), install);
-            AssertAccepted(Task(pki, id), "{}");
-            AssertAccepted(Task(pki, id), null);
+            new InstallPayload { Purpose = InstallPurpose.Https, Password = "pw", Files = [new InstallFile(Guid.NewGuid(), "f1", "cam1.pfx"), new InstallFile(Guid.NewGuid(), "f2", "cam2.pfx")] },
+            new InstallPayload { Purpose = InstallPurpose.CaOnly, Password = string.Empty, Files = [new InstallFile(Guid.Empty, "f1", "cas.p12")] },
+        })
+        {
+            AssertAccepted(Task(pki, PkiTaskIds.Install), PkiJson.Serialize(payload));
         }
     }
 
