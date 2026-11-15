@@ -17,6 +17,10 @@ service AssistantService {
   // Runs a preview the model asked for: the run tool of the preview with its handle, only for the user that asked.
   // NOT_FOUND "This preview has ended. Ask again." for an unknown, used or ended handle.
   rpc Run (AssistantRunRequest) returns (AssistantRunReply);
+  // Try the failed devices again: the same preview tool with the same input, restricted to the given devices (cut to the
+  // caller's view) of a preview this user ran in this conversation; a new card that needs Run. NOT_FOUND "This preview has
+  // ended. Ask again." for an unknown handle; FAILED_PRECONDITION with the preview's refusal.
+  rpc RetryFailed (AssistantRetryRequest) returns (AssistantPreviewCard);
   // Forgets the conversation (panel closed, New chat).
   rpc End (AssistantConversationRequest) returns (Empty);
   rpc GetSettings (Empty) returns (AssistantSettingsState);
@@ -47,6 +51,15 @@ message AssistantMessage {
   // Try again and Edit: the server drops the conversation's last user message and everything after it before adding this one.
   // FAILED_PRECONDITION "There is nothing to try again." when the conversation has no user message.
   bool replace_last = 6;
+  // Devices the user chose with @ (the device picker), at most 10,000; cut to the caller's view. The model gets their count
+  // and the first 100 ids as data with the message.
+  repeated string mentioned_device_ids = 7;
+}
+
+message AssistantRetryRequest {
+  string conversation_id = 1;
+  string handle = 2;                        // the handle of the card that ran
+  repeated string failed_device_ids = 3;    // 1..10,000
 }
 
 message AssistantModelList {

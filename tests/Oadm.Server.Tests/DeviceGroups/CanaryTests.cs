@@ -404,6 +404,7 @@ public sealed partial class CanaryTests
         ["/oadm.v1.AssistantService/End"] = "the caller's own chat, no device",
         ["/oadm.v1.AssistantService/ListModels"] = "the provider's model names, no device",
         ["/oadm.v1.AssistantService/Run"] = "the run tool of the caller's own preview, in process with the caller's view",
+        ["/oadm.v1.AssistantService/RetryFailed"] = "the preview tool of the caller's own run, the devices cut to the caller's view (AssistantChatTests)",
         ["/oadm.v1.AssistantService/GetSettings"] = "the Assistant section of the card AI: on, provider, model, limits, no device",
         ["/oadm.v1.AuthService/Login"] = "open: the session",
         ["/oadm.v1.AuthService/CreateFirstAdmin"] = "open: only while no user exists",
