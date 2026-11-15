@@ -15,7 +15,7 @@ internal static class LoadTestTools
 {
     public static readonly JsonSerializerOptions Json = PluginTool.CreateJsonOptions();
 
-    public static readonly PluginTool Runs = new("runs", "Load test checks",
+    public static readonly PluginTool Checks = new("checks", "Load test checks",
         "Lists the kept load test checks, newest first, with the verdict, the peak rate, the worst loss and the progress of the running one.")
     {
         InputType = typeof(NoArguments),
@@ -23,7 +23,7 @@ internal static class LoadTestTools
         JsonOptions = Json,
     };
 
-    public static readonly PluginTool Run = new("run", "Load test check",
+    public static readonly PluginTool Check = new("check", "Load test check",
         "Shows one load test check: its verdict, the result of each ramp step, then its camera streams worst first with their loss, rate and first problem.")
     {
         InputType = typeof(RunArgs),
@@ -32,11 +32,11 @@ internal static class LoadTestTools
         Paged = true,
     };
 
-    public static IReadOnlyList<PluginTool> All { get; } = [Runs, Run];
+    public static IReadOnlyList<PluginTool> All { get; } = [Checks, Check];
 
-    public const string EnterRun = "Enter the id of a check (oadm_load_test_runs).";
+    public const string EnterRun = "Enter the id of a check (oadm_load_test_checks).";
 
-    public static string RunsAnswerOf(RunList list) =>
+    public static string ChecksAnswerOf(RunList list) =>
         JsonSerializer.Serialize(new RunsAnswer(list.RunningId?.ToString(), [.. list.Runs.Select(SummaryOf)]), Json);
 
     /// <summary>The run id of the arguments, or the field error.</summary>
@@ -112,7 +112,7 @@ internal static class LoadTestTools
 
     internal sealed record NoArguments;
 
-    internal sealed record RunArgs([property: Description("The id of the check (oadm_load_test_runs).")] Guid RunId);
+    internal sealed record RunArgs([property: Description("The id of the check (oadm_load_test_checks).")] Guid RunId);
 
     internal sealed record RunsAnswer(
         [property: Description("The check that runs now; null when none runs.")] string? RunningId,

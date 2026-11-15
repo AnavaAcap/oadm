@@ -40,7 +40,7 @@ public sealed class LoadTestPlugin : ICorePlugin, IAsyncDisposable
 
     public IReadOnlyList<ITaskPlugin> TaskPlugins => [];
 
-    /// <summary>The read-only tools <c>oadm_load_test_runs</c> and <c>oadm_load_test_run</c> (docs/spec/mcp.md "Plugins"): "show".</summary>
+    /// <summary>The read-only tools <c>oadm_load_test_checks</c> and <c>oadm_load_test_check</c> (docs/spec/mcp.md "Plugins"): "show".</summary>
     public IReadOnlyList<PluginTool> Tools => LoadTestTools.All;
 
     /// <summary>The running service (tests).</summary>
@@ -102,8 +102,8 @@ public sealed class LoadTestPlugin : ICorePlugin, IAsyncDisposable
             LoadTestMethods.GetRun => LoadTestJson.Serialize(await service.GetRunAsync(caller, LoadTestJson.Deserialize<RunRequest>(payloadJson), ct).ConfigureAwait(false)),
             LoadTestMethods.GetStream => LoadTestJson.Serialize(await service.GetStreamAsync(caller, LoadTestJson.Deserialize<StreamRequest>(payloadJson), ct).ConfigureAwait(false)),
             LoadTestMethods.DeleteRun => await DeleteAsync(service, caller, payloadJson, ct).ConfigureAwait(false),
-            _ when method == LoadTestTools.Runs.Method => LoadTestTools.RunsAnswerOf(service.ListRuns(caller)),
-            _ when method == LoadTestTools.Run.Method => await RunToolAsync(service, caller, payloadJson, ct).ConfigureAwait(false),
+            _ when method == LoadTestTools.Checks.Method => LoadTestTools.ChecksAnswerOf(service.ListRuns(caller)),
+            _ when method == LoadTestTools.Check.Method => await RunToolAsync(service, caller, payloadJson, ct).ConfigureAwait(false),
             _ => throw new ArgumentException($"Unknown method '{method}'.", nameof(method)),
         };
     }

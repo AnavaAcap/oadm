@@ -97,8 +97,8 @@ plan's read of the video sources still runs detached from the call (`Detached`),
 ## MCP
 
 `Tools/LoadTestTools` (`ICorePlugin.Tools`, area `load_test`, docs/spec/mcp.md): the read-only tools
-`oadm_load_test_runs` (the kept checks of the caller's scope with verdict, peak rate, worst loss, headroom, progress) and
-`oadm_load_test_run` (one check: the summary, the ramp steps on the first page, then its streams worst first with their
+`oadm_load_test_checks` (the kept checks of the caller's scope with verdict, peak rate, worst loss, headroom, progress) and
+`oadm_load_test_check` (one check: the summary, the ramp steps on the first page, then its streams worst first with their
 result, loss, rate, jitter and first problem, paged). Right "show"; Start, Cancel and Delete stay in the page.
 
 ## Tests

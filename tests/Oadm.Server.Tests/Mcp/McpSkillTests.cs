@@ -31,7 +31,7 @@ public sealed partial class McpSkillTests
         "oadm_pki_certificate_create_preview", "oadm_pki_certificate_create_run", "oadm_ntp_status", "oadm_dhcp_status",
         "oadm_dhcp_leases", "oadm_hardening_results", "oadm_vapix_commands", "oadm_vapix_command_preview", "oadm_vapix_command_run",
         "oadm_edge_storage_cards", "oadm_recordings_search", "oadm_image_health_results", "oadm_io_ports", "oadm_metadata_streams",
-        "oadm_dashboards_list", "oadm_dashboards_values", "oadm_load_test_runs", "oadm_load_test_run", "oadm_snapshot_report_sources",
+        "oadm_dashboards_list", "oadm_dashboards_values", "oadm_load_test_checks", "oadm_load_test_check", "oadm_snapshot_report_sources",
         "oadm_recipients_list",
         "oadm_selection", "oadm_docs_search",
     ];

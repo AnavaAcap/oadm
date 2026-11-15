@@ -221,7 +221,7 @@ counts first; decision 2026-11-15 "the agents see everything OADM shows"): `oadm
 `oadm_image_health_results` (the last read or check the page made, never a camera read by the tool),
 `oadm_recordings_search` (the page's search of one camera), `oadm_io_ports` (one read of one device's ports, no stream),
 `oadm_metadata_streams` (the streams pages have open and their last messages; it opens none), `oadm_dashboards_list` and
-`oadm_dashboards_values` (the values the widgets show now, nothing watched), `oadm_load_test_runs` and `oadm_load_test_run`,
+`oadm_dashboards_values` (the values the widgets show now, nothing watched), `oadm_load_test_checks` and `oadm_load_test_check`,
 `oadm_snapshot_report_sources` (1 to 20 cameras). The host tool `oadm_recipients_list` (`Tools/RecipientTools`, rights of
 `ListRecipients`, users with all devices) lists the recipients of the action plugins (Notifications, MQTT, Modbus, OPC UA)
 with the target as scheme, host and port, `has_password` only, the rules that use them and the connection of a persistent

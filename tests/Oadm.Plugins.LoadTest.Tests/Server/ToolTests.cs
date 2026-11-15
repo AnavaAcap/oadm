@@ -20,14 +20,14 @@ public sealed class ToolTests
         }
 
         ICorePlugin core = rig.Plugin;
-        Assert.Equal(["runs", "run"], core.Tools.Select(t => t.Name));
+        Assert.Equal(["checks", "check"], core.Tools.Select(t => t.Name)); // never a name ending in _run, which the host reads as the run of a change
         Assert.All(core.Tools, t => Assert.Equal(PermissionKeys.Show, core.RequiredPermission(t.Method)));
-        Assert.Empty(Answer(await rig.Ctx.InvokeAsync(rig.Plugin, rig.Admin, LoadTestTools.Runs.Method, null))["runs"]!.AsArray());
+        Assert.Empty(Answer(await rig.Ctx.InvokeAsync(rig.Plugin, rig.Admin, LoadTestTools.Checks.Method, null))["runs"]!.AsArray());
 
         var started = await rig.StartCheckAsync(cameras, batchSize: 5);
         await rig.RunToEndAsync();
 
-        var runs = Answer(await rig.Ctx.InvokeAsync(rig.Plugin, rig.Admin, LoadTestTools.Runs.Method, null));
+        var runs = Answer(await rig.Ctx.InvokeAsync(rig.Plugin, rig.Admin, LoadTestTools.Checks.Method, null));
         Assert.Null(runs["running_id"]);
         var summary = Assert.Single(runs["runs"]!.AsArray())!;
         Assert.Equal(started.RunId.ToString(), summary["run_id"]!.GetValue<string>());
@@ -46,7 +46,7 @@ public sealed class ToolTests
                 payload["after"] = after;
             }
 
-            var answer = Answer(await rig.Ctx.InvokeAsync(rig.Plugin, rig.Admin, LoadTestTools.Run.Method, payload.ToJsonString()));
+            var answer = Answer(await rig.Ctx.InvokeAsync(rig.Plugin, rig.Admin, LoadTestTools.Check.Method, payload.ToJsonString()));
             Assert.Equal(5, answer["total"]!.GetValue<int>());
             Assert.Equal(page == 0 ? 5 : 0, answer["steps"]!.AsArray().Count); // the steps come with the first page
             seen.AddRange(answer["streams"]!.AsArray().Select(s => s!));
@@ -62,7 +62,7 @@ public sealed class ToolTests
         Assert.Equal(["failed", "failed", "passed", "passed", "passed"], seen.Select(s => s["result"]!.GetValue<string>())); // worst first
         Assert.Equal(5, seen[0]["phases"]!.AsArray().Count);
 
-        var missing = Answer(await rig.Ctx.InvokeAsync(rig.Plugin, rig.Admin, LoadTestTools.Run.Method, "{}"));
+        var missing = Answer(await rig.Ctx.InvokeAsync(rig.Plugin, rig.Admin, LoadTestTools.Check.Method, "{}"));
         Assert.Equal("run_id", Assert.Single(missing["errors"]!.AsArray())!["field"]!.GetValue<string>());
     }
 
@@ -80,9 +80,9 @@ public sealed class ToolTests
         var started = await rig.StartCheckAsync([a], call: anna);
         await rig.RunToEndAsync();
 
-        Assert.Single(Answer(await rig.Ctx.InvokeAsync(rig.Plugin, anna, LoadTestTools.Runs.Method, null))["runs"]!.AsArray());
-        Assert.Empty(Answer(await rig.Ctx.InvokeAsync(rig.Plugin, bert, LoadTestTools.Runs.Method, null))["runs"]!.AsArray());
-        await Assert.ThrowsAnyAsync<Exception>(() => rig.Ctx.InvokeAsync(rig.Plugin, bert, LoadTestTools.Run.Method, $$"""{"run_id":"{{started.RunId}}"}"""));
+        Assert.Single(Answer(await rig.Ctx.InvokeAsync(rig.Plugin, anna, LoadTestTools.Checks.Method, null))["runs"]!.AsArray());
+        Assert.Empty(Answer(await rig.Ctx.InvokeAsync(rig.Plugin, bert, LoadTestTools.Checks.Method, null))["runs"]!.AsArray());
+        await Assert.ThrowsAnyAsync<Exception>(() => rig.Ctx.InvokeAsync(rig.Plugin, bert, LoadTestTools.Check.Method, $$"""{"run_id":"{{started.RunId}}"}"""));
     }
 
     [Fact]

@@ -27,8 +27,8 @@ public sealed class McpPageToolTests
     private static readonly (string Name, bool Paged)[] PageTools =
     [
         ("oadm_edge_storage_cards", true), ("oadm_recordings_search", true), ("oadm_image_health_results", true), ("oadm_io_ports", false),
-        ("oadm_metadata_streams", false), ("oadm_dashboards_list", true), ("oadm_dashboards_values", true), ("oadm_load_test_runs", false),
-        ("oadm_load_test_run", true), ("oadm_snapshot_report_sources", false),
+        ("oadm_metadata_streams", false), ("oadm_dashboards_list", true), ("oadm_dashboards_values", true), ("oadm_load_test_checks", false),
+        ("oadm_load_test_check", true), ("oadm_snapshot_report_sources", false),
     ];
 
     internal static ICorePlugin[] PagePlugins() =>
@@ -70,6 +70,7 @@ public sealed class McpPageToolTests
         var key = await server.CreateKeyAsync();
         var reply = await server.PostAsync(key, McpTestServer.Request("tools/list"));
         var listed = reply.Body!["result"]!["tools"]!.AsArray().Select(t => t!.AsObject()).ToDictionary(t => t["name"]!.GetValue<string>());
+        Assert.All(PageTools, t => Assert.False(t.Name.EndsWith("_run", StringComparison.Ordinal) || t.Name.EndsWith("_preview", StringComparison.Ordinal), t.Name)); // read as a change
         foreach (var (name, paged) in PageTools)
         {
             Assert.True(listed.TryGetValue(name, out var tool), name);
@@ -83,14 +84,14 @@ public sealed class McpPageToolTests
         Assert.DoesNotContain(listed.Keys, n => n.EndsWith("_preview", StringComparison.Ordinal) && PageTools.Any(t => n.StartsWith(t.Name, StringComparison.Ordinal)));
 
         // The reads that need nothing answer an empty page or state within the limit; the ones that need an id say so.
-        foreach (var name in new[] { "oadm_edge_storage_cards", "oadm_image_health_results", "oadm_metadata_streams", "oadm_dashboards_list", "oadm_load_test_runs" })
+        foreach (var name in new[] { "oadm_edge_storage_cards", "oadm_image_health_results", "oadm_metadata_streams", "oadm_dashboards_list", "oadm_load_test_checks" })
         {
             var answer = await server.ToolAsync(key, name);
             Assert.True(ToolAnswers.SizeOf(answer) <= ToolAnswers.MaxBytes, name);
         }
 
         Assert.Null((await server.ToolAsync(key, "oadm_edge_storage_cards"))["next_cursor"]);
-        foreach (var (name, field) in new[] { ("oadm_io_ports", "device_id"), ("oadm_recordings_search", "device_id"), ("oadm_dashboards_values", "dashboard_id"), ("oadm_load_test_run", "run_id"), ("oadm_snapshot_report_sources", "device_ids") })
+        foreach (var (name, field) in new[] { ("oadm_io_ports", "device_id"), ("oadm_recordings_search", "device_id"), ("oadm_dashboards_values", "dashboard_id"), ("oadm_load_test_check", "run_id"), ("oadm_snapshot_report_sources", "device_ids") })
         {
             var refused = await server.CallToolAsync(key, name);
             Assert.True(refused["isError"]!.GetValue<bool>(), name);

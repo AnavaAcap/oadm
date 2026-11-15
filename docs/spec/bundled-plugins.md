@@ -356,7 +356,7 @@ one row per camera stream. Details: [Load test](load-test.md) and the plugin's R
   camera streams per check and 200 at once; RTP over UDP on 50000-50799 with the firewall rule open only while a check runs; the last 5 runs kept
   (the 6th deletes the oldest), a run that was running at a server stop kept as Failed. Methods `plan`, `listRuns`,
   `getRun`, `getStream` need "show" (Viewer), `start`, `cancel`, `deleteRun` the plugin's "run" permission (Operator).
-- MCP ([mcp.md](mcp.md)): the read-only tools `oadm_load_test_runs` and `oadm_load_test_run` (verdicts, steps, streams worst first).
+- MCP ([mcp.md](mcp.md)): the read-only tools `oadm_load_test_checks` and `oadm_load_test_check` (verdicts, steps, streams worst first).
 - Device groups: a group user checks only the group's cameras (chosen ids outside it refused whole, NOT_FOUND); runs
   belong to the device scope that ran them. A check is a shared host job of that scope: streams and the exposure raise
   only on the starter's devices as they are now, a camera that leaves the group is dropped, live rows only of cameras

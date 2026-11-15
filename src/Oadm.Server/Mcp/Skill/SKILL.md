@@ -56,7 +56,7 @@ job.
 What the pages show (read only, while their plugin is on): SD cards `oadm_edge_storage_cards`, recordings of a camera
 `oadm_recordings_search`, image health `oadm_image_health_results`, inputs and outputs `oadm_io_ports`, open event
 streams `oadm_metadata_streams`, dashboards `oadm_dashboards_list` and `oadm_dashboards_values`, load tests
-`oadm_load_test_runs` and `oadm_load_test_run`, snapshot tiles `oadm_snapshot_report_sources`, recipients of the event
+`oadm_load_test_checks` and `oadm_load_test_check`, snapshot tiles `oadm_snapshot_report_sources`, recipients of the event
 rules `oadm_recipients_list`. An empty answer with a note means the page has read nothing yet: ask the user to use it.
 
 ## Rules
