@@ -24,6 +24,9 @@ internal sealed partial class MonitorSession : IAsyncDisposable
     private readonly CancellationTokenSource _cts = new();
     private readonly Lock _gate = new();
     private readonly Queue<MetadataMessage> _pending = new();
+
+    /// <summary>The last messages of the stream (<see cref="RecentCount"/>), for the tool's look at what the device sends.</summary>
+    private readonly Queue<MetadataMessage> _recent = new();
     private IDeviceEventSource? _source;
     private Task _run = Task.CompletedTask;
     private Task _flush = Task.CompletedTask;
@@ -75,6 +78,18 @@ internal sealed partial class MonitorSession : IAsyncDisposable
     private long Lost => _lostClosed + _dropped + (_source?.LostDocuments ?? 0);
 
     public void KeepAlive() => Interlocked.Exchange(ref _lastKeepAlive, _options.Time.GetTimestamp());
+
+    /// <summary>Messages kept for <see cref="Recent"/>.</summary>
+    public const int RecentCount = 20;
+
+    /// <summary>The last messages of the stream, newest first, at most <paramref name="count"/> (memory only, like the counters).</summary>
+    public IReadOnlyList<MetadataMessage> Recent(int count)
+    {
+        lock (_gate)
+        {
+            return [.. _recent.Reverse().Take(count)];
+        }
+    }
 
     /// <summary>Opens the stream; returns the user message when the device refuses, else starts reading in the background.</summary>
     public async Task<string?> StartAsync(CancellationToken ct)
@@ -153,8 +168,15 @@ internal sealed partial class MonitorSession : IAsyncDisposable
         {
             foreach (var message in parsed)
             {
-                _pending.Enqueue(message.WithSeq(++_seq, document.ReceivedUtc));
+                var numbered = message.WithSeq(++_seq, document.ReceivedUtc);
+                _pending.Enqueue(numbered);
                 _messages++;
+                _recent.Enqueue(numbered);
+                if (_recent.Count > RecentCount)
+                {
+                    _recent.Dequeue();
+                }
+
                 if (_pending.Count > _options.MaxBatchMessages)
                 {
                     _pending.Dequeue();
