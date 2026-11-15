@@ -57,6 +57,10 @@ public sealed partial class AssistantSettingsViewModel : ValidatingViewModel
         Validation.Rule(nameof(DailyLimit), () => ParseLimit(DailyLimit) is >= MinLimit and <= MaxLimit ? null : AssistantTexts.LimitRange);
         Validation.Rule(nameof(UserDailyLimit), () => UserDailyLimit.Trim().Length == 0 || ParseLimit(UserDailyLimit) is 0 or (>= MinLimit and <= MaxLimit)
             ? null : AssistantTexts.UserLimitRange);
+        Validation.Rule(nameof(StepsPerAnswer), () => ParseInt(StepsPerAnswer) is >= Contracts.Assistant.AssistantTexts.MinStepsPerAnswer and <= Contracts.Assistant.AssistantTexts.MaxStepsPerAnswer
+            ? null : Contracts.Assistant.AssistantTexts.StepsRange);
+        Validation.Rule(nameof(AnswerSeconds), () => ParseInt(AnswerSeconds) is >= Contracts.Assistant.AssistantTexts.MinAnswerSeconds and <= Contracts.Assistant.AssistantTexts.MaxAnswerSeconds
+            ? null : Contracts.Assistant.AssistantTexts.AnswerSecondsRange);
         Validation.Validate();
         Validation.Reset();
     }
@@ -89,6 +93,14 @@ public sealed partial class AssistantSettingsViewModel : ValidatingViewModel
 
     /// <summary>Optional; empty: no limit per user.</summary>
     [ObservableProperty] public partial string UserDailyLimit { get; set; } = string.Empty;
+
+    /// <summary>The model's tool calls per message, 1 to 50.</summary>
+    [ObservableProperty] public partial string StepsPerAnswer { get; set; } = Contracts.Assistant.AssistantTexts.MaxToolCallsPerMessage.ToString(CultureInfo.InvariantCulture);
+
+    /// <summary>The longest one answer may take, 30 to 600 seconds.</summary>
+    [ObservableProperty] public partial string AnswerSeconds { get; set; } = Contracts.Assistant.AssistantTexts.DefaultAnswerSeconds.ToString(CultureInfo.InvariantCulture);
+
+    private static int? ParseInt(string text) => int.TryParse(text.Trim(), NumberStyles.None, CultureInfo.InvariantCulture, out var value) ? value : null;
 
 
     /// <summary>The answer of Test, or what is wrong.</summary>
@@ -125,6 +137,10 @@ public sealed partial class AssistantSettingsViewModel : ValidatingViewModel
 
     public string UserDailyLimitText => _state?.Settings?.UserDailyLimit is > 0 and var limit ? AssistantTexts.Tokens(limit) : "None";
 
+    public string StepsPerAnswerText => (_state?.Settings?.StepsPerAnswer is > 0 and var steps ? steps : Contracts.Assistant.AssistantTexts.MaxToolCallsPerMessage).ToString(CultureInfo.InvariantCulture);
+
+    public string AnswerSecondsText => string.Create(CultureInfo.CurrentCulture, $"{(_state?.Settings?.AnswerSeconds is > 0 and var s ? s : Contracts.Assistant.AssistantTexts.DefaultAnswerSeconds)} seconds");
+
     public string SendPicturesText => _state?.Settings?.SendPictures == true ? "On" : "Off";
 
     public bool ShowTurnOn => IsAdmin && !IsOn;
@@ -145,7 +161,7 @@ public sealed partial class AssistantSettingsViewModel : ValidatingViewModel
     {
         base.OnPropertyChanged(e);
         if (e.PropertyName is nameof(Provider) or nameof(ApiKey) or nameof(Address) or nameof(SendPictures)
-            or nameof(DailyLimit) or nameof(UserDailyLimit))
+            or nameof(DailyLimit) or nameof(UserDailyLimit) or nameof(StepsPerAnswer) or nameof(AnswerSeconds))
         {
             OnPropertyChanged(nameof(SaveTip));
             SaveCommand.NotifyCanExecuteChanged();
@@ -271,6 +287,8 @@ public sealed partial class AssistantSettingsViewModel : ValidatingViewModel
         "api_key" => nameof(ApiKey),
         "daily_limit" => nameof(DailyLimit),
         "user_daily_limit" => nameof(UserDailyLimit),
+        "steps_per_answer" => nameof(StepsPerAnswer),
+        "answer_seconds" => nameof(AnswerSeconds),
         _ => null,
     };
 
@@ -283,11 +301,18 @@ public sealed partial class AssistantSettingsViewModel : ValidatingViewModel
         SendPictures = SendPictures,
         DailyLimit = ParseLimit(DailyLimit) ?? 0,
         UserDailyLimit = UserDailyLimit.Trim().Length == 0 ? 0 : ParseLimit(UserDailyLimit) ?? 0,
+        StepsPerAnswer = ParseInt(StepsPerAnswer) ?? 0,
+        AnswerSeconds = ParseInt(AnswerSeconds) ?? 0,
     };
 
     private static bool Same(AssistantSettings saved, AssistantSettings form) =>
         saved.Provider == form.Provider && saved.Address == form.Address && form.ApiKey.Length == 0
-        && saved.SendPictures == form.SendPictures && saved.DailyLimit == form.DailyLimit && saved.UserDailyLimit == form.UserDailyLimit;
+        && saved.SendPictures == form.SendPictures && saved.DailyLimit == form.DailyLimit && saved.UserDailyLimit == form.UserDailyLimit
+        && OrDefault(saved.StepsPerAnswer, Contracts.Assistant.AssistantTexts.MaxToolCallsPerMessage) == form.StepsPerAnswer
+        && OrDefault(saved.AnswerSeconds, Contracts.Assistant.AssistantTexts.DefaultAnswerSeconds) == form.AnswerSeconds;
+
+    /// <summary>0 from an older server: the default.</summary>
+    private static int OrDefault(int value, int fallback) => value > 0 ? value : fallback;
 
     private void Apply(AssistantSettingsState state)
     {
@@ -299,6 +324,8 @@ public sealed partial class AssistantSettingsViewModel : ValidatingViewModel
         SendPictures = settings.SendPictures;
         DailyLimit = (settings.DailyLimit > 0 ? settings.DailyLimit : DefaultDailyLimit).ToString("N0", CultureInfo.InvariantCulture);
         UserDailyLimit = settings.UserDailyLimit > 0 ? settings.UserDailyLimit.ToString("N0", CultureInfo.InvariantCulture) : string.Empty;
+        StepsPerAnswer = (settings.StepsPerAnswer > 0 ? settings.StepsPerAnswer : Contracts.Assistant.AssistantTexts.MaxToolCallsPerMessage).ToString(CultureInfo.InvariantCulture);
+        AnswerSeconds = (settings.AnswerSeconds > 0 ? settings.AnswerSeconds : Contracts.Assistant.AssistantTexts.DefaultAnswerSeconds).ToString(CultureInfo.InvariantCulture);
         Validation.Reset();
         _availability?.Apply(state);
         OnPropertyChanged(nameof(IsOn));
@@ -307,6 +334,8 @@ public sealed partial class AssistantSettingsViewModel : ValidatingViewModel
         OnPropertyChanged(nameof(ApiKeyPlaceholder));
         OnPropertyChanged(nameof(DailyLimitText));
         OnPropertyChanged(nameof(UserDailyLimitText));
+        OnPropertyChanged(nameof(StepsPerAnswerText));
+        OnPropertyChanged(nameof(AnswerSecondsText));
         OnPropertyChanged(nameof(SendPicturesText));
         NotifyCommands();
     }

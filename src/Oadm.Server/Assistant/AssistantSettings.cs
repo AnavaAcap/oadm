@@ -37,6 +37,12 @@ public sealed record AssistantSettings
     /// <summary>Tokens a day per user; 0: no limit per user.</summary>
     public long UserDailyLimit { get; init; }
 
+    /// <summary>The model's tool calls per message (Steps per answer).</summary>
+    public int StepsPerAnswer { get; init; } = AssistantTexts.MaxToolCallsPerMessage;
+
+    /// <summary>The longest one answer may take, in seconds (Answer time).</summary>
+    public int AnswerSeconds { get; init; } = AssistantTexts.DefaultAnswerSeconds;
+
     [System.Text.Json.Serialization.JsonIgnore]
     public bool HasApiKey => !string.IsNullOrEmpty(ProtectedApiKey);
 
@@ -135,6 +141,16 @@ public sealed record AssistantSettings
         if (before.UserDailyLimit != after.UserDailyLimit)
         {
             changes.Add($"Daily limit per user {PerUser(before.UserDailyLimit)} -> {PerUser(after.UserDailyLimit)}");
+        }
+
+        if (before.StepsPerAnswer != after.StepsPerAnswer)
+        {
+            changes.Add(string.Create(CultureInfo.InvariantCulture, $"Steps per answer {before.StepsPerAnswer} -> {after.StepsPerAnswer}"));
+        }
+
+        if (before.AnswerSeconds != after.AnswerSeconds)
+        {
+            changes.Add(string.Create(CultureInfo.InvariantCulture, $"Answer time {before.AnswerSeconds} s -> {after.AnswerSeconds} s"));
         }
 
         return changes.Count == 0 ? "No change" : string.Join(", ", changes);

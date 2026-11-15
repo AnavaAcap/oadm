@@ -107,6 +107,8 @@ public sealed class AssistantGrpcService(AssistantChats chats, AuditLog audit) :
                 SendPictures = settings.SendPictures,
                 DailyLimit = settings.DailyLimit,
                 UserDailyLimit = settings.UserDailyLimit,
+                StepsPerAnswer = settings.StepsPerAnswer,
+                AnswerSeconds = settings.AnswerSeconds,
             },
             HasApiKey = settings.HasApiKey,
             UsedToday = chats.Usage.UsedToday(),
@@ -178,6 +180,19 @@ public sealed class AssistantGrpcService(AssistantChats chats, AuditLog audit) :
             throw Field("user_daily_limit", AssistantTexts.UserDailyLimitRange);
         }
 
+        // 0: an older client without these fields keeps the default.
+        var steps = request.StepsPerAnswer == 0 ? AssistantTexts.MaxToolCallsPerMessage : request.StepsPerAnswer;
+        if (steps is < AssistantTexts.MinStepsPerAnswer or > AssistantTexts.MaxStepsPerAnswer)
+        {
+            throw Field("steps_per_answer", AssistantTexts.StepsRange);
+        }
+
+        var seconds = request.AnswerSeconds == 0 ? AssistantTexts.DefaultAnswerSeconds : request.AnswerSeconds;
+        if (seconds is < AssistantTexts.MinAnswerSeconds or > AssistantTexts.MaxAnswerSeconds)
+        {
+            throw Field("answer_seconds", AssistantTexts.AnswerSecondsRange);
+        }
+
         return new AssistantSettings
         {
             Enabled = request.Enabled,
@@ -187,6 +202,8 @@ public sealed class AssistantGrpcService(AssistantChats chats, AuditLog audit) :
             SendPictures = request.SendPictures,
             DailyLimit = request.DailyLimit,
             UserDailyLimit = request.UserDailyLimit,
+            StepsPerAnswer = steps,
+            AnswerSeconds = seconds,
         };
     }
 

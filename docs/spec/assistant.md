@@ -141,6 +141,8 @@ Administrators only; changes audited ("Changed assistant").
 - **Daily limit**: tokens a day for the whole server (default 2,000,000) and, optionally, per user; the panel shows
   the server's count of today next to the send arrow ("95,333 tokens today"; decision 2026-11-15: not on the card). At the limit the panel says "The assistant reached today's limit. It works again tomorrow." (reset at
   midnight server time).
+- **Steps per answer** (1 to 50, default 20) and **Answer time (s)** (30 to 600, default 120; decision 2026-11-15): the
+  model's tool calls per message and the longest one answer may take. 0 from an older client keeps the default. Audited.
 - No model here (decision 2026-11-15): each user picks it in the panel.
 - **Test**: checks the address and key by reading the provider's model list (Ollama, OpenAI-compatible without a list:
   one short call); "The provider answered." or the provider's error in plain words.
@@ -176,8 +178,8 @@ the model's calls that act outside OADM (the network scan of Add devices) at mos
 access key ("The assistant did this too often. Wait a minute."), camera pictures within the user's limit of every
 channel ("Too many pictures. Wait a minute."); a Run is the user's click and counts against neither; the daily limit
 counts each message's estimate at its start and settles it at its end; a Stop sent just before an answer began stops it;
-OADM's own failure in a tool is a failed tool line ("The call failed. Try again."), never told as the provider's; at most 20
-tool calls per message (then the model must answer without tools); tool answers at most 32 KB (the tools' own
+OADM's own failure in a tool is a failed tool line ("The call failed. Try again."), never told as the provider's; at most **Steps per answer**
+tool calls per message (default 20, then the model must answer without tools); tool answers at most 32 KB (the tools' own
 limit); the model's context is cut from the oldest messages when it grows too long (older turns are dropped, and
 within one message the older tool answers are shortened to 1,500 characters while the newest stays whole); a provider timeout of 120 s per
 answer with all its rounds ("The provider did not answer. Try again."), 30 s for Test; a message at most 8,000

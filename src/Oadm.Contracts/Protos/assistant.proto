@@ -24,7 +24,8 @@ service AssistantService {
   // Forgets the conversation (panel closed, New chat).
   rpc End (AssistantConversationRequest) returns (Empty);
   rpc GetSettings (Empty) returns (AssistantSettingsState);
-  // INVALID_ARGUMENT with trailer oadm-field (provider, address, api_key, daily_limit, user_daily_limit).
+  // INVALID_ARGUMENT with trailer oadm-field (provider, address, api_key, daily_limit, user_daily_limit, steps_per_answer,
+  // answer_seconds).
   rpc SetSettings (AssistantSettings) returns (AssistantSettingsState);
   // Reads the provider's model list with the given settings (the saved key when api_key is empty); never saves.
   rpc Test (AssistantSettings) returns (AssistantTestReply);
@@ -150,6 +151,8 @@ message AssistantSettings {
   bool send_pictures = 6;
   int64 daily_limit = 7;                   // tokens a day for the server, default 2,000,000
   int64 user_daily_limit = 8;              // 0 = no limit per user
+  int32 steps_per_answer = 9;              // the model's tool calls per message, 1..50 (0 from an older client: 20)
+  int32 answer_seconds = 10;               // the longest one answer may take, 30..600 (0 from an older client: 120)
 }
 
 message AssistantSettingsState {

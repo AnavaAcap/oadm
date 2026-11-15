@@ -30,7 +30,7 @@ namespace Oadm.Server.Assistant;
 /// </summary>
 public sealed partial class AssistantChats
 {
-    /// <summary>The longest one answer may take with all its rounds.</summary>
+    /// <summary>The default of Answer time (the card), the longest one answer may take with all its rounds.</summary>
     public static readonly TimeSpan AnswerTimeout = TimeSpan.FromSeconds(120);
 
     /// <summary>The model's context: older turns are left out beyond about this many characters (about 50,000 tokens).</summary>
@@ -333,13 +333,13 @@ public sealed partial class AssistantChats
         long tokens = 0;
         var error = string.Empty;
         var stopped = false;
-        using var timeout = new CancellationTokenSource(AnswerTimeout, _time);
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(settings.AnswerSeconds), _time);
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(streaming.Token, timeout.Token);
         var finished = false;
         try
         {
             using var client = Provider(() => _providers.Create(new AssistantConnection(settings.Provider, settings.Address, model, apiKey)));
-            for (var step = 0; step <= AssistantTexts.MaxToolCallsPerMessage + 1; step++)
+            for (var step = 0; step <= settings.StepsPerAnswer + 1; step++)
             {
                 var messages = Context(system, conversation, turn);
                 var options = new ChatOptions
@@ -383,7 +383,7 @@ public sealed partial class AssistantChats
                 var extra = new List<AIContent>();
                 foreach (var request in requested)
                 {
-                    if (round.ToolsOff || ++round.ToolCalls > AssistantTexts.MaxToolCallsPerMessage)
+                    if (round.ToolsOff || ++round.ToolCalls > settings.StepsPerAnswer)
                     {
                         round.ToolsOff = true;
                         results.Add(new FunctionResultContent(request.CallId, ToolAnswers.ErrorJson(AssistantTexts.ToolLimit).ToJsonString(ToolAnswers.Json)));
@@ -399,7 +399,7 @@ public sealed partial class AssistantChats
                     turn.Add(new ChatMessage(ChatRole.User, extra));
                 }
 
-                round.ToolsOff |= round.ToolCalls >= AssistantTexts.MaxToolCallsPerMessage;
+                round.ToolsOff |= round.ToolCalls >= settings.StepsPerAnswer;
             }
 
             finished = true;

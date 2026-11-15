@@ -593,11 +593,18 @@ public sealed class AssistantTests
         form.UserDailyLimit = "12";
         Assert.Equal(AssistantTexts.UserLimitRange, form.ErrorOf(nameof(AssistantSettingsViewModel.UserDailyLimit)));
         form.UserDailyLimit = "";
+        form.StepsPerAnswer = "0";
+        Assert.Equal(Oadm.Contracts.Assistant.AssistantTexts.StepsRange, form.ErrorOf(nameof(AssistantSettingsViewModel.StepsPerAnswer)));
+        form.StepsPerAnswer = "8";
+        form.AnswerSeconds = "10";
+        Assert.Equal(Oadm.Contracts.Assistant.AssistantTexts.AnswerSecondsRange, form.ErrorOf(nameof(AssistantSettingsViewModel.AnswerSeconds)));
+        form.AnswerSeconds = "240";
         Assert.True(form.SaveCommand.CanExecute(null));
 
         await form.SaveCommand.ExecuteAsync(null);
         var saved = (await api.GetAssistantSettingsAsync(CancellationToken.None)).Settings;
         Assert.Equal(("ollama", "http://10.0.0.5:11434", 500_000L, 0L), (saved.Provider, saved.Address, saved.DailyLimit, saved.UserDailyLimit));
+        Assert.Equal((8, 240), (saved.StepsPerAnswer, saved.AnswerSeconds));
         Assert.Equal("500,000", form.DailyLimit); // shown with separators like Used today
 
         await form.TurnOffCommand.ExecuteAsync(null);
@@ -648,6 +655,8 @@ public sealed class AssistantTests
     [InlineData("api_key", nameof(AssistantSettingsViewModel.ApiKey))]
     [InlineData("daily_limit", nameof(AssistantSettingsViewModel.DailyLimit))]
     [InlineData("user_daily_limit", nameof(AssistantSettingsViewModel.UserDailyLimit))]
+    [InlineData("steps_per_answer", nameof(AssistantSettingsViewModel.StepsPerAnswer))]
+    [InlineData("answer_seconds", nameof(AssistantSettingsViewModel.AnswerSeconds))]
     public async Task AServerRefusalShowsBelowTheFieldItNames(string trailer, string property)
     {
         var api = Substitute.For<IOadmApi>();

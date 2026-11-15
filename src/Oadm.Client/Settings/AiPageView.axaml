@@ -113,6 +113,12 @@
           <ui:FormField Label="Per user" InputWidth="320" Hint="Optional">
             <TextBox x:Name="AssistantUserLimit" Text="{Binding UserDailyLimit}" Width="160" HorizontalAlignment="Left" />
           </ui:FormField>
+          <ui:FormField Label="Steps per answer" InputWidth="320">
+            <TextBox x:Name="AssistantSteps" Text="{Binding StepsPerAnswer}" Width="160" HorizontalAlignment="Left" />
+          </ui:FormField>
+          <ui:FormField Label="Answer time (s)" InputWidth="320">
+            <TextBox x:Name="AssistantAnswerTime" Text="{Binding AnswerSeconds}" Width="160" HorizontalAlignment="Left" />
+          </ui:FormField>
         </StackPanel>
         <StackPanel Classes="form" IsVisible="{Binding !IsAdmin}">
           <ui:FormField Label="Provider">
@@ -126,6 +132,12 @@
           </ui:FormField>
           <ui:FormField Label="Per user">
             <TextBlock Text="{Binding UserDailyLimitText}" />
+          </ui:FormField>
+          <ui:FormField Label="Steps per answer">
+            <TextBlock Text="{Binding StepsPerAnswerText}" />
+          </ui:FormField>
+          <ui:FormField Label="Answer time">
+            <TextBlock Text="{Binding AnswerSecondsText}" />
           </ui:FormField>
         </StackPanel>
         <ui:ProgressRow Text="{x:Static a:AssistantTexts.Testing}" IsVisible="{Binding IsTesting}" />
