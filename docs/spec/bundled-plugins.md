@@ -616,6 +616,10 @@ only while Edge storage is on.
   (removed ones are skipped; runs stay refused as a whole).
 - MCP ([mcp.md](mcp.md)): the read-only tool `oadm_edge_storage_cards` (the table the page read last for the caller's
   device scope, with its counts; it reads no camera).
+- AI agents: the hidden task is offered to the task tools with `StorageMcpPayload` (check, repair, retention, format,
+  encryption off; never Encrypt, which needs a passphrase), the page method's rules in `ValidatePayload`, the page's rights
+  through `PagePermissions` (check and retention `manage`, the others `format`) and a plan that says format and encryption
+  off delete every recording.
 
 ## Date and time
 
