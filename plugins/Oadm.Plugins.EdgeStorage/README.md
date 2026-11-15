@@ -75,6 +75,28 @@ disk lists).
 
 "show" (Operator, Viewer); "Change storage settings" (`manage`: check, retention; Operator yes); "Format and encrypt storage" (`format`: format, repair, encryption on / off; deletes recordings, full device control, Operator no). The page hides the tools the role lacks; the server checks the method's right, and an action sent through the other method is refused. Both methods are audited.
 
+## AI agents
+
+The task is offered to the agents' task tools (`oadm_tasks_catalog`, `oadm_task_preview`, `oadm_task_run`; docs/spec/mcp.md
+"Tasks") although it is hidden from the menus:
+
+- Input `StorageMcpPayload` (`PayloadType`): `action` (`check`, `repair`, `retention`, `format`, `encryptionOff`) and
+  `retentionDays` (0 to 7,000, retention only). The task reads the same JSON as its `TaskPayload`.
+- Encrypt is not offered: it needs a passphrase. `ValidatePayload` refuses `encryptionOn` at `action` ("Encrypt on the Edge
+  storage page. It needs a passphrase."); a `TODO(secret-handle)` in `StorageTaskPlugin.ValidatePayload` marks where a
+  secret handle takes its place later.
+- `ValidatePayload` holds every rule the page method checks before it starts tasks (`StoragePayloadRules.Problems`, also
+  used by the page method and the task): a known action ("Unknown action.", field `action`), the days ("Enter 0 to 7,000
+  days.", field `retentionDays`).
+- `PagePermissions`: the page's rights of the action, like the methods: check and retention `manage`, repair, format and
+  encryption `format`; an unreadable payload needs both. The task declares no rights of its own.
+- `PlanAsync` from the cached status and API list (no slot: "The camera has no SD card management"); whether a card is in
+  the slot or encrypted is read when the task runs. Warnings: format and encryption off "The SD cards are formatted: every
+  recording on them is deleted.", repair "Damaged recordings can be lost.", check, repair, format and encryption off
+  "Recording stops until the task is finished.".
+
+Tests: `PayloadTests`.
+
 ## Device groups
 
 One table per device scope (`DeviceSweeps<StorageRow>`): the users of a device group share the table of their group's cameras, `rows` and `state` reach only them (`PluginEventAudience.DeviceScope`). `read` with ids from a user limited to a device group and the runs (`change`, `format`) refuse the whole request when any camera is outside the caller's devices (NOT_FOUND "1 device is no longer available.", like an unknown id; nothing read, no task); a user with all devices gets the cameras that still exist (`CallDevices.KnownAsync`: removed ones are skipped); `read` without ids = the caller's cameras; runs start through the caller's task runner. After a task the camera is read again in every table that has its row. A deleted group has no table. `read` and `getState` answer only rows of cameras the caller sees now (`DeviceSweep.SnapshotAsync`): a camera that left the group (tag or site change, before the group's rows are pruned) drops out of the table at once and its removal goes out with the next batch; reading a camera again after a task removes the row of a camera no longer in the scope. When the caller's cameras cannot be listed the state comes without rows. See [Device groups](../../docs/spec/device-scope.md).
