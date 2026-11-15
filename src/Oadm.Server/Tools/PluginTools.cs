@@ -126,7 +126,12 @@ internal sealed partial class PluginTools(PluginRegistry registry, CorePluginHos
     private IEnumerable<OadmTool> Make(RegisteredCorePlugin registered, string area, PluginTool tool)
     {
         var plugin = registered.Plugin;
-        var name = $"oadm_{area}_{tool.Name}";
+        if (tool.Area is { } own && !AreaPattern.IsMatch(own))
+        {
+            throw new InvalidOperationException("the tool's area is not lower case words with underscores");
+        }
+
+        var name = $"oadm_{tool.Area ?? area}_{tool.Name}";
         var input = SchemaOf(tool.InputType, tool.InputSchema, tool.JsonOptions, input: true)
             ?? throw new InvalidOperationException("the input has no usable schema");
         var output = SchemaOf(tool.OutputType, tool.OutputSchema, tool.JsonOptions, input: false)

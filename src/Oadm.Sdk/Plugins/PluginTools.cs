@@ -20,6 +20,12 @@ public sealed record PluginTool(string Name, string Title, string Description)
     /// <summary>The longest name.</summary>
     public const int MaxNameLength = 40;
 
+    /// <summary>
+    /// The area of this tool's name instead of the plugin's <see cref="ICorePlugin.ToolArea"/>, lower case words with underscores:
+    /// VAPIX Commander's request tool is <c>oadm_device_request</c>. Null: the plugin's area. A name a host tool has is never taken over.
+    /// </summary>
+    public string? Area { get; init; }
+
     /// <summary>Rows of a list by default (<see cref="Paged"/>).</summary>
     public const int DefaultRows = 50;
 

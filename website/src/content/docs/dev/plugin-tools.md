@@ -24,7 +24,8 @@ public IReadOnlyList<PluginTool> Tools { get; } =
 ];
 ```
 
-The host names it `oadm_<area>_<name>`: the area is the plugin id without `oadm.` (`ToolArea` changes it), the name is yours.
+The host names it `oadm_<area>_<name>`: the area is the plugin id without `oadm.` (`ToolArea` changes it, `PluginTool.Area`
+changes it for one tool), the name is yours.
 Use lower case words with underscores, at most 40 characters for your name (`PluginTool.MaxNameLength`). A tool with a
 longer name is left out and logged.
 
