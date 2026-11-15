@@ -202,7 +202,9 @@ must never break.
   `more` instead of a total, answers at most 32 KB); no tool returns a secret and no secret ever goes through the model: a
   secret reaches OADM only through the secret channel (`ToolSecrets`: a preview's slot, filled by the person's own shell
   over `PUT /secrets/` or the assistant card's field, encrypted in memory, once, 10 minutes); files leave only as one-time
-  links of a tool's file reference (`oadm_files_download_link`, never a backup); rights and settings GUI only; the tools answer
+  links of a tool's file reference (`oadm_files_download_link`, never a backup; a CA key backup only with a password from
+  the secret channel); rights (users, roles, device groups, access keys, license keys, plugins on/off) and backups GUI only,
+  server settings and services are previews and runs with the GUI's checks and rights (decision 2026-11-15); the tools answer
   from OADM's own data first (a device is asked only when OADM does not have the fact); a new page, column or plugin view
   gets its read tool in the same change (a core plugin declares `ICorePlugin.Tools`, `McpPluginCoverageTests`).
 - **[Assistant](docs/spec/assistant.md)**: a chat with an AI model in the client's side panel (title bar button); the loop

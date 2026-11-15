@@ -106,7 +106,7 @@ public sealed record PluginTool(string Name, string Title, string Description)
     /// passes the bytes through the answer: it replaces <c>file</c> with a file reference the caller turns into a one-time
     /// download link (an agent) or a file card with Save (the assistant). The bytes are read only then, through
     /// <c>PluginService.Download</c> as the caller (the download's permission, device group and audit). Never a backup, a
-    /// private key or a PKCS#12 file.
+    /// private key or a PKCS#12 file, except a key backup protected with a password from the secret channel (PKI's CA key backup).
     /// </summary>
     public bool ReturnsFile { get; init; }
 

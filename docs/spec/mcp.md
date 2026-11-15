@@ -4,7 +4,8 @@ Status: **all four stages built** (stage 1: the endpoint, the card MCP of the ra
 server, access keys and the read tools; stage 2: the SDK members for tasks, `ValidatePayload` in `TaskService.Run`, the task catalog,
 preview and run, the schemas of the bundled tasks without secrets, cancel, file links; stage 3: device actions, tags,
 sites, compliance, event rules, plugin tools; stage 4: the skill, Connect an agent, the website pages; see the "as built"
-sections), and the host actions of "everything a user can do" (decision 2026-11-15, stage 1: see "Host actions as built").
+sections), and the host actions of "everything a user can do" (decision 2026-11-15, stage 1: see "Host actions as built";
+server settings and services: see "Server settings and services as built").
 Not offered on purpose: see "Not over MCP" and "Open points".
 
 Part of the OADM spec (`CLAUDE.md` "Feature specs"): read it before you change this area, update it in the same change.
@@ -37,9 +38,12 @@ host change.
    declares the slot.
 5. **Least rights.** The tool list shows only what the key may do now (its role and device group, plugins on); a role like
    Viewer gives a look-only agent; a role that may run no task (no `task:` right) lists no task or file tool and is refused
-   "Your role may run no task." (`TaskRunTools.NoTaskRight`). An agent can never raise rights: users, roles, device groups, access keys, license, plugins on/off, server
-   settings, backups (create, download, restore) and Delete all devices are GUI only. Delete all tasks and Clear the event
-   log are a preview and a run with their own permissions (decision 2026-11-15).
+   "Your role may run no task." (`TaskRunTools.NoTaskRight`). An agent can never raise rights: users, roles, device groups,
+   access keys, license keys, plugins on/off and backups (create, download, restore) are GUI only. Server settings and
+   services (the Settings page's server fields, MCP, the Assistant, the PRO trial, NTP, DHCP, EST, 802.1X, PKI, sites,
+   Trust new certificate, Delete all devices) are a preview and a run with the GUI's checks and rights, Administrator where
+   the GUI is (decision 2026-11-15, "Server settings and services as built"). Delete all tasks and Clear the event log are a
+   preview and a run with their own permissions (decision 2026-11-15).
 6. **Device data is data.** Texts written by devices or other users (names, locations, tags, event texts, log lines) are
    returned only as JSON field values, never inside tool descriptions or messages to the agent, and the skill says they are
    never instructions.
@@ -227,8 +231,8 @@ not affected, affected devices by their worst level and the 10 CVEs that affect 
 counted CVEs (id, level, CVSS, fixed in) and its possible ones apart, pages with the total and a cursor; the same matcher
 and inputs as the client's column), event rules (the catalog of events and actions `oadm_rules_catalog`, list, get, create, change,
 delete, the event log), logs (server log search with `since`, `level`, `text`, at most 200 lines; audit log), files
-(`oadm_files_upload_link`, list, delete), settings (read only), PKI policies (read only, `oadm_pki_policies`, a tool of
-the PKI plugin), the user docs (`oadm_docs_search(query)`: at most 5 pages of oadm.app with title, address and the best
+(`oadm_files_upload_link`, list, delete), settings (`oadm_settings_get`, and their changes, see "Server settings and services
+as built"), PKI policies (`oadm_pki_policies`, a tool of the PKI plugin), the user docs (`oadm_docs_search(query)`: at most 5 pages of oadm.app with title, address and the best
 passage, from the index the server is built with, `Assistant/DocsIndex`; no gRPC method, so every caller has it).
 
 `oadm_server_status` (read only, every signed-in caller): what the Plugins page, the License card and the page MCP &
@@ -337,10 +341,26 @@ changes (`will_change`, `unit`) for the Assistant's card. Bundled:
 - Text recognition: `reader_save`, `reader_delete`, `reader_read_now` (a change: it fires the reader's events; answers the
   text, never a picture). Vision Center: `pipeline`, `models`, `class_lists` (reads; never a model file or a picture),
   `pipeline_save` (the editor's `VisionGraph.Check`, one error per node), `pipeline_copy`, `pipeline_delete`,
-  `class_list_save`. Model upload and delete and the graphics card setting stay in the page.
+  `class_list_save`, `model_upload` (a `file_id` of the caller's uploads, through the page's upload steps and model check:
+  standard operators only, no external data, the limits; audited like the page), `model_update` (name and classes; the page
+  replaces no model file), `model_delete` (refused while pipelines use it), `use_gpu`. Text recognition: `use_gpu`.
 - Load test: `plan`, `start` (the page's limits: 1,000 streams, batches of 200; the exposure always goes back), `cancel`,
-  `check_delete`. DHCP server: `static_lease_save`, `static_lease_delete`, `lease_make_static`, `lease_release`.
-- EST server: `enrollments_clear`. 802.1X server: `sessions`, `log_delete`.
+  `check_delete`. DHCP server: `static_lease_save`, `static_lease_delete`, `lease_make_static`, `lease_release`,
+  `settings_save` (on/off, interface, range, automatic add; the plan warns that a DHCP server hands out addresses to every
+  device that asks; the run changes nothing and names another DHCP server that answers unless `confirm_other_servers` lists
+  it, the page's Enable anyway). NTP server: `settings_save` (on/off, interface, time source, Serve at sites; the run asks
+  the time source once, like the page).
+- EST server: `enrollments_clear`, `enable` (Turn on needs OADM PRO), `settings_save`, `profile_save`, `profile_delete`.
+  802.1X server: `sessions`, `log_delete`, `switches`, `enable`, `settings_save`, `switch_save` (the shared secret kept,
+  entered through the secret channel as `shared_secret`, or generated by the run and handed out once as a file, never in an
+  answer; the plan warns to set a new secret on the switch too), `switch_delete`.
+- PKI (Administrator with all devices; a CA by its row id `ca:<SHA-256>`): `all_policies` (read), `ca_create`, `ca_import`
+  (`file_id` and `key_file_id` of the caller's uploads; the PKCS#12 password through the secret channel when the file needs
+  one), `ca_delete` (the page's refusal while a policy names the CA), `ca_key_backup` (password through the secret channel;
+  the run hands out the PKCS#12 once over a download link, `ToolFileStore`, the only private-key file a tool gives),
+  `server_trust_install` (root CAs; warns that the server trusts everything the CA signs), `policy_save`, `policy_delete`
+  (dry runs of the Policies tab's checks, `PolicyStore` `dryRun`; Block and VLAN warn). A CA certificate without its key is
+  imported in OADM.
 - VAPIX Commander: `saved_save`, `saved_delete`, `saved_import`, `saved_export` (the page's command file, at most 24 KB,
   secret values as `***`, password values left out; a command with a password value is refused with "Set passwords in
   OADM.").
@@ -350,9 +370,11 @@ changes (`will_change`, `unit`) for the Assistant's card. Bundled:
 
 Live video, Live View tabs, Dashboards live updates, Metadata Monitor and I/O Monitor streams (their state and one read
 are offered, see "Plugins"), continuous pan and tilt (a held button), Web View; users, roles, device groups, access keys,
-license changes, plugins on/off, Forget server; Settings changes; the Vision Center models and its graphics card setting;
-backup restore, Delete all devices, Install now of a new
-version (reading the license and plugin state is `oadm_server_status`, the version `oadm_update_check`). Backups stay GUI only: no tool creates, downloads or restores one (decision 2026-11-15).
+a license key (import, remove), plugins on/off, Forget server (a client's own list); the credential list (its passwords);
+backup restore, Install now of a new version (reading the license and plugin state is `oadm_server_status`, the version
+`oadm_update_check`). Backups stay GUI only: no tool creates, downloads or restores one (decision 2026-11-15). Settings
+changes, the Vision Center models and the graphics card settings are tools since the decision of 2026-11-15 ("Server
+settings and services as built").
 
 ## Files
 
@@ -361,7 +383,9 @@ of `FileService`, PUT with the same Bearer key) and the command for the agent's 
 "Authorization: Bearer $OADM_KEY" -T <file> <url>`). The file never passes the model. The upload answers the file id and
 SHA-256, used in a task preview like a file uploaded in the client (`IUploadedFiles`).
 
-**Downloads** (decision 2026-11-15; never a backup, a private key or a PKCS#12 file):
+**Downloads** (decision 2026-11-15; never a backup, a private key or a PKCS#12 file, with one exception: Back up a CA key of
+PKI, whose file is protected with a password the person enters through the secret channel, "Server settings and services
+as built"):
 
 - A tool that makes a file answers a **file reference** (`ToolFiles.Offer`: `file_ref`, `name`, `size` or null,
   `content_type`, `expires`), never the bytes. The reference is bound to the caller (key or session), good for 10 minutes
@@ -444,6 +468,13 @@ New default interface members (SDK minor version up, `docs/spec/plugins.md`):
   method (`PageMethodOf`, `RulesMethodOf`) for the plugin's rules. `PluginToolPlan(WillChange, Unit)` is the base of a plan,
   so the Assistant's card says "1 reader" (`AssistantCards`). Tests: `McpPageActionTests` and each plugin's `PageToolTests`;
   `McpAddOnToolSchemaTests` checks the schemas of the optional plugins without starting them.
+- `PluginTool.Secrets` (`PluginToolSecret(Name, Label, MaxLength)`, at most 8): the secrets a plugin change's run needs. The
+  host declares them on the preview's handle (all, or those the plan names in `needs_secrets`), the person fills them
+  through the secret channel ("Secrets"), and the run's payload gets them once in `secrets` (`PluginToolInput.Secret(name)`,
+  `IsRun`); a preview never has them. A plugin never writes one into an answer, a log line or an audit detail.
+- `ICallContext.Uploads` (`IUploadedFiles`): the files the caller uploaded in this session (an agent's upload link, the
+  Assistant's Attach file), so a tool takes a file as `file_id`; another user's or session's upload answers like an unknown
+  id (`UploadStore.For`, `CorePluginHost.UploadStore`). `FakeCallContext.Uploads` with `FakeUploadedFiles` in tests.
 - `[Secret]` (`SecretAttribute`) on a payload property: a task whose payload has one, anywhere, is not offered over MCP.
 - `ITaskPlugin.PagePermissions(payloadJson)`: a page task names the keys of its core plugin one run needs; then the task
   tools offer it with those rights ("Offered tasks").
@@ -813,6 +844,59 @@ unit, the key fields, red Run for deletes and removals) and a short status line 
   handles end after 10 minutes and belong to their caller, the audit lines, refusals, a role without the rights and a group
   user list none of the changes and a group sees only its devices, Discovery only looks, the scrub of a task read, every
   card), and `McpToolTests` / `McpSecretTests` / `McpSkillTests` over every new tool.
+
+## Server settings and services as built
+
+Decision 2026-11-15: AI agents (MCP with the key's role and devices, the Assistant with the signed-in user) change server
+settings and services like a user in the client. Every change is a preview (the GUI's checks and field texts, nothing
+written, the old and the new value) and a run through the gRPC service the client calls (its checks again, its audit);
+Administrator where the GUI is, the caller's role always. Secrets only through the secret channel, files only through
+upload and download links. The tools: `Tools/ServerChangeTools`, `SiteChangeTools`, `DeviceTrustTools`; the plugins' in
+their `Tools/` folders; the shared rules of the Settings page in `Oadm.Contracts.Settings.ServerSettingsRules` (the page
+and the tool use the same checks and texts).
+
+- **Server settings** `oadm_settings_set_preview`/`_run` (`SettingsService.Set`, Administrator with all devices): `changes`
+  takes only the Settings page's server fields (an allow-list: server name, listen URL, addresses scanned at once, scan
+  timeout, Discovery duration, waiting-device retry, parallel tasks per plugin, allowed clock difference, Basic login over
+  HTTP, Update the list online); the preview answers per changed field its label, old and new value, `restart_needed` for
+  the listen URL and the warnings: Basic over HTTP sends passwords readable on the network; a new listen URL applies at the
+  next restart and cuts off clients (and the Assistant in them) that cannot reach it; the online list's source. The run
+  writes only the planned fields on top of what is stored then. The Settings page has no host name field; none is offered.
+- **MCP** `oadm_mcp_set_preview`/`_run` (`McpService.Set`, Administrator; the tools get the host's `McpService` calls as
+  functions, `AgentServerCalls`, so the tool layer names no MCP type): Turn on, Port, Listen on with the card's texts
+  (`McpTexts`); the plan warns that agents can no longer connect (off), must change their configuration (port) or lose an
+  interface, and, for a caller that came over MCP, that its own connection may drop with the run.
+- **Assistant** `oadm_assistant_settings_preview`/`_run` (`AssistantService.SetSettings`, Administrator): the card's fields
+  and checks (`AssistantTexts`); `new_api_key: true` declares the secret `api_key` (the card's or the shell's field, never
+  the chat); a new provider or address needs the key again like the card; Turn off and a new provider warn that every chat
+  ends. `oadm_assistant_test` (`Test` with the saved settings, a read that reaches the provider).
+- **OADM PRO trial** `oadm_license_trial_preview`/`_run` (`LicenseService.StartTrial`, Administrator; once per server, no
+  handle when it cannot start). Importing or removing a license key stays in OADM.
+- **Sites** (Administrator): `oadm_sites_waiting` (the waiting nodes with id, key fingerprint, address and version, for the
+  bind), `oadm_sites_accept_preview`/`_run` (`SetAccept`; off warns that every site goes Site offline),
+  `oadm_sites_bind_preview`/`_run` (`BindSite`; the pairing code is the secret `pairing_code`; the plan shows the
+  fingerprint to compare with the node app), `oadm_sites_replace_preview`/`_run` (`ReplaceSite`, only to an online site;
+  answers moved and stayed), `oadm_sites_remove_preview`/`_run` (`RemoveSite`, keep the devices as Site offline by default or
+  remove them; the plan names the device groups that use the site and warns that the node must be bound again).
+- **Trust new certificate** `oadm_devices_certificate_trust_preview`/`_run` (`GetPresentedCertificates`, then
+  `TrustNewCertificates` with the fingerprints the preview showed; Add and remove devices; at most 50 devices a preview, it
+  asks each device): per device the trusted and the new fingerprint for the person to compare, with a warning that an
+  unexplained change can mean someone between OADM and the device; a device that presents another certificate meanwhile is
+  refused by the run.
+- **Delete all devices** `oadm_devices_remove_all_preview`/`_run` (Administrator; `DeviceService.Remove` with every id):
+  the plan counts every device and the devices per site; audited "Removed devices" as the caller.
+- **Plugin tools with secrets and files** (SDK `PluginTool.Secrets`, `ICallContext.Uploads`, see "SDK"): a plugin's change
+  declares its secrets and the host declares them on the handle; a `file_id` argument is read through the caller's own
+  uploads.
+- **Assistant cards** (`AssistantCards`): each preview above has its card (old → new per setting, "3 settings", the
+  fingerprints, the sites, "3 devices"); Run is red for MCP or the Assistant turned off, Accept site nodes off, a site removed
+  and Delete all devices. Status lines for the new reads (`AssistantTools.LineOf`: "Reading the server settings", "Looking at
+  sites", "Testing the provider", "Reading the device certificates").
+- **Tests**: `McpServerChangeTests` (the diff and the page's texts, nothing written by a preview, the run once and audited as
+  "MCP <key>", Operators and group users list none of the administrator tools, the MCP warnings and Turn off, the API key
+  only through the secret channel and never in an answer, the audit or the log, the trial once, Accept site nodes, unknown
+  nodes and sites, Delete all devices, the trust plan and its limit), the lists of `McpToolTests`, `McpSecretTests` and
+  `McpSkillTests`.
 
 ## Open points
 

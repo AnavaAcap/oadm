@@ -127,7 +127,13 @@ shows the chat.
   characters, at most 12 lines with "+N more". Run is red for a delete or removal (`destructive`). The previews of the host
   actions (decision 2026-11-15, docs/spec/mcp.md "Host actions as built") each have their card: tags, the waiting list, tasks
   deleted, a rule turned on or off, copied or tested, the event log cleared, recipients, compliance and its checks, a site
-  renamed, zoom, focus, PTZ, the RTSP port and the vulnerability list ("2 addresses", "1 rule", "3 devices").
+  renamed, zoom, focus, PTZ, the RTSP port and the vulnerability list ("2 addresses", "1 rule", "3 devices"). Server
+  settings and services (decision 2026-11-15, docs/spec/mcp.md "Server settings and services as built": the Assistant can
+  change what an administrator can in the client, always as a card the user runs) have theirs too: old → new per setting
+  ("3 settings"), the MCP server and the Assistant itself (a new API key is a secret field of the card), the PRO trial,
+  Accept site nodes, Bind (the pairing code is a secret field), Replace with, Remove site, the trusted and new fingerprint
+  per device, Delete all devices; Run is red when it turns MCP or the Assistant off, closes the site nodes, removes a site
+  or deletes all devices. A plugin's change shows its plan's fields and its count ("1 policy").
 - **Secret fields** (decision 2026-11-15, `docs/spec/mcp.md` "Secrets"): a preview whose run needs a secret
   (`AssistantPreviewCard.secrets`) shows one `ui:PasswordBox` per secret in a `ui:FormField` ("Password") above Cancel and
   Run; "Enter the password." below the field once it was edited or left empty, Run disabled with that reason as its tooltip
