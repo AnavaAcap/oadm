@@ -457,6 +457,78 @@
     <Setter Property="Padding" Value="{StaticResource Oadm.CardPadding}" />
     <Setter Property="HorizontalAlignment" Value="Left" />
   </Style>
+  <!-- The Assistant panel (docs/spec/assistant.md): a Border.sidePanel at the right of every page. The user's message right
+       in a raised bubble, a preview card and the attached file chips raised with a thin border, the picture shown larger
+       over the window. -->
+  <Style Selector="Border.chatUser">
+    <Setter Property="Background" Value="{StaticResource Oadm.SurfaceRaisedBrush}" />
+    <Setter Property="CornerRadius" Value="8" />
+    <Setter Property="Padding" Value="10,8" />
+    <Setter Property="HorizontalAlignment" Value="Right" />
+    <Setter Property="MaxWidth" Value="440" />
+  </Style>
+  <Style Selector="Border.chatCard">
+    <Setter Property="Background" Value="{StaticResource Oadm.SurfaceRaisedBrush}" />
+    <Setter Property="BorderBrush" Value="{StaticResource Oadm.BorderBrush}" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="CornerRadius" Value="{StaticResource Oadm.CardCornerRadius}" />
+    <Setter Property="Padding" Value="12" />
+  </Style>
+  <Style Selector="Border.chatChip">
+    <Setter Property="Background" Value="{StaticResource Oadm.SurfaceRaisedBrush}" />
+    <Setter Property="BorderBrush" Value="{StaticResource Oadm.BorderBrush}" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="CornerRadius" Value="12" />
+    <Setter Property="Padding" Value="10,0,2,0" />
+  </Style>
+  <Style Selector="Border.chatPicture">
+    <Setter Property="CornerRadius" Value="6" />
+    <Setter Property="ClipToBounds" Value="True" />
+    <Setter Property="Background" Value="{StaticResource Oadm.VideoBackgroundBrush}" />
+    <Setter Property="HorizontalAlignment" Value="Left" />
+    <Setter Property="MaxHeight" Value="300" />
+  </Style>
+  <Style Selector="Border.pictureOverlay">
+    <Setter Property="Background" Value="{StaticResource Oadm.OverlayBrush}" />
+    <Setter Property="Padding" Value="48" />
+  </Style>
+  <!-- An entry made of blocks (an answer and its Copy, a table and its "+N more"): the same 12 px between them -->
+  <Style Selector="StackPanel.chatItem">
+    <Setter Property="Spacing" Value="12" />
+  </Style>
+  <Style Selector="Border.chatComposer">
+    <Setter Property="BorderBrush" Value="{StaticResource Oadm.BorderBrush}" />
+    <Setter Property="BorderThickness" Value="0,1,0,0" />
+    <Setter Property="Padding" Value="0,12,0,0" />
+  </Style>
+  <!-- c:MarkdownText (the Assistant's answers): blocks 8 px apart, headings like section titles, list markers secondary,
+       table cells with a line below. -->
+  <Style Selector=":is(StackPanel).markdown">
+    <Setter Property="Spacing" Value="8" />
+  </Style>
+  <Style Selector=":is(StackPanel).markdown SelectableTextBlock">
+    <Setter Property="LineHeight" Value="18" />
+  </Style>
+  <Style Selector="SelectableTextBlock.mdHeading">
+    <Setter Property="FontSize" Value="14" />
+    <Setter Property="FontWeight" Value="SemiBold" />
+  </Style>
+  <Style Selector="SelectableTextBlock.mdHeader">
+    <Setter Property="FontWeight" Value="SemiBold" />
+  </Style>
+  <Style Selector="Grid.mdList">
+    <Setter Property="ColumnSpacing" Value="8" />
+    <Setter Property="RowSpacing" Value="4" />
+  </Style>
+  <Style Selector="TextBlock.mdMarker">
+    <Setter Property="Foreground" Value="{StaticResource Oadm.TextSecondaryBrush}" />
+    <Setter Property="LineHeight" Value="18" />
+  </Style>
+  <Style Selector="Border.mdHeaderCell, Border.mdCell">
+    <Setter Property="Padding" Value="8,4" />
+    <Setter Property="BorderBrush" Value="{StaticResource Oadm.BorderBrush}" />
+    <Setter Property="BorderThickness" Value="0,0,0,1" />
+  </Style>
   <!-- Monitoring card (ui:StatCard): status icon + title, a large count, a small detail line. The status colors icon and
        count; neutral without one. -->
   <!-- A StatCard is a Border subclass: Border.card does not reach it (type selectors do not match subclasses). -->
@@ -808,6 +880,11 @@
   </Style>
   <Style Selector="Button.iconOnly">
     <Setter Property="Padding" Value="7" />
+  </Style>
+  <!-- An icon-only button inside running content (Copy below an Assistant answer): the icon lines up with the text's left
+       edge and the gaps around it are the content's own; the hover area reaches into them. -->
+  <Style Selector="Button.iconOnly.flush">
+    <Setter Property="Margin" Value="-7,-8,0,-8" />
   </Style>
 
   <!-- Primary (accent) button -->
@@ -1275,6 +1352,12 @@
   <Style Selector="ui|FormField > CheckBox">
     <Setter Property="MinHeight" Value="{StaticResource Oadm.ControlHeight}" />
   </Style>
+  <!-- A check box without a label that has a hint or error below it: as tall as the box, so the message sits below the box
+       like below any input and the row starts like the others (with a label the row keeps 32 px to stay level with it) -->
+  <Style Selector="ui|FormField:message:noLabel > CheckBox">
+    <!-- the 16 px box sits centred in the 32 px check box: take the 8 px above and below it out of the row -->
+    <Setter Property="Margin" Value="0,-8,0,-8" />
+  </Style>
   <Style Selector="TextBlock.fieldLabel">
     <Setter Property="Foreground" Value="{StaticResource Oadm.TextSecondaryBrush}" />
     <Setter Property="VerticalAlignment" Value="Center" />
@@ -1737,6 +1820,13 @@
   </Style>
   <Style Selector="ListBox.readOnlyList ListBoxItem:pointerover /template/ ContentPresenter#PART_ContentPresenter, ListBox.readOnlyList ListBoxItem:selected /template/ ContentPresenter#PART_ContentPresenter">
     <Setter Property="Background" Value="Transparent" />
+  </Style>
+  <!-- The Assistant's conversation (after readOnlyList, which it refines): one 12 px gap between entries, and room on the right so nothing sits under the scroll bar -->
+  <Style Selector="ListBox.chatList">
+    <Setter Property="Padding" Value="0,0,16,0" />
+  </Style>
+  <Style Selector="ListBox.readOnlyList.chatList ListBoxItem">
+    <Setter Property="Padding" Value="0,0,0,12" />
   </Style>
 
   <!-- The device tree (ui:DeviceTree: tag groups and devices, one list) and the page tabs (ui:PageTab) of Web View and Live View -->

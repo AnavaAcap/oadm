@@ -1,0 +1,84 @@
+---
+title: Assistant
+description: Chat with an AI model inside OADM about your devices, and let it prepare changes you run with one click.
+---
+
+import { Steps, Aside } from '@astrojs/starlight/components';
+import { Image } from 'astro:assets';
+import panel from '../../../assets/screens/assistant-panel.png';
+import preview from '../../../assets/screens/assistant-preview.png';
+import settings from '../../../assets/screens/assistant-settings.png';
+
+The **Assistant** is a chat in OADM. Ask it about your devices in your own words: which cameras are offline, which run
+old AXIS OS, what a camera sees. It works with your rights and your devices only. A change is always a plan first: you
+see what it would do and press **Run** yourself.
+
+<Image src={panel} alt="The Assistant panel with an answer: a table of offline devices and a camera picture" class="screen" />
+
+## Set it up
+
+An administrator sets it up once for the server.
+
+<Steps>
+
+1. Open **Settings**, the card **AI**, section **Assistant**.
+2. Choose the **Provider**: Anthropic, OpenAI, Ollama or OpenAI-compatible (LM Studio, vLLM, Azure OpenAI).
+3. Enter the **API key**, or the **Address** for Ollama and OpenAI-compatible (`http://10.0.0.5:11434`).
+4. Set the **Daily limit** in tokens for the whole server and, if you want, per user.
+5. Click **Test**, then **Turn on**.
+
+</Steps>
+
+<Image src={settings} alt="The card AI in Settings, section Assistant: provider, API key, pictures, daily limits" class="screen" />
+
+With Anthropic and OpenAI, device names, addresses and other data of your devices go to that provider. Ollama keeps
+everything in your network. Camera pictures go to the model only with **Send pictures to the model** on.
+
+The API key is stored encrypted on the server and never shown again. Who may chat: the permission **Use the assistant**
+on the [Permissions](../users/) page. Administrators have it.
+
+## Chat
+
+Click the chat button in the title bar. The panel stays open while you move between pages.
+
+- **Model**: choose it next to **Send**. OADM remembers your choice on this computer.
+- **Selected devices**: the devices you select on the Devices page go with your message. Ask "restart these cameras" and
+  the assistant works on them.
+- **Attach file**: for a firmware or application file. The file goes to the OADM server, never to the provider.
+- **Stop** ends an answer. **New chat** starts over.
+
+Tables in an answer are devices: click a row to select it on the Devices page, or **Select all in the grid**.
+
+## Changes need your click
+
+The assistant never changes a device by itself. It asks OADM for a plan and shows it as a card: what Run does, taken from
+the plan itself (a rule's event and where it sends, the tag names, the file), on how many devices, which devices are
+skipped and why, and the warnings. **Run** starts the tasks; the card follows them. A **Run** that deletes is red.
+**Cancel** drops the plan.
+
+<Image src={preview} alt="Two plan cards: save a rule with its event and target, and delete two tags with a red Run" class="screen" />
+
+Every change and every camera picture is in the audit log under your name, as if you did it in OADM.
+
+## What it cannot do
+
+- Read or set passwords, keys or tokens.
+- Change users, roles, device groups, the license, plugins or server settings.
+- Show live video.
+- Remember a chat: closing the panel or signing out forgets it.
+
+It can answer questions about OADM itself from this documentation.
+
+## Limits
+
+When the daily limit is reached, the assistant says so and works again the next day. One answer runs at a time, with at
+most 20 steps. An answer that takes longer than 2 minutes stops with "The provider did not answer. Try again."
+
+## Troubleshooting
+
+| What you see | What to do |
+|---|---|
+| No chat button in the title bar | The assistant is off, or your role lacks **Use the assistant**. |
+| "This model cannot use tools. Choose another one." | Choose another model next to **Send**. Many small Ollama models cannot. |
+| "The assistant reached today's limit. It works again tomorrow." | Wait, or raise the **Daily limit** in Settings. |
+| **Test** shows an error from the provider | Check the API key or the address and that the server reaches the provider. |

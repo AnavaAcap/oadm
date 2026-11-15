@@ -23,6 +23,12 @@
     <!-- The MCP server for AI agents (docs/spec/mcp.md): the official C# SDK, Streamable HTTP, stateless. 2.3.1 depends on the
          10.0.13 runtime packages the host uses. -->
     <PackageReference Include="ModelContextProtocol.AspNetCore" Version="2.3.1" />
+    <!-- The assistant (docs/spec/assistant.md): Microsoft.Extensions.AI's IChatClient with the providers' adapters. OADM runs the
+         tools itself (no automatic function invocation). Versions at least two weeks old when added. -->
+    <PackageReference Include="Microsoft.Extensions.AI" Version="10.11.0" />
+    <PackageReference Include="Microsoft.Extensions.AI.OpenAI" Version="10.11.0" />
+    <PackageReference Include="Anthropic" Version="13.3.0" />
+    <PackageReference Include="OllamaSharp" Version="5.5.0" />
     <!-- Windows service (MSI) and systemd unit (.deb); both are no-ops on a console. -->
     <PackageReference Include="Microsoft.Extensions.Hosting.Systemd" Version="10.0.13" />
     <PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" Version="10.0.13" />
@@ -34,6 +40,9 @@
     <!-- The skill for AI agents (docs/spec/mcp.md "Skill"): served over MCP and downloaded from the Settings card. -->
     <EmbeddedResource Include="Mcp\Skill\*.md" LogicalName="Oadm.Server.Mcp.Skill.%(Filename)%(Extension)" />
   </ItemGroup>
+
+  <!-- The search index of the user docs for oadm_docs_search (docs/spec/assistant.md), made from website/ at build time. -->
+  <Import Project="Assistant\DocsIndex.targets" />
 
   <ItemGroup>
     <InternalsVisibleTo Include="Oadm.Server.Tests" />

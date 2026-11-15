@@ -69,6 +69,8 @@ public sealed class McpSecretTests
             ["oadm_files_delete_run"] = new() { ["handle"] = "ended" },
             ["oadm_tasks_cancel_preview"] = new() { ["batch"] = Guid.NewGuid().ToString() },
             ["oadm_tasks_cancel_run"] = new() { ["handle"] = "ended" },
+            ["oadm_selection"] = [],
+            ["oadm_docs_search"] = new() { ["query"] = "credentials" },
         };
         var areaKey = await server.CreateKeyAsync(name: "canary-areas"); // a key allows 20 calls a second: the areas' tools use their own
         var areaCalls = McpAreaToolTests.SecretScanCalls();

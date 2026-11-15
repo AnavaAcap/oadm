@@ -98,6 +98,7 @@ public static class AuditActions
     public const string AccessKeyDeleted = "Deleted access key";
     public const string AccessKeyRefused = "Access key refused";
     public const string McpChanged = "Changed MCP server";
+    public const string AssistantChanged = "Changed assistant";
     public const string FileUploaded = "Uploaded file";
     public const string FileDownloaded = "Downloaded file";
 }

@@ -130,3 +130,15 @@ and runs after the user agreed.
 | `oadm_vapix_command_preview` | Preview | Runs one command of oadm_vapix_commands on devices from oadm_devices_search, one task per device. Read the results with oadm_tasks_get. Nothing is changed. Call oadm_vapix_command_run with the handle to apply it. |
 | `oadm_vapix_command_run` | Run (changes) | Applies the plan of oadm_vapix_command_preview, which checks everything again. |
 | `oadm_vapix_commands` | Read | Lists the VAPIX Commander commands an agent may run, with their fields. Run one with oadm_vapix_command_preview. |
+
+## Docs
+
+| Tool | Kind | What it does |
+| --- | --- | --- |
+| `oadm_docs_search` | Read | Searches the user docs of OADM for how to do something in OADM. Answers at most 5 pages with the title, the address and the matching passage. |
+
+## Selection
+
+| Tool | Kind | What it does |
+| --- | --- | --- |
+| `oadm_selection` | Read | The devices the user selected in the device list, a page at a time with the total and a cursor. Over MCP none are selected. |

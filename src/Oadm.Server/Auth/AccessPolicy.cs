@@ -261,6 +261,16 @@ public static class AccessPolicy
         ["/oadm.v1.McpService/GetCaCertificate"] = AccessRule.SignedIn,
         ["/oadm.v1.McpService/GetSkill"] = AccessRule.SignedIn,
         ["/oadm.v1.McpService/Set"] = AccessRule.Admin.ForAllDevices(),
+        // The assistant (docs/spec/assistant.md): the chat needs "Use the assistant"; every role reads whether it is on (the title
+        // bar button), only administrators set it up and test it.
+        ["/oadm.v1.AssistantService/Chat"] = AccessRule.Needs(HostPermissions.AssistantUse),
+        ["/oadm.v1.AssistantService/Stop"] = AccessRule.Needs(HostPermissions.AssistantUse),
+        ["/oadm.v1.AssistantService/Run"] = AccessRule.Needs(HostPermissions.AssistantUse),
+        ["/oadm.v1.AssistantService/End"] = AccessRule.Needs(HostPermissions.AssistantUse),
+        ["/oadm.v1.AssistantService/ListModels"] = AccessRule.Needs(HostPermissions.AssistantUse),
+        ["/oadm.v1.AssistantService/GetSettings"] = AccessRule.SignedIn,
+        ["/oadm.v1.AssistantService/SetSettings"] = AccessRule.Admin.ForAllDevices(),
+        ["/oadm.v1.AssistantService/Test"] = AccessRule.Admin.ForAllDevices(),
         ["/oadm.v1.AccessKeyService/List"] = AccessRule.Admin,
         ["/oadm.v1.AccessKeyService/Create"] = AccessRule.Admin,
         ["/oadm.v1.AccessKeyService/Delete"] = AccessRule.Admin,

@@ -171,7 +171,10 @@ public static class ServiceRegistration
             sp.GetRequiredService<IOadmApi>(),
             sp.GetRequiredService<IDialogService>(),
             Path.Combine(options.DataFolder, "logs")));
-        services.AddSingleton<AiAgentsViewModel>(); // the Settings card AI, section MCP (docs/spec/mcp.md)
+        services.AddSingleton<Assistant.AssistantAvailability>();
+        services.AddSingleton(sp => new Assistant.AssistantSettingsViewModel(
+            sp.GetRequiredService<IOadmApi>(), sp.GetRequiredService<UserSession>(), sp.GetRequiredService<Assistant.AssistantAvailability>()));
+        services.AddSingleton<AiAgentsViewModel>(); // the Settings card AI, sections MCP (docs/spec/mcp.md) and Assistant
         services.AddSingleton<SettingsViewModel>();
         services.AddSingleton<CredentialsViewModel>();
         services.AddSingleton<LogsViewModel>();
@@ -237,6 +240,18 @@ public static class ServiceRegistration
             sp.GetRequiredService<ILogger<MyAxis.MyAxisAccount>>(),
             sp.GetRequiredService<ServerConnection>(),
             sp.GetRequiredService<UserSession>(),
+            sp.GetRequiredService<IUiDispatcher>()));
+        // The Assistant panel (docs/spec/assistant.md): one per client, its conversation ends on close and sign out.
+        services.AddSingleton(sp => new Assistant.AssistantPanelViewModel(
+            sp.GetRequiredService<IOadmApi>(),
+            sp.GetRequiredService<Assistant.AssistantAvailability>(),
+            sp.GetRequiredService<UserSession>(),
+            sp.GetRequiredService<DevicesViewModel>(),
+            sp.GetRequiredService<Tasks.TaskStore>(),
+            sp.GetRequiredService<IDialogService>(),
+            sp.GetRequiredService<IClipboardService>(),
+            sp.GetRequiredService<ServerConnection>(),
+            sp.GetRequiredService<IClientSettingsStore>(),
             sp.GetRequiredService<IUiDispatcher>()));
         services.AddSingleton<MainWindowViewModel>();
         return services.BuildServiceProvider();

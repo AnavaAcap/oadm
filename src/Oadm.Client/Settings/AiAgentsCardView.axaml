@@ -4,9 +4,11 @@
              xmlns:c="using:Oadm.Client.Controls"
              xmlns:net="using:Oadm.Sdk.Network"
              xmlns:settings="using:Oadm.Client.Settings"
+             xmlns:a="using:Oadm.Client.Assistant"
              x:Class="Oadm.Client.Settings.AiAgentsCardView"
              x:DataType="settings:AiAgentsViewModel">
-  <!-- Settings page, every user (docs/spec/mcp.md): the card AI with its section MCP (a later section follows below it).
+  <!-- Settings page, every user (docs/spec/mcp.md): the card AI with its section MCP, then the section Assistant
+       (docs/spec/assistant.md "Settings").
        Administrators turn the MCP server on and set the port and interface (Save); the certificate is the one the PKI policy
        MCP server picks. The status sits left of the buttons it reports on, like the EST server's. Access keys (administrators
        only), then Connect an agent: one compact row per client. -->
@@ -131,6 +133,67 @@
       </StackPanel>
       <TextBlock Text="{Binding Message}" Classes.error="{Binding MessageIsError}" Classes.secondary="{Binding !MessageIsError}" TextWrapping="Wrap"
                  IsVisible="{Binding Message, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+
+      <!-- Section Assistant (docs/spec/assistant.md "Settings"): administrators edit, every other user reads it. The status sits
+           left of the buttons it reports on, like the section MCP. -->
+      <Border Classes="separator" IsVisible="{Binding Assistant.IsAvailable}" />
+      <StackPanel x:Name="AssistantSection" Classes="form" DataContext="{Binding Assistant}" x:DataType="a:AssistantSettingsViewModel"
+                  IsVisible="{Binding IsAvailable}">
+        <TextBlock Classes="sectionTitle" Text="{x:Static a:AssistantTexts.Title}" />
+        <TextBlock Classes="secondary" Text="{x:Static a:AssistantTexts.SectionIntro}" TextWrapping="Wrap" />
+        <StackPanel Classes="form" IsVisible="{Binding IsAdmin}">
+          <ui:FormField Label="Provider" InputWidth="320" Hint="{Binding PrivacyNote}">
+            <ComboBox x:Name="AssistantProvider" HorizontalAlignment="Stretch" ItemsSource="{x:Static a:AssistantProvider.All}" SelectedItem="{Binding Provider}" />
+          </ui:FormField>
+          <ui:FormField Label="Address" InputWidth="320" IsVisible="{Binding NeedsAddress}">
+            <TextBox x:Name="AssistantAddress" Text="{Binding Address}" PlaceholderText="http://10.0.0.5:11434" />
+          </ui:FormField>
+          <ui:FormField Label="API key" InputWidth="320" IsVisible="{Binding NeedsKey}">
+            <ui:PasswordBox x:Name="AssistantApiKey" Text="{Binding ApiKey}" PlaceholderText="{Binding ApiKeyPlaceholder}" />
+          </ui:FormField>
+          <ui:FormField Label="" Hint="{x:Static a:AssistantTexts.PicturesHint}">
+            <CheckBox x:Name="AssistantPictures" Content="Send pictures to the model" IsChecked="{Binding SendPictures}" />
+          </ui:FormField>
+          <ui:FormField Label="Daily limit" InputWidth="320">
+            <TextBox x:Name="AssistantDailyLimit" Text="{Binding DailyLimit}" Width="160" HorizontalAlignment="Left" />
+          </ui:FormField>
+          <ui:FormField Label="Per user" InputWidth="320" Hint="Optional">
+            <TextBox x:Name="AssistantUserLimit" Text="{Binding UserDailyLimit}" Width="160" HorizontalAlignment="Left" />
+          </ui:FormField>
+        </StackPanel>
+        <StackPanel Classes="form" IsVisible="{Binding !IsAdmin}">
+          <ui:FormField Label="Provider" Hint="{Binding PrivacyNote}">
+            <TextBlock Text="{Binding ProviderText}" />
+          </ui:FormField>
+          <ui:FormField Label="Send pictures">
+            <TextBlock Text="{Binding SendPicturesText}" />
+          </ui:FormField>
+          <ui:FormField Label="Daily limit">
+            <TextBlock Text="{Binding DailyLimitText}" />
+          </ui:FormField>
+          <ui:FormField Label="Per user">
+            <TextBlock Text="{Binding UserDailyLimitText}" />
+          </ui:FormField>
+        </StackPanel>
+        <ui:FormField Label="Used today">
+          <TextBlock x:Name="AssistantUsedToday" Text="{Binding UsedTodayText}" />
+        </ui:FormField>
+        <ui:ProgressRow Text="{x:Static a:AssistantTexts.Testing}" IsVisible="{Binding IsTesting}" />
+        <TextBlock x:Name="AssistantTestResult" Text="{Binding TestResult}" Classes.error="{Binding !TestOk}" TextWrapping="Wrap" IsVisible="{Binding HasTestResult}" />
+        <DockPanel>
+          <Button DockPanel.Dock="Right" x:Name="AssistantSave" Classes="secondary" Content="Save" Command="{Binding SaveCommand}" IsVisible="{Binding IsAdmin}"
+                  ToolTip.Tip="{Binding SaveTip}" ToolTip.ShowOnDisabled="True" Margin="8,0,0,0" />
+          <Button DockPanel.Dock="Right" x:Name="AssistantTurnOn" Classes="secondary" Content="Turn on" Command="{Binding TurnOnCommand}" IsVisible="{Binding ShowTurnOn}"
+                  ToolTip.Tip="{Binding TurnOnTip}" ToolTip.ShowOnDisabled="True" Margin="8,0,0,0" />
+          <Button DockPanel.Dock="Right" x:Name="AssistantTurnOff" Classes="secondary" Content="Turn off" Command="{Binding TurnOffCommand}" IsVisible="{Binding ShowTurnOff}"
+                  Margin="8,0,0,0" />
+          <Button DockPanel.Dock="Right" x:Name="AssistantTest" Classes="secondary" Content="Test" Command="{Binding TestCommand}" IsVisible="{Binding IsAdmin}"
+                  ToolTip.Tip="{Binding TestTip}" ToolTip.ShowOnDisabled="True" Margin="8,0,0,0" />
+          <ui:StatusChip HorizontalAlignment="Right" VerticalAlignment="Center" Text="{Binding StatusText}" IsOk="{Binding IsOn}" MaxLines="2" />
+        </DockPanel>
+        <TextBlock Classes="error" Text="{Binding Message}" TextWrapping="Wrap"
+                   IsVisible="{Binding Message, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+      </StackPanel>
     </StackPanel>
   </c:CollapsibleCard>
 </UserControl>

@@ -334,6 +334,7 @@ public sealed class FormField : Grid
     private void UpdateLabel()
     {
         _label.Text = Label;
+        PseudoClasses.Set(":noLabel", string.IsNullOrEmpty(Label));
         if (LabelAbove)
         {
             _labelHost.Height = double.NaN;
@@ -342,7 +343,9 @@ public sealed class FormField : Grid
             return;
         }
 
-        _labelHost.Height = LabelHeight;
+        // No label: the row is as tall as its input (buttons and check boxes keep their 32 px; a check box with a hint
+        // below sits like any input with a hint).
+        _labelHost.Height = string.IsNullOrEmpty(Label) ? 0 : LabelHeight;
         bool autoLabel = double.IsNaN(LabelWidth);
         _labelHost.IsVisible = !autoLabel || !string.IsNullOrEmpty(Label);
         _labelHost.Margin = autoLabel && !string.IsNullOrEmpty(Label) ? new Thickness(0, 0, 10, 0) : default;
@@ -366,5 +369,7 @@ public sealed class FormField : Grid
             _message.Text = Hint;
             _message.IsVisible = !inputError && !string.IsNullOrEmpty(Hint);
         }
+
+        PseudoClasses.Set(":message", _message.IsVisible || inputError);
     }
 }

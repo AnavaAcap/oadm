@@ -41,9 +41,11 @@ public sealed partial class AiAgentsViewModel : ValidatingViewModel
     private readonly IClipboardService? _clipboard;
     private McpState? _state;
 
-    public AiAgentsViewModel(IOadmApi api, IDialogService dialogs, UserSession? session = null, IClipboardService? clipboard = null)
+    public AiAgentsViewModel(IOadmApi api, IDialogService dialogs, UserSession? session = null, IClipboardService? clipboard = null,
+        Assistant.AssistantSettingsViewModel? assistant = null)
     {
         _api = api;
+        Assistant = assistant ?? new Assistant.AssistantSettingsViewModel(api, session);
         _dialogs = dialogs;
         _clipboard = clipboard;
         Keys = new AccessKeysViewModel(api, dialogs, clipboard);
@@ -77,6 +79,9 @@ public sealed partial class AiAgentsViewModel : ValidatingViewModel
 
     /// <summary>Administrators change it; the server checks it too.</summary>
     public bool IsAdmin => _session?.IsAdmin ?? true;
+
+    /// <summary>The section Assistant below MCP (docs/spec/assistant.md "Settings").</summary>
+    public Assistant.AssistantSettingsViewModel Assistant { get; }
 
     /// <summary>The section Access keys (administrators).</summary>
     public AccessKeysViewModel Keys { get; }
@@ -151,6 +156,7 @@ public sealed partial class AiAgentsViewModel : ValidatingViewModel
 
     public async Task LoadAsync()
     {
+        await Assistant.LoadAsync().ConfigureAwait(true);
         try
         {
             Apply(await _api.GetMcpAsync(CancellationToken.None).ConfigureAwait(true));

@@ -20,6 +20,12 @@ public sealed record ToolCaller(AuthenticatedCaller User, string BindingKey)
 {
     /// <summary>What the channel tells about itself in <c>oadm_server_info</c> (its key and limits); <see cref="ToolChannel.None"/> without.</summary>
     public ToolChannel Channel { get; init; } = ToolChannel.None;
+
+    /// <summary>
+    /// The devices the user selected in the client's device grid, cut to the caller's device view (the assistant sends them with
+    /// every message); null over MCP, where nothing is selected (<see cref="SelectionTools"/>).
+    /// </summary>
+    public IReadOnlyList<string>? Selection { get; init; }
 }
 
 /// <summary>What <c>oadm_server_info</c> says of the channel a caller came through: its access key and its own limits.</summary>
@@ -105,6 +111,9 @@ internal sealed record ToolCall(ToolCaller Caller, JsonElement Arguments, InProc
     /// <summary>A tool that answers a picture sets it here; it goes with the answer (<see cref="ToolResult.Image"/>).</summary>
     public ToolImage? Image { get; set; }
 
+    /// <summary>A run that starts tasks sets their ids here (<see cref="ToolResult.TaskIds"/>): the assistant's card follows them.</summary>
+    public IReadOnlyList<string>? TaskIds { get; set; }
+
     /// <summary>A gRPC method of the server as the caller's user.</summary>
     public Task<TResponse> CallAsync<TService, TRequest, TResponse>(string path, TRequest request, Func<TService, TRequest, ServerCallContext, Task<TResponse>> call)
         where TService : class =>
@@ -137,6 +146,9 @@ internal sealed record ToolResult(JsonObject? Answer, string? Error, IReadOnlyLi
 
     /// <summary>A picture that goes with <see cref="Answer"/> (at most <see cref="ToolAnswers.MaxImageBytes"/>); null for most tools.</summary>
     public ToolImage? Image { get; init; }
+
+    /// <summary>The tasks a run started, in device order; null for most tools (never in the JSON: it grows with the devices).</summary>
+    public IReadOnlyList<string>? TaskIds { get; init; }
 
     public static ToolResult Ok(JsonObject answer) => new(answer, null, []);
 
@@ -216,9 +228,10 @@ internal sealed class ToolRegistry
 
         try
         {
+            args = SelectionTools.Apply(caller, args); // "selection": true is the caller's selected devices
             var call = new ToolCall(caller, args, _calls, ct) { Tool = tool.Name };
             var answer = await tool.Run(call).ConfigureAwait(false);
-            return ToolResult.Ok(answer) with { Image = call.Image };
+            return ToolResult.Ok(answer) with { Image = call.Image, TaskIds = call.TaskIds };
         }
         catch (ToolException ex)
         {

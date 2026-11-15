@@ -25,6 +25,7 @@ Every rule here and in `docs/spec/` is agreed with the maintainer; change one on
 | Text recognition | ONNX Runtime with PaddleOCR models, in an optional plugin; DirectML (Windows x64), CUDA (Linux x64) or the CPU |
 | Event rule targets | MQTTnet (MQTT), the OPC Foundation .NET stack (OPC UA), our own Modbus TCP client, in plugins |
 | AI agents | ModelContextProtocol.AspNetCore (MCP, the official C# SDK) |
+| Assistant | Microsoft.Extensions.AI (`IChatClient`) with the providers Anthropic (official SDK), OpenAI and OpenAI-compatible (Microsoft.Extensions.AI.OpenAI), Ollama (OllamaSharp); server only |
 | Embedded browser | `Avalonia.Controls.WebView` (MIT; WebView2, WKWebView, WPE WebKit / WebKitGTK of the OS), in the client host for the Web View plugin, Help and the MyAxis sign-in |
 
 Cross-platform is a day-one requirement: Windows, Linux, macOS. No Windows-only APIs
@@ -199,6 +200,9 @@ must never break.
   devices (all or one group) and an end, audit user and task owner "MCP <name>", stored only as SHA-256, never a session;
   every change is preview then run; never all devices in a result (pages with the total and a sort-key cursor, logs with
   `more` instead of a total, answers at most 32 KB); no secrets over MCP; rights and settings GUI only.
+- **[Assistant](docs/spec/assistant.md)**: a chat with an AI model in the client's side panel (title bar button); the loop
+  runs on the server with the tool registry as the signed-in user; the model only reads and previews, a person presses Run;
+  nothing kept; pictures reach the provider only with an administrator's setting; off by default, set up on the card AI.
 - **[Load test](docs/spec/load-test.md)** (core plugin `oadm.load-test`, off by default): a load test of the chosen
   cameras and the network to the server, at most 1,000 camera streams per check in batches of at most 200; the exposure
   is the only write and always goes back.
