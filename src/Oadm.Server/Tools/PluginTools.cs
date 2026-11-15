@@ -137,6 +137,11 @@ internal sealed partial class PluginTools(PluginRegistry registry, CorePluginHos
             RenameNext(output);
         }
 
+        if (tool.ReturnsFile)
+        {
+            WithFile(output);
+        }
+
         string[] methods = [InvokePath];
         if (tool.DeviceFilter)
         {
@@ -156,6 +161,11 @@ internal sealed partial class PluginTools(PluginRegistry registry, CorePluginHos
 
         var runOutput = SchemaOf(tool.RunOutputType, tool.RunOutputSchema, tool.JsonOptions, input: false)
             ?? throw new InvalidOperationException("the run's output has no usable schema");
+        if (tool.ReturnsFile)
+        {
+            WithFile(runOutput);
+        }
+
         var preview = (JsonObject)output.DeepClone();
         var properties = preview["properties"] as JsonObject ?? throw new InvalidOperationException("the output is no object with properties");
         if (properties.ContainsKey("handle") || properties.ContainsKey("expires"))
@@ -279,6 +289,38 @@ internal sealed partial class PluginTools(PluginRegistry registry, CorePluginHos
         return answer.ToJsonString();
     }
 
+    /// <summary>The answer of a tool that hands out a file: its <c>file</c> is the host's file reference (or null).</summary>
+    private static void WithFile(JsonObject output)
+    {
+        var properties = output["properties"] as JsonObject ?? throw new InvalidOperationException("the output is no object with properties");
+        properties[PluginToolFile.Property] = ToolFiles.OfferSchema("The file this answer hands out; null when there is none. Fetch it with oadm_files_download_link.");
+    }
+
+    /// <summary>
+    /// The plugin's <see cref="PluginToolFile"/> in <c>file</c> becomes a file reference of the caller: the bytes come later through
+    /// <c>PluginService.Download</c> as the caller. Anything else in <c>file</c> is dropped (fail closed).
+    /// </summary>
+    private JsonObject WithOffer(ToolCall call, string pluginId, JsonObject answer)
+    {
+        if (!answer.ContainsKey(PluginToolFile.Property))
+        {
+            return answer;
+        }
+
+        var given = answer[PluginToolFile.Property] as JsonObject;
+        answer[PluginToolFile.Property] = null;
+        if (given?["method"] is JsonValue method && method.TryGetValue<string>(out var name) && name.Length > 0 && !PluginTool.IsToolMethod(name)
+            && given["file_name"] is JsonValue file && file.TryGetValue<string>(out var fileName) && fileName.Length > 0)
+        {
+            var payload = given["payload_json"] is JsonValue p && p.TryGetValue<string>(out var text) ? text : null;
+            var type = given["content_type"] is JsonValue t && t.TryGetValue<string>(out var media) && media.Length is > 0 and <= 100 ? media : "application/octet-stream";
+            long? size = given["size"] is JsonValue z && z.TryGetValue<long>(out var bytes) && bytes >= 0 ? bytes : null;
+            answer[PluginToolFile.Property] = ToolFiles.Offer(call, handles, ToolFiles.PluginFile(call, pluginId, name, payload, Path.GetFileName(fileName), type, size));
+        }
+
+        return answer;
+    }
+
     /// <summary>The answer of a list names <c>next</c>; the caller reads <c>next_cursor</c> (the host signs the key into a cursor).</summary>
     private static void RenameNext(JsonObject output)
     {
@@ -369,6 +411,11 @@ internal sealed partial class PluginTools(PluginRegistry registry, CorePluginHos
         }
 
         var answer = await InvokeAsync(call, plugin.Id, tool.Method, payload).ConfigureAwait(false);
+        if (tool.ReturnsFile)
+        {
+            answer = WithOffer(call, plugin.Id, answer);
+        }
+
         if (tool.Paged && answer["next"] is JsonValue next && next.TryGetValue<string>(out var key) && key.Length > 0)
         {
             answer.Remove("next");
@@ -392,6 +439,11 @@ internal sealed partial class PluginTools(PluginRegistry registry, CorePluginHos
         }
 
         var answer = await InvokeAsync(call, plugin.Id, tool.PreviewMethod, payload).ConfigureAwait(false);
+        if (tool.ReturnsFile)
+        {
+            answer = WithOffer(call, plugin.Id, answer);
+        }
+
         answer["handle"] = handles.AddChange(call.Caller.BindingKey, new PlannedChange(runTool, new PlannedPluginRun(plugin.Id, tool.RunMethod, payload)));
         answer["expires"] = handles.EndOfNew().UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", CultureInfo.InvariantCulture);
         return Sized(answer);
@@ -399,7 +451,6 @@ internal sealed partial class PluginTools(PluginRegistry registry, CorePluginHos
 
     private async Task<JsonObject> RunAsync(ToolCall call, ICorePlugin plugin, PluginTool tool, string runTool)
     {
-        _ = tool;
         var plan = handles.TakeChange<PlannedPluginRun>(call.Caller.BindingKey, call.Text("handle"), runTool)
             ?? throw new ToolException(PreviewEnded, [new ToolFieldError("handle", PreviewEnded)]);
         if (!string.Equals(plan.PluginId, plugin.Id, StringComparison.OrdinalIgnoreCase))
@@ -408,7 +459,8 @@ internal sealed partial class PluginTools(PluginRegistry registry, CorePluginHos
         }
 
         // The plugin checks everything again, as for its page: the role, the permission, the device group, the input.
-        return Sized(await InvokeAsync(call, plan.PluginId, plan.Method, plan.PayloadJson).ConfigureAwait(false));
+        var answer = await InvokeAsync(call, plan.PluginId, plan.Method, plan.PayloadJson).ConfigureAwait(false);
+        return Sized(tool.ReturnsFile ? WithOffer(call, plan.PluginId, answer) : answer);
     }
 
     /// <summary>The arguments the plugin gets: as given; a list's cursor is read here into <c>after</c>, and <c>limit</c> is always there.</summary>

@@ -14,7 +14,7 @@ namespace Oadm.Server.Assistant;
 /// assistant") and the Settings card AI, section Assistant (Get for every signed-in user without the key; Set and Test for
 /// administrators, Set audited as "Changed assistant").
 /// </summary>
-public sealed class AssistantGrpcService(AssistantChats chats, AuditLog audit) : Proto.AssistantService.AssistantServiceBase
+public sealed class AssistantGrpcService(AssistantChats chats, AuditLog audit, IServiceProvider services) : Proto.AssistantService.AssistantServiceBase
 {
     /// <summary>The longest Test takes.</summary>
     public static readonly TimeSpan TestTimeout = TimeSpan.FromSeconds(30);
@@ -33,7 +33,44 @@ public sealed class AssistantGrpcService(AssistantChats chats, AuditLog audit) :
     }
 
     public override Task<Proto.AssistantRunReply> Run(Proto.AssistantRunRequest request, ServerCallContext context) =>
-        chats.RunAsync(AuthInterceptor.CallerOf(context), request.ConversationId, request.Handle, context.CancellationToken);
+        chats.RunAsync(AuthInterceptor.CallerOf(context), request.ConversationId, request.Handle, context.CancellationToken, request.Secrets);
+
+    /// <summary>A file a tool answer of the user's chat offered, made now with the user's rights; audited "Downloaded file".</summary>
+    public override async Task Download(Proto.AssistantDownloadRequest request, IServerStreamWriter<Proto.DownloadChunk> responseStream, ServerCallContext context)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(responseStream);
+        var caller = AuthInterceptor.CallerOf(context);
+        var file = services.GetService(typeof(Tools.ToolHandles)) is Tools.ToolHandles handles ? chats.OfferedFile(caller, request.ConversationId, request.FileRef, handles) : null;
+        if (file is null)
+        {
+            throw GrpcGuard.NotFound(AssistantTexts.FileEnded);
+        }
+
+        var ct = context.CancellationToken;
+        var content = await file.Open(ct).ConfigureAwait(false);
+        long sent = 0;
+        try
+        {
+            await using (content.ConfigureAwait(false))
+            {
+                context.WriteOptions = new WriteOptions(WriteFlags.NoCompress);
+                await responseStream.WriteAsync(new Proto.DownloadChunk { FileName = file.Name, Length = file.Size ?? -1 }).ConfigureAwait(false);
+                var buffer = new byte[Plugins.PluginGrpcService.DownloadChunkBytes];
+                int read;
+                while ((read = await content.ReadAsync(buffer, ct).ConfigureAwait(false)) > 0)
+                {
+                    await responseStream.WriteAsync(new Proto.DownloadChunk { Data = Google.Protobuf.ByteString.CopyFrom(buffer, 0, read) }).ConfigureAwait(false);
+                    sent += read;
+                }
+            }
+        }
+        finally
+        {
+            await audit.WriteAsync(AuditActions.FileDownloaded, file.Name,
+                string.Create(System.Globalization.CultureInfo.InvariantCulture, $"{sent:N0} bytes, from the assistant"), CancellationToken.None).ConfigureAwait(false);
+        }
+    }
 
     public override Task<Proto.AssistantPreviewCard> RetryFailed(Proto.AssistantRetryRequest request, ServerCallContext context) =>
         chats.RetryFailedAsync(AuthInterceptor.CallerOf(context), request, context.CancellationToken);

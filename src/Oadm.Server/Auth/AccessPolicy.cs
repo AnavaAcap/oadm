@@ -153,6 +153,8 @@ public static class AccessPolicy
         ["/oadm.v1.TaskService/List"] = AccessRule.SignedIn,
         ["/oadm.v1.TaskService/Watch"] = AccessRule.SignedIn,
         ["/oadm.v1.TaskService/GetLog"] = AccessRule.SignedIn,
+        ["/oadm.v1.TaskService/GetResultFile"] = AccessRule.SignedIn,
+        ["/oadm.v1.TaskService/DownloadResult"] = AccessRule.SignedIn,
         ["/oadm.v1.TaskService/Run"] = AccessRule.InCall,
         ["/oadm.v1.TaskService/Query"] = AccessRule.InCall,
         ["/oadm.v1.TaskService/Plan"] = AccessRule.InCall.ForInProcess(), // like Run: the run's permissions in the call, nothing written; every id at once: the tools only
@@ -269,6 +271,7 @@ public static class AccessPolicy
         ["/oadm.v1.AssistantService/RetryFailed"] = AccessRule.Needs(HostPermissions.AssistantUse),
         ["/oadm.v1.AssistantService/End"] = AccessRule.Needs(HostPermissions.AssistantUse),
         ["/oadm.v1.AssistantService/ListModels"] = AccessRule.Needs(HostPermissions.AssistantUse),
+        ["/oadm.v1.AssistantService/Download"] = AccessRule.Needs(HostPermissions.AssistantUse),
         ["/oadm.v1.AssistantService/GetSettings"] = AccessRule.SignedIn,
         ["/oadm.v1.AssistantService/SetSettings"] = AccessRule.Admin.ForAllDevices(),
         ["/oadm.v1.AssistantService/Test"] = AccessRule.Admin.ForAllDevices(),

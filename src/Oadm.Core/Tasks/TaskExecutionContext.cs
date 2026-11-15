@@ -53,6 +53,12 @@ internal sealed partial class TaskExecutionContext : ITaskExecutionContext
     /// <summary>Downloads from axis.com with the MyAxis sign-in of the user who started the task; null for system tasks.</summary>
     public IAxisDownloads? AxisDownloads { get; init; }
 
+    /// <summary>Where the task keeps its result file; null = it keeps none (a host without them).</summary>
+    public TaskResultFiles? ResultFiles { get; init; }
+
+    /// <summary>The user or access key who started the task; null for tasks the system started (they keep no result file).</summary>
+    public Guid? OwnerId { get; init; }
+
     /// <summary>Replaced by <see cref="UpdateCredentialsAsync"/> with a client using the new credentials.</summary>
     public IVapixClient Vapix => Volatile.Read(ref _vapix);
 
@@ -118,6 +124,20 @@ internal sealed partial class TaskExecutionContext : ITaskExecutionContext
         ArgumentException.ThrowIfNullOrWhiteSpace(scheme);
         var client = await _sink.UpdateDeviceTlsAsync(_deviceId, scheme.Trim(), expectedFingerprintSha256, ct).ConfigureAwait(false);
         Volatile.Write(ref _vapix, client);
+    }
+
+    /// <summary>Keeps the task's result file for the user who started it (docs/spec/mcp.md "Files"); logged without its content.</summary>
+    public async Task SaveResultFileAsync(string fileName, string contentType, Stream content, CancellationToken ct)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(fileName);
+        ArgumentNullException.ThrowIfNull(content);
+        if (ResultFiles is not { } files || OwnerId is not { } owner)
+        {
+            throw new NotSupportedException("This task keeps no result files.");
+        }
+
+        var saved = await files.SaveAsync(TaskId, owner, fileName, contentType, content, ct).ConfigureAwait(false);
+        Log(TaskLogLevel.Info, "Kept the result file " + saved.FileName + ".");
     }
 
     /// <summary>The address-in-use check over the other devices on this task's route; answers only "in use".</summary>

@@ -167,7 +167,7 @@ internal sealed class McpFiles(ToolHandles handles, InProcessCalls calls, AuditL
         }
 
         long sent = 0;
-        using var budget = new Budget(http, TransferBudget(stream.CanSeek ? stream.Length : null), time);
+        using var budget = new Budget(http, TransferBudget(download.Size ?? (stream.CanSeek ? stream.Length : null)), time);
         try
         {
             await using (stream.ConfigureAwait(false))

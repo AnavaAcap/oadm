@@ -101,6 +101,16 @@ public sealed record PluginTool(string Name, string Title, string Description)
     public string? TaskPlugin { get; init; }
 
     /// <summary>
+    /// The answer may hand the caller a file (SDK 0.13.0): a property <c>file</c> of type <see cref="PluginToolFile"/> (null when
+    /// there is none) names one of the plugin's downloads (<see cref="ICorePluginDownloads"/>) and its payload. The host never
+    /// passes the bytes through the answer: it replaces <c>file</c> with a file reference the caller turns into a one-time
+    /// download link (an agent) or a file card with Save (the assistant). The bytes are read only then, through
+    /// <c>PluginService.Download</c> as the caller (the download's permission, device group and audit). Never a backup, a
+    /// private key or a PKCS#12 file.
+    /// </summary>
+    public bool ReturnsFile { get; init; }
+
+    /// <summary>
     /// New serializer options in the style of the host's own tools: names in snake_case ("next_cursor"), enums by their snake_case
     /// name, nulls written, names read in any case. Keep them in a static field of the plugin (<see cref="PluginJson.CreateOptions"/>).
     /// </summary>
@@ -132,6 +142,27 @@ public sealed record PluginTool(string Name, string Title, string Description)
 
     /// <summary>True when <paramref name="method"/> only reads or previews (never writes): every tool method but the run of a change.</summary>
     public static bool IsPreviewMethod(string? method) => method is not null && method.EndsWith(".preview", StringComparison.Ordinal) && IsToolMethod(method);
+}
+
+/// <summary>
+/// The file a tool's answer hands the caller (<see cref="PluginTool.ReturnsFile"/>): which of the plugin's downloads makes it,
+/// with which payload, and what the caller is told before it fetches it. Put it into the answer's <c>file</c> property; the
+/// host turns it into a file reference. The names of the JSON fields are fixed, whatever the plugin's serializer options.
+/// </summary>
+/// <param name="Method">The download method (<see cref="ICorePluginDownloads.OpenDownloadAsync(ICallContext, string, string?, CancellationToken)"/>), e.g. "export".</param>
+/// <param name="PayloadJson">Its payload as JSON; the download checks it again with the caller's rights.</param>
+/// <param name="FileName">The file name the caller is told (no folder); the download's own name wins when the file is fetched.</param>
+/// <param name="ContentType">The media type, e.g. "application/pdf", "text/csv", "application/x-pem-file".</param>
+/// <param name="Size">The size in bytes when known before the download (an estimate is not a size: leave it null).</param>
+public sealed record PluginToolFile(
+    [property: System.Text.Json.Serialization.JsonPropertyName("method")] string Method,
+    [property: System.Text.Json.Serialization.JsonPropertyName("payload_json")] string? PayloadJson,
+    [property: System.Text.Json.Serialization.JsonPropertyName("file_name")] string FileName,
+    [property: System.Text.Json.Serialization.JsonPropertyName("content_type")] string ContentType,
+    [property: System.Text.Json.Serialization.JsonPropertyName("size")] long? Size = null)
+{
+    /// <summary>The property of the answer that holds the file.</summary>
+    public const string Property = "file";
 }
 
 /// <summary>

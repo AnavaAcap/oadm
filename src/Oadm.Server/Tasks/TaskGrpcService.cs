@@ -28,8 +28,62 @@ public sealed partial class TaskGrpcService(
     RoleStore roles,
     IHostApplicationLifetime lifetime,
     ILogger<TaskGrpcService> logger,
-    Devices.DeviceFactsSource facts) : Proto.TaskService.TaskServiceBase
+    Devices.DeviceFactsSource facts,
+    TaskResultFiles? results = null) : Proto.TaskService.TaskServiceBase
 {
+    /// <summary>
+    /// The result file of a task for the caller: the task in the caller's view, started by the caller (or the caller is an
+    /// administrator), with a file. Every other case answers NOT_FOUND alike.
+    /// </summary>
+    private async Task<TaskResultFileInfo> ResultFileOfAsync(Proto.TaskIdRequest request, ServerCallContext context)
+    {
+        var id = GrpcGuard.ParseId(request.TaskId, "task id");
+        var caller = AuthInterceptor.CallerOf(context);
+        var view = await views.ForAsync(context).ConfigureAwait(false);
+        if (results?.Find(id) is not { } file || (file.OwnerId != caller.UserId && !caller.IsAdmin)
+            || await engine.GetLogAsync(view, id, context.CancellationToken).ConfigureAwait(false) is null)
+        {
+            throw GrpcGuard.NotFound(NoResultFile);
+        }
+
+        return file;
+    }
+
+    public const string NoResultFile = "This task has no result file (it is kept for a day).";
+
+    public override async Task<Proto.TaskResultFile> GetResultFile(Proto.TaskIdRequest request, ServerCallContext context)
+    {
+        var file = await ResultFileOfAsync(request, context).ConfigureAwait(false);
+        return new Proto.TaskResultFile
+        {
+            TaskId = file.TaskId.ToString(),
+            FileName = file.FileName,
+            ContentType = file.ContentType,
+            Size = file.Size,
+            Saved = Google.Protobuf.WellKnownTypes.Timestamp.FromDateTimeOffset(file.SavedUtc),
+        };
+    }
+
+    public override async Task DownloadResult(Proto.TaskIdRequest request, IServerStreamWriter<Proto.DownloadChunk> responseStream, ServerCallContext context)
+    {
+        ArgumentNullException.ThrowIfNull(responseStream);
+        var file = await ResultFileOfAsync(request, context).ConfigureAwait(false);
+        var content = results!.Open(file.TaskId) ?? throw GrpcGuard.NotFound(NoResultFile);
+        await using (content.ConfigureAwait(false))
+        {
+            await audit.WriteAsync(AuditActions.FileDownloaded, file.FileName,
+                string.Create(System.Globalization.CultureInfo.InvariantCulture, $"{file.Size:N0} bytes, the result of a task"), CancellationToken.None).ConfigureAwait(false);
+            context.WriteOptions = new WriteOptions(WriteFlags.NoCompress);
+            await responseStream.WriteAsync(new Proto.DownloadChunk { FileName = file.FileName, Length = file.Size }).ConfigureAwait(false);
+            var buffer = new byte[Plugins.PluginGrpcService.DownloadChunkBytes];
+            int read;
+            while ((read = await content.ReadAsync(buffer, context.CancellationToken).ConfigureAwait(false)) > 0)
+            {
+                await responseStream.WriteAsync(new Proto.DownloadChunk { Data = Google.Protobuf.ByteString.CopyFrom(buffer, 0, read) }).ConfigureAwait(false);
+            }
+        }
+    }
+
     /// <summary>The task's log, oldest first (live while the task runs).</summary>
     public override async Task<Proto.TaskLog> GetLog(Proto.TaskIdRequest request, ServerCallContext context)
     {
