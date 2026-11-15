@@ -233,7 +233,7 @@ field with a value refuses the command (`CommanderPageTools.NoPasswords`; a stor
 `set_passwords` (save: field names; import: command id and field) names the password fields to store: the plan has a slot
 each, the person enters the value, the run puts it into the field and the store encrypts it like the page's
 (`SavedCommandStore`); without a master key protector: "OADM cannot store passwords for saved commands here.". Tests:
-`PageToolTests`, host `McpPluginSecretTests`.
+`PageToolTests`, host `McpCommanderSecretTests`.
 
 ## Tests
 
