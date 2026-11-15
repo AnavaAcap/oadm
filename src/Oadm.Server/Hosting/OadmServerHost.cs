@@ -227,6 +227,7 @@ public static partial class OadmServerHost
                     .. Tools.LiveViewTools.Create(sp.GetRequiredService<Tools.ToolHandles>()),
                     .. Tools.HostActionTools.Create(sp.GetRequiredService<Tools.ToolHandles>()),
                     .. Tools.DeviceChangeTools.Create(sp.GetRequiredService<Tools.ToolHandles>(), sp.GetRequiredService<TimeProvider>()),
+                    .. Tools.LoginTools.Create(sp.GetRequiredService<Tools.ToolHandles>()),
                     .. Tools.SettingsTools.Create(),
                     Tools.ServerStatusTool.Create(call => call.CallAsync<Mcp.McpGrpcService, Oadm.Contracts.V1.Empty, Oadm.Contracts.V1.McpState>(
                         Tools.ServerStatusTool.McpPath, new Oadm.Contracts.V1.Empty(), (s, r, c) => s.Get(r, c))),

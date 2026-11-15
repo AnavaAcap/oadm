@@ -11,6 +11,7 @@ using NSubstitute;
 using Oadm.Client.Api;
 using Oadm.Client.Devices;
 using Oadm.Client.Discovery;
+using Oadm.Contracts.Devices;
 using Oadm.Contracts.V1;
 
 namespace Oadm.Client.Tests;
