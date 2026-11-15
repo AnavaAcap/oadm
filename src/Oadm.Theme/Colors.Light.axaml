@@ -9,6 +9,8 @@
   <Color x:Key="Oadm.CanvasBackgroundColor">#E6E6E9</Color>
   <Color x:Key="Oadm.CanvasNodeColor">#FFFFFF</Color>
   <Color x:Key="Oadm.CardBackgroundColor">#FFFFFF</Color>
+  <!-- Over the window behind an open dialog (Shell/DialogDim) -->
+  <Color x:Key="Oadm.DialogDimColor">#4D000000</Color>
   <Color x:Key="Oadm.SurfaceRaisedColor">#E8E8E8</Color>
   <Color x:Key="Oadm.SurfaceHoverColor">#EDEDED</Color>
   <!-- Navigation rail: hover and the selected entry, quieter than the raised surfaces of buttons and menus -->

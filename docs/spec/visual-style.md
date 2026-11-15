@@ -127,7 +127,9 @@ tests render light with `OADM_TEST_APPEARANCE=Light` (client tests).
   (`WindowDecorations="BorderOnly"`); the first row is `ui:DialogTitleBar`, the title as a
   heading and an X top right that closes the window, aligned with the content. Modal, not movable and fixed size
   (`CanResize="False"`: a resizable border-only window shows a white resize strip on top on Windows), like a dialog on a
-  web page. The main window and plugin windows keep the custom title bar.
+  web page. The main window and plugin windows keep the custom title bar. While a dialog is open, the window behind it
+  is dimmed (`Oadm.DialogDimBrush`: black at 45 % dark, 30 % light; title bar included; `Oadm.Theme.Shell.DialogDim`,
+  attached in `App` of the client and the site node app, only for windows opened with `ShowDialog`; decision 2026-11-15).
 - **Login and new version**: the login window, "Trust this server?"
   and the new version dialog have no `DialogTitleBar` but a `tc:HeroBand` on top (the OADM logo in the middle, 120 px; its
   X quits the login, closes the others), the title centered below it (`TextBlock.heroTitle`, a `heroSubtitle` line under it
