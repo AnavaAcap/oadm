@@ -45,6 +45,8 @@ public sealed partial class McpSkillTests
         "oadm_recipients_list",
         "oadm_app_management_read", "oadm_app_management_log", "oadm_app_management_settings", "oadm_edge_storage_read", "oadm_device_rules_read", "oadm_image_health_check",
         .. McpHostActionTests.ToolNames,
+        .. McpAdminToolTests.ToolNames,
+        "oadm_device_request_preview", "oadm_device_request_run",
     ];
 
     private static readonly string[] Workflows =

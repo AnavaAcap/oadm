@@ -222,6 +222,9 @@ internal static class InProcessDownload
 
         public WriteOptions? WriteOptions { get; set; }
 
+        /// <summary>A service that passes its own token (the support report): the pipe's token ends the call as well.</summary>
+        public Task WriteAsync(Proto.DownloadChunk message, CancellationToken cancellationToken) => WriteAsync(message);
+
         public async Task WriteAsync(Proto.DownloadChunk message)
         {
             ArgumentNullException.ThrowIfNull(message);

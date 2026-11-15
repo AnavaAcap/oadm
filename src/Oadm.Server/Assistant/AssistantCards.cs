@@ -246,6 +246,83 @@ internal static class AssistantCards
                 Add(details, "List of", Text(answer["updated"]));
                 (count, unit) = (1, "list");
                 break;
+            case "oadm_license_import_preview":
+                Add(details, "Imports", "the OADM PRO license key you enter here");
+                Add(details, "License now", Text(answer["text"]));
+                (count, unit) = (1, "license");
+                break;
+            case "oadm_license_remove_preview":
+                Add(details, "Removes", "the OADM PRO license key");
+                Add(details, "License now", Text(answer["text"]));
+                (count, unit) = (1, "license");
+                card.Destructive = true;
+                break;
+            case "oadm_license_trial_preview":
+                Add(details, "Starts", "the 30-day trial of OADM PRO");
+                (count, unit) = (1, "license");
+                break;
+            case "oadm_plugins_enable_preview":
+                Add(details, Flag(answer["enabled"]) == true ? "Turns on" : "Turns off", Text(answer["name"]));
+                (count, unit) = (1, "plugin");
+                card.Destructive = Flag(answer["enabled"]) != true;
+                break;
+            case "oadm_plugins_license_preview":
+                Add(details, "Sets the license of", Text(answer["name"]));
+                Add(details, "License now", Text(answer["license"]));
+                (count, unit) = (1, "plugin");
+                break;
+            case "oadm_plugins_license_remove_preview":
+                Add(details, "Removes the license of", Text(answer["name"]));
+                Add(details, "License now", Text(answer["license"]));
+                (count, unit) = (1, "plugin");
+                card.Destructive = true;
+                break;
+            case "oadm_plugins_optional_install_preview":
+                Add(details, "Installs", Text(answer["name"]));
+                Add(details, "File", Text(answer["file"]?["name"]));
+                Add(details, "SHA-256", Text(answer["file"]?["sha256"]));
+                (count, unit) = (1, "plugin");
+                break;
+            case "oadm_plugins_optional_remove_preview":
+                Add(details, "Removes", Text(answer["name"]));
+                (count, unit) = (1, "plugin");
+                card.Destructive = true;
+                break;
+            case "oadm_plugins_optional_restart_preview":
+                Add(details, "Restarts the server for", Joined(answer["waiting"]));
+                (count, unit) = (1, "server");
+                card.Destructive = true;
+                break;
+            case "oadm_backups_schedule_preview":
+                Add(details, "Automatic backups", Flag(answer["enabled"]) == true
+                    ? string.Create(CultureInfo.InvariantCulture, $"on, daily at {Text(answer["time_of_day"])}, keep {Number(answer["keep"]) ?? 0:N0}")
+                    : "off");
+                Add(details, "New password", Flag(answer["new_password"]) == true ? "yes" : null);
+                Add(details, "Deletes", Number(answer["deleted"]) is > 0 and var gone ? Count(gone, "automatic backup") : null);
+                (count, unit) = (1, "schedule");
+                card.Destructive = Number(answer["deleted"]) is > 0;
+                break;
+            case "oadm_backups_create_preview":
+                Add(details, "Makes", "a backup of this server, encrypted with the password you enter here");
+                (count, unit) = (1, "backup");
+                break;
+            case "oadm_backups_delete_preview":
+                Add(details, "Deletes the backup", Text(answer["name"]));
+                (count, unit) = (1, "backup");
+                card.Destructive = true;
+                break;
+            case "oadm_backups_restore_preview":
+                Add(details, "Restores", Text(answer["source"]));
+                Add(details, "Replaces", "everything on this server");
+                (count, unit) = (1, "backup");
+                card.Destructive = true;
+                break;
+            case "oadm_update_install_preview":
+                Add(details, "Installs", Text(answer["version"]));
+                Add(details, "Replaces", Text(answer["server_version"]));
+                (count, unit) = (1, "server");
+                card.Destructive = true;
+                break;
             default:
                 // A plugin's preview: its plain fields, one level deep (the PKI certificate, a VAPIX Commander command).
                 foreach (var (name, value) in answer)

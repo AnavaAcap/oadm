@@ -182,6 +182,18 @@ internal sealed class ToolSecrets(TimeProvider time, CredentialProtector protect
         }
     }
 
+    /// <summary>
+    /// Keeps a secret a run took for work done later (a backup made when its file is fetched): encrypted with the master key and
+    /// bound to <paramref name="bindingKey"/>, opened only by <see cref="SealedSecret.Open"/>; never written anywhere.
+    /// </summary>
+    public SealedSecret Seal(string bindingKey, string value)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(bindingKey);
+        ArgumentNullException.ThrowIfNull(value);
+        var associated = Encoding.UTF8.GetBytes(bindingKey + "\nsealed\n" + Interlocked.Increment(ref _seq).ToString(System.Globalization.CultureInfo.InvariantCulture));
+        return new SealedSecret(protector, protector.Protect(value, associated), associated);
+    }
+
     private static string? Check(ToolSecretSlot slot, string value)
     {
         if (string.IsNullOrEmpty(value))
@@ -230,6 +242,15 @@ internal sealed class ToolSecrets(TimeProvider time, CredentialProtector protect
 
         public List<string> Tokens { get; } = [];
     }
+}
+
+/// <summary>A secret kept encrypted in memory for later (<see cref="ToolSecrets.Seal"/>); its text never shows (<see cref="ToString"/>).</summary>
+internal sealed class SealedSecret(CredentialProtector protector, byte[] value, byte[] associated)
+{
+    /// <summary>The value, for the one call that needs it.</summary>
+    public string Open() => protector.Unprotect(value, associated);
+
+    public override string ToString() => "***";
 }
 
 /// <summary>

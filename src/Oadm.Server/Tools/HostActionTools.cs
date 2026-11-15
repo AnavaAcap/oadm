@@ -19,6 +19,9 @@ internal sealed record PlannedSiteRename(string SiteId, string Name);
 /// <summary>A fetch of the vulnerability list.</summary>
 internal sealed record PlannedVulnerabilityFetch(string Updated);
 
+/// <summary>The release an Install now preview fixed.</summary>
+internal sealed record PlannedUpdate(string Version);
+
 /// <summary>
 /// Single actions of the server's pages (docs/spec/mcp.md "Other areas"): renaming a site (<c>SiteService.RenameSite</c>,
 /// Administrator), Check now of the vulnerability list (<c>VulnerabilityService.Refresh</c>, Administrator, only while the
@@ -30,6 +33,7 @@ internal static class HostActionTools
     public static readonly string VulnerabilityGetPath = InProcessCalls.PathOf(Proto.VulnerabilityService.Descriptor, "Get");
     public static readonly string VulnerabilityRefreshPath = InProcessCalls.PathOf(Proto.VulnerabilityService.Descriptor, "Refresh");
     public static readonly string UpdateGetPath = InProcessCalls.PathOf(Proto.UpdateService.Descriptor, "Get");
+    public static readonly string UpdateStartPath = InProcessCalls.PathOf(Proto.UpdateService.Descriptor, "Start");
 
     public const string UnknownSite = "No site has this id. See them with oadm_sites_list.";
     public const string SiteNameTaken = "Another site has this name.";
@@ -109,7 +113,7 @@ internal static class HostActionTools
         yield return new OadmTool(
             "oadm_update_check",
             "Check for a new version",
-            "The server's version and the latest stable release of OADM, as the new version dialog shows them. Install now stays in OADM.",
+            "The server's version and the latest stable release of OADM, as the new version dialog shows them. Install it with oadm_update_install_preview.",
             Object(null, []),
             OutObject(null,
             [
@@ -124,6 +128,41 @@ internal static class HostActionTools
             ], "server_version", "latest_version", "update_available", "can_install", "active_tasks", "older_site_nodes", "updating", "last_result"),
             [UpdateGetPath],
             call => UpdateAsync(call));
+
+        yield return new OadmTool(
+            "oadm_update_install_preview",
+            "Preview installing a new version",
+            "Checks Install now of the new version dialog: the latest stable release, an installed server, no task running; nothing is changed. Then call oadm_update_install_run with the handle.",
+            Object(null, []),
+            OutObject(null,
+            [
+                P("server_version", Out("string", "The server's version.")),
+                P("version", OrNull(Out("string", "The release the run installs; null when there is none to install."))),
+                P("active_tasks", Out("integer", "Tasks running now (the update waits for none).")),
+                P("older_site_nodes", Out("integer", "Sites whose node runs an older version (updated by hand).")),
+                .. ToolChanges.HandleOutput("oadm_update_install_run"),
+            ], ToolChanges.Required("server_version", "version", "active_tasks", "older_site_nodes")),
+            [UpdateGetPath, UpdateStartPath],
+            call => InstallPreviewAsync(call, handles));
+
+        yield return new OadmTool(
+            "oadm_update_install_run",
+            "Install a new version",
+            "Install now: the server downloads the release's installer, checks its SHA-256, copies its database and runs the installer. The server is away until the new version answers.",
+            ToolChanges.RunInput("oadm_update_install_preview"),
+            OutObject(null,
+            [
+                P("to_version", Out("string", "The release being installed.")),
+                P("step", Out("string", "download, check or install.")),
+            ], "to_version", "step"),
+            [UpdateStartPath],
+            call => InstallRunAsync(call, handles))
+        {
+            ReadsOnly = false,
+            Destructive = true, // the installed version is replaced; OADM never rolls back
+            Idempotent = false,
+            ActsOutside = true,
+        };
     }
 
     private static async Task<JsonObject> RenamePreviewAsync(ToolCall call, ToolHandles handles)
@@ -203,5 +242,60 @@ internal static class HostActionTools
             ["updating"] = info.Running is not null,
             ["last_result"] = info.Last is { } last ? $"{last.Result}: {last.FromVersion} to {last.ToVersion}" : null,
         };
+    }
+
+    public const string UpToDate = "OADM is up to date.";
+    public const string NoLatest = "The latest release could not be read. Check that the server reaches github.com.";
+
+    /// <summary>
+    /// Install now (docs/spec/self-update.md): offered only for the latest stable release newer than the server, on a server
+    /// installed with the installer, with no update and no task running. The run is <c>UpdateService.Start</c>, which checks
+    /// every rule again (the SHA-256 of the release, the disk space, the tasks) before anything is installed.
+    /// </summary>
+    private static async Task<JsonObject> InstallPreviewAsync(ToolCall call, ToolHandles handles)
+    {
+        var info = await call.CallAsync<UpdateGrpcService, Proto.Empty, Proto.UpdateInfo>(UpdateGetPath, new Proto.Empty(), (s, r, c) => s.Get(r, c)).ConfigureAwait(false);
+        var latest = Contracts.Updates.UpdateVersions.ParseStable(info.LatestVersion);
+        var current = Contracts.Updates.UpdateVersions.Parse(info.ServerVersion);
+        var refusal = info.Running is not null ? Contracts.Updates.UpdateTexts.Running
+            : !info.Installed ? Contracts.Updates.UpdateTexts.NotInstalled
+            : latest is null ? NoLatest
+            : current is null || Contracts.Updates.UpdateVersions.IsDevelopmentBuild(info.ServerVersion) ? Contracts.Updates.UpdateTexts.DevelopmentBuild
+            : latest <= current ? UpToDate
+            : info.ActiveTasks > 0 ? Contracts.Updates.UpdateTexts.TasksRunning(info.ActiveTasks) + ". Install the update when they ended."
+            : null;
+        var answer = new JsonObject
+        {
+            ["server_version"] = info.ServerVersion,
+            ["version"] = refusal is null ? info.LatestVersion : null,
+            ["active_tasks"] = info.ActiveTasks,
+            ["older_site_nodes"] = info.OlderSiteNodes,
+        };
+        List<string> warnings = refusal is not null ? [refusal] :
+        [
+            "The server is away while the installer runs: every client and AI agent loses its connection until the new version answers.",
+            "OADM copies its database first. It never rolls back: a failed update says what to do.",
+            "A client on the server's computer closes for the installer and is updated too.",
+        ];
+        if (refusal is null && info.OlderSiteNodes > 0)
+        {
+            warnings.Add(Contracts.Updates.UpdateTexts.UpdateSiteNodes + ".");
+        }
+
+        return ToolChanges.WithHandle(answer, call, handles, "oadm_update_install_run", refusal is null ? new PlannedUpdate(info.LatestVersion) : null, warnings);
+    }
+
+    private static async Task<JsonObject> InstallRunAsync(ToolCall call, ToolHandles handles)
+    {
+        var plan = ToolChanges.Take<PlannedUpdate>(call, handles);
+        var info = await call.CallAsync<UpdateGrpcService, Proto.StartUpdateRequest, Proto.UpdateInfo>(UpdateStartPath,
+            new Proto.StartUpdateRequest { Version = plan.Version }, (s, r, c) => s.Start(r, c)).ConfigureAwait(false);
+        var step = info.Running?.Step switch
+        {
+            Proto.UpdateStepKind.UpdateStepCheck => "check",
+            Proto.UpdateStepKind.UpdateStepInstall => "install",
+            _ => "download",
+        };
+        return new JsonObject { ["to_version"] = info.Running?.ToVersion is { Length: > 0 } to ? to : plan.Version, ["step"] = step };
     }
 }
