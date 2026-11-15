@@ -518,7 +518,10 @@ public static partial class OadmServerHost
             deviceScopes: sp.GetRequiredService<HostDeviceScopes>(),
             viewWatcher: sp.GetRequiredService<Core.DeviceGroups.DeviceViewWatcher>(),
             protectedTags: sp.GetRequiredService<Core.Devices.ProtectedTagRegistry>(),
-            streamProbes: sp.GetRequiredService<Sdk.Devices.IDeviceStreamProbes>()));
+            streamProbes: sp.GetRequiredService<Sdk.Devices.IDeviceStreamProbes>())
+        {
+            UploadStore = sp.GetRequiredService<Core.Uploads.UploadStore>(), // a tool's file argument: the caller's own uploads
+        });
         services.AddSingleton<PluginServiceRegistry>();
         services.AddSingleton<HostDeviceScopes>();
         services.AddSingleton<Core.Auth.AccessEpochs>(); // the interceptor captures it, the job registry records changes in it

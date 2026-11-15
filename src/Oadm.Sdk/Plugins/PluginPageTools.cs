@@ -81,7 +81,7 @@ public sealed class PluginPageTools<TOwner>(JsonSerializerOptions? json = null)
         };
         return Add(declared, pageMethod, new Entry(declared, pageMethod, typeof(TArgs), async (owner, caller, args, payload, preview, ct) =>
         {
-            var input = Input<TArgs>(args, payload);
+            var input = Input<TArgs>(args, payload, run: !preview);
             var plan = await check(owner, caller, input, ct).ConfigureAwait(false);
             return preview ? Serialize(plan) : Serialize(await run(owner, caller, input, plan, ct).ConfigureAwait(false));
         }));
@@ -177,8 +177,39 @@ public sealed class PluginPageTools<TOwner>(JsonSerializerOptions? json = null)
 
     private string Serialize<T>(T value) => JsonSerializer.Serialize(value, Json);
 
-    private static PluginToolInput<TArgs> Input<TArgs>(object args, string? payloadJson) =>
-        new((TArgs)args, PluginToolDevices.Of(payloadJson), PluginToolPage.Of(payloadJson));
+    private static PluginToolInput<TArgs> Input<TArgs>(object args, string? payloadJson, bool run = false) =>
+        new((TArgs)args, PluginToolDevices.Of(payloadJson), PluginToolPage.Of(payloadJson)) { Secrets = run ? SecretsOf(payloadJson) : new Dictionary<string, string>(), IsRun = run };
+
+    /// <summary>The run's secrets (<see cref="PluginToolSecret.Property"/>).</summary>
+    private static Dictionary<string, string> SecretsOf(string? payloadJson)
+    {
+        var secrets = new Dictionary<string, string>(StringComparer.Ordinal);
+        if (string.IsNullOrWhiteSpace(payloadJson))
+        {
+            return secrets;
+        }
+
+        try
+        {
+            if (System.Text.Json.Nodes.JsonNode.Parse(payloadJson) is System.Text.Json.Nodes.JsonObject payload
+                && payload[PluginToolSecret.Property] is System.Text.Json.Nodes.JsonObject given)
+            {
+                foreach (var (name, value) in given)
+                {
+                    if (value is System.Text.Json.Nodes.JsonValue text && text.TryGetValue<string>(out var secret))
+                    {
+                        secrets[name] = secret;
+                    }
+                }
+            }
+        }
+        catch (JsonException)
+        {
+            // broken JSON was refused before
+        }
+
+        return secrets;
+    }
 
     private sealed record Entry(PluginTool Tool, string PageMethod, Type ArgsType, Func<TOwner, ICallContext, object, string?, bool, CancellationToken, Task<string>> Handle);
 }
@@ -187,7 +218,20 @@ public sealed class PluginPageTools<TOwner>(JsonSerializerOptions? json = null)
 /// <param name="Args">The arguments, read and checked against their validation attributes.</param>
 /// <param name="Devices">The devices of a tool with <see cref="PluginTool.DeviceFilter"/> (none for another tool). Look each id up with the caller.</param>
 /// <param name="Page">The page of a tool with <see cref="PluginTool.Paged"/> (the first page for another tool).</param>
-public sealed record PluginToolInput<TArgs>(TArgs Args, PluginToolDevices Devices, PluginToolPage Page);
+public sealed record PluginToolInput<TArgs>(TArgs Args, PluginToolDevices Devices, PluginToolPage Page)
+{
+    /// <summary>
+    /// The secrets of a run (<see cref="PluginTool.Secrets"/>), entered by the person through the host's secret channel; empty in
+    /// a preview and a read. Never write one into an answer, a log line or an audit detail.
+    /// </summary>
+    public IReadOnlyDictionary<string, string> Secrets { get; init; } = new Dictionary<string, string>();
+
+    /// <summary>The value of the secret <paramref name="name"/>; null when the call has none (always in a preview).</summary>
+    public string? Secret(string name) => Secrets.TryGetValue(name, out var value) ? value : null;
+
+    /// <summary>True in the run of a change (its check runs again before the run's code); false in a preview and a read.</summary>
+    public bool IsRun { get; init; }
+}
 
 /// <summary>
 /// Invalid arguments of a tool of <see cref="PluginPageTools{TOwner}"/>: one entry per field (its JSON name, nested with dots) with

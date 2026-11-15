@@ -175,6 +175,20 @@ internal sealed partial class PluginTools(PluginRegistry registry, CorePluginHos
 
         properties["handle"] = Out("string", "Pass it to " + name + "_run (once, 10 minutes).");
         properties["expires"] = Out("string", "When the handle ends (UTC).");
+        if (tool.Secrets is { Count: > 0 } secrets)
+        {
+            if (secrets.Count > ToolSecrets.MaxSlots || secrets.Any(s => !NamePattern.IsMatch(s.Name) || string.IsNullOrWhiteSpace(s.Label))
+                || secrets.Select(s => s.Name).Distinct(StringComparer.Ordinal).Count() != secrets.Count)
+            {
+                throw new InvalidOperationException("its secrets are not 1 to 8 different lower case names with a label");
+            }
+
+            foreach (var (key, schema) in ToolSecretAnswers.OutputProperties())
+            {
+                properties[key] = schema;
+            }
+        }
+
         if (preview["required"] is JsonArray required)
         {
             required.Add("handle");
@@ -444,8 +458,28 @@ internal sealed partial class PluginTools(PluginRegistry registry, CorePluginHos
             answer = WithOffer(call, plugin.Id, answer);
         }
 
-        answer["handle"] = handles.AddChange(call.Caller.BindingKey, new PlannedChange(runTool, new PlannedPluginRun(plugin.Id, tool.RunMethod, payload)));
+        var handle = handles.AddChange(call.Caller.BindingKey, new PlannedChange(runTool, new PlannedPluginRun(plugin.Id, tool.RunMethod, payload)));
+        answer["handle"] = handle;
         answer["expires"] = handles.EndOfNew().UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", CultureInfo.InvariantCulture);
+        if (tool.Secrets.Count > 0)
+        {
+            // The plan may name the secrets its run needs (a switch whose secret stays needs none); else all of them.
+            var named = answer[PluginToolSecret.NeedsProperty] is JsonArray list
+                ? list.Select(n => n is JsonValue v && v.TryGetValue<string>(out var s) ? s : null).OfType<string>().ToHashSet(StringComparer.Ordinal)
+                : null;
+            var slots = tool.Secrets.Where(s => named is null || named.Contains(s.Name)).Select(s => new ToolSecretSlot(s.Name, s.Label, s.MaxLength)).ToList();
+            answer.Remove(PluginToolSecret.NeedsProperty);
+            if (slots.Count > 0 && call.SecretStore is not null)
+            {
+                ToolSecretAnswers.Declare(call, answer, handle, runTool, slots);
+            }
+            else
+            {
+                answer["needs_secrets"] = new JsonArray();
+                answer["secret_links"] = null;
+            }
+        }
+
         return Sized(answer);
     }
 
@@ -458,8 +492,17 @@ internal sealed partial class PluginTools(PluginRegistry registry, CorePluginHos
             throw new ToolException(PreviewEnded, [new ToolFieldError("handle", PreviewEnded)]);
         }
 
-        // The plugin checks everything again, as for its page: the role, the permission, the device group, the input.
-        var answer = await InvokeAsync(call, plan.PluginId, plan.Method, plan.PayloadJson).ConfigureAwait(false);
+        // The plugin checks everything again, as for its page: the role, the permission, the device group, the input. The secrets
+        // the person entered for this handle go with the run only (in memory, never in the plan or an answer).
+        var payload = plan.PayloadJson;
+        if (tool.Secrets.Count > 0 && call.SecretValues.Count > 0)
+        {
+            var withSecrets = JsonNode.Parse(payload) as JsonObject ?? [];
+            withSecrets[PluginToolSecret.Property] = new JsonObject([.. call.SecretValues.Select(s => KeyValuePair.Create(s.Key, (JsonNode?)JsonValue.Create(s.Value)))]);
+            payload = withSecrets.ToJsonString();
+        }
+
+        var answer = await InvokeAsync(call, plan.PluginId, plan.Method, payload).ConfigureAwait(false);
         return Sized(tool.ReturnsFile ? WithOffer(call, plan.PluginId, answer) : answer);
     }
 

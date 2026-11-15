@@ -111,6 +111,15 @@ public sealed record PluginTool(string Name, string Title, string Description)
     public bool ReturnsFile { get; init; }
 
     /// <summary>
+    /// Secrets the run of a change needs (SDK 0.13.0, a password, a shared secret): they never pass through a model. The host
+    /// declares them on the preview's handle (all of them, or only those the plan names in its <c>needs_secrets</c> list), the
+    /// person enters them through the host's secret channel, and the run gets them once in
+    /// <see cref="PluginToolInput{TArgs}.Secrets"/> (the payload's <c>secrets</c> object). The preview never has them: its
+    /// check accepts a missing secret. A change only; at most 8.
+    /// </summary>
+    public IReadOnlyList<PluginToolSecret> Secrets { get; init; } = [];
+
+    /// <summary>
     /// New serializer options in the style of the host's own tools: names in snake_case ("next_cursor"), enums by their snake_case
     /// name, nulls written, names read in any case. Keep them in a static field of the plugin (<see cref="PluginJson.CreateOptions"/>).
     /// </summary>
@@ -142,6 +151,19 @@ public sealed record PluginTool(string Name, string Title, string Description)
 
     /// <summary>True when <paramref name="method"/> only reads or previews (never writes): every tool method but the run of a change.</summary>
     public static bool IsPreviewMethod(string? method) => method is not null && method.EndsWith(".preview", StringComparison.Ordinal) && IsToolMethod(method);
+}
+
+/// <summary>A secret the run of a change needs (<see cref="PluginTool.Secrets"/>): its name and what the person is asked for.</summary>
+/// <param name="Name">Lower case words with underscores ("shared_secret"); the run reads it with <see cref="PluginToolInput{TArgs}.Secret"/>.</param>
+/// <param name="Label">What the field is called, in lower case ("shared secret", "PKCS#12 password"); the refusal reads "Enter the &lt;label&gt;.".</param>
+/// <param name="MaxLength">The longest value in characters.</param>
+public sealed record PluginToolSecret(string Name, string Label, int MaxLength = 1024)
+{
+    /// <summary>The property of a run's payload that holds the values (in memory only, never logged or audited).</summary>
+    public const string Property = "secrets";
+
+    /// <summary>The property of a plan that names the secrets the run needs (some of <see cref="PluginTool.Secrets"/>); absent: all.</summary>
+    public const string NeedsProperty = "needs_secrets";
 }
 
 /// <summary>
