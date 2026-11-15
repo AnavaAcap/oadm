@@ -12,6 +12,7 @@ using Oadm.Core.Security;
 using Oadm.Core.Vapix;
 using Oadm.Sdk.Devices;
 using Oadm.Sdk.Network;
+using Oadm.Server.LiveView;
 using Oadm.Server.Mcp;
 using Oadm.Server.Tests.Support;
 using Oadm.Server.Tools;
@@ -125,6 +126,83 @@ public sealed class McpDeviceChangeTests
 
     private static async Task<IReadOnlyDictionary<string, string>> ListAsync(TestServerHost host) =>
         (await host.Devices.ListAsync(new Proto.Empty())).Devices.ToDictionary(d => d.Address, d => d.Id);
+
+    // ---- audit: snapshots count, memberships name the key ------------------------------------------------------------------
+
+    [Fact]
+    public async Task ManySnapshotsOfOneDeviceByOneUserInAMinuteAreOneAuditEntryWithTheCountAndTheNextMinuteStartsANewOne()
+    {
+        var time = new Microsoft.Extensions.Time.Testing.FakeTimeProvider();
+        var camera = new FakeCamera();
+        var server = await McpTestServer.StartAsync(configureServices: services =>
+        {
+            services.RemoveAll<ILiveVideoSourceFactory>();
+            services.AddSingleton<ILiveVideoSourceFactory>(camera);
+            services.RemoveAll<SnapshotAudit>();
+            services.AddSingleton(sp => new SnapshotAudit(sp.GetRequiredService<AuditLog>(), time));
+        });
+        await using var _ = server;
+        var device = await DeviceServiceTests.AddDeviceAsync(server.Host, "10.30.0.7", 5007);
+        var other = await DeviceServiceTests.AddDeviceAsync(server.Host, "10.30.0.8", 5008);
+        var live = new Proto.LiveViewService.LiveViewServiceClient(server.Host.Invoker);
+        async Task<List<Proto.AuditEntry>> EntriesAsync() =>
+            [.. (await server.Host.Audit.ListAsync(new Proto.ListAuditRequest())).Entries.Where(e => e.Action == AuditActions.SnapshotTaken)];
+
+        for (var i = 0; i < 100; i++)
+        {
+            await live.GetSnapshotAsync(new Proto.SnapshotRequest { DeviceId = device.Id.ToString() });
+        }
+
+        var entry = Assert.Single(await EntriesAsync());
+        Assert.Equal("100 pictures", entry.Detail);
+        Assert.Equal(100, camera.Snapshots.Count); // every picture was taken; only the log is aggregated
+
+        // Another device of the same user has its own entry; the next minute starts a new one for the first.
+        await live.GetSnapshotAsync(new Proto.SnapshotRequest { DeviceId = other.Id.ToString() });
+        time.Advance(SnapshotAudit.EntryLength);
+        await live.GetSnapshotAsync(new Proto.SnapshotRequest { DeviceId = device.Id.ToString() });
+        await live.GetSnapshotAsync(new Proto.SnapshotRequest { DeviceId = device.Id.ToString() });
+
+        var entries = await EntriesAsync();
+        Assert.Equal(3, entries.Count);
+        var first = entries.Where(e => e.Target.Contains("10.30.0.7", StringComparison.Ordinal)).Select(e => e.Detail).ToList();
+        Assert.Equal(2, first.Count);
+        Assert.Contains("100 pictures", first);
+        Assert.Contains("2 pictures", first);
+        Assert.Single(entries, e => e.Target.Contains("10.30.0.8", StringComparison.Ordinal) && !e.Detail.Contains("pictures", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task ADeviceGroupAnAgentsTagRunFillsIsAuditedUnderTheUserViaTheAccessKey()
+    {
+        await using var server = await StartAsync();
+        var device = await DeviceServiceTests.AddDeviceAsync(server.Host, "10.31.0.1", 5101);
+        await GroupCallers.ForTagAsync(server.Host, "lobbyuser", "Lobby");
+        var key = await server.CreateKeyAsync(name: "taggy");
+
+        var preview = await server.ToolAsync(key, "oadm_tags_assign_preview", new JsonObject { ["filter"] = new JsonObject { ["search"] = "10.31.0.1" }, ["add"] = new JsonArray("Lobby") });
+        await server.ToolAsync(key, "oadm_tags_assign_run", new JsonObject { ["handle"] = preview["handle"]!.GetValue<string>() });
+
+        var entered = Assert.Single((await server.Host.Audit.ListAsync(new Proto.ListAuditRequest())).Entries, e => e.Action == Oadm.Core.DeviceGroups.DeviceGroupMembership.EnteredAction);
+        Assert.Equal(AuditActions.ViaAccessKey(TestServerHost.AdminUserName, "taggy"), entered.UserName);
+        Assert.Contains(device.Serial, entered.Detail, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ADeviceGroupAnAgentsAddRunFillsIsAuditedUnderTheUserViaTheAccessKey()
+    {
+        await using var server = await StartAsync(Network());
+        await server.Host.Settings.AddCredentialAsync(new Proto.AddCredentialRequest { UserName = "root", Password = Password });
+        await new Proto.DeviceGroupService.DeviceGroupServiceClient(server.Host.Invoker).SaveAsync(new Proto.SaveDeviceGroupRequest { Name = "local", Rules = new Proto.DeviceGroupRules { ThisServer = true } });
+        var key = await server.CreateKeyAsync(name: "adder");
+
+        var preview = await server.ToolAsync(key, "oadm_devices_add_preview", new JsonObject { ["addresses"] = new JsonArray("10.9.0.1") });
+        var run = await server.ToolAsync(key, "oadm_devices_add_run", new JsonObject { ["handle"] = preview["handle"]!.GetValue<string>() });
+        Assert.Equal(1, run["added"]!.GetValue<int>());
+
+        var entered = Assert.Single((await server.Host.Audit.ListAsync(new Proto.ListAuditRequest())).Entries, e => e.Action == Oadm.Core.DeviceGroups.DeviceGroupMembership.EnteredAction);
+        Assert.Equal(AuditActions.ViaAccessKey(TestServerHost.AdminUserName, "adder"), entered.UserName);
+    }
 
     // ---- snapshot ------------------------------------------------------------------------------------------------------
 

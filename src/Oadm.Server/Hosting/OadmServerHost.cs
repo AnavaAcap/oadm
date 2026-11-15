@@ -364,6 +364,7 @@ public static partial class OadmServerHost
         services.AddSingleton<IDevicePtz, DevicePtz>();
         services.AddSingleton(new LiveViewHubOptions());
         services.AddSingleton<LiveViewHub>();
+        services.AddSingleton<SnapshotAudit>(); // one audit entry per user, device and minute
         services.AddSingleton<LiveViewAccess>(); // LiveViewService: only devices of the caller's view
         // Device event streams (RTSP metadata) for core plugins such as the Metadata Monitor
         services.AddSingleton<Sdk.Devices.IDeviceEventStreams, DeviceEventStreams>();

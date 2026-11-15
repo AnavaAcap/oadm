@@ -198,7 +198,7 @@ public sealed class TagGrpcService(
 
         var caller = AuthInterceptor.CallerOf(context);
         var moved = await DeviceGroupMembership.ChangesAsync(views, [.. changes], context.CancellationToken, before).ConfigureAwait(false);
-        await DeviceGroupMembership.WriteAsync(audit, caller.UserName, caller.ClientAddress, moved, reason, context.CancellationToken).ConfigureAwait(false);
+        await DeviceGroupMembership.WriteAsync(audit, caller.AuditUserName ?? caller.UserName, caller.ClientAddress, moved, reason, context.CancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>The tags with the counts of the view; users with all devices also get the groups that use each tag.</summary>

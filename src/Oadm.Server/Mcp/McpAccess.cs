@@ -99,6 +99,7 @@ public sealed class McpAccess(AuthTokenStore tokens, RoleStore roles, DeviceView
             Devices = devices,
             AccessEpoch = epoch,
             AuditUserName = AuditActions.ViaAccessKey(session.UserName, keyName), // every change an agent causes
+            ReadOnly = session.ReadOnly,
         };
         return new McpSignIn(new ToolCaller(caller, bindingKey)
         {

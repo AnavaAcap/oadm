@@ -36,6 +36,12 @@ public sealed record AuthenticatedCaller(Guid UserId, string UserName, Guid Role
     /// </summary>
     public string? AuditUserName { get; init; }
 
+    /// <summary>
+    /// The caller is a Read only access key (docs/spec/mcp.md "Access keys"): the server refuses it every gRPC method that is not a
+    /// read (<c>InProcessCalls</c>) and every plugin method that no read tool names, whatever a tool says of itself.
+    /// </summary>
+    public bool ReadOnly { get; init; }
+
     /// <summary>Admin for the Administrator role, Operator for every other.</summary>
     public UserRole Role => IsAdmin ? UserRole.Admin : UserRole.Operator;
 
