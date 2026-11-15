@@ -134,7 +134,13 @@ shows the chat.
   the key in the card's field), a plugin on or off and its license, an optional plugin installed or removed, the restart
   for one, the automatic backups, Back up now (the password twice in the card's fields; the run's file is a file card), a
   backup deleted or restored, and Install now ("1 server"); Run is red for a removal, a delete, a restore, a restart and
-  Install now. A device request (`oadm_device_request_preview`) is a plugin preview: its plain fields and "3 devices".
+  Install now. A device request (`oadm_device_request_preview`) is a plugin preview: its plain fields and "3 devices". Server
+  settings and services (decision 2026-11-15, docs/spec/mcp.md "Server settings and services as built": the Assistant can
+  change what an administrator can in the client, always as a card the user runs) have theirs too: old → new per setting
+  ("3 settings"), the MCP server and the Assistant itself (a new API key is a secret field of the card), the PRO trial,
+  Accept site nodes, Bind (the pairing code is a secret field), Replace with, Remove site, the trusted and new fingerprint
+  per device, Delete all devices; Run is red when it turns MCP or the Assistant off, closes the site nodes, removes a site
+  or deletes all devices. A plugin's change shows its plan's fields and its count ("1 policy").
 - **Secret fields** (decision 2026-11-15, `docs/spec/mcp.md` "Secrets"): a preview whose run needs a secret
   (`AssistantPreviewCard.secrets`) shows one `ui:PasswordBox` per secret in a `ui:FormField` ("Password") above Cancel and
   Run; "Enter the password." below the field once it was edited or left empty, Run disabled with that reason as its tooltip

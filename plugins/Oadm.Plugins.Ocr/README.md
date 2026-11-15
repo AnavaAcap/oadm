@@ -106,4 +106,6 @@ left-out fields keep their value, `areas` replace all; the preview runs every ch
 `ReaderStore.CheckSaveAsync` and stores nothing; page field names become the tool's: `camera` is `device_id`,
 `areas[0].box` is `areas.0.box`), `oadm_ocr_reader_delete` and `oadm_ocr_reader_read_now` (an On action reader; it fires
 the reader's events, so it is a change; the answer is the text of each area, never a picture). Every run calls the page's
-method with the caller, so device groups are the page's. Tests: `PageToolTests`.
+method with the caller, so device groups are the page's. `oadm_ocr_use_gpu` sets Use GPU like the page (users with all
+devices; the preview reads the engine and warns when the card is tried or the readers move to the processor). Tests:
+`PageToolTests`.

@@ -171,7 +171,7 @@ contributes the task **Use OADM as NTP server**.
   in plain words (`NtpStatusTexts`: port in use, permission, interface missing, upstream not answering); tests never use
   port 123 on a real interface.
 - Roles: `save` is Admin and audited. The Windows service opens UDP 123 in the firewall while enabled.
-- MCP ([mcp.md](mcp.md)): the read-only tool `oadm_ntp_status`.
+- MCP ([mcp.md](mcp.md)): the read-only tool `oadm_ntp_status`; the page's Save as `oadm_ntp_settings_save` (a preview with the warnings, a run through `save`; decision 2026-11-15).
 - Device groups: `save` only for users with all devices (the form is read-only for the others); users with a group see
   the requests and sites of their own devices, live through their group's scope. NTP and DHCP: a publish round never
   reads the device table (each group's view is kept, built again when the group's devices change or after 5 minutes); a
@@ -198,7 +198,7 @@ devices that get an address. Per-OS setup and the manual test plan: plugin `READ
 - Device groups: every change only for users with all devices; users with a group see the leases of their own devices
   (by MAC address = serial only, never by address), live through their group's scope. A change and a removal of one batch
   go in one event (parts of one version only beyond 2,000 leases; the page applies every part of a version).
-- Page actions as tools (decision 2026-11-15, [mcp.md](mcp.md) "Page actions"), with the page's rights: `oadm_dhcp_static_lease_save`, `_delete`, `oadm_dhcp_lease_make_static`, `oadm_dhcp_lease_release` (changes with the page's checks).
+- Page actions as tools (decision 2026-11-15, [mcp.md](mcp.md) "Page actions"), with the page's rights: `oadm_dhcp_static_lease_save`, `_delete`, `oadm_dhcp_lease_make_static`, `oadm_dhcp_lease_release` (changes with the page's checks), and the page's Save as `oadm_dhcp_settings_save` (the preview warns that a DHCP server hands out addresses to every device that asks; the run stops when another DHCP server answers unless the user accepted it).
 
 ## PKI (core plugin)
 
@@ -232,7 +232,10 @@ IEEE 802.1X, Renew certificates, View, Delete and Install certificates, Install 
   stored or logged; nothing in tests touches a real trust store; View and Delete certificates read at most 5,000 devices
   per window (each device is read, 4 at a time; a larger selection gets "Choose at most 5,000 devices."), the other tasks
   take any number; AI agents run View certificates as a read task and Delete certificates by name per device (never an
-  Axis factory or an in-use certificate), never Install certificates or Install CA certificates; while it runs it offers its CAs to other plugins (`IDeviceCertificateAuthority`,
+  Axis factory or an in-use certificate), never Install certificates or Install CA certificates; the page actions as tools
+  (decision 2026-11-15: Create, Import, Delete, Back up and Install in the server's trust of a CA, the policies' Save and
+  Delete) have the page's checks, rights and audit, passwords only through the secret channel, a key backup only as a
+  one-time file; while it runs it offers its CAs to other plugins (`IDeviceCertificateAuthority`,
   `docs/spec/plugins.md` "Plugin services"), which signs the same way; every certificate a CA of PKI issues for a device
   (tasks and the service) goes into the list of issued certificates with its DER; a certificate deleted while valid,
   replaced or unused goes on the internal list of certificates no longer accepted (written before the call returns, never
@@ -277,7 +280,9 @@ server** of the PKI page, its own source-available `Est/LICENSE`. Off by default
   tools (Set up or Remove, the permission `enroll`; no clock answer: a camera whose clock is behind refuses); its plan
   skips every camera while the EST server, OADM PRO or the CA is missing and says what cameras with IEEE 802.1X on and a
   removed profile lose.
-- Page actions as tools (decision 2026-11-15, [mcp.md](mcp.md) "Page actions"), with the page's rights: `oadm_est_enrollments_clear` (a change).
+- Page actions as tools (decision 2026-11-15, [mcp.md](mcp.md) "Page actions"), with the page's rights: `oadm_est_enrollments_clear`,
+  `oadm_est_enable` (Turn on with OADM PRO, Turn off), `oadm_est_settings_save`, `oadm_est_profile_save` and
+  `oadm_est_profile_delete` (changes; the server must be on for the settings and profiles, as on the page).
 
 ## 802.1X server (core plugin of PKI, OADM PRO)
 
@@ -303,7 +308,10 @@ certificate, TLS, trusted CAs, VLAN, Block) are PKI's policies (`docs/spec/pki.m
   (rows without a managed device never), no server-wide settings and only the switches of the group's routes.
 - MCP ([mcp.md](mcp.md)): the read-only tool `oadm_radius_log` (the state and the log of the caller's devices; never a
   shared secret or a certificate).
-- Page actions as tools (decision 2026-11-15, [mcp.md](mcp.md) "Page actions"), with the page's rights: `oadm_radius_sessions` (read) and `oadm_radius_log_delete` (a change).
+- Page actions as tools (decision 2026-11-15, [mcp.md](mcp.md) "Page actions"), with the page's rights: `oadm_radius_sessions` and
+  `oadm_radius_switches` (reads), `oadm_radius_log_delete`, `oadm_radius_enable`, `oadm_radius_settings_save`,
+  `oadm_radius_switch_save` and `oadm_radius_switch_delete` (changes). A shared secret only through the secret channel, or
+  generated by the run and handed out once as a file; never in an answer.
 
 ## Metadata Monitor (core plugin)
 

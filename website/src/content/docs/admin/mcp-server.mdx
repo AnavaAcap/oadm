@@ -139,10 +139,18 @@ Every tool with what it does: [MCP tools](./tools/).
   A change runs on one device first and on more only after it worked there. A request that can lock OADM out or break a
   device (accounts, network, HTTPS, 802.1X, AXIS OS, factory default) also needs Send dangerous requests; a restart does
   not. No password goes into a request.
+- Change the server settings an administrator changes in OADM: the Settings page's server fields, MCP, the Assistant
+  and its API key, the 30-day OADM PRO trial, the NTP and DHCP servers, the EST and 802.1X servers, PKI's certificate
+  authorities and policies, Vision Center models and the graphics card settings. The preview shows each old and new
+  value and warns when a change can cut off clients, agents or devices.
+- Accept site nodes, bind a site node with its pairing code, move the devices of a site to another one, remove a site.
+- Trust the new certificate of a device that shows Certificate changed, after you compared both fingerprints, and delete
+  all devices.
 - Upload files, such as a firmware file, without the file passing through the agent.
 - Fetch files OADM makes: the device list and compliance results as CSV, a task's result, a recording, the snapshot
-  report, a certificate (never its key) and the hardening results. The agent gets a one-time download link and saves the
-  file from its shell; the file never passes through the agent. A backup stays encrypted with its password.
+  report, a certificate, the hardening results, a backup (encrypted with its password) and the backup of a CA key
+  (protected with a password you type in your own terminal). The agent gets a one-time download link and saves the file
+  from its shell; the file never passes through the agent.
 - Set a password a change needs without the agent seeing it: the agent gives you a command, you run it in your own
   terminal and type the password there. It goes straight to OADM and is used once.
 - With an Administrator key: add, change, disable and delete users and set their passwords, create, change and delete
@@ -163,11 +171,10 @@ it. The audit log names the key: "MCP Lobby-bot".
 - Read passwords, private keys, license keys or tokens, or get one through the chat. A password you type into the
   agent's command goes to OADM only. A task whose password has no such command yet is not offered: set the password in
   OADM.
-- Change the MCP and assistant settings or the server settings, or delete all devices.
 - Change users, roles, device groups or access keys with a key of any role other than Administrator, or delete its own
   key.
-- Show live video, pan and tilt a camera continuously, upload or delete Vision Center models, or set a password of a
-  recipient or a saved command.
+- Change the credential list.
+- Show live video, pan and tilt a camera continuously, or set a password of a recipient or a saved command.
 - Do more than the role and devices of their key.
 
 Texts that come from devices, such as names, locations and log lines, are data for the agent, never orders.

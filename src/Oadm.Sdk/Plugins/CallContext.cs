@@ -65,6 +65,22 @@ public interface ICallContext
     /// default answers false for a user with a group.
     /// </summary>
     bool CoversRoute(Guid? siteId) => HasAllDevices;
+
+    /// <summary>
+    /// The files the user uploaded in this login session (SDK 0.13.0): a tool's file argument names one by its id (an agent's
+    /// upload link, the assistant's Attach file). Another user's or session's upload answers like an unknown id. Default: none.
+    /// </summary>
+    IUploadedFiles Uploads => NoUploads.Instance;
+}
+
+/// <summary>The <see cref="ICallContext.Uploads"/> of hosts before SDK 0.13.0: no file.</summary>
+internal sealed class NoUploads : IUploadedFiles
+{
+    public static readonly NoUploads Instance = new();
+
+    public Task<UploadedFile?> FindAsync(string fileId, CancellationToken ct) => Task.FromResult<UploadedFile?>(null);
+
+    public Task<Stream> OpenReadAsync(string fileId, CancellationToken ct) => throw new FileNotFoundException("No uploaded file has this id.");
 }
 
 /// <summary>

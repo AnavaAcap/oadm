@@ -1,5 +1,3 @@
-using System.Globalization;
-
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 
@@ -8,6 +6,8 @@ using Microsoft.Extensions.Logging;
 using Oadm.Client.Api;
 using Oadm.Client.Shell;
 using Oadm.Contracts.V1;
+
+using Rules = Oadm.Contracts.Settings.ServerSettingsRules;
 using Oadm.Sdk.Client.Validation;
 
 namespace Oadm.Client.Settings;
@@ -197,12 +197,12 @@ public sealed partial class SettingsViewModel : ValidatingViewModel
 
         Validation
             .Rule(nameof(ClockToleranceSeconds), () => RangeError(ClockToleranceSeconds, MinClockTolerance, MaxClockTolerance))
-            .Rule(nameof(ScanParallelism), () => RangeError(ScanParallelism, 1, 256))
-            .Rule(nameof(ScanTimeoutMs), () => RangeError(ScanTimeoutMs, 100, 30000))
-            .Rule(nameof(ZeroConfSeconds), () => RangeError(ZeroConfSeconds, 5, 300))
-            .Rule(nameof(WaitingRetryMinutes), () => RangeError(WaitingRetryMinutes, 1, 1440))
+            .Rule(nameof(ScanParallelism), () => RangeError(ScanParallelism, Rules.MinScanParallelism, Rules.MaxScanParallelism))
+            .Rule(nameof(ScanTimeoutMs), () => RangeError(ScanTimeoutMs, Rules.MinScanTimeoutMs, Rules.MaxScanTimeoutMs))
+            .Rule(nameof(ZeroConfSeconds), () => RangeError(ZeroConfSeconds, Rules.MinZeroConfSeconds, Rules.MaxZeroConfSeconds))
+            .Rule(nameof(WaitingRetryMinutes), () => RangeError(WaitingRetryMinutes, Rules.MinWaitingRetryMinutes, Rules.MaxWaitingRetryMinutes))
             .Rule(nameof(MaxParallelTasksPerPlugin), () => RangeError(MaxParallelTasksPerPlugin, MinParallelTasks, MaxParallelTasks))
-            .Rule(nameof(ServerName), () => ServerName.Trim().Length == 0 ? "Enter a server name." : null)
+            .Rule(nameof(ServerName), () => Rules.ServerNameError(ServerName))
             .Rule(nameof(ListenUrl), () => ListenUrlError(ListenUrl));
         Validation.Validate();
         Validation.Reset();
@@ -215,13 +215,13 @@ public sealed partial class SettingsViewModel : ValidatingViewModel
     ];
 
     /// <summary>Range and default of Tasks.MaxParallelPerPlugin (same as the server).</summary>
-    public const int MinParallelTasks = 1;
-    public const int MaxParallelTasks = 256;
+    public const int MinParallelTasks = Rules.MinParallelTasks;
+    public const int MaxParallelTasks = Rules.MaxParallelTasks;
     public const int DefaultParallelTasks = 16;
 
     /// <summary>Range and default of Polling.ClockToleranceSeconds (same as the server).</summary>
-    public const int MinClockTolerance = 1;
-    public const int MaxClockTolerance = 3600;
+    public const int MinClockTolerance = Rules.MinClockTolerance;
+    public const int MaxClockTolerance = Rules.MaxClockTolerance;
     public const int DefaultClockTolerance = 2;
 
     /// <summary>Why Save is disabled (tooltip).</summary>
@@ -234,25 +234,10 @@ public sealed partial class SettingsViewModel : ValidatingViewModel
     }
 
     /// <summary>"Enter a whole number from 5 to 86400." for an empty or out-of-range number field.</summary>
-    public static string? RangeError(decimal? value, int min, int max) =>
-        value is null || value < min || value > max || decimal.Truncate(value.Value) != value
-            ? string.Create(CultureInfo.CurrentCulture, $"Enter a whole number from {min} to {max}.")
-            : null;
+    public static string? RangeError(decimal? value, int min, int max) => Rules.RangeError(value, min, max);
 
     /// <summary>The listen URL Kestrel binds to: http(s), a host (also * or +) and optionally a port.</summary>
-    public static string? ListenUrlError(string? url)
-    {
-        string text = (url ?? "").Trim();
-        if (text.Length == 0)
-        {
-            return "Enter a listen URL, e.g. https://0.0.0.0:5080.";
-        }
-
-        string probe = text.Replace("://*", "://localhost", StringComparison.Ordinal).Replace("://+", "://localhost", StringComparison.Ordinal);
-        return Uri.TryCreate(probe, UriKind.Absolute, out Uri? uri) && (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps)
-            ? null
-            : "Enter a URL like https://0.0.0.0:5080.";
-    }
+    public static string? ListenUrlError(string? url) => Rules.ListenUrlError(url);
 
     // server side
 

@@ -120,7 +120,14 @@ More changes, each a preview and a run like the others:
 - Compliance: on or off `oadm_compliance_enable_preview`; checks with `oadm_compliance_kinds` and
   `oadm_compliance_check_save_preview`, `oadm_compliance_check_enable_preview`, `oadm_compliance_check_delete_preview`;
   Check now `oadm_compliance_check_now_preview`.
-- Sites: `oadm_sites_rename_preview`. Vulnerability list: `oadm_vulnerabilities_update_preview`.
+- Sites: `oadm_sites_rename_preview`, see [Sites](sites.md) for bind, replace and remove. Vulnerability list:
+  `oadm_vulnerabilities_update_preview`.
+- Server settings (administrators): `oadm_settings_get` first, then `oadm_settings_set_preview` with only the fields to
+  change; MCP `oadm_mcp_set_preview` (your own connection may drop), the Assistant `oadm_assistant_settings_preview`, the
+  PRO trial `oadm_license_trial_preview`. Show every old and new value and every warning; a new listen URL can cut clients
+  off at the next restart.
+- Devices: Trust new certificate `oadm_devices_certificate_trust_preview` (the user compares both fingerprints first),
+  Delete all devices `oadm_devices_remove_all_preview`.
 - Camera: read `oadm_devices_optics` or `oadm_devices_ptz` first, then `oadm_devices_optics_preview` (zoom, focus) or
   `oadm_devices_ptz_preview` (home, preset, zoom, center). The camera moves: say so. RTSP port: `oadm_devices_rtsp_port_preview`.
 - Administration (an Administrator key): license `oadm_license_import_preview`, `oadm_license_trial_preview`; plugins
@@ -169,8 +176,7 @@ it (or with the `task_id`) and run its `command` in your shell; the file never p
 - **Look-only keys.** A key with a look-only role (such as Viewer) lists no tool that changes something.
 - **Limits.** Answers are cut at 32 KB. When an answer says there is more, narrow the filter. A key has call limits per
   second and per minute. On "too many calls", wait.
-- **Not over MCP.** The MCP and assistant settings, server settings, live video and Delete all devices are done in
-  OADM only.
+- **Not over MCP.** The credential list, live video and continuous pan and tilt are done in OADM only.
 
 ## Workflows
 

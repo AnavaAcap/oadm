@@ -59,8 +59,8 @@ public sealed partial class McpAddOnToolSchemaTests
 
         // The page tools of the optional plugins: their changes and reads, beside the earlier reads.
         var expected = name == "ocr"
-            ? new[] { "readers", "reads", "reader_save", "reader_delete", "reader_read_now" }
-            : ["pipelines", "pipeline", "pipeline_save", "pipeline_copy", "pipeline_delete", "models", "class_lists", "class_list_save"];
+            ? new[] { "readers", "reads", "reader_save", "reader_delete", "reader_read_now", "use_gpu" }
+            : ["pipelines", "pipeline", "pipeline_save", "pipeline_copy", "pipeline_delete", "models", "class_lists", "class_list_save", "model_upload", "model_update", "model_delete", "use_gpu"];
         Assert.All(expected, e => Assert.Contains(e, names));
     }
 }

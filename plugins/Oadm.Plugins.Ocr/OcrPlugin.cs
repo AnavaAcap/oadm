@@ -178,6 +178,9 @@ public sealed partial class OcrPlugin : ICorePlugin, IDynamicEventSource, IActio
 
     public bool IsAudited(string method) => !PluginTool.IsPreviewMethod(method) && OcrPageTools.Set.RulesMethodOf(method) is OcrMethods.SaveReader or OcrMethods.DeleteReader or OcrMethods.ReadNow or OcrMethods.SetUseGpu;
 
+    /// <summary>A tool's run is audited with the name of its page method ("setUseGpu"), like the page's own call.</summary>
+    public string? AuditDetail(string method, string? payloadJson) => PluginTool.IsToolMethod(method) ? OcrPageTools.Set.RulesMethodOf(method) : null;
+
     /// <summary>The page reads only (Viewer on); changing readers is a right of its own.</summary>
     /// <summary>The read tools (docs/spec/mcp.md "Plugins"): the readers and the recent texts of one, "show" like the page.</summary>
     public IReadOnlyList<PluginTool> Tools { get; } = [.. OcrTools.All, .. OcrPageTools.Set.Tools];

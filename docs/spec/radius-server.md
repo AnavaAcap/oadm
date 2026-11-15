@@ -326,6 +326,11 @@ after saving (Edit shows them empty, "Leave empty to keep the current secret"). 
 reason, never secrets or key material. The switches, settings and log are part of the encrypted backup (plugin settings and
 records, `docs/spec/settings-backup.md`).
 
+AI agents (decision 2026-11-15, [mcp.md](mcp.md) "Page actions") turn the server on (OADM PRO) and off, save its settings
+and the switches, each a preview that writes nothing and a run with the page's rights and audit. A switch's shared secret
+never passes through the model: the person enters it through the secret channel, or the run generates it and hands it out
+once as a file over a download link; the plan warns that a new secret must be set on the switch too.
+
 ## Tests
 
 - RADIUS packets and the authenticators from the RFC test vectors; Message-Authenticator required; duplicates; Proxy-State

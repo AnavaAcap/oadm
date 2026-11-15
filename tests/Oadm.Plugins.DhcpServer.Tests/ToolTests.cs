@@ -19,7 +19,7 @@ public sealed class ToolTests
         await plugin.StartAsync(ctx, CancellationToken.None);
         ICorePlugin core = plugin;
         Assert.Equal("dhcp", core.ToolArea);
-        Assert.Equal(["status", "leases", "static_lease_save", "static_lease_delete", "lease_make_static", "lease_release"], core.Tools.Select(t => t.Name));
+        Assert.Equal(["status", "leases", "settings_save", "static_lease_save", "static_lease_delete", "lease_make_static", "lease_release"], core.Tools.Select(t => t.Name));
         Assert.All(Tools.DhcpTools.All, t =>
         {
             Assert.Equal(UserRole.Operator, core.RequiredRole(t.Method));

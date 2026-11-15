@@ -13,12 +13,12 @@ namespace Oadm.Plugins.Vision.Api;
 
 /// <summary>
 /// The page's actions as tools (docs/spec/mcp.md "Plugins", decision 2026-11-15): one pipeline as the editor opens it, Save,
-/// Copy to cameras and Delete of a pipeline, the models and class lists, and Save of a class list. Each has the rights of its
-/// page method. A save's preview runs the page's checks (the graph check with one error per node) without storing; every run
-/// calls the page's own method with the caller. No answer holds a picture or a model file; model upload and delete and Use
-/// GPU stay on the page.
+/// Copy to cameras and Delete of a pipeline, the models and class lists, Save of a class list, model upload, change and delete,
+/// and Use GPU. Each has the rights of its page method. A save's preview runs the page's checks (the graph check with one error
+/// per node) without storing; every run calls the page's own method with the caller. No answer holds a picture or a model file
+/// (an upload reads the caller's uploaded file through <see cref="ICallContext.Uploads"/>).
 /// </summary>
-internal static class VisionPageTools
+internal static partial class VisionPageTools
 {
     /// <summary>The longest answer of <c>pipeline</c>: the host refuses answers over 32 KB.</summary>
     public const int MaxPipelineBytes = 28 * 1024;
@@ -77,7 +77,27 @@ internal static class VisionPageTools
             new("class_list_save", "Save class list", "Creates a class list, or changes one with class_list_id. The models on the list take its names."),
             VisionMethods.SaveClassList,
             CheckClassListAsync,
-            RunClassListAsync);
+            RunClassListAsync)
+        .Change<UploadArgs, UploadPlan, ModelAnswer>(
+            new("model_upload", "Upload vision model", "Adds an ONNX model from an uploaded file (oadm_files_upload_link, or a file attached in the chat). The run checks the model like the page: standard operators only, no external data."),
+            VisionMethods.FinishUpload,
+            CheckUploadAsync,
+            RunUploadAsync)
+        .Change<UpdateArgs, UpdatePlan, ModelAnswer>(
+            new("model_update", "Change vision model", "Renames a model or changes its class names or class list. Fields left out keep their value."),
+            VisionMethods.UpdateModel,
+            CheckUpdateAsync,
+            RunUpdateAsync)
+        .Change<ModelArgs, ModelDeletePlan, ModelAnswer>(
+            new("model_delete", "Delete vision model", "Deletes a model and its file. Refused while pipelines use it.") { Destructive = true },
+            VisionMethods.DeleteModel,
+            CheckDeleteModelAsync,
+            RunDeleteModelAsync)
+        .Change<UseGpuArgs, UseGpuPlan, UseGpuAnswer>(
+            new("use_gpu", "Use the graphics card for Vision Center", "Turns Use GPU on or off: the models run on the graphics card when one is usable, else on the processor."),
+            VisionMethods.SetUseGpu,
+            CheckUseGpuAsync,
+            RunUseGpuAsync);
 
     private static Pipeline Visible(VisionPlugin plugin, ICallContext caller, string? id) =>
         plugin.Running.Store.FindVisible(caller, id) ?? throw new ArgumentException(PipelineRules.Gone);

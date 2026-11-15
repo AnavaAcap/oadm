@@ -193,7 +193,7 @@ public sealed class PkiPlugin : ICorePlugin, ICorePluginDownloads, IEventSource,
     /// root store, the settings and revoking are Admin only (and audited). The Security tasks are task plugins and need no
     /// more than Operator.
     /// </summary>
-    public UserRole RequiredRole(string method) => IsRead(method) ? UserRole.Operator : UserRole.Admin;
+    public UserRole RequiredRole(string method) => IsRead(PkiPageTools.Set.RulesMethodOf(method)) ? UserRole.Operator : UserRole.Admin;
 
     private static bool IsRead(string method) =>
         method is PkiMethods.GetState or PkiMethods.GetCertificates or PkiMethods.GetCertificate or PolicyMethods.GetPolicies || PkiTools.IsRead(method);
@@ -203,7 +203,13 @@ public sealed class PkiPlugin : ICorePlugin, ICorePluginDownloads, IEventSource,
     /// changes like the page's Create (Admin with "Manage the certificate authority", all devices, audited), and its preview only
     /// checks, so it needs the same rights but leaves no audit entry.
     /// </summary>
-    public IReadOnlyList<PluginTool> Tools => PkiTools.All;
+    public IReadOnlyList<PluginTool> Tools { get; } = [.. PkiTools.All, .. PkiPageTools.Set.Tools];
+
+    /// <summary>The one-time files of the tools' runs (a CA key backup), in memory only.</summary>
+    internal ToolFileStore Files { get; } = new();
+
+    /// <summary>A page tool's run is audited with its page method, like the page's own call (createAuthority, savePolicy, ...).</summary>
+    public string? AuditDetail(string method, string? payloadJson) => PluginTool.IsPreviewMethod(method) ? null : PkiPageTools.Set.PageMethodOf(method);
 
     /// <summary>Admin methods (the Certificates card's Create, Sign request, Import, Delete and Export too) are audited by the host; the count of a revoke policy only reads, and so does a preview of a tool.</summary>
     public bool IsAudited(string method) => RequiredRole(method) == UserRole.Admin && !PluginTool.IsPreviewMethod(method);
@@ -216,13 +222,13 @@ public sealed class PkiPlugin : ICorePlugin, ICorePluginDownloads, IEventSource,
     ];
 
     /// <summary>Installing the CA in the server's root store needs "trustServer"; the other Admin methods "manage".</summary>
-    public string? RequiredPermission(string method) => method == PkiMethods.InstallServerTrust ? PkiPermissions.TrustServer : null;
+    public string? RequiredPermission(string method) => PkiPageTools.Set.RulesMethodOf(method) == PkiMethods.InstallServerTrust ? PkiPermissions.TrustServer : null;
 
     /// <summary>
     /// The CA and the trust in it are server-wide (docs/spec/device-scope.md "Server-wide services"): users limited to a
     /// device group may read the state (counts of their own devices), every other method is for users with all devices.
     /// </summary>
-    public bool RequiresAllDevices(string method) => !IsRead(method);
+    public bool RequiresAllDevices(string method) => !IsRead(PkiPageTools.Set.RulesMethodOf(method));
 
     /// <summary>
     /// The page backend with the user's call: the state of a user limited to a group counts only that group's devices, the
@@ -232,6 +238,16 @@ public sealed class PkiPlugin : ICorePlugin, ICorePluginDownloads, IEventSource,
     {
         ArgumentNullException.ThrowIfNull(caller);
         var service = _service ?? throw new InvalidOperationException("The PKI plugin is not running.");
+        if (PkiPageTools.Set.Handles(method))
+        {
+            if (RequiresAllDevices(method) && !caller.HasAllDevices)
+            {
+                throw new DeviceAccessRefusedException(); // the host refuses these first (RequiresAllDevices); fail closed
+            }
+
+            return await PkiPageTools.Set.InvokeAsync(this, caller, method, payloadJson, ct).ConfigureAwait(false);
+        }
+
         if (!IsRead(method))
         {
             if (!caller.HasAllDevices)
@@ -333,6 +349,11 @@ public sealed class PkiPlugin : ICorePlugin, ICorePluginDownloads, IEventSource,
         if (!caller.HasAllDevices)
         {
             throw new DeviceAccessRefusedException(); // the host refuses it first (RequiresAllDevices); fail closed
+        }
+
+        if (method == ToolFileStore.Method)
+        {
+            return Task.FromResult(Files.Take(caller, payloadJson)); // a key backup of a tool's run, once, for its caller only
         }
 
         return OpenDownloadAsync(method, payloadJson, caller.UserName, ct);

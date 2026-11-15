@@ -45,6 +45,9 @@ for `zero_conf_seconds`). Settings page labels in quotes.
   ("Only administrators can change server settings."). Right: **Backup and restore** (administrators), **License** (every
   user, `docs/spec/licensing.md`), **Support** (administrators). Narrower than 1,100 px (`SettingsView.TwoColumnWidth`) the
   right column moves below the server settings.
+- AI agents and the Assistant change the five server cards with the same checks and texts (`Oadm.Contracts.Settings.ServerSettingsRules`,
+  shared by the page and `oadm_settings_set_preview`/`_run`, Administrator; decision 2026-11-15, docs/spec/mcp.md "Server
+  settings and services as built"); the credential list, backups and the license key stay in the page.
 - Every card folds and starts closed (`Controls/CollapsibleCard`, `docs/spec/visual-style.md`); a card opens by itself
   when an input in it shows a validation error.
 - **Client** (every user, saved at once in the client settings file): Live view "Decode video on the graphics card" with

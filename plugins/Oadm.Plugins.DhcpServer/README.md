@@ -115,7 +115,12 @@ methods (Administrator, "manage", users with all devices; only the runs are audi
 `oadm_dhcp_lease_make_static` (`makeStatic`) and `oadm_dhcp_lease_release` (`release`, destructive). The preview checks
 like the page and changes nothing: `DhcpServerService.CheckStatic` (the page's field texts and the store's conflicts through
 `LeaseStore.CheckStatic`, shared with `SetStatic`), `FindLease` for the others ("The static lease no longer exists.",
-"The dynamic lease no longer exists.", "The lease no longer exists."). Tests: `PageToolTests`.
+"The dynamic lease no longer exists.", "The lease no longer exists."). `oadm_dhcp_settings_save` is the page's Save
+(on or off, interface by name or id, range, automatic add; left-out fields keep their value): the preview runs the field
+checks of `save` (`DhcpServerService.CheckSave`, shared with `SaveAsync`) without the check for other DHCP servers and
+warns that a DHCP server hands out addresses to every device that asks (and names other servers seen); the run is the
+page's `save`: when another server answers it changes nothing and names it, and only `confirm_other_servers` (the
+page's "Enable anyway") saves past it. Tests: `PageToolTests`.
 
 ## Code
 

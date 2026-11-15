@@ -520,8 +520,8 @@ the selected node. Page header: the description, "Runs on" with Use GPU and the 
 - MCP and the assistant ([mcp.md](mcp.md) "Plugins"): the read-only tool `oadm_vision_pipelines` (the page's list and the
   load, never a picture or a model), "View vision pipelines". The page's actions (decision 2026-11-15, [mcp.md](mcp.md)
   "Page actions"), with the page's rights: `oadm_vision_pipeline`, `_models`, `_class_lists` (reads), `_pipeline_save` (the
-  editor's graph check), `_pipeline_copy`, `_pipeline_delete`, `_class_list_save` (changes); model upload and delete and
-  the graphics card stay in the page.
+  editor's graph check), `_pipeline_copy`, `_pipeline_delete`, `_class_list_save`, `_model_upload` (a file the caller uploaded;
+  the page's steps and model check), `_model_update`, `_model_delete` (refused while pipelines use it) and `_use_gpu` (changes).
 
 ## Parts and contract
 

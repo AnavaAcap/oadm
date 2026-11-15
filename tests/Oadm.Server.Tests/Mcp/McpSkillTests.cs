@@ -48,6 +48,7 @@ public sealed partial class McpSkillTests
         .. McpAdminToolTests.ToolNames,
         "oadm_device_request_preview", "oadm_device_request_run",
         .. McpAccessToolTests.ToolNames,
+        .. McpServerChangeTests.ToolNames,
     ];
 
     private static readonly string[] Workflows =

@@ -156,6 +156,9 @@ public sealed class EstPlugin : ICorePlugin, IEventSource, IAsyncDisposable
     /// <summary>The enrollments tool (docs/spec/mcp.md "Plugins"): the state and the enrollments of the caller's devices, read only like the page.</summary>
     public IReadOnlyList<PluginTool> Tools { get; } = [.. EstTools.All, .. EstPageTools.Set.Tools];
 
+    /// <summary>A tool's run is audited with its page method, like the page's own call (Turn on, Turn off, save).</summary>
+    public string? AuditDetail(string method, string? payloadJson) => EstPageTools.AuditDetail(method, payloadJson);
+
     /// <summary>The Admin methods are audited (Delete all as a tool too); a preview only reads.</summary>
     public bool IsAudited(string method) => RequiredRole(method) == UserRole.Admin && !PluginTool.IsPreviewMethod(method);
 

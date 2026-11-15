@@ -61,3 +61,13 @@ The page's actions (`Tools/RadiusPageTools.cs`, `PluginPageTools`, decision 2026
 method: `oadm_radius_sessions` (the Sessions tab of the caller's devices, newest first, paged; no sessions while the server is
 off) and `oadm_radius_log_delete_preview` / `_run` (Delete log: Administrator, "manage", users with all devices, the run
 audited; an empty log is refused, "The log is empty."). Tests: `PageToolTests`.
+
+The server's actions (decision 2026-11-15, same file): `oadm_radius_switches` (read: id, name, address, site, state; never a
+secret), `oadm_radius_enable` (Turn on with OADM PRO, Turn off; audited as `turnOn` / `turnOff`), `oadm_radius_settings_save`
+(Listen on, port, log lines kept; the checks of `SaveSettingsAsync` in `RadiusService.SettingsRefusal`), `oadm_radius_switch_save`
+and `oadm_radius_switch_delete`. A switch's shared secret never passes through an answer: `secret` is `keep` (a change's
+default), `enter` (the slot `shared_secret` of the host's secret channel, `PluginTool.Secrets`; the plan lists it in
+`needs_secrets`) or `generate` (the run makes one with `GenerateSecret` and hands it out once as a text file:
+`Pki/Tools/ToolFileStore`, download `toolFile`, bound to the caller's session, 10 minutes). The preview checks with a
+stand-in secret; the run checks the real one ("secrets.shared_secret"). Every change Administrator, "manage", users with all
+devices, the run audited with its page method (`AuditDetail`). Tests: `PageToolTests`.

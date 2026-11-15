@@ -235,6 +235,13 @@ public static partial class OadmServerHost
                         sp.GetRequiredService<Core.Security.CredentialProtector>()),
                     .. Tools.DeviceChangeTools.Create(sp.GetRequiredService<Tools.ToolHandles>(), sp.GetRequiredService<TimeProvider>()),
                     .. Tools.SettingsTools.Create(),
+                    .. Tools.ServerChangeTools.Create(sp.GetRequiredService<Tools.ToolHandles>(), new Tools.AgentServerCalls(
+                        call => call.CallAsync<Mcp.McpGrpcService, Oadm.Contracts.V1.Empty, Oadm.Contracts.V1.McpState>(
+                            Tools.ServerChangeTools.McpGetPath, new Oadm.Contracts.V1.Empty(), (s, r, c) => s.Get(r, c)),
+                        (call, settings) => call.CallAsync<Mcp.McpGrpcService, Oadm.Contracts.V1.McpSettings, Oadm.Contracts.V1.McpState>(
+                            Tools.ServerChangeTools.McpSetPath, settings, (s, r, c) => s.Set(r, c)))),
+                    .. Tools.SiteChangeTools.Create(sp.GetRequiredService<Tools.ToolHandles>()),
+                    .. Tools.DeviceTrustTools.Create(sp.GetRequiredService<Tools.ToolHandles>()),
                     Tools.ServerStatusTool.Create(call => call.CallAsync<Mcp.McpGrpcService, Oadm.Contracts.V1.Empty, Oadm.Contracts.V1.McpState>(
                         Tools.ServerStatusTool.McpPath, new Oadm.Contracts.V1.Empty(), (s, r, c) => s.Get(r, c))),
                     .. Tools.FileTools.Create(cursors, sp.GetRequiredService<Tools.ToolHandles>()),
@@ -525,7 +532,10 @@ public static partial class OadmServerHost
             deviceScopes: sp.GetRequiredService<HostDeviceScopes>(),
             viewWatcher: sp.GetRequiredService<Core.DeviceGroups.DeviceViewWatcher>(),
             protectedTags: sp.GetRequiredService<Core.Devices.ProtectedTagRegistry>(),
-            streamProbes: sp.GetRequiredService<Sdk.Devices.IDeviceStreamProbes>()));
+            streamProbes: sp.GetRequiredService<Sdk.Devices.IDeviceStreamProbes>())
+        {
+            UploadStore = sp.GetRequiredService<Core.Uploads.UploadStore>(), // a tool's file argument: the caller's own uploads
+        });
         services.AddSingleton<PluginServiceRegistry>();
         services.AddSingleton<HostDeviceScopes>();
         services.AddSingleton<Core.Auth.AccessEpochs>(); // the interceptor captures it, the job registry records changes in it

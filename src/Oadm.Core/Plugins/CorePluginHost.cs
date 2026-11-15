@@ -121,6 +121,9 @@ public sealed partial class CorePluginHost : IAsyncDisposable
         _logger = _loggerFactory.CreateLogger<CorePluginHost>();
     }
 
+    /// <summary>The uploads a user's call reads as its <see cref="ICallContext.Uploads"/> (only the caller's session); null: none.</summary>
+    public Oadm.Core.Uploads.UploadStore? UploadStore { get; init; }
+
     /// <summary>Live events of the core plugins for their pages (<see cref="ICorePluginContext.Events"/>).</summary>
     public PluginEventHub Events { get; }
 
@@ -458,7 +461,10 @@ public sealed partial class CorePluginHost : IAsyncDisposable
             systemAllowed = !string.IsNullOrWhiteSpace(Answer(registered, method, p => p.SystemAccessReason(method), fallback: null));
         }
 
-        var call = new HostCallContext(caller, entry.CallVapix ?? _vapix, _tasks, entry.CallEventStreams, _viewWatcher, _taskOwners, _registry, registered.Origin.PackageId);
+        var call = new HostCallContext(caller, entry.CallVapix ?? _vapix, _tasks, entry.CallEventStreams, _viewWatcher, _taskOwners, _registry, registered.Origin.PackageId)
+        {
+            Uploads = UploadStore is { } store ? store.For(Oadm.Core.Uploads.UploadOwner.Of(caller.Caller)) : Oadm.Core.Uploads.NoUploadedFiles.Instance,
+        };
         return (call, new PluginCallMark(registered.Id, method, caller.HasAllDevices, systemAllowed) { ScopeKey = caller.View.ScopeKey });
     }
 

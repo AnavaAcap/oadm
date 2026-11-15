@@ -809,6 +809,31 @@ public sealed partial class RadiusService : IAsyncDisposable
         };
     }
 
+    /// <summary>The settings saved now (a tool's preview starts from them).</summary>
+    internal RadiusSettings Settings => _config;
+
+    /// <summary>The switches as stored (a tool's preview checks a save against them; never their secrets).</summary>
+    internal IReadOnlyList<SwitchRow> StoredSwitches => [.. _stored.Select(s => new SwitchRow { Id = s.Id, Name = s.Name, Address = s.Address, SiteId = s.SiteId })];
+
+    /// <summary>The checks of <see cref="SaveSettingsAsync"/> without saving (a tool's preview); null when the save would go through.</summary>
+    internal RadiusFieldError? SettingsRefusal(RadiusSettings request)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        if (RadiusRules.Validate(request) is { } error)
+        {
+            return error;
+        }
+
+        return InterfaceOptions.IsAll(request.ListenOn)
+            || UsableInterfaces().Any(n => string.Equals(n.Id, request.ListenOn, StringComparison.Ordinal))
+            || string.Equals(request.ListenOn, _config.ListenOn, StringComparison.Ordinal)
+            ? null
+            : new RadiusFieldError("listenOn", RadiusTexts.InterfaceGone);
+    }
+
+    /// <summary>The site <paramref name="siteId"/> exists (a switch at a site).</summary>
+    internal bool HasSite(Guid siteId) => _host.Sites?.List.Any(s => s.Id == siteId) == true;
+
     /// <summary>Save of the Server card. Throws <see cref="ArgumentException"/> with the field's message.</summary>
     public async Task<RadiusState> SaveSettingsAsync(RadiusSettings request, CancellationToken ct)
     {

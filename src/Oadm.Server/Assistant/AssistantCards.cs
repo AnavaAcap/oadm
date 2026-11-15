@@ -390,6 +390,79 @@ internal static class AssistantCards
                 (count, unit) = (1, "access key");
                 card.Destructive = true;
                 break;
+            case "oadm_settings_set_preview":
+                foreach (var change in (answer["changes"] as JsonArray ?? []).OfType<JsonObject>())
+                {
+                    Add(details, Text(change["label"]) ?? "Setting", Arrow(Text(change["old"]), Text(change["new"])));
+                }
+
+                (count, unit) = (Number(answer["will_change"]) ?? 0, "setting");
+                break;
+            case "oadm_mcp_set_preview":
+            case "oadm_assistant_settings_preview":
+                var title = preview.Name == "oadm_mcp_set_preview" ? "MCP server" : "Assistant";
+                if (answer["now"] is JsonObject before && answer["after"] is JsonObject after)
+                {
+                    foreach (var (name, value) in after.Where(p => !JsonNode.DeepEquals(p.Value, before[p.Key])))
+                    {
+                        Add(details, name == "has_api_key" ? "API key" : Label(name), name == "has_api_key" ? (Flag(value) == true ? "a new one, entered here" : "none") : Arrow(Plain(before[name]), Plain(value)));
+                    }
+
+                    if (Flag(before["enabled"]) == true && Flag(after["enabled"]) == false)
+                    {
+                        card.Destructive = true; // Turn off
+                        Add(details, "Turns off", title);
+                    }
+                }
+
+                if ((answer["needs_secrets"] as JsonArray)?.Count > 0 && !details.Any(d => d.StartsWith("API key", StringComparison.Ordinal)))
+                {
+                    Add(details, "API key", "a new one, entered here");
+                }
+
+                (count, unit) = (Number(answer["will_change"]) ?? 0, "setting");
+                break;
+            case "oadm_sites_accept_preview":
+                Add(details, "Accept site nodes", Flag(answer["accept"]) == true ? "on" : "off");
+                Add(details, "Devices at sites", Number(answer["devices"])?.ToString("N0", CultureInfo.InvariantCulture));
+                (count, unit) = (Number(answer["sites"]) ?? 0, "site");
+                card.Destructive = Flag(answer["accept"]) == false;
+                break;
+            case "oadm_sites_bind_preview":
+                Add(details, "Binds the site node at", Text(answer["address"]));
+                Add(details, "Fingerprint", Text(answer["fingerprint"]));
+                Add(details, "Site name", Text(answer["name"]));
+                (count, unit) = (1, "site");
+                break;
+            case "oadm_sites_replace_preview":
+                Add(details, "Moves the devices of", Text(answer["site"]));
+                Add(details, "To", Text(answer["new_site"]));
+                (count, unit) = (Number(answer["devices"]) ?? 0, "device");
+                break;
+            case "oadm_sites_remove_preview":
+                Add(details, "Removes the site", Text(answer["site"]));
+                Add(details, Flag(answer["keep_devices"]) == true ? "Keeps as Site offline" : "Removes from OADM", Count(Number(answer["devices"]) ?? 0, "device"));
+                Add(details, "Used by device groups", Joined(answer["device_groups"]));
+                (count, unit) = (1, "site");
+                card.Destructive = true;
+                break;
+            case "oadm_devices_certificate_trust_preview":
+                foreach (var device in (answer["devices"] as JsonArray ?? []).OfType<JsonObject>().Where(d => Text(d["new_fingerprint"]) is { Length: > 0 }))
+                {
+                    Add(details, Text(device["address"]) ?? "Device", "trusted " + Text(device["trusted_fingerprint"]) + ", new " + Text(device["new_fingerprint"]));
+                }
+
+                (count, unit) = (Number(answer["will_change"]) ?? 0, "device");
+                break;
+            case "oadm_devices_remove_all_preview":
+                Add(details, "Removes from OADM", Count(count, "device") + " with their stored logins");
+                foreach (var site in (answer["at_sites"] as JsonArray ?? []).OfType<JsonObject>())
+                {
+                    Add(details, "At " + Text(site["site"]), Count(Number(site["devices"]) ?? 0, "device"));
+                }
+
+                card.Destructive = true;
+                break;
             default:
                 // A plugin's preview: its plain fields, one level deep (the PKI certificate, a VAPIX Commander command).
                 foreach (var (name, value) in answer)
@@ -452,6 +525,10 @@ internal static class AssistantCards
 
     private static string PluralOf(string unit) =>
         unit.EndsWith('y') ? unit[..^1] + "ies" : unit.EndsWith('s') ? unit + "es" : unit + "s";
+
+    /// <summary>"32 → 64" of a value before and after.</summary>
+    private static string Arrow(string? before, string? after) =>
+        (string.IsNullOrEmpty(before) ? "(empty)" : before) + " → " + (string.IsNullOrEmpty(after) ? "(empty)" : after);
 
     /// <summary>A list of texts of an answer joined, null when empty.</summary>
     private static string? Joined(JsonNode? list) =>

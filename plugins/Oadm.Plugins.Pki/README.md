@@ -367,6 +367,27 @@ download `downloadCertificate`, `oadm_pki_ca_file(previous_id, format)` the down
 (`OpenDownloadAsync` answers the page's file of these Invoke methods). Only PEM or DER of the certificate: never a private
 key, a PKCS#12 file or a backup (`PkiTools.FileFormats`).
 
+The page's actions (`Tools/PkiPageTools`, `PluginPageTools`, decision 2026-11-15), each a preview that writes nothing and a
+run with the rights of its page method (`RulesMethodOf`; Administrator with "Manage the certificate authority", Install in
+the server's trust with "Trust it on the server", users with all devices, the run audited with its page method through
+`AuditDetail`). A CA is named by its row id of `oadm_pki_certificates` (`ca:<SHA-256>`, `PkiService.AuthorityOfRow`).
+
+- `oadm_pki_all_policies` (read): every policy with its id, kind, main values and summary (the PRO kinds only with OADM PRO,
+  none for a group user).
+- `ca_create` (`CreateAuthorityErrors`, the checks of Create CA), `ca_import` (a file the caller uploaded, `ICallContext.Uploads`,
+  1 MB at most, an optional separate key file; a file that needs its password names the secret `password` in the plan,
+  `needs_secrets`, and the preview names the CA only once it can open the file; `ImportRefusal` refuses a CA in the list),
+  `ca_delete` (`DeleteAuthorityAsync` with a dry run: the same refusals, "Used by the policy ..."), `ca_key_backup` (secret
+  `password`; the run makes the PKCS#12 of `Backup` and hands it out once: `ToolFileStore`, download `toolFile`, bound to the
+  caller's session, 10 minutes, zeroed when taken; the only private-key file a tool hands out, decision 2026-11-15),
+  `server_trust_install` (a root CA; refused when the server trusts it already), `policy_save` and `policy_delete`
+  (`PolicyStore.SaveAsync`/`DeleteAsync` with `dryRun`: every check of the Policies tab, nothing written; a change starts
+  from the stored policy, fields left out keep their value; a PRO kind without OADM PRO is refused).
+- Plans warn as the page does: Block (the devices lose the network at their switch port), VLAN, 802.1X trusted CA, the
+  server certificates, Enrollment; the key backup (keep the file and its password apart); the server trust.
+- Passwords never reach an answer, a plan, a log line or an audit detail. Tests: `PageToolTests`; over MCP
+  `McpPkiPageToolTests` (the secret link, the one-time download).
+
 ## Device groups
 
 `minSdkVersion` 0.4.0. `InvokeAsync(ICallContext, ...)`: `getState` for everyone who may see the page, with the counts of

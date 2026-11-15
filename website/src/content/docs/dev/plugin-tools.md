@@ -143,7 +143,25 @@ return new ExportAnswer(Recordings: 1, File: new PluginToolFile("export", JsonSe
 The host never passes the bytes through the answer. It replaces `file` with a file reference; an agent turns it into a
 one-time download link, the assistant shows a card with Save. The bytes are read only then, through your download as the
 caller: its permission, device group and audit apply again. Give `Size` only when you know it exactly. Never a backup, a
-private key or a PKCS#12 file.
+private key or a PKCS#12 file, except a key backup protected with a password the person enters as a secret.
+
+A tool that takes a file has a `file_id` argument: the caller uploads the file first (an agent's upload link, the
+assistant's Attach file). Read it with `caller.Uploads.FindAsync` and `OpenReadAsync`; another user's upload answers like
+an unknown id. In tests set `FakeCallContext.Uploads` to a `FakeUploadedFiles` and `Add` the file.
+
+## Secrets
+
+A change that needs a password or a shared secret declares it, and never takes it as an argument:
+
+```csharp
+new PluginTool("switch_save", "Save switch", "Adds or changes a switch.") { Secrets = [new("shared_secret", "shared secret")] }
+```
+
+The host declares the secret on the preview's handle; the person enters it through the host's secret channel (their own
+shell, or the assistant's card), never through the model. The run gets it once: `input.Secret("shared_secret")`, with
+`input.IsRun` true; the preview never has it, so its check accepts a missing secret. When only some runs need it (a switch
+whose secret stays), the plan names them in a `needs_secrets` list. Never write a secret into an answer, a log line or an
+audit detail.
 
 ## Your duty
 

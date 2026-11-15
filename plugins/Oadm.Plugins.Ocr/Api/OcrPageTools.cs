@@ -10,8 +10,8 @@ using Oadm.Sdk.Plugins;
 namespace Oadm.Plugins.Ocr.Api;
 
 /// <summary>
-/// The page's actions as tools (docs/spec/mcp.md "Plugins", decision 2026-11-15): Save (a new reader or a change), Delete and
-/// Read now, each a preview and a run with the page's right "change". The preview runs the page's checks without storing
+/// The page's actions as tools (docs/spec/mcp.md "Plugins", decision 2026-11-15): Save (a new reader or a change), Delete, Read
+/// now and Use GPU (users with all devices), each a preview and a run with the page's right "change". The preview runs the page's checks without storing
 /// (<see cref="ReaderStore.CheckSaveAsync"/>); the run calls the page's own method with the caller. Read now fires the reader's
 /// events, so it is a change too; its answer is the text read, never a picture.
 /// </summary>
@@ -21,6 +21,28 @@ internal static class OcrPageTools
     public const int MaxAreas = OcrLimits.MaxAreas;
 
     public const string FiresEvents = "Fires the reader's Text read or No text read event. Event rules on it run.";
+    public const string NoCard = "No usable graphics card was found. The readers keep reading on the processor.";
+    public const string TriesCard = "Turning it on tries the graphics card first; that can take a few seconds.";
+    public const string ToProcessor = "The readers read on the processor from now on.";
+
+    /// <summary>The preview of Use GPU: the setting now, where the readers read, and what changes (users with all devices).</summary>
+    private static async Task<UseGpuPlan> CheckUseGpuAsync(OcrPlugin plugin, ICallContext caller, PluginToolInput<UseGpuArgs> input, CancellationToken ct)
+    {
+        if (!caller.HasAllDevices)
+        {
+            throw new DeviceAccessRefusedException(); // the host refuses it first (RequiresAllDevices); fail closed
+        }
+
+        var engine = OcrJson.Deserialize<EngineInfo>(await plugin.InvokeAsync(caller, OcrMethods.GetEngine, null, ct).ConfigureAwait(false));
+        List<string> warnings = (input.Args.UseGpu, engine.UseGpu, engine.GpuAvailable) switch
+        {
+            (true, false, _) => [TriesCard],
+            (true, true, false) => [NoCard],
+            (false, true, _) => [ToProcessor],
+            _ => [],
+        };
+        return new UseGpuPlan(engine.UseGpu, input.Args.UseGpu, engine.RunsOn, warnings);
+    }
 
     public static PluginPageTools<OcrPlugin> Set { get; } = new PluginPageTools<OcrPlugin>(OcrTools.Json)
         .Change<SaveArgs, SavePlan, SaveAnswer>(
@@ -41,7 +63,16 @@ internal static class OcrPageTools
             new("reader_read_now", "Read text now", "Reads one picture with an On action reader and answers the text. Fires the reader's events."),
             OcrMethods.ReadNow,
             CheckReadNowAsync,
-            RunReadNowAsync);
+            RunReadNowAsync)
+        .Change<UseGpuArgs, UseGpuPlan, UseGpuAnswer>(
+            new("use_gpu", "Use the graphics card for text recognition", "Turns Use GPU on or off: the readers read on the graphics card when one is usable, else on the processor."),
+            OcrMethods.SetUseGpu,
+            CheckUseGpuAsync,
+            async (plugin, caller, input, _, ct) =>
+            {
+                var engine = OcrJson.Deserialize<EngineInfo>(await plugin.InvokeAsync(caller, OcrMethods.SetUseGpu, OcrJson.Serialize(new UseGpuRequest { UseGpu = input.Args.UseGpu }), ct).ConfigureAwait(false));
+                return new UseGpuAnswer(engine.UseGpu, engine.RunsOn, engine.UseGpu && !engine.GpuAvailable ? NoCard : null);
+            });
 
     private static async Task<SavePlan> CheckSaveAsync(OcrPlugin plugin, ICallContext caller, PluginToolInput<SaveArgs> input, CancellationToken ct)
     {
@@ -265,4 +296,14 @@ internal static class OcrPageTools
         [property: Description("Why nothing was read, when that is known.")] string? Note);
 
     internal sealed record AreaText(string Area, string Text, bool MatchesFormat, double Confidence);
+
+    internal sealed record UseGpuArgs([property: Description("True: use the graphics card when one is usable.")] bool UseGpu);
+
+    internal sealed record UseGpuPlan(
+        [property: Description("The setting now.")] bool UseGpu,
+        [property: Description("The setting after the run.")] bool NewUseGpu,
+        [property: Description("Where the readers read now.")] string RunsOn,
+        [property: Description("What the user must know before the run.")] IReadOnlyList<string> Warnings) : PluginToolPlan(1, "setting");
+
+    internal sealed record UseGpuAnswer(bool UseGpu, [property: Description("Where the readers read now.")] string RunsOn, [property: Description("A problem to tell the user; null when none.")] string? Problem);
 }

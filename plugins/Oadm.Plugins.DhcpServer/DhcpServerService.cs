@@ -215,6 +215,31 @@ public sealed partial class DhcpServerService : IAsyncDisposable
     public async Task<DhcpSaveReply> SaveAsync(DhcpSaveRequest request, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(request);
+        var (errors, interfaceId, nic, start, end) = Check(request);
+        if (errors.Count > 0)
+        {
+            return new DhcpSaveReply(false, errors, null, GetState(full: false));
+        }
+
+        return await StoreAsync(request, interfaceId, nic, start, end, ct).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// The field errors <see cref="SaveAsync"/> would answer ("Interface", "RangeStart", "RangeEnd"), without changing
+    /// anything and without the check for other DHCP servers (the preview of a tool).
+    /// </summary>
+    public IReadOnlyDictionary<string, string> CheckSave(DhcpSaveRequest request)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        return Check(request).Errors;
+    }
+
+    /// <summary>The name of a usable interface ("Ethernet"); null when the server has none with this id.</summary>
+    public string? InterfaceNameOf(string? interfaceId) =>
+        UsableInterfaces().FirstOrDefault(n => string.Equals(n.Id, interfaceId, StringComparison.Ordinal))?.Name;
+
+    private (Dictionary<string, string> Errors, string? InterfaceId, ServerNetworkInterface? Nic, string? Start, string? End) Check(DhcpSaveRequest request)
+    {
         var errors = new Dictionary<string, string>(StringComparer.Ordinal);
         var interfaceId = string.IsNullOrWhiteSpace(request.InterfaceId) ? null : request.InterfaceId.Trim();
         var nic = interfaceId is null ? null : UsableInterfaces().FirstOrDefault(n => string.Equals(n.Id, interfaceId, StringComparison.Ordinal));
@@ -240,11 +265,11 @@ public sealed partial class DhcpServerService : IAsyncDisposable
             }
         }
 
-        if (errors.Count > 0)
-        {
-            return new DhcpSaveReply(false, errors, null, GetState(full: false));
-        }
+        return (errors, interfaceId, nic, start, end);
+    }
 
+    private async Task<DhcpSaveReply> StoreAsync(DhcpSaveRequest request, string? interfaceId, ServerNetworkInterface? nic, string? start, string? end, CancellationToken ct)
+    {
         var sameInterface = string.Equals(_config.InterfaceId, interfaceId, StringComparison.Ordinal);
         var accepted = sameInterface ? _config.AcceptedOtherServers : [];
         var alreadyServing = _listener is not null && sameInterface;

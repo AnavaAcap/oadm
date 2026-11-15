@@ -65,6 +65,11 @@ internal static class AssistantTools
             "oadm_roles_list" or "oadm_roles_permissions" => "Looking at roles",
             "oadm_device_groups_list" => "Looking at device groups",
             "oadm_access_keys_list" => "Looking at access keys",
+            "oadm_settings_get" => "Reading the server settings",
+            "oadm_server_status" => "Looking at the server",
+            "oadm_sites_list" or "oadm_sites_waiting" => "Looking at sites",
+            "oadm_assistant_test" => "Testing the provider",
+            "oadm_devices_certificate_trust_preview" => "Reading the device certificates",
             _ when IsPreview(tool.Name) => "Preparing the plan",
             _ => tool.Title,
         };

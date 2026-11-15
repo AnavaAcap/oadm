@@ -664,7 +664,10 @@ box back with the error below the list (`PluginsViewModel.SwitchAsync`).
   tool method the role, permission, device group and audit rules of its page method; a plan derives from `PluginToolPlan`
   (`will_change`, `unit`) so the Assistant's card counts it ("1 reader"). Bundled: PKI (`certificates`, `policies`, `certificate_create`), NTP server
   (`status`), DHCP server (`status`, `leases`), Hardening scan (`results`), Device configuration (`parameters`,
-  `action_rules`, `stream_profiles`).
+  `action_rules`, `stream_profiles`). `PluginTool.Secrets` (`PluginToolSecret`: the secrets a change's run gets once through
+  the host's secret channel, `PluginToolInput.Secret`, `IsRun`; the plan may name some in `needs_secrets`) and
+  `ICallContext.Uploads` (the caller's own uploads for a `file_id` argument; `FakeUploadedFiles` in `Oadm.Sdk.Testing`), both
+  SDK 0.13.0 default members (decision 2026-11-15, `docs/spec/mcp.md` "SDK").
 - **Protected tags** (`ICorePluginContext.ProtectedTags`, `Oadm.Sdk.Devices.IProtectedTags.Protect(names, refusal)`;
   server `ProtectedTagRegistry`): a core plugin whose settings act on devices by tag names those tags; only users with all
   devices then add them to or remove them from devices (`docs/spec/tags.md` "Protected tags"). Each call replaces the

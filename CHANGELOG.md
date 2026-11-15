@@ -14,7 +14,7 @@ Each entry is one short line in plain words (what the user gets, not how); no ne
 - Audit log: adding devices is recorded, also by an agent.
 - Assistant: chat with an AI model about your devices in OADM; it prepares changes and you press Run.
 - Assistant and agents do what you can in OADM with your rights, from reading the settings of many cameras to configuring them, and the AI never sees a password.
-- Plugin SDK 0.13.0: the certificates of the servers OADM runs, and tasks and tools for MCP (payload schema, payload check, plan, result files, tool files).
+- Plugin SDK 0.13.0: the certificates of the servers OADM runs, and tasks and tools for MCP (payload schema, payload check, plan, result files, tool files, tool secrets and uploads).
 
 ## [5.0.0] - 2026-11-13
 
