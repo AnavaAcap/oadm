@@ -233,7 +233,8 @@ server ID, a customer, a license key, an API key or a certificate. The tools nam
 
 **OADM's data first.** OADM already holds most facts (the polled device data, the task history, the logs, the last
 reads of its pages). The tools answer from it; a tool that asks the devices (a VAPIX command, a snapshot) is the last
-resort, and the skill says so. A page tool answers what its page read last, never a read of its own.
+resort, and the skill says so. A page's read tool answers what the page read last; the page's own Read or Check is a
+tool of its own (see "Page actions").
 
 ### Plugins
 
@@ -272,8 +273,8 @@ The page reads of the bundled plugins (read only, the page's own rights and devi
 plugin declares `ICorePlugin.Tools` (`McpPluginCoverageTests` reads the source of every bundled plugin); a package
 without a core plugin (a task plugin, an event rule action) is covered by the task tools (`oadm_tasks_catalog`,
 `oadm_task_preview`, `oadm_tasks_get` with its steps and log) and `oadm_rules_catalog`. The exceptions carry their reason:
-Live View (live video stays in the client) and Web View (the device's own web interface), plus plugins whose tools are
-built on other branches until they are merged.
+Web View (the device's own web interface), plus plugins whose tools are built on other branches until they are merged.
+Live View offers its saved views; its video stays in the client.
 
 **VAPIX Commander** (`oadm_vapix_commands`, `oadm_vapix_command_preview` / `_run`, `CommanderTools`): only library and saved
 commands by id (`library:<id>`, `saved:<id>`), never a request of the agent's own. Not offered: a dangerous command
@@ -296,15 +297,51 @@ counts first; decision 2026-11-15 "the agents see everything OADM shows"): `oadm
 `ListRecipients`, users with all devices) lists the recipients of the action plugins (Notifications, MQTT, Modbus, OPC UA)
 with the target as scheme, host and port, `has_password` only, the rules that use them and the connection of a persistent
 type (the first answer of `WatchRecipientStatus`). Not offered: System report (its jobs belong to a user's session and
-hold the devices' configuration), Outputs (an action without state; `oadm_io_ports` shows the outputs), starting reads,
-checks, streams, exports and reports (they stay in the pages). A read's name never ends in `_preview` or `_run`, which name
-the two halves of a change (the load test's are `checks` and `check`).
+hold the devices' configuration), Outputs (an action without state; `oadm_io_ports` shows the outputs), live streams and
+video (they stay in the client), reports and file exports (PDF, CSV). A read's name never ends in `_preview` or `_run`,
+which name the two halves of a change (the load test's are `checks` and `check`).
+
+**Page actions** (decision 2026-11-15: AI agents, MCP with the key's role and devices and the Assistant with the signed-in
+user, can do everything a user can on the plugin pages; this drops the earlier rules "starting reads, checks, streams,
+exports and reports stay in the pages" and "a page tool answers what its page read last, never a read of its own", except
+that live streams and video stay in the client). Each action wraps one declared page method with the SDK's
+`PluginPageTools` (see "SDK"): the tool has the page method's role, permission, device group rule and audit
+(`RulesMethodOf`), its input is a strict typed record, its checks are the page's own code and its refusals the page's
+texts. A read, or a start the page does without asking (a scan, a check, a read of the devices), is one tool and may
+refresh what the page shows; everything the page confirms or that changes a device, a setting or something a user saved
+is a preview (the page's validation, nothing written) and a run (validated again, the page's code with the caller). A
+start on devices takes the device filter or `all_devices` (more than 500 matches need `all_devices`). Plans count what
+changes (`will_change`, `unit`) for the Assistant's card. Bundled:
+
+- Hardening scan: `scan_start`, `scan_stop` ("Run scans"), `detail` (one device's checks, "show").
+- Image health: `check` (Check now). Edge storage: `read` (the storage task stays a task). Applications: `read`, `log`
+  (newest lines of one device's application), `settings` (grouped values, shown only with the right to change ACAP
+  settings, never a secret value); settings writes and installs stay tasks.
+- Action Rule Editor: `read` (Refresh), `recipients`, `schedules`, `recipient_kinds`, and `recipient_create`,
+  `recipient_change`, `recipient_copy`, `recipient_delete`, `schedule_create`, `schedule_change`, `schedule_copy`,
+  `schedule_delete` (the page's runs: one editor task per device, kept for undo). A recipient password or a login in an
+  address is refused with "Set this in OADM." (a secret channel comes later); a copy takes the source's password on the
+  server. Rule deploy, delete and undo are the editor's task.
+- Device triggers: `events_read` and `events` (the editor's read of the device events, then its result), `save`,
+  `set_enabled`, `copy`, `delete`. Dashboards: `get`, `events`, `save`, `delete`, `press` (a change: its event goes to
+  the event rules, and the preview says whether a rule uses it).
+- Text recognition: `reader_save`, `reader_delete`, `reader_read_now` (a change: it fires the reader's events; answers the
+  text, never a picture). Vision Center: `pipeline`, `models`, `class_lists` (reads; never a model file or a picture),
+  `pipeline_save` (the editor's `VisionGraph.Check`, one error per node), `pipeline_copy`, `pipeline_delete`,
+  `class_list_save`. Model upload and delete and the graphics card setting stay in the page.
+- Load test: `plan`, `start` (the page's limits: 1,000 streams, batches of 200; the exposure always goes back), `cancel`,
+  `check_delete`. DHCP server: `static_lease_save`, `static_lease_delete`, `lease_make_static`, `lease_release`.
+- EST server: `enrollments_clear`. 802.1X server: `sessions`, `log_delete`.
+- VAPIX Commander: `saved_save`, `saved_delete`, `saved_import`, `saved_export` (the page's command file, at most 24 KB,
+  secret values as `***`, password values left out; a command with a password value is refused with "Set passwords in
+  OADM.").
+- Live View: `views`, `view_save`, `view_delete` (saved views; no tool opens video).
 
 ### Not over MCP
 
 Live video, Live View tabs, Dashboards live updates, Metadata Monitor and I/O Monitor streams (their state and one read
 are offered, see "Plugins"), Web View; users, roles, device groups, access keys, license changes, plugins on/off, Forget
-server; Settings changes; backup restore, Delete all tasks, Delete all devices (reading the license and plugin state is
+server; Settings changes; the Vision Center models and its graphics card setting; backup restore, Delete all tasks, Delete all devices (reading the license and plugin state is
 `oadm_server_status`). Backups stay GUI only: no tool creates, downloads or restores one (decision 2026-11-15).
 
 ## Files
@@ -332,6 +369,14 @@ New default interface members (SDK minor version up, `docs/spec/plugins.md`):
   output schema, read only or change, permission), called through the plugin's own `InvokeAsync` with the caller
   (`tool.<name>`). Changes get the preview/run pair from the host; the plugin implements `tool.<name>.preview`, which never
   writes. Nothing in the SDK names MCP: a later built-in assistant uses the same tools.
+- `PluginPageTools<TOwner>` (`src/Oadm.Sdk/Plugins/PluginPageTools.cs`, "Page actions"): declared page methods as tools,
+  never a bridge to any method. `Read<TArgs, TAnswer>` is one tool; `Change<TArgs, TPlan, TResult>` a check (the page's
+  validation, the preview's answer, never writes) and a run (the check again, then the page's code with the caller and the
+  plan). It reads the arguments (broken JSON refused), checks their validation attributes, hands `PluginToolInput` (the
+  arguments, `Devices`, `Page`), turns `PluginToolInputException` into field errors, and maps a tool method to its page
+  method (`PageMethodOf`, `RulesMethodOf`) for the plugin's rules. `PluginToolPlan(WillChange, Unit)` is the base of a plan,
+  so the Assistant's card says "1 reader" (`AssistantCards`). Tests: `McpPageActionTests` and each plugin's `PageToolTests`;
+  `McpAddOnToolSchemaTests` checks the schemas of the optional plugins without starting them.
 - `[Secret]` (`SecretAttribute`) on a payload property: a task whose payload has one, anywhere, is not offered over MCP.
 
 ## Skill

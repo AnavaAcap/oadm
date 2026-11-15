@@ -151,6 +151,7 @@ command**. Command format: `Schema/command-format.md` + `command.schema.json` (t
   all devices (`RequiresAllDevices`; the page hides New command, Import, Edit, Delete and Save with values); a saved
   command's stored passwords only for users with all devices (others get `CommanderTexts.SavedPasswordsRefused` and
   enter the passwords); the task owner is the caller.
+- Page actions as tools (decision 2026-11-15, [mcp.md](mcp.md) "Page actions"), with the page's rights: saved commands `oadm_vapix_saved_save`, `_delete`, `_import` (changes) and `oadm_vapix_saved_export` (the command file, secret values masked, no password value).
 
 ## NTP server (core plugin)
 
@@ -192,6 +193,7 @@ devices that get an address. Per-OS setup and the manual test plan: plugin `READ
 - Device groups: every change only for users with all devices; users with a group see the leases of their own devices
   (by MAC address = serial only, never by address), live through their group's scope. A change and a removal of one batch
   go in one event (parts of one version only beyond 2,000 leases; the page applies every part of a version).
+- Page actions as tools (decision 2026-11-15, [mcp.md](mcp.md) "Page actions"), with the page's rights: `oadm_dhcp_static_lease_save`, `_delete`, `oadm_dhcp_lease_make_static`, `oadm_dhcp_lease_release` (changes with the page's checks).
 
 ## PKI (core plugin)
 
@@ -266,6 +268,7 @@ server** of the PKI page, its own source-available `Est/LICENSE`. Off by default
   of cameras OADM does not manage. Host names never go into certificates of a device a user with a group added.
 - MCP ([mcp.md](mcp.md)): the read-only tool `oadm_est_enrollments` (the state and the enrollments of the caller's
   devices; while the server is off its state only).
+- Page actions as tools (decision 2026-11-15, [mcp.md](mcp.md) "Page actions"), with the page's rights: `oadm_est_enrollments_clear` (a change).
 
 ## 802.1X server (core plugin of PKI, OADM PRO)
 
@@ -291,6 +294,7 @@ certificate, TLS, trusted CAs, VLAN, Block) are PKI's policies (`docs/spec/pki.m
   (rows without a managed device never), no server-wide settings and only the switches of the group's routes.
 - MCP ([mcp.md](mcp.md)): the read-only tool `oadm_radius_log` (the state and the log of the caller's devices; never a
   shared secret or a certificate).
+- Page actions as tools (decision 2026-11-15, [mcp.md](mcp.md) "Page actions"), with the page's rights: `oadm_radius_sessions` (read) and `oadm_radius_log_delete` (a change).
 
 ## Metadata Monitor (core plugin)
 
@@ -328,6 +332,7 @@ that has the app, with five count cards (Good, Detected, Pending, Detection off,
 - MCP ([mcp.md](mcp.md)): the read-only tool `oadm_image_health_results` (the last check, counts first, by page).
 - Device groups: one table per device scope; a group user checks and sees only the group's cameras, chosen ids outside it
   are refused whole (NOT_FOUND).
+- Page actions as tools (decision 2026-11-15, [mcp.md](mcp.md) "Page actions"), with the page's rights: `oadm_image_health_check` (Check now, one tool).
 
 ## Application management (core plugin)
 
@@ -346,6 +351,7 @@ Details: [Application management](app-management.md) and the plugin's README.
 - Device groups: every read and run is the caller's; ids outside the group refuse the whole request (NOT_FOUND).
 - MCP ([mcp.md](mcp.md)): the read-only tool `oadm_app_management_applications` (what the page read last in the
   caller's login session, of the devices the caller sees; it reads no device).
+- Page actions as tools (decision 2026-11-15, [mcp.md](mcp.md) "Page actions"), with the page's rights: `oadm_app_management_read`, `oadm_app_management_log`, `oadm_app_management_settings` (reads; changes stay tasks).
 
 ## Load test (core plugin)
 
@@ -368,6 +374,7 @@ one row per camera stream. Details: [Load test](load-test.md) and the plugin's R
   only on the starter's devices as they are now, a camera that leaves the group is dropped, live rows only of cameras
   the group still has, ended by the host when the group's rules change ("The check stopped when its device group
   changed").
+- Page actions as tools (decision 2026-11-15, [mcp.md](mcp.md) "Page actions"), with the page's rights: `oadm_load_test_plan`, `oadm_load_test_start` (a change with the page's limits; the exposure always goes back), `oadm_load_test_cancel`, `oadm_load_test_check_delete`.
 
 ## I/O Monitor (core plugin)
 
@@ -406,6 +413,7 @@ event of the event rules, plus "<Trigger>: connection lost".
   group's devices ("All devices" and tags = the group's), so its events come only from them; group users see and change
   only their group's triggers; a deleted group's triggers watch nothing; the editor's reads are the user's jobs.
 - MCP ([mcp.md](mcp.md)): the read-only tools `oadm_device_triggers_list` and `oadm_device_triggers_devices`.
+- Page actions as tools (decision 2026-11-15, [mcp.md](mcp.md) "Page actions"), with the page's rights: `oadm_device_triggers_events_read` and `_events` (the editor's read), `_save`, `_set_enabled`, `_copy`, `_delete` (changes).
 
 ## Action Rule Editor (core plugin)
 
@@ -437,6 +445,7 @@ many devices. Every settings form uses the bundled action catalog (`Catalog/acti
   is refused (NOT_FOUND) before anything is read, saved or started; undo runs per group.
 - MCP ([mcp.md](mcp.md)): the read-only tool `oadm_device_rules_list` (the rules the editor read last for the caller's
   device scope; it reads no device).
+- Page actions as tools (decision 2026-11-15, [mcp.md](mcp.md) "Page actions"), with the page's rights: `oadm_device_rules_read` (Refresh), `_recipients`, `_schedules`, `_recipient_kinds`, and the recipient and schedule changes (create, change, copy, delete; no password over a tool); rule deploy, delete and undo stay the editor's task.
 
 ## System report (core plugin without a page)
 
@@ -472,6 +481,7 @@ plugin `README.md`.
   and devices of the user's view only; the scans of all scopes share one limit (16 devices at once for the plugin, the
   setting `parallelism`). The same for the shared `DeviceSweep` of Image Health Dashboard, Edge storage and Action Rule
   Editor: one limit per plugin, never per device scope.
+- Page actions as tools (decision 2026-11-15, [mcp.md](mcp.md) "Page actions"), with the page's rights: `oadm_hardening_scan_start`, `oadm_hardening_scan_stop` ("Run scans") and `oadm_hardening_detail`.
 
 ## Web View (core plugin)
 
@@ -513,6 +523,7 @@ also on Dashboards.
   1a2b3c4d".
 - Roles: "show" (Operator and Viewer), "Change views" (`manage`, Operator yes, Viewer no; save and delete audited); the
   pictures need "Live view".
+- Page actions as tools (decision 2026-11-15, [mcp.md](mcp.md) "Page actions"), with the page's rights: `oadm_live_view_views`, `oadm_live_view_view_save`, `oadm_live_view_view_delete` (saved views; video stays in the client).
 
 ## Dashboards (core plugin)
 
@@ -570,6 +581,7 @@ triggers**) and no dashboard.
 - Roles: "show" (Operator and Viewer), **Change dashboards** (`manage`, Operator yes, Viewer no; save and delete
   audited), **Press dashboard buttons** (`press`, Operator yes, Viewer no; every press audited; without it the button is
   disabled with the reason); video needs "Live view". A group user presses the buttons of the group's dashboards only.
+- Page actions as tools (decision 2026-11-15, [mcp.md](mcp.md) "Page actions"), with the page's rights: `oadm_dashboards_get`, `_events` (reads), `_save`, `_delete`, `_press` (changes; a press sends its event to the event rules).
 
 ## Edge Recording Export (core plugin)
 
@@ -616,6 +628,7 @@ only while Edge storage is on.
   (removed ones are skipped; runs stay refused as a whole).
 - MCP ([mcp.md](mcp.md)): the read-only tool `oadm_edge_storage_cards` (the table the page read last for the caller's
   device scope, with its counts; it reads no camera).
+- Page actions as tools (decision 2026-11-15, [mcp.md](mcp.md) "Page actions"), with the page's rights: `oadm_edge_storage_read` (the page's Read; check, repair and format stay the storage task).
 
 ## Date and time
 

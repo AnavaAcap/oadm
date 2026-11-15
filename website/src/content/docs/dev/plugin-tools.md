@@ -99,11 +99,44 @@ Set `Changes` and the host makes two tools, `<name>_preview` and `<name>_run`. I
 
 Set `Destructive` for a change that removes something.
 
+## Page actions
+
+What a user does on your page, an agent can do too. `PluginPageTools<TOwner>` wraps a method of your page as a tool, with a
+typed input and the page's own checks; it never calls a page method you did not declare:
+
+```csharp
+internal static class GateTools
+{
+    public static PluginPageTools<GatesPlugin> Set { get; } = new PluginPageTools<GatesPlugin>()
+        .Read<NoArgs, GatesAnswer>(new("gates", "Gates", "Lists the gates."), "list",
+            (plugin, caller, input, ct) => plugin.ListAsync(caller, ct))
+        .Change<SaveArgs, SavePlan, Saved>(new("gate_save", "Save gate", "Adds or changes a gate."), "save",
+            (plugin, caller, input, ct) => plugin.CheckSaveAsync(caller, input.Args, ct), // the page's validation, never writes
+            (plugin, caller, input, plan, ct) => plugin.SaveAsync(caller, plan, ct));     // the page's Save
+}
+
+internal sealed record SavePlan(string Name) : PluginToolPlan(1, "gate"); // the card says "1 gate"
+```
+
+- `Read` is one tool: a read, or a start your page does without asking (a scan, a check, a read of the devices). `Change`
+  is a preview and a run: the preview calls the check, the run calls the check again and then your page's code.
+- In the check, throw `PluginToolInputException("name", "Enter a name.")` for a field, or `InvalidOperationException` with
+  the page's text for another refusal.
+- `input.Devices` holds the devices of a tool with `DeviceFilter`, `input.Page` the page of a `Paged` list.
+- Hand `Set.Tools` to `Tools`, answer `Set.Handles(method)` with `Set.InvokeAsync(this, caller, method, payloadJson, ct)`,
+  and read every tool method as its page method in your rules, so the tool has exactly the page's rights:
+
+```csharp
+public string? RequiredPermission(string method) => GateTools.Set.RulesMethodOf(method) is "save" ? PermissionKeys.Manage : PermissionKeys.Show;
+public bool IsAudited(string method) => !PluginTool.IsPreviewMethod(method) && GateTools.Set.RulesMethodOf(method) is "save";
+```
+
 ## Your duty
 
 The host trusts what you declare. A tool without `Changes`, and every `tool.<name>.preview`, is announced as a read and
-offered with only the permission you name, so it must never write: not to OADM, not to a device, not to a file. Anything that writes is a change with a preview and a
-run. Never return a password, private key, license key or token, and keep texts from devices and users in their own
+offered with only the permission you name, so it must never change a device, a setting or anything a user saved. The one
+exception is a start your page does without asking (a scan, a check, a read of the devices): it may refresh what the page
+shows. Anything else that writes is a change with a preview and a run. Never return a password, private key, license key or token, and keep texts from devices and users in their own
 fields, never in a message.
 
 ## Test

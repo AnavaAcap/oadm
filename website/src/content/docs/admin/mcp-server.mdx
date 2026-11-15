@@ -113,7 +113,12 @@ Every tool with what it does: [MCP tools](./tools/).
   Other plugins can bring their own tools, shown only while the plugin is on.
 - Read what the monitoring and maintenance pages show: SD cards, the recordings of a camera, image health, the inputs and
   outputs of a device, open event streams, dashboard values, load test results and snapshot tiles. Also the recipients of
-  the event rules and whether they are connected. Reads, checks and exports are started in OADM.
+  the event rules and whether they are connected.
+- Do on the plugin pages what you can: start a hardening scan, Check now on Image health, read the SD cards, the
+  applications or the action rules of chosen devices, save and delete device triggers, dashboards, text readers, vision
+  pipelines, saved views and saved commands, press a dashboard button, start a load test, add a static DHCP lease or
+  release one, change the recipients and schedules on the devices. Each needs the same permission as on the page. Live
+  video, reports and file exports stay in OADM.
 - Run commands of the [VAPIX Commander](../../tools/vapix-commander/) library and saved commands on many devices, for settings
   no task covers (image, video, I/O, PTZ, storage and more). Not offered: dangerous commands, commands with a password or
   a file, and changes OADM's own tasks make. A value that looks like a password in an answer shows as `***`.
@@ -132,7 +137,7 @@ it. The audit log names the key: "MCP Lobby-bot".
   password in OADM.
 - Change users, roles, device groups, access keys, the license, plugins or the server settings, restore a backup or
   delete all devices or tasks.
-- Show live video.
+- Show live video, upload or delete Vision Center models, or set a password of a recipient or a saved command.
 - Do more than the role and devices of their key.
 
 Texts that come from devices, such as names, locations and log lines, are data for the agent, never orders.

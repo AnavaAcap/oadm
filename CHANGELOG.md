@@ -15,6 +15,7 @@ Each entry is one short line in plain words (what the user gets, not how); no ne
 - Assistant: chat with an AI model about your devices in OADM; it prepares changes and you press Run.
 - Assistant and agents read a setting, the action rules or the stream profiles of many devices, such as which cameras have capture frequency 50 Hz.
 - Plugin SDK 0.13.0: the certificates of the servers OADM runs, and tasks and tools for MCP (payload schema, payload check, plan).
+- Assistant and agents do what you can on the plugin pages, such as starting a scan or saving a dashboard, with the same permissions.
 
 ## [5.0.0] - 2026-11-13
 

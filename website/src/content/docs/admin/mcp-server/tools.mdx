@@ -119,12 +119,17 @@ and runs after the user agreed.
 | Tool | Kind | What it does |
 | --- | --- | --- |
 | `oadm_est_enrollments` | Read | The EST server's state and the certificate enrollments of the cameras, the newest first: new or renewal, issued or refused and why, and how many cameras did not renew in time. |
+| `oadm_est_enrollments_clear_preview` | Preview | Deletes every entry of the EST server's enrollments list. Issued certificates stay valid. Nothing is changed. Call oadm_est_enrollments_clear_run with the handle to apply it. |
+| `oadm_est_enrollments_clear_run` | Run (changes) | Applies the plan of oadm_est_enrollments_clear_preview, which checks everything again. |
 
 ## 802.1X server
 
 | Tool | Kind | What it does |
 | --- | --- | --- |
 | `oadm_radius_log` | Read | The 802.1X server's state and its log of switch port logins, the newest first: which device passed or failed and why, the switch, port and VLAN. |
+| `oadm_radius_log_delete_preview` | Preview | Deletes every entry of the 802.1X server's log. Nothing is changed. Call oadm_radius_log_delete_run with the handle to apply it. |
+| `oadm_radius_log_delete_run` | Run (changes) | Applies the plan of oadm_radius_log_delete_preview, which checks everything again. |
+| `oadm_radius_sessions` | Read | The switch port logins of the 802.1X server in progress and just ended, the newest first: switch, port, device, state and VLAN. |
 
 ## NTP server
 
@@ -136,39 +141,84 @@ and runs after the user agreed.
 
 | Tool | Kind | What it does |
 | --- | --- | --- |
+| `oadm_dhcp_lease_make_static_preview` | Preview | Makes a dynamic lease static: the device keeps its address. Nothing is changed. Call oadm_dhcp_lease_make_static_run with the handle to apply it. |
+| `oadm_dhcp_lease_make_static_run` | Run (changes) | Applies the plan of oadm_dhcp_lease_make_static_preview, which checks everything again. |
+| `oadm_dhcp_lease_release_preview` | Preview | Releases a dynamic lease: the address is free and the device asks again at its next renewal. Nothing is changed. Call oadm_dhcp_lease_release_run with the handle to apply it. |
+| `oadm_dhcp_lease_release_run` | Run (changes) | Applies the plan of oadm_dhcp_lease_release_preview, which checks everything again. |
 | `oadm_dhcp_leases` | Read | Lists the leases of the DHCP server by MAC address, with their state and the end of an active lease. |
+| `oadm_dhcp_static_lease_delete_preview` | Preview | Deletes a static lease. The device gets an address from the range at its next renewal. Nothing is changed. Call oadm_dhcp_static_lease_delete_run with the handle to apply it. |
+| `oadm_dhcp_static_lease_delete_run` | Run (changes) | Applies the plan of oadm_dhcp_static_lease_delete_preview, which checks everything again. |
+| `oadm_dhcp_static_lease_save_preview` | Preview | Adds a static lease, or changes one with original_mac: the device with this MAC address always gets this IP address. Nothing is changed. Call oadm_dhcp_static_lease_save_run with the handle to apply it. |
+| `oadm_dhcp_static_lease_save_run` | Run (changes) | Applies the plan of oadm_dhcp_static_lease_save_preview, which checks everything again. |
 | `oadm_dhcp_status` | Read | Shows whether the DHCP server is on, its interface and range, what clients get, and other DHCP servers it saw. |
 
 ## Hardening scan
 
 | Tool | Kind | What it does |
 | --- | --- | --- |
+| `oadm_hardening_detail` | Read | The last hardening results of one device, check by check, with the value found and the guide's recommendation. |
 | `oadm_hardening_results` | Read | Lists the last hardening scan results per device as counts of passed, warning and failed checks, and the state of the running scan. |
+| `oadm_hardening_scan_start` | Read | Starts a hardening scan of the chosen devices, or of all your devices with all_devices. It only reads the devices. While a scan runs, answers that one. |
+| `oadm_hardening_scan_stop` | Read | Stops the running hardening scan of your devices. The results read so far stay. |
 
 ## Application management
 
 | Tool | Kind | What it does |
 | --- | --- | --- |
 | `oadm_app_management_applications` | Read | Lists the applications (ACAP) the Applications page read last: per application how many devices have it, run it and which versions, then one row per device and application. Reads no device. |
+| `oadm_app_management_log` | Read | Reads one application's log on one device, the newest lines. |
+| `oadm_app_management_read` | Read | Reads the applications of the chosen devices, or of all your devices with all_devices. It only reads them; the rows follow in oadm_app_management_applications. |
+| `oadm_app_management_settings` | Read | Reads one application's settings on the chosen devices: per setting the values and how many devices have each. Changes are a task of Applications. |
 
 ## Edge storage
 
 | Tool | Kind | What it does |
 | --- | --- | --- |
 | `oadm_edge_storage_cards` | Read | Lists the SD cards of the cameras as Edge storage read them last: state, size, used, wear, encryption and retention, with the counts per state. Reads no camera. |
+| `oadm_edge_storage_read` | Read | Reads the SD cards of the chosen cameras, or of all your cameras with all_devices. It only reads them; the rows follow in oadm_edge_storage_cards. |
 
 ## Action Rule Editor
 
 | Tool | Kind | What it does |
 | --- | --- | --- |
 | `oadm_device_rules_list` | Read | Lists the action rules on the devices as the Action Rule Editor read them last: per rule name the devices that have it and run it, then each device's rules with event and action. Reads no device. |
+| `oadm_device_rules_read` | Read | Reads the action rules, recipients and schedules of the chosen devices, or of all your devices with all_devices, as the editor's Refresh does. It only reads. |
+| `oadm_device_rules_recipient_change_preview` | Preview | Changes the name or settings of the recipients of this name and kind on the chosen devices; rules that send to them follow unless update_rules is false. Nothing is changed. Call oadm_device_rules_recipient_change_run with the handle to apply it. |
+| `oadm_device_rules_recipient_change_run` | Run (changes) | Applies the plan of oadm_device_rules_recipient_change_preview, which checks everything again. |
+| `oadm_device_rules_recipient_copy_preview` | Preview | Copies a recipient of one device, with its password, to the chosen devices. Nothing is changed. Call oadm_device_rules_recipient_copy_run with the handle to apply it. |
+| `oadm_device_rules_recipient_copy_run` | Run (changes) | Applies the plan of oadm_device_rules_recipient_copy_preview, which checks everything again. |
+| `oadm_device_rules_recipient_create_preview` | Preview | Adds a new recipient with its settings to the chosen devices. Passwords are set in OADM. Nothing is changed. Call oadm_device_rules_recipient_create_run with the handle to apply it. |
+| `oadm_device_rules_recipient_create_run` | Run (changes) | Applies the plan of oadm_device_rules_recipient_create_preview, which checks everything again. |
+| `oadm_device_rules_recipient_delete_preview` | Preview | Deletes the recipients of this name and kind on the chosen devices. Rules keep their copied settings. Nothing is changed. Call oadm_device_rules_recipient_delete_run with the handle to apply it. |
+| `oadm_device_rules_recipient_delete_run` | Run (changes) | Applies the plan of oadm_device_rules_recipient_delete_preview, which checks everything again. |
+| `oadm_device_rules_recipient_kinds` | Read | Lists the kinds of recipient the chosen devices offer, with their settings, for a new recipient. Only devices the editor read count. |
+| `oadm_device_rules_recipients` | Read | Lists the devices' recipients as the editor read them last, by name and kind. With device_id, that device's recipients with their settings. Never a password. |
+| `oadm_device_rules_schedule_change_preview` | Preview | Changes the name or times of the schedules of this name on the chosen devices. Built-in schedules are not changed. Nothing is changed. Call oadm_device_rules_schedule_change_run with the handle to apply it. |
+| `oadm_device_rules_schedule_change_run` | Run (changes) | Applies the plan of oadm_device_rules_schedule_change_preview, which checks everything again. |
+| `oadm_device_rules_schedule_copy_preview` | Preview | Copies a schedule of one device to the chosen devices. Nothing is changed. Call oadm_device_rules_schedule_copy_run with the handle to apply it. |
+| `oadm_device_rules_schedule_copy_run` | Run (changes) | Applies the plan of oadm_device_rules_schedule_copy_preview, which checks everything again. |
+| `oadm_device_rules_schedule_create_preview` | Preview | Adds a new schedule to the chosen devices, the same on every device. Nothing is changed. Call oadm_device_rules_schedule_create_run with the handle to apply it. |
+| `oadm_device_rules_schedule_create_run` | Run (changes) | Applies the plan of oadm_device_rules_schedule_create_preview, which checks everything again. |
+| `oadm_device_rules_schedule_delete_preview` | Preview | Deletes the schedules of this name on the chosen devices. A schedule rules use is deleted only with those rules (delete_rules). Nothing is changed. Call oadm_device_rules_schedule_delete_run with the handle to apply it. |
+| `oadm_device_rules_schedule_delete_run` | Run (changes) | Applies the plan of oadm_device_rules_schedule_delete_preview, which checks everything again. |
+| `oadm_device_rules_schedules` | Read | Lists the devices' schedules as the editor read them last, by name and times, with how many rules use them. |
 
 ## Device triggers
 
 | Tool | Kind | What it does |
 | --- | --- | --- |
+| `oadm_device_triggers_copy_preview` | Preview | Copies a device trigger. The copy is turned off. Nothing is changed. Call oadm_device_triggers_copy_run with the handle to apply it. |
+| `oadm_device_triggers_copy_run` | Run (changes) | Applies the plan of oadm_device_triggers_copy_preview, which checks everything again. |
+| `oadm_device_triggers_delete_preview` | Preview | Deletes a device trigger. Nothing is changed. Call oadm_device_triggers_delete_run with the handle to apply it. |
+| `oadm_device_triggers_delete_run` | Run (changes) | Applies the plan of oadm_device_triggers_delete_preview, which checks everything again. |
 | `oadm_device_triggers_devices` | Read | One device trigger's devices: whether OADM receives the event from each, the problem when not, whether the state is on, and the last event. |
+| `oadm_device_triggers_events` | Read | The progress of a read of device events and, once it finished, the events the devices offer with their source values. |
+| `oadm_device_triggers_events_read` | Read | Starts reading the events the chosen devices offer, as the trigger editor does. Read the result with oadm_device_triggers_events. |
 | `oadm_device_triggers_list` | Read | Lists the device triggers: the device event each watches, on or off, how many devices are on, lost or waiting, and when the last event came. |
+| `oadm_device_triggers_save_preview` | Preview | Creates a device trigger, or changes one with trigger_id (fields left out stay). A new event needs a finished read of the devices' events. Nothing is changed. Call oadm_device_triggers_save_run with the handle to apply it. |
+| `oadm_device_triggers_save_run` | Run (changes) | Applies the plan of oadm_device_triggers_save_preview, which checks everything again. |
+| `oadm_device_triggers_set_enabled_preview` | Preview | Turns a device trigger on or off. Nothing is changed. Call oadm_device_triggers_set_enabled_run with the handle to apply it. |
+| `oadm_device_triggers_set_enabled_run` | Run (changes) | Applies the plan of oadm_device_triggers_set_enabled_preview, which checks everything again. |
 
 ## VAPIX Commander
 
@@ -177,6 +227,13 @@ and runs after the user agreed.
 | `oadm_vapix_command_preview` | Preview | Runs one command of oadm_vapix_commands on devices from oadm_devices_search, one task per device. Read the results with oadm_tasks_get. Nothing is changed. Call oadm_vapix_command_run with the handle to apply it. |
 | `oadm_vapix_command_run` | Run (changes) | Applies the plan of oadm_vapix_command_preview, which checks everything again. |
 | `oadm_vapix_commands` | Read | Lists the VAPIX Commander commands an agent may run, with their fields. Use one only for what oadm_devices_search does not already show (clock, certificate, chip, CVEs); run it with oadm_vapix_command_preview. |
+| `oadm_vapix_saved_delete_preview` | Preview | Deletes a saved command. Event rules that send it stop working. Nothing is changed. Call oadm_vapix_saved_delete_run with the handle to apply it. |
+| `oadm_vapix_saved_delete_run` | Run (changes) | Applies the plan of oadm_vapix_saved_delete_preview, which checks everything again. |
+| `oadm_vapix_saved_export` | Read | The command file of saved commands, as the page exports it. Never holds a password. |
+| `oadm_vapix_saved_import_preview` | Preview | Imports the commands of a command file into the saved commands. A command with the id of a saved one replaces it. Nothing is changed. Call oadm_vapix_saved_import_run with the handle to apply it. |
+| `oadm_vapix_saved_import_run` | Run (changes) | Applies the plan of oadm_vapix_saved_import_preview, which checks everything again. |
+| `oadm_vapix_saved_save_preview` | Preview | Saves a command of your own to the saved commands everyone shares, in the format of the command files. To change one, pass its id as previous_id. Nothing is changed. Call oadm_vapix_saved_save_run with the handle to apply it. |
+| `oadm_vapix_saved_save_run` | Run (changes) | Applies the plan of oadm_vapix_saved_save_preview, which checks everything again. |
 
 ## Device configuration
 
@@ -196,6 +253,7 @@ and runs after the user agreed.
 
 | Tool | Kind | What it does |
 | --- | --- | --- |
+| `oadm_image_health_check` | Read | Asks the chosen cameras, or all your cameras with all_devices, for their image health now. It only reads them; read the rows with oadm_image_health_results. |
 | `oadm_image_health_results` | Read | Lists the last image health check of the cameras: the counts, then per camera whether it is blurred, blocked, redirected, too dark or unsuitable. |
 
 ## I/O Monitor
@@ -214,21 +272,45 @@ and runs after the user agreed.
 
 | Tool | Kind | What it does |
 | --- | --- | --- |
+| `oadm_dashboards_delete_preview` | Preview | Deletes a dashboard with its widgets and buttons. Nothing is changed. Call oadm_dashboards_delete_run with the handle to apply it. |
+| `oadm_dashboards_delete_run` | Run (changes) | Applies the plan of oadm_dashboards_delete_preview, which checks everything again. |
+| `oadm_dashboards_events` | Read | The events a widget can show, with their values. Video and button widgets need none. |
+| `oadm_dashboards_get` | Read | One dashboard with every widget's settings, to change it with oadm_dashboards_save_preview. |
 | `oadm_dashboards_list` | Read | Lists the dashboards by name with how many widgets of each kind they have. |
+| `oadm_dashboards_press_preview` | Preview | Presses a button of a dashboard, as on the page. Its event goes to the event rules. Nothing is changed. Call oadm_dashboards_press_run with the handle to apply it. |
+| `oadm_dashboards_press_run` | Run (changes) | Applies the plan of oadm_dashboards_press_preview, which checks everything again. |
+| `oadm_dashboards_save_preview` | Preview | Creates a dashboard, or changes one with dashboard_id. widgets replaces all widgets; left out, they stay. The grid is 20 by 20 cells. Nothing is changed. Call oadm_dashboards_save_run with the handle to apply it. |
+| `oadm_dashboards_save_run` | Run (changes) | Applies the plan of oadm_dashboards_save_preview, which checks everything again. |
 | `oadm_dashboards_values` | Read | Shows the widgets of one dashboard with the value each shows now, when it came and why it may be old. |
 
 ## Load test
 
 | Tool | Kind | What it does |
 | --- | --- | --- |
+| `oadm_load_test_cancel` | Read | Cancels the running load test of your devices. The exposure goes back and the measured part is kept. |
 | `oadm_load_test_check` | Read | Shows one load test check: its verdict, the result of each ramp step, then its camera streams worst first with their loss, rate and first problem. |
+| `oadm_load_test_check_delete_preview` | Preview | Deletes a kept load test check and its measurements. Nothing is changed. Call oadm_load_test_check_delete_run with the handle to apply it. |
+| `oadm_load_test_check_delete_run` | Run (changes) | Applies the plan of oadm_load_test_check_delete_preview, which checks everything again. |
 | `oadm_load_test_checks` | Read | Lists the kept load test checks, newest first, with the verdict, the peak rate, the worst loss and the progress of the running one. |
+| `oadm_load_test_plan` | Read | Plans a load test of the chosen cameras, or of all your cameras with all_devices: the camera streams, batches, duration and expected rates. Changes nothing. |
+| `oadm_load_test_start_preview` | Preview | Starts a load test of the chosen cameras, or of all your cameras with all_devices. The exposure of the cameras changes for a few minutes and always goes back. One check at a time. Nothing is changed. Call oadm_load_test_start_run with the handle to apply it. |
+| `oadm_load_test_start_run` | Run (changes) | Applies the plan of oadm_load_test_start_preview, which checks everything again. |
 
 ## Snapshot report
 
 | Tool | Kind | What it does |
 | --- | --- | --- |
 | `oadm_snapshot_report_sources` | Read | Lists the video sources of chosen cameras as the Snapshot report shows them, with the facts the report prints and why a camera cannot be shown. |
+
+## Live View
+
+| Tool | Kind | What it does |
+| --- | --- | --- |
+| `oadm_live_view_view_delete_preview` | Preview | Deletes a saved view. Nothing is changed. Call oadm_live_view_view_delete_run with the handle to apply it. |
+| `oadm_live_view_view_delete_run` | Run (changes) | Applies the plan of oadm_live_view_view_delete_preview, which checks everything again. |
+| `oadm_live_view_view_save_preview` | Preview | Creates a saved view of up to 16 cameras, or changes one by its id. Without places the cameras fill the view in equal squares. Nothing is changed. Call oadm_live_view_view_save_run with the handle to apply it. |
+| `oadm_live_view_view_save_run` | Run (changes) | Applies the plan of oadm_live_view_view_save_preview, which checks everything again. |
+| `oadm_live_view_views` | Read | Lists the saved views of the Live View page with their cameras and where each sits in the view. |
 
 ## Docs
 
