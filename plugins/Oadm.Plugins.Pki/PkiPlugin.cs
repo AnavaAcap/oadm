@@ -239,7 +239,7 @@ public sealed class PkiPlugin : ICorePlugin, ICorePluginDownloads, IEventSource,
                 throw new DeviceAccessRefusedException(); // the host refuses these first (RequiresAllDevices); fail closed
             }
 
-            if (PkiTools.CertificateCreate.Calls(method))
+            if (PkiTools.CertificateCreate.Calls(method) || PkiTools.IsFileTool(method))
             {
                 return await PkiTools.InvokeAsync(service, caller, method, payloadJson, ct).ConfigureAwait(false);
             }
@@ -344,9 +344,26 @@ public sealed class PkiPlugin : ICorePlugin, ICorePluginDownloads, IEventSource,
     private Task<PluginDownload> OpenDownloadAsync(string method, string? payloadJson, string userName, CancellationToken ct)
     {
         var service = _service ?? throw new InvalidOperationException("The PKI plugin is not running.");
-        return method == CertificateMethods.Download
-            ? service.OpenCertificateDownloadAsync(PkiJson.Deserialize<DownloadCertificateRequest>(payloadJson), userName, ct)
-            : throw new ArgumentException($"Unknown download '{method}'.", nameof(method));
+        return method switch
+        {
+            CertificateMethods.Download => service.OpenCertificateDownloadAsync(PkiJson.Deserialize<DownloadCertificateRequest>(payloadJson), userName, ct),
+            // The CA's public part as a file (the tools' CA file); the page's Invoke methods answer the same bytes in base64.
+            PkiMethods.ExportPublic => Task.FromResult(FileOf(service.ExportPublic(PkiJson.Deserialize<ExportRequest>(payloadJson)), "Export certificate authority")),
+            PkiMethods.ExportPrevious => Task.FromResult(FileOf(service.ExportPrevious(PkiJson.Deserialize<ExportPreviousRequest>(payloadJson)), "Export previous certificate authority")),
+            _ => throw new ArgumentException($"Unknown download '{method}'.", nameof(method)),
+        };
+    }
+
+    /// <summary>A <see cref="FileReply"/> of an export as a download; its error is the refusal.</summary>
+    private static PluginDownload FileOf(FileReply reply, string audit)
+    {
+        if (reply.Error is { } error || reply.DataBase64 is null || reply.FileName is null)
+        {
+            throw new InvalidOperationException(reply.Error ?? "The certificate cannot be read.");
+        }
+
+        var bytes = Convert.FromBase64String(reply.DataBase64);
+        return new PluginDownload(new MemoryStream(bytes, writable: false), reply.FileName, bytes.Length) { AuditDetail = audit + " (" + reply.FileName + ")" };
     }
 
     public async ValueTask DisposeAsync() => await StopAsync(CancellationToken.None).ConfigureAwait(false);

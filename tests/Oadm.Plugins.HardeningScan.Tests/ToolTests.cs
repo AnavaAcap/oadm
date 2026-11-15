@@ -25,7 +25,7 @@ public sealed class ToolTests(ITestOutputHelper output)
         await plugin.StartAsync(ctx, CancellationToken.None);
         ICorePlugin core = plugin;
         Assert.Equal("hardening", core.ToolArea);
-        Assert.Equal("results", Assert.Single(core.Tools).Name);
+        Assert.Equal(["results", "results_csv"], core.Tools.Select(t => t.Name));
         Assert.Equal(UserRole.Operator, core.RequiredRole(HardeningTools.Results.Method));
         Assert.Equal(PermissionKeys.Show, core.RequiredPermission(HardeningTools.Results.Method)); // starting a scan stays "scan"
 
@@ -62,6 +62,48 @@ public sealed class ToolTests(ITestOutputHelper output)
         Assert.StartsWith("10.0.0.", row["address"]!.GetValue<string>(), StringComparison.Ordinal);
         var bad = JsonNode.Parse((await ctx.InvokeAsync(plugin, admin, HardeningTools.Results.Method, """{"level":"deep"}"""))!)!;
         Assert.Equal("level", Assert.Single(bad["errors"]!.AsArray())!["field"]!.GetValue<string>());
+    }
+
+    [Fact]
+    public async Task The_csv_tool_hands_out_the_results_of_the_callers_devices_as_a_file()
+    {
+        var ctx = new Testing.FakeCoreContext();
+        var inside = ctx.Add(new Testing.FakeDevice { Address = "10.0.0.1" });
+        var outside = ctx.Add(new Testing.FakeDevice { Address = "10.0.0.2" });
+        await using var plugin = new HardeningScanPlugin(new HardeningScanOptions { Time = new FakeTimeProvider() });
+        await plugin.StartAsync(ctx, CancellationToken.None);
+        ICorePlugin core = plugin;
+        Assert.True(HardeningTools.ResultsCsv.ReturnsFile);
+        Assert.Equal(PermissionKeys.Show, core.RequiredPermission(HardeningTools.ResultsCsv.Method));
+        var admin = ctx.CallAsAllDevices();
+        await ctx.InvokeAsync(plugin, admin, HardeningMethods.StartScan, """{"level":"Basic"}""");
+        await plugin.Service!.WaitAsync();
+
+        var answer = JsonNode.Parse((await ctx.InvokeAsync(plugin, admin, HardeningTools.ResultsCsv.Method, """{"level":"basic"}"""))!)!;
+        Assert.Equal(2, answer["rows"]!.GetValue<int>());
+        var file = answer["file"]!;
+        Assert.Equal((HardeningTools.CsvDownload, "text/csv"), (file["method"]!.GetValue<string>(), file["content_type"]!.GetValue<string>()));
+
+        async Task<string> CsvAsync(Oadm.Sdk.Plugins.ICallContext caller)
+        {
+            await using var download = await plugin.OpenDownloadAsync(caller, file["method"]!.GetValue<string>(), file["payload_json"]!.GetValue<string>(), CancellationToken.None);
+            using var reader = new StreamReader(download.Content, new System.Text.UTF8Encoding(false), detectEncodingFromByteOrderMarks: false);
+            return await reader.ReadToEndAsync();
+        }
+
+        var all = await CsvAsync(admin);
+        Assert.StartsWith("\uFEFFAddress,Host name,MAC address", all, StringComparison.Ordinal);
+        Assert.Equal(3, all.Split("\r\n", StringSplitOptions.RemoveEmptyEntries).Length); // the header and one row per device
+        Assert.Contains("10.0.0.2", all, StringComparison.Ordinal);
+
+        var group = ctx.CallAsGroup([inside.Id]);
+        var mine = await CsvAsync(group);
+        Assert.Contains("10.0.0.1", mine, StringComparison.Ordinal);
+        Assert.DoesNotContain("10.0.0.2", mine, StringComparison.Ordinal); // made with the rights of the caller who fetches it
+        _ = outside;
+
+        var bad = JsonNode.Parse((await ctx.InvokeAsync(plugin, admin, HardeningTools.ResultsCsv.Method, """{"has":"ok"}"""))!)!;
+        Assert.Equal("has", Assert.Single(bad["errors"]!.AsArray())!["field"]!.GetValue<string>());
     }
 
     [Fact]

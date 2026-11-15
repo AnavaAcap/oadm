@@ -167,6 +167,10 @@ public sealed partial class ReportJobs : IDisposable
     /// <summary>The next chunk of the user's finished report; the last chunk drops the report.</summary>
     public ReportChunk Read(ICallContext caller, IPluginJobs jobs, string jobId, long offset) => Read(Owned(caller, jobs, jobId).Id, offset);
 
+    /// <summary>The PDF of the user's finished report (the report stays until it ends); another user's id answers like an unknown one.</summary>
+    public byte[] Pdf(ICallContext caller, IPluginJobs jobs, string jobId) =>
+        Owned(caller, jobs, jobId).Pdf ?? throw new InvalidOperationException("The report is not ready yet.");
+
     /// <summary>Cancels the user's report and forgets it; another user's id answers like an unknown one.</summary>
     public void Delete(ICallContext caller, IPluginJobs jobs, string jobId) => Delete(Owned(caller, jobs, jobId).Id);
 

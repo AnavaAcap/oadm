@@ -12,7 +12,7 @@ namespace Oadm.Plugins.HardeningScan;
 /// Page backend methods: <see cref="HardeningMethods"/>. Device groups (SDK 0.4.0): every method works on the user's view,
 /// a scan is a job of its user, one scan at a time per device scope.
 /// </summary>
-public sealed class HardeningScanPlugin : ICorePlugin, IAsyncDisposable
+public sealed class HardeningScanPlugin : ICorePlugin, ICorePluginDownloads, IAsyncDisposable
 {
     private readonly HardeningScanOptions _options;
     private HardeningScanService? _service;
@@ -91,6 +91,11 @@ public sealed class HardeningScanPlugin : ICorePlugin, IAsyncDisposable
             return HardeningTools.Answer(state, await caller.Devices.ListAsync(ct).ConfigureAwait(false), payloadJson);
         }
 
+        if (method == HardeningTools.ResultsCsv.Method)
+        {
+            return HardeningTools.CsvAnswerOf(await service.GetStateAsync(caller, ct).ConfigureAwait(false), payloadJson);
+        }
+
         var jobs = _ctx?.Jobs ?? throw new InvalidOperationException("This OADM server cannot run scans.");
         return method switch
         {
@@ -120,6 +125,26 @@ public sealed class HardeningScanPlugin : ICorePlugin, IAsyncDisposable
             default:
                 throw new ArgumentException($"Unknown method '{method}'.", nameof(method));
         }
+    }
+
+    /// <summary>Only through the user's call (<see cref="OpenDownloadAsync(ICallContext, string, string?, CancellationToken)"/>).</summary>
+    public Task<PluginDownload> OpenDownloadAsync(string method, string? payloadJson, CancellationToken ct) =>
+        throw new NotSupportedException("Call the hardening scan plugin with the user's call.");
+
+    /// <summary>The results of the caller's devices as CSV (the tools' file), made when it is fetched.</summary>
+    public async Task<PluginDownload> OpenDownloadAsync(ICallContext caller, string method, string? payloadJson, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(caller);
+        var service = _service ?? throw new InvalidOperationException("The hardening scan plugin is not running.");
+        if (method != HardeningTools.CsvDownload)
+        {
+            throw new ArgumentException($"Unknown download '{method}'.", nameof(method));
+        }
+
+        var state = await service.GetStateAsync(caller, ct).ConfigureAwait(false);
+        var csv = HardeningTools.Csv(state, await caller.Devices.ListAsync(ct).ConfigureAwait(false), payloadJson);
+        var bytes = new System.Text.UTF8Encoding(false).GetBytes(csv);
+        return new PluginDownload(new MemoryStream(bytes, writable: false), "Hardening results.csv", bytes.Length);
     }
 
     public async ValueTask DisposeAsync() => await StopAsync(CancellationToken.None).ConfigureAwait(false);

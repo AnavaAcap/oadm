@@ -86,7 +86,12 @@ context, which refuses in a group user's call. See [device groups](../../docs/sp
 `Tools/SnapshotTools` (`ICorePlugin.Tools`, area `snapshot_report`, docs/spec/mcp.md): the read-only tool
 `oadm_snapshot_report_sources` lists the tiles of 1 to 20 chosen cameras (one per video source, the facts the report
 prints, the error of a camera that cannot be shown), with the sources the page keeps (read from a camera only when not
-kept). Pictures come from `oadm_devices_snapshot`; the PDF stays in the page. Right "show".
+kept). Pictures come from `oadm_devices_snapshot`. Right "show".
+`oadm_snapshot_report_report_preview`/`_run` (`site`, `technician`, `date` yyyy-MM-dd, 1 to 100 `items` of `device_id` and
+`camera`): the preview checks the input and counts the pictures (no camera is read); the run starts the report as a job
+of the caller, like the page's Create. `oadm_snapshot_report_report_file(job_id)` answers its state and, once done, the
+PDF as a file (`ReturnsFile`): the download `downloadReport` (`ICorePluginDownloads`, the caller's own job only; the job
+stays until it ends). Right "report".
 
 ## Tests
 

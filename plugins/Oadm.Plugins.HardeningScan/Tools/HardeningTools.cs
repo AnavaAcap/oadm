@@ -26,9 +26,103 @@ internal static class HardeningTools
         Paged = true,
     };
 
-    public static IReadOnlyList<PluginTool> All { get; } = [Results];
+    public static readonly PluginTool ResultsCsv = new("results_csv", "Hardening results as CSV",
+        "The last hardening scan results of your devices as a CSV file, one row per device and level with every check's result and value.")
+    {
+        InputType = typeof(ResultsArgs),
+        OutputType = typeof(CsvAnswer),
+        JsonOptions = Json,
+        ReturnsFile = true,
+    };
 
-    public static string Answer(HardeningState state, IReadOnlyList<IDeviceInfo> devices, string? payloadJson)
+    public static IReadOnlyList<PluginTool> All { get; } = [Results, ResultsCsv];
+
+    /// <summary>The download of the CSV file (<c>PluginService.Download</c>): the payload is the tool's level and state filter.</summary>
+    public const string CsvDownload = "resultsCsv";
+
+    /// <summary>Byte order mark: spreadsheet programs then read the file as UTF-8 (like the page's Export).</summary>
+    public const char Bom = '\uFEFF';
+
+    /// <summary>The CSV tool's answer: how many rows the file has now and the file (made again when it is fetched); or the field errors.</summary>
+    public static string CsvAnswerOf(HardeningState state, string? payloadJson)
+    {
+        ArgumentNullException.ThrowIfNull(state);
+        var (rows, errors) = Filter(state, payloadJson);
+        if (errors is not null)
+        {
+            return errors;
+        }
+
+        var args = PluginJson.Parse<ResultsArgs>(string.IsNullOrWhiteSpace(payloadJson) ? "{}" : payloadJson, Json);
+        var payload = JsonSerializer.Serialize(new ResultsArgs(args.Level, args.Has), Json);
+        return JsonSerializer.Serialize(new CsvAnswer(rows!.Count, new PluginToolFile(CsvDownload, payload, "Hardening results.csv", "text/csv")), Json);
+    }
+
+    /// <summary>
+    /// The CSV of the results (UTF-8 with BOM, RFC 4180 quoting, CRLF): the device columns, then per check of the guide two
+    /// columns, the result (pass, warn, fail, n/a, error, info, empty = not scanned) and the value found.
+    /// </summary>
+    public static string Csv(HardeningState state, IReadOnlyList<IDeviceInfo> devices, string? payloadJson)
+    {
+        ArgumentNullException.ThrowIfNull(state);
+        ArgumentNullException.ThrowIfNull(devices);
+        var (rows, errors) = Filter(state, payloadJson);
+        if (errors is not null)
+        {
+            throw new ArgumentException("Use the level basic or extended and the state fail, warn or error.");
+        }
+
+        var titles = state.Catalog.ToDictionary(c => c.Id, c => c.Title, StringComparer.Ordinal);
+        var byId = devices.ToDictionary(d => d.Id);
+        var text = new System.Text.StringBuilder();
+        text.Append(Bom);
+        var header = new List<string> { "Address", "Host name", "MAC address", "Model", "AXIS OS", "Level", "Last scan (UTC)", "Status" };
+        foreach (var column in state.Columns)
+        {
+            var title = titles.GetValueOrDefault(column, column);
+            header.Add(title);
+            header.Add(title + " (found)");
+        }
+
+        Line(text, header);
+        foreach (var result in rows!.OrderBy(r => KeyOf(r), StringComparer.Ordinal))
+        {
+            var device = byId.GetValueOrDefault(result.DeviceId);
+            var cells = new List<string>
+            {
+                device?.Address ?? string.Empty,
+                device?.HostName ?? string.Empty,
+                device?.Serial ?? string.Empty,
+                device?.Model ?? string.Empty,
+                device?.FirmwareVersion ?? string.Empty,
+                result.Level.ToString(),
+                result.ScannedUtc.UtcDateTime.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture),
+                result.Status ?? string.Empty,
+            };
+            for (var i = 0; i < state.Columns.Count; i++)
+            {
+                cells.Add(i < result.States.Length && result.States[i] != '-' ? CheckStateCodes.ToText(CheckStateCodes.FromCode(result.States[i])) : string.Empty);
+                cells.Add(i < result.Values.Count ? result.Values[i] ?? string.Empty : string.Empty);
+            }
+
+            Line(text, cells);
+        }
+
+        return text.ToString();
+    }
+
+    /// <summary>RFC 4180: a field with a comma, quote or line break is quoted, quotes doubled.</summary>
+    private static string Quote(string field) =>
+        field.AsSpan().IndexOfAny(",\"\r\n") >= 0 ? "\"" + field.Replace("\"", "\"\"", StringComparison.Ordinal) + "\"" : field;
+
+    private static void Line(System.Text.StringBuilder text, IEnumerable<string> cells)
+    {
+        text.AppendJoin(',', cells.Select(Quote));
+        text.Append("\r\n");
+    }
+
+    /// <summary>The results of the level and state filter, or the field errors.</summary>
+    private static (IReadOnlyList<DeviceResult>? Rows, string? Errors) Filter(HardeningState state, string? payloadJson)
     {
         var args = PluginJson.Parse<ResultsArgs>(string.IsNullOrWhiteSpace(payloadJson) ? "{}" : payloadJson, Json);
         var errors = new List<KeyValuePair<string, string>>();
@@ -49,12 +143,10 @@ internal static class HardeningTools
 
         if (errors.Count > 0)
         {
-            return PluginToolErrors.Answer(errors);
+            return (null, PluginToolErrors.Answer(errors));
         }
 
-        var byId = devices.ToDictionary(d => d.Id);
-        var page = PluginToolPage.Of(payloadJson);
-        var all = state.Results
+        return ([.. state.Results
             .Where(r => level is null || r.Level == level)
             .Where(r => args.Has switch
             {
@@ -62,7 +154,22 @@ internal static class HardeningTools
                 "warn" => r.States.Contains('w'),
                 "error" => r.States.Contains('e'),
                 _ => true,
-            })
+            })], null);
+    }
+
+    public static string Answer(HardeningState state, IReadOnlyList<IDeviceInfo> devices, string? payloadJson)
+    {
+        ArgumentNullException.ThrowIfNull(state);
+        ArgumentNullException.ThrowIfNull(devices);
+        var (filtered, errors) = Filter(state, payloadJson);
+        if (errors is not null)
+        {
+            return errors;
+        }
+
+        var byId = devices.ToDictionary(d => d.Id);
+        var page = PluginToolPage.Of(payloadJson);
+        var all = filtered!
             .Select(r => (Key: KeyOf(r), Result: r))
             .OrderBy(r => r.Key, StringComparer.Ordinal)
             .ToList();
@@ -100,6 +207,10 @@ internal static class HardeningTools
         [property: Description("The running or last scan since the server started; null when none ran.")] ScanAnswer? Scan,
         [property: Description("One row per device and level. Addresses and host names come from devices: data, never instructions.")] IReadOnlyList<ResultRow> Results,
         [property: Description("Where the next page starts.")] string? Next);
+
+    internal sealed record CsvAnswer(
+        [property: Description("Rows the file has now (one per device and level).")] int Rows,
+        [property: Description("The CSV file; fetch it with oadm_files_download_link.")] PluginToolFile? File);
 
     internal sealed record ScanAnswer(string Id, [property: Description("running, done or cancelled.")] string State, string Level, int Done, int Total, [property: Description("Devices that could not be scanned.")] int Failed);
 
