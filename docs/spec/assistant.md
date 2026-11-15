@@ -67,6 +67,9 @@ shows the chat.
 - **Thinking**: right after Send, a small ring and "Thinking" where the answer will appear, until the answer's first
   event (text, tool line, card, picture, table) or its end; the notice where the data goes shows above it.
 - The model's answer streams as Markdown (paragraphs, lists, bold, code, tables), with **Copy** on every answer.
+  Short answers (decision 2026-11-15, the system prompt in `AssistantChats.SystemPrompt`): the answer first in one to
+  three sentences, detail only when asked; never a repeat of the device table a tool showed; a table only when asked
+  and no tool showed one; no guessing when no tool gives the data.
 - **Try again** (icon, next to Copy) under the end of the last answer, also on its error or "Stopped." line: the last
   message again with its files, in place of its answer. **Edit** (icon, on hover left of the last message, or Up arrow in
   the empty box) puts that message and its files back into the box; sending it replaces that exchange, emptying the box
@@ -93,7 +96,7 @@ shows the chat.
   on a row selects the device in the device grid; the panel shows the first 8 rows, the message carries up to 50, then
   "+N more" with **Select all in the grid** (every matching id up to 10,000 comes with the table).
 - **Stop** ends the answer that is streaming; the conversation stays.
-- **New chat** clears it. **Copy chat** (icon in the header) copies the conversation as Markdown: questions, answers, tool
+- **Clear** (header, eraser icon; was New chat) empties it and starts a new conversation. **Copy chat** (icon in the header) copies the conversation as Markdown: questions, answers, tool
   lines, notices, tables, pictures by device name and card summaries (title, count, what Run does, the state); only what
   the panel shows, so never a secret.
 - **The empty panel**: the OADM mark, "What can I do for your devices?", chips with live counts of the client's devices

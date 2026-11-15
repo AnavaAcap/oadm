@@ -6,7 +6,7 @@
              xmlns:tc="using:Oadm.Theme.Controls"
              x:Class="Oadm.Client.Assistant.AssistantPanelView"
              x:DataType="a:AssistantPanelViewModel">
-  <!-- The Assistant panel (docs/spec/assistant.md "The panel"): title with New chat and Close, the conversation (a virtualized
+  <!-- The Assistant panel (docs/spec/assistant.md "The panel"): title with Clear and Close, the conversation (a virtualized
        list, one template per kind of entry), the start suggestions while it is empty, Go to the latest while scrolled up,
        and at the bottom the message box like the chat apps (Border.composer: the attached files, the text, Attach file, the
        model and the send arrow / Stop), its problem and the selection count below it. Files dropped on the panel attach. -->
@@ -18,7 +18,7 @@
               ToolTip.Tip="{x:Static a:AssistantTexts.CopyChat}">
         <ui:OadmIcon Data="{StaticResource Icon.copy}" />
       </Button>
-      <ui:ToolbarButton Grid.Column="2" x:Name="NewChat" Text="{x:Static a:AssistantTexts.NewChat}" IconKey="edit" Command="{Binding NewChatCommand}"
+      <ui:ToolbarButton Grid.Column="2" x:Name="ClearChat" Text="{x:Static a:AssistantTexts.Clear}" IconKey="eraser" Command="{Binding NewChatCommand}"
                         VerticalAlignment="Center" />
       <Button Grid.Column="3" x:Name="ClosePanel" Classes="toolbar iconOnly" VerticalAlignment="Center" Command="{Binding CloseCommand}"
               ToolTip.Tip="{x:Static a:AssistantTexts.Close}">

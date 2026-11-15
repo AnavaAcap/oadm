@@ -11,7 +11,7 @@ namespace Oadm.Client.Assistant;
 public static class AssistantTexts
 {
     public const string Title = "Assistant";
-    public const string NewChat = "New chat";
+    public const string Clear = "Clear";
     public const string Close = "Close";
     public const string Send = "Send";
     public const string Stop = "Stop";

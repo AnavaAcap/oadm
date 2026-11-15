@@ -260,17 +260,18 @@ workflows.
 
 ## Connect an agent
 
-The card's **Connect an agent** has one compact row per client with this server's address, never a key (the command and
+The card's **Connect an agent** is one row (decision 2026-11-15): a choice of the client (Claude Code first) and **Copy**,
+which copies its command or file text with this server's address, never a key (the command and
 files read it from `OADM_KEY` or ask for it). The address is the certificate's first name that is not `localhost` or a
 loopback address (`AgentConnections.HostOf`):
 
 - **Claude Code**: the one-line command and Copy:
   `claude mcp add --transport http oadm https://oadm.example:5082/mcp --header "Authorization: Bearer ${OADM_KEY}"`.
-- **.mcp.json** ("For a project folder"): Copy and Download (saves `.mcp.json`).
-- **VS Code** ("For .vscode/mcp.json", `servers`, `inputs` with `password: true`): Copy and Download (saves `mcp.json`).
+- **.mcp.json**: the file for a project folder.
+- **VS Code** (`.vscode/mcp.json`, `servers`, `inputs` with `password: true`).
 
-Copy is the last button of every row, so the Copy buttons line up. Download uses the client's save picker
-(`IDialogService.SaveFileAsync`, like Download CA certificate and Download skill, which stay below the rows). Claude
+**Download CA certificate** and **Download skill** follow in the same row (the client's save picker,
+`IDialogService.SaveFileAsync`). Claude
 Desktop is not listed until a bridge is tested with this server (it needs one for a remote server with a header).
 The website gets a user page (Administration > MCP server, `admin/mcp-server`, next to Settings where it is turned on, with the generated
 `admin/mcp-server/tools`) and a developer page (`dev/plugin-tools`).
@@ -374,7 +375,7 @@ The website gets a user page (Administration > MCP server, `admin/mcp-server`, n
   errors with their field, an Administrator key has all devices, the key's identity in the audit log, task owner and server
   info, a role or group change applies on the next call, deleting a role or group a key names is refused, Delete and the end
   date end a key), client `AiAgentsTests` (headless, screenshots: the card, the Create access key form and its field errors,
-  the key shown once with Copy, the list, Delete asks first, the Connect an agent rows with Copy and Download).
+  the key shown once with Copy, the list, Delete asks first, the Connect an agent choice with Copy).
 
 ## Stage 2 as built
 
@@ -485,9 +486,9 @@ The website gets a user page (Administration > MCP server, `admin/mcp-server`, n
   `health-check.md`, embedded): `Mcp/McpSkill` serves them as the resources `oadm://skill/<file>` to any valid key and
   declares the extension `io.modelcontextprotocol/skills` in the server capabilities; `McpService.GetSkill` answers them
   as `oadm-skill.zip` (every signed-in user) for **Download skill**.
-- **Card**: **Connect an agent** has a row each for Claude Code, `.mcp.json` and VS Code with this
-  server's address (the certificate's first name, a DNS name before an address) and port, Copy and for the files Download, while the server
-  runs; **Download skill** next to **Download CA certificate**.
+- **Card**: **Connect an agent** is one row: the client (Claude Code, `.mcp.json`, VS Code) and Copy with this
+  server's address (the certificate's first name, a DNS name before an address) and port while the server runs, then
+  **Download CA certificate** and **Download skill**.
 - **Website**: `admin/mcp-server` (turn it on, access keys, connect an agent, the skill, what agents can and cannot do) and
   `dev/plugin-tools` (how a plugin adds tools).
 - **Tests**: `McpSkillTests` (resources, the ZIP, the tool names the skill uses exist, the Wording rules), client

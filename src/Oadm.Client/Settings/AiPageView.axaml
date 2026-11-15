@@ -93,46 +93,30 @@
                    IsVisible="{Binding Message, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
       </StackPanel>
 
-      <!-- Connect an agent (docs/spec/mcp.md): one row per client with this server's address: Copy, and Download for a file. -->
-      <StackPanel x:Name="ConnectAgent" Classes="form" IsVisible="{Binding HasConnections}">
+      <!-- Connect an agent (docs/spec/mcp.md): one row: the client (Claude Code, .mcp.json, VS Code) and Copy, which puts its
+           command or file text with this server's address on the clipboard; then the CA certificate and the skill. -->
+      <StackPanel x:Name="ConnectAgent" Classes="form">
         <TextBlock Classes="sectionTitle subsection" Text="Connect an agent" />
-        <ItemsControl ItemsSource="{Binding Connections}">
-          <ItemsControl.ItemsPanel>
-            <ItemsPanelTemplate>
-              <StackPanel Spacing="8" />
-            </ItemsPanelTemplate>
-          </ItemsControl.ItemsPanel>
-          <ItemsControl.ItemTemplate>
-            <DataTemplate x:DataType="settings:AgentConnection">
-              <ui:FormField Label="{Binding Title}" Classes="wide">
-                <DockPanel>
-                  <!-- Copy always rightmost, so the Copy buttons of all rows line up; Download left of it for a file. -->
-                  <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="4" Margin="4,0,0,0" VerticalAlignment="Center">
-                    <Button Classes="toolbar iconOnly" ToolTip.Tip="{Binding DownloadTip}" IsVisible="{Binding IsFile}"
-                            Command="{Binding $parent[settings:AiPageView].((settings:AiAgentsViewModel)DataContext).DownloadConnectionCommand}" CommandParameter="{Binding}">
-                      <ui:OadmIcon Data="{StaticResource Icon.download}" />
-                    </Button>
-                    <Button Classes="toolbar iconOnly" ToolTip.Tip="{Binding CopyTip}"
-                            Command="{Binding $parent[settings:AiPageView].((settings:AiAgentsViewModel)DataContext).CopyCommand}" CommandParameter="{Binding}">
-                      <ui:OadmIcon Data="{StaticResource Icon.copy}" />
-                    </Button>
-                  </StackPanel>
-                  <TextBlock Text="{Binding Line}" Classes.mono="{Binding ShowsText}" Classes.secondary="{Binding IsFile}"
-                             VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
-                </DockPanel>
-              </ui:FormField>
-            </DataTemplate>
-          </ItemsControl.ItemTemplate>
-        </ItemsControl>
+        <WrapPanel Orientation="Horizontal">
+          <ComboBox x:Name="ConnectClient" Width="180" Margin="0,0,8,8" IsVisible="{Binding HasConnections}"
+                    ItemsSource="{Binding Connections}" SelectedIndex="{Binding SelectedConnection}">
+            <ComboBox.ItemTemplate>
+              <DataTemplate x:DataType="settings:AgentConnection">
+                <TextBlock Text="{Binding Title}" />
+              </DataTemplate>
+            </ComboBox.ItemTemplate>
+          </ComboBox>
+          <Button x:Name="ConnectCopy" Classes="secondary" Margin="0,0,16,8" Command="{Binding CopySelectedCommand}" IsVisible="{Binding HasConnections}">
+            <ui:IconLabel Icon="{StaticResource Icon.copy}" Text="Copy" />
+          </Button>
+          <Button Classes="secondary" Margin="0,0,8,8" Command="{Binding DownloadCaCommand}" IsEnabled="{Binding CanDownloadCa}">
+            <ui:IconLabel Icon="{StaticResource Icon.download}" Text="Download CA certificate" />
+          </Button>
+          <Button x:Name="McpDownloadSkill" Classes="secondary" Margin="0,0,0,8" Command="{Binding DownloadSkillCommand}">
+            <ui:IconLabel Icon="{StaticResource Icon.download}" Text="Download skill" />
+          </Button>
+        </WrapPanel>
         <TextBlock Classes="secondary" Text="{x:Static settings:AgentConnections.TrustCa}" TextWrapping="Wrap" />
-      </StackPanel>
-      <StackPanel Orientation="Horizontal" Spacing="8">
-        <Button Classes="secondary" Command="{Binding DownloadCaCommand}" IsEnabled="{Binding CanDownloadCa}">
-          <ui:IconLabel Icon="{StaticResource Icon.download}" Text="Download CA certificate" />
-        </Button>
-        <Button x:Name="McpDownloadSkill" Classes="secondary" Command="{Binding DownloadSkillCommand}">
-          <ui:IconLabel Icon="{StaticResource Icon.download}" Text="Download skill" />
-        </Button>
       </StackPanel>
       <TextBlock Text="{Binding Message}" Classes.error="{Binding MessageIsError}" Classes.secondary="{Binding !MessageIsError}" TextWrapping="Wrap"
                  IsVisible="{Binding Message, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
