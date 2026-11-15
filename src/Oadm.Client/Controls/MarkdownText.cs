@@ -104,7 +104,7 @@ public sealed class MarkdownText : StackPanel
             BuiltBlocks++;
             Children.Add(block switch
             {
-                MarkdownHeading heading => Text(heading.Spans, "mdHeading"),
+                MarkdownHeading heading => Heading(heading),
                 MarkdownParagraph paragraph => Text(paragraph.Spans),
                 MarkdownList list => List(list),
                 MarkdownCode code => new CodeView
@@ -256,17 +256,28 @@ public sealed class MarkdownText : StackPanel
         }
     }
 
+    /// <summary>A heading: one size step per level (h1, h2, h3; deeper levels like h3), room above it from the theme.</summary>
+    private SelectableTextBlock Heading(MarkdownHeading heading)
+    {
+        var text = Text(heading.Spans, "mdHeading");
+        text.Classes.Add("h" + Math.Clamp(heading.Level, 1, 3).ToString(System.Globalization.CultureInfo.InvariantCulture));
+        return text;
+    }
+
+    /// <summary>The number of an ordered list item: "01.", "02.", from 100 on as it is.</summary>
+    public static string ListNumber(int number) => number.ToString(number is >= 0 and < 10 ? "00" : "0", System.Globalization.CultureInfo.InvariantCulture) + ".";
+
     private Grid List(MarkdownList list)
     {
         var grid = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,*"), Classes = { "mdList" } };
         for (int i = 0; i < list.Items.Count; i++)
         {
             grid.RowDefinitions.Add(new RowDefinition(GridLength.Auto));
-            var marker = new TextBlock
-            {
-                Text = list.Ordered ? (list.Start + i).ToString(System.Globalization.CultureInfo.CurrentCulture) + "." : "•",
-                Classes = { "mdMarker" },
-            };
+
+            // A small accent dot centered on the item's first line, or a dim "01." (hanging indent: the text in its own column).
+            Control marker = list.Ordered
+                ? new TextBlock { Text = ListNumber(list.Start + i), Classes = { "mdNumber" } }
+                : new Border { Classes = { "mdBulletRow" }, Child = new Border { Classes = { "mdBullet" } } };
             Grid.SetRow(marker, i);
             var item = Text(list.Items[i]);
             Grid.SetRow(item, i);
@@ -281,10 +292,12 @@ public sealed class MarkdownText : StackPanel
     private Control Table(MarkdownTable table)
     {
         int columns = table.Header.Count;
-        var grid = new Grid { HorizontalAlignment = HorizontalAlignment.Left, Classes = { "mdTable" } };
+        // In a card (the Assistant) the last column takes the rest of the width, so the lines run across the card.
+        var inCard = Actions is not null;
+        var grid = new Grid { HorizontalAlignment = inCard ? HorizontalAlignment.Stretch : HorizontalAlignment.Left, Classes = { "mdTable" } };
         for (int c = 0; c < columns; c++)
         {
-            grid.ColumnDefinitions.Add(new ColumnDefinition(GridLength.Auto));
+            grid.ColumnDefinitions.Add(new ColumnDefinition(inCard && c == columns - 1 ? GridLength.Star : GridLength.Auto));
         }
 
         void Add(IReadOnlyList<MarkdownSpan> spans, int row, int column, bool header)
@@ -320,6 +333,7 @@ public sealed class MarkdownText : StackPanel
         // Wide tables scroll sideways inside the answer instead of widening the panel.
         var scroller = new ScrollViewer
         {
+            Classes = { "mdTableScroller" },
             Content = grid,
             HorizontalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Auto,
             VerticalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Disabled,
@@ -329,12 +343,21 @@ public sealed class MarkdownText : StackPanel
             return scroller;
         }
 
-        // Copy as CSV and Save as CSV below the table (the Assistant).
-        var buttons = new StackPanel { Classes = { "chatActions" } };
-        buttons.Children.Add(IconButton("copy", CopyCsv, () => actions.CopyTable(table)));
-        buttons.Children.Add(IconButton("download", SaveCsv, () => actions.SaveTable(table)));
-        return new StackPanel { Classes = { "chatItem" }, Children = { scroller, buttons } };
+        // The Assistant: the table as a result card, Copy as CSV and Save as CSV in its header.
+        var card = new ResultCard { Title = Rows(table.Rows.Count), Body = scroller };
+        if (this.TryFindResource("Icon.grid", out var icon) && icon is Geometry geometry)
+        {
+            card.Icon = geometry;
+        }
+
+        card.Actions.Add(IconButton("copy", CopyCsv, () => actions.CopyTable(table)));
+        card.Actions.Add(IconButton("download", SaveCsv, () => actions.SaveTable(table)));
+        return card;
     }
+
+    /// <summary>The title of a table's card: "3 rows".</summary>
+    public static string Rows(int count) =>
+        count == 1 ? "1 row" : string.Create(System.Globalization.CultureInfo.CurrentCulture, $"{count:N0} rows");
 
     private Button IconButton(string iconKey, string tip, Action run)
     {

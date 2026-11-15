@@ -330,6 +330,7 @@ public sealed partial class AssistantChats
         List<ChatMessage> turn = [user];
         var answered = new StringBuilder();
         var round = new RoundState();
+        var followUps = new FollowUpFilter();
         long tokens = 0;
         var error = string.Empty;
         var stopped = false;
@@ -360,7 +361,7 @@ public sealed partial class AssistantChats
                         if (!string.IsNullOrEmpty(piece))
                         {
                             answered.Append(piece);
-                            await emit(new Proto.AssistantEvent { Text = piece }).ConfigureAwait(false);
+                            await EmitTextAsync(followUps.Feed(piece), emit).ConfigureAwait(false);
                         }
                     }
                 }
@@ -368,6 +369,8 @@ public sealed partial class AssistantChats
                 {
                     await stream.DisposeAsync().ConfigureAwait(false);
                 }
+
+                await EmitTextAsync(followUps.Finish(), emit).ConfigureAwait(false);
 
                 var response = updates.ToChatResponse();
                 tokens += TokensOf(response, messages);
@@ -433,7 +436,29 @@ public sealed partial class AssistantChats
             Commit(conversation, finished ? turn : [user, new ChatMessage(ChatRole.Assistant, answered.Length > 0 ? answered.ToString() : "(no answer)")]);
         }
 
+        await EmitEndAsync(round.Sources, followUps, answeredWell: error.Length == 0 && !stopped, emit).ConfigureAwait(false);
         await emit(new Proto.AssistantEvent { Done = new Proto.AssistantDone { Stopped = stopped, Error = error, Tokens = tokens } }).ConfigureAwait(false);
+    }
+
+    /// <summary>A piece of the answer's text, the follow-up line taken out (nothing when it was all held back).</summary>
+    private static Task EmitTextAsync(string text, Func<Proto.AssistantEvent, Task> emit) =>
+        text.Length == 0 ? Task.CompletedTask : emit(new Proto.AssistantEvent { Text = text });
+
+    /// <summary>
+    /// Before done: the sources of the answer (when a tool answered) and, for an answer that ended well, the model's next
+    /// questions (when it gave some).
+    /// </summary>
+    private static async Task EmitEndAsync(AssistantSources sources, FollowUpFilter followUps, bool answeredWell, Func<Proto.AssistantEvent, Task> emit)
+    {
+        if (sources.Chips() is { Count: > 0 } chips)
+        {
+            await emit(new Proto.AssistantEvent { Sources = new Proto.AssistantSources { Chips = { chips } } }).ConfigureAwait(false);
+        }
+
+        if (answeredWell && followUps.Questions.Count > 0)
+        {
+            await emit(new Proto.AssistantEvent { FollowUps = new Proto.AssistantFollowUps { Questions = { followUps.Questions } } }).ConfigureAwait(false);
+        }
     }
 
     /// <summary>The tokens an answer used so far (settled against the estimate when the message ends).</summary>
@@ -476,6 +501,9 @@ public sealed partial class AssistantChats
         public int PicturesToModel { get; set; }
 
         public bool ToolsOff { get; set; }
+
+        /// <summary>The tools that answered, for the chips below the answer.</summary>
+        public AssistantSources Sources { get; } = new();
     }
 
     /// <summary>
@@ -584,6 +612,7 @@ public sealed partial class AssistantChats
         - Write a table only when the user asks for one and no tool showed it. At most one table, few columns.
         - Never guess. When no tool gives the data, say so in one sentence.
         - Answer in the user's language, in Markdown. Name devices by host name or address.
+        - End every answer with one last line "<<next>> question 1 | question 2": at most 3 short questions the user may ask next, only when useful. Never mention this line.
         """;
 
     // ---- one tool call -------------------------------------------------------------------------------------------------
@@ -629,6 +658,7 @@ public sealed partial class AssistantChats
         }
 
         var answer = result.Answer!;
+        round.Sources.Add(tool, answer);
         if (AssistantTools.IsPreview(tool.Name) && answer["handle"] is JsonValue value && value.TryGetValue<string>(out var handle) && handle.Length > 0)
         {
             var card = RememberPreview(conversation, tool, handle, answer, arguments, caller);

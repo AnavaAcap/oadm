@@ -74,6 +74,9 @@ internal sealed class FakeChatClient : IChatClient
     /// <summary>The next answer is <paramref name="text"/> in two pieces.</summary>
     public FakeChatClient Say(string text) => Then((_, _) => Updates(this, [new TextContent(text[..(text.Length / 2)]), new TextContent(text[(text.Length / 2)..])]));
 
+    /// <summary>The next answer streams exactly these pieces (a marker cut anywhere).</summary>
+    public FakeChatClient SayPieces(params string[] pieces) => Then((_, _) => Updates(this, [.. pieces.Select(p => (AIContent)new TextContent(p))]));
+
     /// <summary>The next answer asks for these tool calls (name and arguments).</summary>
     public FakeChatClient Call(params (string Name, JsonObject? Arguments)[] calls) =>
         Then((_, _) => Updates(this, [.. calls.Select((c, i) => (AIContent)new FunctionCallContent("call-" + Guid.NewGuid().ToString("N")[..8] + i, c.Name, ArgumentsOf(c.Arguments)))]));

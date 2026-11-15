@@ -334,8 +334,15 @@ public sealed partial class AssistantPanelViewModel : IMarkdownActions
                 case AssistantAnswerItem answer:
                     md.AppendLine(answer.Text.TrimEnd());
                     break;
-                case AssistantToolItem tool:
-                    md.Append('_').Append(tool.Text).AppendLine("_");
+                case AssistantStepsItem steps:
+                    foreach (var tool in steps.Steps)
+                    {
+                        md.Append('_').Append(tool.Text).AppendLine("_");
+                    }
+
+                    break;
+                case AssistantSourcesItem sources:
+                    md.Append("Sources: ").AppendLine(string.Join(", ", sources.Chips));
                     break;
                 case AssistantNoticeItem notice:
                     md.AppendLine(notice.Text);

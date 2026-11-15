@@ -347,12 +347,22 @@ error), `TagChipList` (the tags of a device as chips), `TagColorPicker` (the col
 `SplashLogo` (the animated logo of the start splash), `GridSelection` (a grid's multi-item selection to its view model in
 one step), `MarkdownText` over `MarkdownDocument` (Markdown as selectable text: paragraphs, headings, lists, bold, italic,
 inline code, fenced code blocks in a `CodeView`, pipe tables; anything else stays plain; theme `StackPanel.markdown`,
-`SelectableTextBlock.mdHeading`, `Grid.mdList`, `Border.mdCell`; the Assistant's answers).
+`SelectableTextBlock.mdHeading` with `h1` / `h2` / `h3`, `Grid.mdList` with `Border.mdBullet` (the accent dot) and
+`TextBlock.mdNumber` ("01."), `Border.mdCell`; with actions a table is a `ResultCard`; the Assistant's answers),
+`ResultCard` (a result in an answer: header line with the accent icon, title, dim subtitle and the card's actions on the
+right, the content, an optional footer; theme `:is(Border).resultCard`, inside it a table has no surface of its own and
+its first column starts at the card's text edge; the Assistant's device tables, Markdown tables and preview cards),
+`FileChip` (a file as a small card: file icon, name, size, an X with `RemoveCommand`; theme `:is(Border).chatChip`,
+`.fixed` without the X; the files in the Assistant's message box and below a sent message).
 
 The Assistant panel ([assistant.md](assistant.md)) uses the theme's `Border.sidePanel` (560 px at the right of every page) and
-`Border.chatUser` (the user's message, raised, right), `Border.chatCard` (a preview card), `Border.chatChip` (an attached
-file), `Border.chatPicture`, `Border.composer` with `TextBox.composer` and `ComboBox.composerModel` (the message box
-like the chat apps), `Button.send` (the round send arrow and Stop), `Button.jumpToLatest` (Go to the latest),
+`Border.chatUser` (the user's message: a soft bubble, raised, right, at most 85 % of the row), `c:ResultCard` (device
+tables, Markdown tables, preview cards), `c:FileChip` (an attached file), `Border.chatPicture`, `Border.composer` with
+`TextBox.composer` and `ComboBox.composerModel` (the message box like the chat apps; the model picker a chip with
+`OadmIcon.modelIcon`), `TextBlock.chatFootnote` (the dim line under the box), `StackPanel.chatStatus` (the live status
+line), `ToggleButton.sectionExpander.steps` with `ItemsControl.chatSteps` (the folded tool lines), `TextBlock.sectionLabel`
+with `StackPanel.chatSection` (SOURCES, RESULTS, NEXT), `Border.sourceChip` (a source), `Button.followUp` (a next
+question), `Button.send` (the round send arrow and Stop), `Button.jumpToLatest` (Go to the latest),
 `Border.dropHint` (files dragged over the panel), `StackPanel.chatActions` (Copy and Try again below an answer),
 `Panel.chatUserRow` with `Button.hoverAction` (Edit on hover), `ui:ProgressRing.thinking`, `StackPanel.chatStart` with
 `Button.startChip` (a live count, pill) and `Button.startCard` (a suggestion: icon and one line, two per row) for the empty

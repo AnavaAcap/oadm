@@ -157,7 +157,7 @@ public sealed partial class AssistantPanelViewModel : ObservableObject
     /// <summary>The empty panel shows the start suggestions.</summary>
     public bool IsEmpty => Items.Count == 0;
 
-    /// <summary>"Thinking" shows where the answer will appear: from Send until the answer's first event.</summary>
+    /// <summary>The live status line shows (Thinking, or the tool that runs): from Send until text streams, again with each tool.</summary>
     [ObservableProperty] public partial bool IsThinking { get; private set; }
 
     /// <summary>
@@ -572,7 +572,15 @@ public sealed partial class AssistantPanelViewModel : ObservableObject
         var user = new AssistantUserItem(text, [.. files], [.. mentioned], mentionText);
         Mentioned = [];
         var attached = files.ToList();
+        if (Items.Any(i => i is AssistantFollowUpsItem))
+        {
+            Items.RemoveAll(i => i is AssistantFollowUpsItem); // the next questions of an older answer go (one step)
+        }
+
         Items.Add(user);
+        _user = user;
+        _steps = new AssistantStepsItem();
+        _answerFailed = false;
         Attachments.Clear();
         Draft = string.Empty;
         Message = null;
@@ -623,7 +631,8 @@ public sealed partial class AssistantPanelViewModel : ObservableObject
         {
             if (ReferenceEquals(_chat, chat))
             {
-                Items.Add(new AssistantNoticeItem(ex.Status.Detail, isError: true));
+                _answerFailed = true;
+                Add(new AssistantNoticeItem(ex.Status.Detail, isError: true));
                 if (ex.StatusCode is StatusCode.FailedPrecondition or StatusCode.Unimplemented or StatusCode.PermissionDenied)
                 {
                     _ = RefreshAsync(CancellationToken.None); // turned off meanwhile: the button follows
@@ -636,6 +645,7 @@ public sealed partial class AssistantPanelViewModel : ObservableObject
             {
                 EndThinking();
                 FlushAnswer(); // the end: whatever is left shows once
+                FoldSteps();
                 _chat = null;
                 _answer = null;
                 IsStreaming = false;
@@ -672,16 +682,29 @@ public sealed partial class AssistantPanelViewModel : ObservableObject
         Items.RemoveAll(gone.Contains);
     }
 
-    private AssistantThinkingItem? _thinking;
+    /// <summary>The live status line while the answer waits (Thinking, then the running tool's line); null while text streams.</summary>
+    private AssistantStatusItem? _thinking;
 
-    private void ShowThinking()
+    /// <summary>The message the answer belongs to and the tool lines of that answer (folded into Steps at its end).</summary>
+    private AssistantUserItem? _user;
+    private AssistantStepsItem? _steps;
+
+    /// <summary>The answer ended with an error: its steps stay open.</summary>
+    private bool _answerFailed;
+
+    private void ShowThinking(string? text = null)
     {
-        _thinking = new AssistantThinkingItem();
-        Items.Add(_thinking);
+        if (_thinking is null)
+        {
+            _thinking = new AssistantStatusItem();
+            Items.Add(_thinking);
+        }
+
+        _thinking.Text = text ?? AssistantTexts.Thinking;
         IsThinking = true;
     }
 
-    /// <summary>The answer's first event (or its end): Thinking goes.</summary>
+    /// <summary>Streamed text (or the end): the status line goes; a tool brings it back.</summary>
     private void EndThinking()
     {
         if (_thinking is { } thinking)
@@ -692,17 +715,36 @@ public sealed partial class AssistantPanelViewModel : ObservableObject
         }
     }
 
+    /// <summary>
+    /// The end of the answer: its tool lines become one row "Steps (N)" at its top (below the user's message and the notice
+    /// where the data goes), open only when the answer failed.
+    /// </summary>
+    private void FoldSteps()
+    {
+        var steps = _steps;
+        _steps = null;
+        if (steps is not { Count: > 0 } || _user is not { } user || Items.IndexOf(user) is not (>= 0 and var at))
+        {
+            return;
+        }
+
+        int index = at + 1;
+        while (index < Items.Count && Items[index] is AssistantNoticeItem { IsError: false, IsStopped: false })
+        {
+            index++;
+        }
+
+        steps.IsExpanded = _answerFailed;
+        Items.Insert(index, steps);
+    }
+
     /// <summary>One event of the answer into the list: text grows the current answer part, everything else ends it.</summary>
     private void Apply(AssistantEvent e)
     {
-        if (e.KindCase != AssistantEvent.KindOneofCase.Notice)
-        {
-            EndThinking(); // a notice (where the data goes) comes before the answer: Thinking stays below it
-        }
-
         switch (e.KindCase)
         {
             case AssistantEvent.KindOneofCase.Text:
+                EndThinking(); // the text itself shows that the answer runs
                 if (_answer is null)
                 {
                     _answer = new AssistantAnswerItem();
@@ -713,7 +755,24 @@ public sealed partial class AssistantPanelViewModel : ObservableObject
                 FlushSoon();
                 return;
             case AssistantEvent.KindOneofCase.Tool:
-                Add(new AssistantToolItem(e.Tool.Text, e.Tool.Failed));
+                FlushAnswer();
+                _answer = null;
+                _steps?.Add(new AssistantToolItem(e.Tool.Text, e.Tool.Failed));
+                ShowThinking(e.Tool.Text); // one live line, at the end
+                return;
+            case AssistantEvent.KindOneofCase.Sources:
+                if (e.Sources.Chips.Count > 0)
+                {
+                    Add(new AssistantSourcesItem([.. e.Sources.Chips]));
+                }
+
+                return;
+            case AssistantEvent.KindOneofCase.FollowUps:
+                if (e.FollowUps.Questions.Count > 0)
+                {
+                    Add(new AssistantFollowUpsItem([.. e.FollowUps.Questions.Take(3)]));
+                }
+
                 return;
             case AssistantEvent.KindOneofCase.Preview:
                 Add(new AssistantPreviewItem(e.Preview));
@@ -722,19 +781,12 @@ public sealed partial class AssistantPanelViewModel : ObservableObject
                 Add(new AssistantPictureItem(e.Picture.DeviceId, e.Picture.DeviceName, e.Picture.Jpeg.ToByteArray()));
                 return;
             case AssistantEvent.KindOneofCase.Table:
-                Add(new AssistantTableItem(e.Table) { RowChosen = row => SelectInGrid([row.DeviceId]) });
+                Add(new AssistantTableItem(e.Table) { RowChosen = row => SelectInGrid([row.DeviceId]), ShowsLabel = !AnswerHasTable() });
                 return;
             case AssistantEvent.KindOneofCase.Notice:
                 if (_notices.Add(e.Notice))
                 {
-                    if (_thinking is not null)
-                    {
-                        Items.Insert(Items.Count - 1, new AssistantNoticeItem(e.Notice));
-                    }
-                    else
-                    {
-                        Add(new AssistantNoticeItem(e.Notice));
-                    }
+                    Add(new AssistantNoticeItem(e.Notice)); // where the data goes: above the status line
                 }
 
                 return;
@@ -742,6 +794,7 @@ public sealed partial class AssistantPanelViewModel : ObservableObject
                 _ = RefreshUsageAsync();
                 if (e.Done.Error.Length > 0)
                 {
+                    _answerFailed = true;
                     Add(new AssistantNoticeItem(e.Done.Error, isError: true));
                 }
                 else if (e.Done.Stopped)
@@ -755,11 +808,33 @@ public sealed partial class AssistantPanelViewModel : ObservableObject
         }
     }
 
+    /// <summary>A new entry ends the current answer part; while the status line shows it stays last (the entry goes above it).</summary>
     private void Add(AssistantItem item)
     {
         FlushAnswer();
         _answer = null;
-        Items.Add(item);
+        if (_thinking is not null && Items.Count > 0 && ReferenceEquals(Items[^1], _thinking))
+        {
+            Items.Insert(Items.Count - 1, item);
+        }
+        else
+        {
+            Items.Add(item);
+        }
+    }
+
+    /// <summary>The answer that streams already shows a device table (only the first one has the label RESULTS).</summary>
+    private bool AnswerHasTable()
+    {
+        for (int i = Items.Count - 1; i >= 0 && !ReferenceEquals(Items[i], _user); i--)
+        {
+            if (Items[i] is AssistantTableItem)
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /// <summary>
@@ -1067,6 +1142,8 @@ public sealed partial class AssistantPanelViewModel : ObservableObject
         _answer = null;
         _thinking = null;
         IsThinking = false;
+        _user = null;
+        _steps = null;
         _editing = null;
         _pastedImages = 0;
         Mentioned = [];
