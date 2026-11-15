@@ -357,6 +357,16 @@ public sealed record SetupPayload(bool ReplaceDot1x = false)
     }
 }
 
+/// <summary>
+/// The input of "Set up certificate enrollment" for AI agents (SDK 0.13.0): the JSON of <see cref="SetupPayload"/> without the
+/// clock answer. A camera whose clock is behind refuses the task ("Nothing was changed"); fix the clock or run it in OADM.
+/// </summary>
+[System.ComponentModel.Description("Set up certificate enrollment on cameras (the EST server's profiles; the cameras then renew their certificates by themselves), or remove enrollment profiles from them. Needs OADM PRO and the EST server on.")]
+public sealed record EstMcpPayload(
+    [property: System.ComponentModel.Description("Setup adds the EST server's profiles; Remove removes the profiles named in profiles.")] SetupAction Action = SetupAction.Setup,
+    [property: System.ComponentModel.Description("Setup only: also replace the network access certificate of cameras with IEEE 802.1X on. They drop off the network if the RADIUS server does not trust its CA.")] bool ReplaceDot1x = false,
+    [property: System.ComponentModel.Description("Remove only: the profile ids to remove from every camera (OADM's are oadm_<profile>, e.g. oadm_https)."), System.ComponentModel.DataAnnotations.MaxLength(10)] IReadOnlyList<string>? Profiles = null);
+
 /// <summary>JSON of the page calls and the stored settings.</summary>
 public static class EstJson
 {

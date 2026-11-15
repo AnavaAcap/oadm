@@ -229,6 +229,16 @@ confirmed (then a Warning log line). Tests: `ClockTests`.
   compatibility, Read certificates (validates every choice before the first delete: exists, not in use, not factory; a web
   server or 802.1X read that fails refuses everything, the dialog shows In use "Unknown"), Delete certificate <alias> (one
   each), Verify. Names "Delete certificate <alias>" / "Delete N certificates" (distinct aliases).
+- **AI agents** (SDK 0.13.0, docs/spec/mcp.md "Tasks"): View certificates runs as a read task for them (`PkiViewMcpPayload`,
+  no settings): Check compatibility, Read certificates, one log line per certificate (`ViewCertificatesTask.LogLine`: name,
+  kind, issued to and by, valid until, in use, from OADM, Axis factory, SHA-256), nothing written; the dialog still reads
+  through the query and starts no task. Delete certificates takes the dialog's `DeletePayload` (`devices` by id, each
+  `[{alias, ca}]`, names as View lists them). `ValidatePayload` (`DeleteCertificatesTask.CheckPayload`, `DeleteTexts`):
+  "Choose at least one certificate." at `devices`, per device at `devices.<id>` a missing name, more than 100 or an Axis
+  factory name (802.1AR). `PlanAsync`: a device without a choice is skipped ("No certificate of this device was chosen"),
+  the others by `CanRun`; warnings "Deletes N certificates from M devices. A deleted certificate and its key cannot be
+  restored." and that one in use by HTTPS or 802.1X is never deleted (the task still refuses it on the device before the
+  first delete).
 - **Install certificates** (`oadm.pki.install`): `InstallCertificatesWindow`: Use for (HTTPS / IEEE 802.1X / CA certificates
   only), .pfx / .p12 files (one password for all, `CertificateFiles`: wrong password under the field), table File,
   Certificate, Device, Status chip; a file must match exactly one selected device by MAC (serial in any notation, also

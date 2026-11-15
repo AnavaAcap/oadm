@@ -101,3 +101,15 @@ A PRO part of the PKI plugin (`../README.md`, `docs/spec/pki.md` "One plugin"). 
 The read-only tool `oadm_est_enrollments` (`Tools/EstTools.cs`, docs/spec/mcp.md "Plugins"): the state, the certificate
 count, Not renewed and the enrollments of the caller's devices, newest first, paged; while the server is off its state
 only. Tests: `ToolTests`.
+
+The task **EST - Certificate Enrollment** is offered to agents through the task tools (SDK 0.13.0): input `EstMcpPayload`
+{`action` Setup or Remove, `replaceDot1x` (Setup only), `profiles` (Remove only, 1 to 10 ids)}, the JSON of `SetupPayload`
+without the clock answer (a camera whose clock is behind refuses, nothing changed). `ValidatePayload`
+(`EstSetupTask.CheckPayload`, also at the start of `ExecuteAsync`, before any request): "Choose a profile to remove.",
+too many or invalid ids at `profiles`, "Profiles are for Remove only.", the replacement at `replaceDot1x`. `PlanAsync`
+from cached data and the EST server's state: Setup skips every camera with the task's refusal while the EST server is off,
+OADM PRO is not active or PKI has no CA, else `CanRun` (AXIS OS 12.10); warnings: cameras with IEEE 802.1X on (cached,
+unknown counts as on) keep their network access certificate, or with `replaceDot1x` get a new one and drop off the network
+if the RADIUS server does not trust its CA; the clock note. Remove: per profile what the cameras lose, the dialog's own
+sentences (`EstTaskIds.RemoveEffect`). The permission stays `enroll` (Set up certificate enrollment, off for Operators).
+Tests: `TaskTests` (the agent input).

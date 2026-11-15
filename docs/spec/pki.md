@@ -617,6 +617,11 @@ The Security tasks (Enable / Disable HTTPS, Enable / Disable IEEE 802.1X, Renew 
 Install certificates, Install CA certificates) with their steps: `plugins/Oadm.Plugins.Pki/README.md` "PKI Security tasks".
 Rules:
 
+- AI agents ([mcp.md](mcp.md) "Tasks", decision 2026-11-15): View certificates runs for them as a read task (the
+  certificates as lines of the task's log, nothing written); Delete certificates takes the dialog's payload (names per
+  device, as View lists them), refuses an empty choice or an Axis factory name before any task starts, and its plan says
+  how many certificates go from how many devices, that they cannot be restored and that one in use is never deleted.
+  Install certificates (a password) and Install CA certificates (a new trust anchor the person checks) stay in OADM.
 - The task payload carries only the policy id (and the clock answer); the run uses the policy's stored values and checks
   them like a saved policy before the first write. Without a policy id (older clients) the first of the kind. A policy
   deleted after the dialog fails in Check compatibility: "The chosen policy no longer exists. Start the task again. Nothing

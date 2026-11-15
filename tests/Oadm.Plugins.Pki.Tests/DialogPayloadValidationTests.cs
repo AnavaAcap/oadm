@@ -144,18 +144,41 @@ public sealed class DialogPayloadValidationTests
         }
     }
 
-    /// <summary>The dialogs of these tasks have no rule the server repeats: the default check accepts what they send.</summary>
+    /// <summary>
+    /// The dialogs of these tasks have no rule the server repeats: the default check accepts what they send. (Delete
+    /// certificates checks its payload: <see cref="AgentTaskInputTests"/>; the dialog's payload passes in
+    /// <see cref="Every_delete_the_dialog_sends_passes"/>.)
+    /// </summary>
     [Fact]
     public async Task Tasks_without_a_check_of_their_own_accept_the_payloads_of_their_dialogs()
     {
         await using var pki = await PkiHarness.StartAsync();
         var install = PkiJson.Serialize(new InstallPayload());
-        foreach (var id in new[] { PkiTaskIds.Install, PkiTaskIds.Delete, PkiTaskIds.View })
+        foreach (var id in new[] { PkiTaskIds.Install, PkiTaskIds.View })
         {
             AssertAccepted(Task(pki, id), install);
             AssertAccepted(Task(pki, id), "{}");
             AssertAccepted(Task(pki, id), null);
         }
+    }
+
+    /// <summary>The delete dialog, driven to its payload (every free certificate of two devices), passes the task's check.</summary>
+    [Fact]
+    public async Task Every_delete_the_dialog_sends_passes()
+    {
+        await using var pki = await PkiHarness.StartAsync();
+        var devices = DialogData.Devices(2);
+        var vm = new CertificatesViewModel(new FakeDialogContext(_ => System.Threading.Tasks.Task.FromResult<string?>(DialogData.FixtureReply())), devices, deleteMode: true);
+        string? payload = null;
+        vm.CloseRequested += (_, p) => payload = p;
+        vm.Confirm = (_, _, _) => System.Threading.Tasks.Task.FromResult(true);
+        await vm.LoadAsync();
+
+        vm.SelectAllCommand.Execute(null);
+        Assert.True(vm.CheckedCount > 10);
+        await vm.DeleteCommand.ExecuteAsync(null);
+
+        AssertAccepted(Task(pki, PkiTaskIds.Delete), payload);
     }
 
     // ---- Install CA certificates ----

@@ -314,7 +314,7 @@ public sealed partial class CertificatesViewModel : ObservableObject
         var devices = chosen.Select(r => r.Device.Id).Distinct().Count();
         var message = (chosen.Count == 1 ? $"Delete \"{chosen[0].Alias}\"" : string.Create(CultureInfo.InvariantCulture, $"Delete {chosen.Count:N0} certificates"))
             + (devices == 1 ? $" from {chosen[0].Address}?" : string.Create(CultureInfo.InvariantCulture, $" from {devices:N0} devices?"))
-            + " A deleted certificate and its key cannot be restored.";
+            + " " + DeleteTexts.CannotRestore;
         if (Confirm is null || !await Confirm("Delete certificates", message, "Delete").ConfigureAwait(true))
         {
             return;
