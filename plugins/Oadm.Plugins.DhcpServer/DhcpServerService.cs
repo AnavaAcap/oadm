@@ -310,6 +310,28 @@ public sealed partial class DhcpServerService : IAsyncDisposable
         return new StaticLeaseReply(errors.Count == 0, errors.Count == 0 ? null : errors);
     }
 
+    /// <summary>The field errors <see cref="SaveStatic"/> would answer, without changing anything (the preview of a tool).</summary>
+    public IReadOnlyDictionary<string, string> CheckStatic(StaticLeaseRequest request)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        var errors = DhcpValidation.StaticLease(request.Mac, request.Address, request.Name, CurrentNetwork());
+        ulong? original = null;
+        if (request.OriginalMac is not null)
+        {
+            original = MacAddress.TryParse(request.OriginalMac, out var o) ? o : throw new ArgumentException("The edited lease is not valid.", nameof(request));
+        }
+
+        if (errors.Count == 0 && MacAddress.TryParse(request.Mac, out var mac) && Ip4.TryParse(request.Address, out var address))
+        {
+            return _store.CheckStatic(mac, address, original, Now);
+        }
+
+        return errors;
+    }
+
+    /// <summary>The lease of a MAC address as the page lists it; null when there is none (or the address is not valid).</summary>
+    public LeaseInfo? FindLease(string? mac) => MacAddress.TryParse(mac, out var parsed) ? _store.Find(parsed) : null;
+
     public StaticLeaseReply MakeStatic(LeaseRequest request) =>
         _store.MakeStatic(ParseMac(request)) ? new StaticLeaseReply(true, null) : throw new KeyNotFoundException("The dynamic lease no longer exists.");
 

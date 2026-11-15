@@ -35,6 +35,15 @@ views of several cameras at once, like the live view of a VMS: each view is a gr
 Errors are `ArgumentException` with the user text (INVALID_ARGUMENT): the texts are `ViewRules` (shared by the page,
 which checks the name and the layout before it sends).
 
+## Tools
+
+`LiveViewTools` (`PluginPageTools`, docs/spec/mcp.md "Plugins", decision 2026-11-15), area `live_view`, each with the rights
+of its page method: `oadm_live_view_views` (the caller's views with their cameras and places, paged, "show"),
+`oadm_live_view_view_save_preview` / `_run` (`save`; without places the cameras fill the view in equal squares row by row;
+the preview runs the page's save without storing: name, layout, the owner's cameras, unique name, 200 views) and
+`oadm_live_view_view_delete_preview` / `_run` (`delete`; a view the caller does not see is refused like a deleted one), both
+"manage", the runs audited. Live video stays in the client: no tool opens a stream. Tests: `ToolTests`.
+
 ## Permissions
 
 "Show the page" (automatic, Operator and Viewer: a monitoring page), **Change views** (`manage`: create, change, delete; Operator yes, Viewer no). The pictures need the host's "Live view" right (`devices.liveView`); without it the tiles say "Your role does not allow live view.". Save and delete are audited ("Plugin action").

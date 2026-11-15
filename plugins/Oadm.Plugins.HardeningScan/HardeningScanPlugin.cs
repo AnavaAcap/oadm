@@ -40,6 +40,12 @@ public sealed class HardeningScanPlugin : ICorePlugin, IAsyncDisposable
     /// <summary>The running service (tests).</summary>
     internal HardeningScanService? Service => _service;
 
+    /// <summary>The running service; refuses a call while the plugin is stopped.</summary>
+    internal HardeningScanService RunningService => _service ?? throw new InvalidOperationException("The hardening scan plugin is not running.");
+
+    /// <summary>The jobs of the users' scans.</summary>
+    internal IPluginJobs Jobs => _ctx?.Jobs ?? throw new InvalidOperationException("This OADM server cannot run scans.");
+
     public async Task StartAsync(ICorePluginContext ctx, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(ctx);
@@ -71,13 +77,17 @@ public sealed class HardeningScanPlugin : ICorePlugin, IAsyncDisposable
         new("scan", "Run scans", "Start and stop a scan of the devices (it only reads them)."),
     ];
 
-    /// <summary>The results tool (docs/spec/mcp.md "Plugins"): read only, "show" like the page's state.</summary>
-    public IReadOnlyList<PluginTool> Tools => HardeningTools.All;
+    /// <summary>
+    /// The tools (docs/spec/mcp.md "Plugins"): the results (read only, "show" like the page's state), and the page's Start scan,
+    /// Stop scan and detail with the rights of their page methods.
+    /// </summary>
+    public IReadOnlyList<PluginTool> Tools { get; } = [.. HardeningTools.All, .. HardeningPageTools.Set.Tools];
 
     /// <summary>The tool is named <c>oadm_hardening_results</c>.</summary>
     public string? ToolArea => "hardening";
 
-    public string? RequiredPermission(string method) => method is HardeningMethods.StartScan or HardeningMethods.CancelScan ? "scan" : PermissionKeys.Show;
+    public string? RequiredPermission(string method) =>
+        HardeningPageTools.Set.RulesMethodOf(method) is HardeningMethods.StartScan or HardeningMethods.CancelScan ? "scan" : PermissionKeys.Show;
 
     /// <summary>A user's call: the devices of the user's view; scans are the user's jobs.</summary>
     public async Task<string?> InvokeAsync(ICallContext caller, string method, string? payloadJson, CancellationToken ct)
@@ -91,7 +101,12 @@ public sealed class HardeningScanPlugin : ICorePlugin, IAsyncDisposable
             return HardeningTools.Answer(state, await caller.Devices.ListAsync(ct).ConfigureAwait(false), payloadJson);
         }
 
-        var jobs = _ctx?.Jobs ?? throw new InvalidOperationException("This OADM server cannot run scans.");
+        if (HardeningPageTools.Set.Handles(method))
+        {
+            return await HardeningPageTools.Set.InvokeAsync(this, caller, method, payloadJson, ct).ConfigureAwait(false);
+        }
+
+        var jobs = Jobs;
         return method switch
         {
             HardeningMethods.GetState => HardeningJson.Serialize(await service.GetStateAsync(caller, ct).ConfigureAwait(false)),

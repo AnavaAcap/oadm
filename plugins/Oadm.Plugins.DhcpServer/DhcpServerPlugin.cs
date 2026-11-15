@@ -57,10 +57,23 @@ public sealed class DhcpServerPlugin : ICorePlugin, IAsyncDisposable
     }
 
     /// <summary>Reading the state is for everyone; saving, static leases and release change the server (Admin, audited).</summary>
-    public UserRole RequiredRole(string method) => method == DhcpServerMethods.GetState || DhcpTools.IsTool(method) ? UserRole.Operator : UserRole.Admin;
+    public UserRole RequiredRole(string method)
+    {
+        method = DhcpPageTools.Set.RulesMethodOf(method);
+        return method == DhcpServerMethods.GetState || DhcpTools.IsTool(method) ? UserRole.Operator : UserRole.Admin;
+    }
 
-    /// <summary>The status and the leases (docs/spec/mcp.md "Plugins"), read only, for the caller's devices.</summary>
-    public IReadOnlyList<PluginTool> Tools => DhcpTools.All;
+    /// <summary>The Admin methods and the runs of the lease tools are audited; a preview only reads.</summary>
+    public bool IsAudited(string method) => RequiredRole(method) == UserRole.Admin && !PluginTool.IsPreviewMethod(method);
+
+    /// <summary>
+    /// The tools (docs/spec/mcp.md "Plugins"): the status and the leases (read only, for the caller's devices), and the page's
+    /// lease actions with the rights of their page methods.
+    /// </summary>
+    public IReadOnlyList<PluginTool> Tools { get; } = [.. DhcpTools.All, .. DhcpPageTools.Set.Tools];
+
+    /// <summary>The running service; refuses a call while the plugin is stopped.</summary>
+    internal DhcpServerService RunningService => _service ?? throw new InvalidOperationException("The DHCP server plugin is not running.");
 
     /// <summary>The tools of this plugin are named <c>oadm_dhcp_*</c>.</summary>
     public string? ToolArea => "dhcp";
@@ -72,7 +85,11 @@ public sealed class DhcpServerPlugin : ICorePlugin, IAsyncDisposable
     ];
 
     /// <summary>The DHCP server is server-wide: saving, static leases and release are for users with all devices.</summary>
-    public bool RequiresAllDevices(string method) => method != DhcpServerMethods.GetState && !DhcpTools.IsTool(method);
+    public bool RequiresAllDevices(string method)
+    {
+        method = DhcpPageTools.Set.RulesMethodOf(method);
+        return method != DhcpServerMethods.GetState && !DhcpTools.IsTool(method);
+    }
 
     /// <summary>A user's call: users with a device group read the state with the leases of their devices.</summary>
     public async Task<string?> InvokeAsync(ICallContext caller, string method, string? payloadJson, CancellationToken ct)
@@ -86,6 +103,16 @@ public sealed class DhcpServerPlugin : ICorePlugin, IAsyncDisposable
                 ? service.GetState(full: true)
                 : service.GetState(Serving.DhcpGroupView.From(await caller.Devices.ListAsync(ct).ConfigureAwait(false)));
             return method == DhcpTools.Status.Method ? DhcpTools.StatusOf(state) : DhcpTools.LeasesOf(state, payloadJson);
+        }
+
+        if (DhcpPageTools.Set.Handles(method))
+        {
+            if (!caller.HasAllDevices)
+            {
+                throw new DeviceAccessRefusedException(); // the host refuses it first (RequiresAllDevices)
+            }
+
+            return await DhcpPageTools.Set.InvokeAsync(this, caller, method, payloadJson, ct).ConfigureAwait(false);
         }
 
         if (caller.HasAllDevices)

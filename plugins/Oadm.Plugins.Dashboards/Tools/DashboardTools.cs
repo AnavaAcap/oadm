@@ -10,7 +10,7 @@ namespace Oadm.Plugins.Dashboards.Tools;
 /// <summary>
 /// The tools of Dashboards (docs/spec/mcp.md "Plugins", <see cref="ICorePlugin.Tools"/>): the caller's dashboards, and one
 /// dashboard's widgets with the value each shows now, from the values the server keeps in memory. Nothing is watched and
-/// nothing is pushed: one answer per call. Changing dashboards and pressing buttons stay in the page.
+/// nothing is pushed: one answer per call. The page's actions are <see cref="DashboardPageTools"/>.
 /// </summary>
 internal static class DashboardTools
 {

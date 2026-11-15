@@ -40,11 +40,17 @@ public sealed class LoadTestPlugin : ICorePlugin, IAsyncDisposable
 
     public IReadOnlyList<ITaskPlugin> TaskPlugins => [];
 
-    /// <summary>The read-only tools <c>oadm_load_test_checks</c> and <c>oadm_load_test_check</c> (docs/spec/mcp.md "Plugins"): "show".</summary>
-    public IReadOnlyList<PluginTool> Tools => LoadTestTools.All;
+    /// <summary>
+    /// The tools (docs/spec/mcp.md "Plugins"): the reads <c>oadm_load_test_checks</c> and <c>oadm_load_test_check</c> ("show"),
+    /// and the page's Plan, Start, Cancel and Delete with the rights of their page methods.
+    /// </summary>
+    public IReadOnlyList<PluginTool> Tools { get; } = [.. LoadTestTools.All, .. LoadTestPageTools.Set.Tools];
 
     /// <summary>The running service (tests).</summary>
     internal CheckService? Service => _service;
+
+    /// <summary>The running service; refuses a call while the plugin is stopped.</summary>
+    internal CheckService RunningService => _service ?? throw new InvalidOperationException(NotRunning);
 
     public async Task StartAsync(ICorePluginContext ctx, CancellationToken ct)
     {
@@ -78,13 +84,13 @@ public sealed class LoadTestPlugin : ICorePlugin, IAsyncDisposable
 
     /// <summary>Plan, the runs and their graphs: "show" (Viewer on this Monitoring page); Start, Cancel, Delete: "run".</summary>
     public string? RequiredPermission(string method) =>
-        method is LoadTestMethods.Start or LoadTestMethods.Cancel or LoadTestMethods.DeleteRun ? LoadTestInfo.RunPermission : PermissionKeys.Show;
+        LoadTestPageTools.Set.RulesMethodOf(method) is LoadTestMethods.Start or LoadTestMethods.Cancel or LoadTestMethods.DeleteRun ? LoadTestInfo.RunPermission : PermissionKeys.Show;
 
     /// <summary>
     /// The exposure always goes back (docs/spec/load-test.md): the check a group user starts writes the original value back
     /// with full access, also on a camera that left the group during the check. Nothing else of the check uses it.
     /// </summary>
-    public string? SystemAccessReason(string method) => method is LoadTestMethods.Start
+    public string? SystemAccessReason(string method) => LoadTestPageTools.Set.RulesMethodOf(method) is LoadTestMethods.Start && !PluginTool.IsPreviewMethod(method)
         ? "writes the exposure back on cameras the check changed, also after they left the group; shows no device data"
         : null;
 
@@ -93,6 +99,11 @@ public sealed class LoadTestPlugin : ICorePlugin, IAsyncDisposable
     {
         ArgumentNullException.ThrowIfNull(caller);
         var service = _service ?? throw new InvalidOperationException(NotRunning);
+        if (LoadTestPageTools.Set.Handles(method))
+        {
+            return await LoadTestPageTools.Set.InvokeAsync(this, caller, method, payloadJson, ct).ConfigureAwait(false);
+        }
+
         return method switch
         {
             LoadTestMethods.Plan => LoadTestJson.Serialize(await service.PlanAsync(caller, LoadTestJson.Deserialize<PlanRequest>(payloadJson), ct).ConfigureAwait(false)),

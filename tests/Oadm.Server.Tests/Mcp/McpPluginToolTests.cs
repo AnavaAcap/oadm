@@ -1,6 +1,7 @@
 extern alias actionrules;
 extern alias appmanagement;
 extern alias devicetriggers;
+extern alias liveview;
 
 using System.ComponentModel;
 using System.ComponentModel.DataAnnotations;
@@ -291,6 +292,7 @@ public sealed class McpPluginToolTests
         registry.RegisterCorePlugin(new appmanagement::Oadm.Plugins.AppManagement.AppManagementPlugin(), new PluginOrigin(appmanagement::Oadm.Plugins.AppManagement.AppManagementInfo.PluginId, "1.0.0", null) { DisplayName = "Application management" });
         registry.RegisterCorePlugin(new actionrules::Oadm.Plugins.ActionRules.ActionRulesPlugin(), new PluginOrigin(actionrules::Oadm.Plugins.ActionRules.ActionRulesInfo.PluginId, "1.0.0", null) { DisplayName = "Action Rule Editor" });
         registry.RegisterCorePlugin(new devicetriggers::Oadm.Plugins.DeviceTriggers.DeviceTriggersPlugin(), new PluginOrigin(devicetriggers::Oadm.Plugins.DeviceTriggers.DeviceTriggersPluginInfo.PluginId, "1.0.0", null) { DisplayName = "Device triggers" });
+        registry.RegisterCorePlugin(new liveview::Oadm.Plugins.LiveView.LiveViewPlugin(), new PluginOrigin("oadm.live-view", "1.0.0", null) { DisplayName = "Live View" });
         var deviceConfig = new PluginOrigin(Oadm.Plugins.DeviceConfig.DeviceConfigIds.PackageId, "1.0.0", null) { DisplayName = "Device configuration", AlwaysOn = true };
         registry.RegisterCorePlugin(new Oadm.Plugins.DeviceConfig.Tools.DeviceConfigToolsPlugin(), deviceConfig);
         registry.RegisterTaskPlugin(new Oadm.Plugins.DeviceConfig.Configure.ConfigureDevicesTask(), deviceConfig);
@@ -392,6 +394,7 @@ public sealed class McpPluginToolTests
                 "metadata" => "Metadata Monitor",
                 "load" => "Load test",
                 "snapshot" => "Snapshot report",
+                "live" => "Live View",
                 _ => char.ToUpperInvariant(word[0]) + word[1..],
             };
         }
@@ -402,7 +405,7 @@ public sealed class McpPluginToolTests
             : tool["annotations"]?["readOnlyHint"]?.GetValue<bool>() == true ? "Read" : "Change";
 
         var order = new[] { "Server", "Devices", "Tasks", "Files", "Tags", "Sites", "Compliance", "Vulnerabilities", "Event rules", "Logs", "PKI", "EST server", "802.1X server", "NTP server", "DHCP server", "Hardening scan", "Application management", "Edge storage", "Action Rule Editor", "Device triggers", "VAPIX Commander", "Device configuration",
-            "Edge Recording Export", "Image Health Dashboard", "I/O Monitor", "Metadata Monitor", "Dashboards", "Load test", "Snapshot report" };
+            "Edge Recording Export", "Image Health Dashboard", "I/O Monitor", "Metadata Monitor", "Dashboards", "Load test", "Snapshot report", "Live View" };
         var text = new System.Text.StringBuilder();
         foreach (var line in Intro)
         {
@@ -438,6 +441,17 @@ public sealed class McpPluginToolTests
                      "oadm_edge_storage_cards", "oadm_app_management_applications", "oadm_est_enrollments", "oadm_radius_log",
                      "oadm_device_rules_list", "oadm_device_triggers_list", "oadm_device_triggers_devices",
                      "oadm_config_parameters", "oadm_config_action_rules", "oadm_config_stream_profiles",
+                     // The page actions (decision 2026-11-15): reads and starts as one tool, changes as a preview and a run.
+                     "oadm_hardening_scan_start", "oadm_hardening_scan_stop", "oadm_hardening_detail",
+                     "oadm_image_health_check", "oadm_edge_storage_read", "oadm_app_management_read", "oadm_app_management_log", "oadm_app_management_settings",
+                     "oadm_device_rules_read", "oadm_device_rules_recipient_create_preview", "oadm_device_rules_schedule_delete_run",
+                     "oadm_device_triggers_events_read", "oadm_device_triggers_save_preview", "oadm_device_triggers_delete_run",
+                     "oadm_dashboards_save_preview", "oadm_dashboards_press_preview", "oadm_dashboards_press_run",
+                     "oadm_load_test_plan", "oadm_load_test_start_preview", "oadm_load_test_cancel", "oadm_load_test_check_delete_run",
+                     "oadm_dhcp_static_lease_save_preview", "oadm_dhcp_lease_release_run",
+                     "oadm_est_enrollments_clear_preview", "oadm_radius_sessions", "oadm_radius_log_delete_run",
+                     "oadm_vapix_saved_save_preview", "oadm_vapix_saved_export",
+                     "oadm_live_view_views", "oadm_live_view_view_save_preview", "oadm_live_view_view_delete_run",
                  })
         {
             Assert.Contains(expected, names);

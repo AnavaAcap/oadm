@@ -62,6 +62,9 @@ public sealed partial class VapixCommanderPlugin : ICorePlugin, Oadm.Sdk.Actions
 
     private SavedCommandStore Saved => _saved ?? throw new InvalidOperationException("The VAPIX Commander is not started.");
 
+    /// <summary>The saved commands (the page tools).</summary>
+    internal SavedCommandStore SavedStore => Saved;
+
     public async Task StartAsync(ICorePluginContext ctx, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(ctx);
@@ -86,7 +89,7 @@ public sealed partial class VapixCommanderPlugin : ICorePlugin, Oadm.Sdk.Actions
     public bool IsAudited(string method) => method is CommanderMethods.TryRequest or CommanderMethods.Rollout || CommanderTools.IsRun(method);
 
     /// <summary>The tools for AI agents (docs/spec/mcp.md "Plugins"): the commands they may run and a run as preview and run.</summary>
-    public IReadOnlyList<PluginTool> Tools => CommanderTools.All;
+    public IReadOnlyList<PluginTool> Tools { get; } = [.. CommanderTools.All, .. CommanderPageTools.Set.Tools];
 
     /// <summary>The tools' names start with oadm_vapix_.</summary>
     public string? ToolArea => "vapix";
@@ -99,17 +102,17 @@ public sealed partial class VapixCommanderPlugin : ICorePlugin, Oadm.Sdk.Actions
         new("saved", "Change saved commands", "Save, change, delete and import the saved commands everyone shares."),
     ];
 
-    public string? RequiredPermission(string method) => method switch
+    public string? RequiredPermission(string method) => CommanderPageTools.Set.RulesMethodOf(method) switch
     {
         CommanderMethods.TryRequest => "send",
         CommanderMethods.Rollout => "rollout",
-        _ when CommanderTools.CommandRun.Calls(method) => "rollout",
+        var other when CommanderTools.CommandRun.Calls(other) => "rollout",
         CommanderMethods.Save or CommanderMethods.Delete or CommanderMethods.Import => "saved",
         _ => PermissionKeys.Show,
     };
 
     /// <summary>Changing the saved commands everyone shares is for users with all devices (docs/spec/device-scope.md).</summary>
-    public bool RequiresAllDevices(string method) => method is CommanderMethods.Save or CommanderMethods.Delete or CommanderMethods.Import;
+    public bool RequiresAllDevices(string method) => CommanderPageTools.Set.RulesMethodOf(method) is CommanderMethods.Save or CommanderMethods.Delete or CommanderMethods.Import;
 
     /// <summary>In-process callers and tests without a user: the context's own devices.</summary>
     public Task<string?> InvokeAsync(string method, string? payloadJson, CancellationToken ct) => InvokeCoreAsync(null, method, payloadJson, ct);
@@ -124,6 +127,13 @@ public sealed partial class VapixCommanderPlugin : ICorePlugin, Oadm.Sdk.Actions
     private async Task<string?> InvokeCoreAsync(ICallContext? caller, string method, string? payloadJson, CancellationToken ct)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(method);
+        if (CommanderPageTools.Set.Handles(method))
+        {
+            return caller is null
+                ? throw new InvalidOperationException("The tools of the VAPIX Commander need a caller.")
+                : await CommanderPageTools.Set.InvokeAsync(this, caller, method, payloadJson, ct).ConfigureAwait(false);
+        }
+
         if (CommanderTools.IsToolMethod(method))
         {
             // A tool always runs with a caller: its devices, tasks and rights are the user's (fail closed without one).
@@ -209,14 +219,14 @@ public sealed partial class VapixCommanderPlugin : ICorePlugin, Oadm.Sdk.Actions
         }
     }
 
-    private async Task<OkReply> DeleteAsync(DeleteCommandRequest request, CancellationToken ct)
+    internal async Task<OkReply> DeleteAsync(DeleteCommandRequest request, CancellationToken ct)
     {
         var deleted = await Saved.DeleteAsync(request.Id, ct).ConfigureAwait(false);
         await RefreshSavedSnapshotAsync(ct).ConfigureAwait(false);
         return deleted ? new OkReply { Ok = true } : new OkReply { Error = "The saved command no longer exists." };
     }
 
-    private async Task<ImportReply> ImportAsync(ImportRequest request, CancellationToken ct)
+    internal async Task<ImportReply> ImportAsync(ImportRequest request, CancellationToken ct)
     {
         var reply = await Saved.ImportAsync(request.Json, request.Owner, ct).ConfigureAwait(false);
         await RefreshSavedSnapshotAsync(ct).ConfigureAwait(false);

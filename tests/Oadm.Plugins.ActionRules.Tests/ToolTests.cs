@@ -38,7 +38,8 @@ public sealed class ToolTests
         await plugin.StartAsync(new FakeContext(devices, cameras, new RecordingRunner(), new RecordingEvents(), null), CancellationToken.None);
         ICorePlugin core = plugin;
         Assert.Equal("device_rules", core.ToolArea);
-        Assert.Equal("list", Assert.Single(core.Tools).Name);
+        Assert.Equal("list", core.Tools[0].Name); // then the page's actions (PageToolTests)
+        Assert.Equal(ActionRulePageTools.Set.Tools.Count + 1, core.Tools.Count);
         Assert.Equal(PermissionKeys.Show, core.RequiredPermission(ActionRuleTools.Rules.Method));
         Assert.False(core.IsAudited(ActionRuleTools.Rules.Method));
 

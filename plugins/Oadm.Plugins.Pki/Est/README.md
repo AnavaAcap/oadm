@@ -113,3 +113,7 @@ unknown counts as on) keep their network access certificate, or with `replaceDot
 if the RADIUS server does not trust its CA; the clock note. Remove: per profile what the cameras lose, the dialog's own
 sentences (`EstTaskIds.RemoveEffect`). The permission stays `enroll` (Set up certificate enrollment, off for Operators).
 Tests: `TaskTests` (the agent input).
+The page's Delete all as `oadm_est_enrollments_clear_preview` / `_run` (`Tools/EstPageTools.cs`, `PluginPageTools`, decision
+2026-11-15): the rights of `clearEnrollments` (Administrator, "manage", users with all devices, the run audited, the preview
+not); the preview counts the entries and deletes nothing, an empty list is refused ("The enrollments list is empty.").
+Tests: `PageToolTests`.

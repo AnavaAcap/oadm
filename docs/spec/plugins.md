@@ -656,7 +656,13 @@ box back with the error below the list (`PluginsViewModel.SwitchAsync`).
   the input and hands the plugin `device_ids` (the caller's view, by address, at most `PluginTool.MaxDevices` = 500) and
   `devices_total` (`PluginToolDevices.Of`); `PluginTool.TaskPlugin`: listed only for a role with a permission of that
   task of the same package (another package's task: never listed), the plugin checks it again for page calls. Nothing
-  names MCP: the same tools serve any channel. Bundled: PKI (`certificates`, `policies`, `certificate_create`), NTP server
+  names MCP: the same tools serve any channel. `PluginPageTools<TOwner>` (decision 2026-11-15: agents do on the plugin
+  pages what a user can) wraps declared page methods, never any method: `Read` (one tool: a read, or a start the page does
+  without asking) and `Change` (the preview calls the page's validation and never writes, the run validates again and calls
+  the page's code with the caller); typed strict input (`PluginToolInput<TArgs>`: the arguments checked against their
+  validation attributes, `Devices`, `Page`), field errors by `PluginToolInputException`, `RulesMethodOf(method)` gives a
+  tool method the role, permission, device group and audit rules of its page method; a plan derives from `PluginToolPlan`
+  (`will_change`, `unit`) so the Assistant's card counts it ("1 reader"). Bundled: PKI (`certificates`, `policies`, `certificate_create`), NTP server
   (`status`), DHCP server (`status`, `leases`), Hardening scan (`results`), Device configuration (`parameters`,
   `action_rules`, `stream_profiles`).
 - **Protected tags** (`ICorePluginContext.ProtectedTags`, `Oadm.Sdk.Devices.IProtectedTags.Protect(names, refusal)`;

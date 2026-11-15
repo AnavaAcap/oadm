@@ -86,6 +86,10 @@ public sealed partial class OcrPlugin : ICorePlugin, IDynamicEventSource, IActio
     /// <summary>The reader of <paramref name="id"/>, whoever owns it; null when there is none.</summary>
     internal Reader? FindReader(string? id) => _store?.Find(id);
 
+    /// <summary>The context, store and runtime while the plugin runs (the page tools); refuses while it is stopped.</summary>
+    internal (ICorePluginContext Context, ReaderStore Store, ReaderRuntime Runtime) Running =>
+        _ctx is { } ctx && _store is { } store && _runtime is { } runtime ? (ctx, store, runtime) : throw new InvalidOperationException(ReaderRules.NotRunning);
+
     /// <summary>Reads one picture of <paramref name="reader"/> now and publishes the event of every area (<see cref="ReaderRuntime.ReadOnceAsync"/>).</summary>
     internal Task<ReaderReading> ReadOnceAsync(Reader reader, CancellationToken ct) =>
         (_runtime ?? throw new InvalidOperationException(ReaderRules.NotRunning)).ReadOnceAsync(reader, ct);
@@ -165,18 +169,18 @@ public sealed partial class OcrPlugin : ICorePlugin, IDynamicEventSource, IActio
     public UserRole RequiredRole(string method) => UserRole.Operator;
 
     /// <summary>A save counts the watching readers per site over every reader's camera (a limit of the site), showing no device data.</summary>
-    public string? SystemAccessReason(string method) => method is OcrMethods.SaveReader
+    public string? SystemAccessReason(string method) => OcrPageTools.Set.RulesMethodOf(method) is OcrMethods.SaveReader
         ? "counts the watching readers per site (a limit of the site node), shows no device data"
         : null;
 
     /// <summary>"Use GPU" is server-wide: only users with all devices (the host refuses the others first).</summary>
-    public bool RequiresAllDevices(string method) => method is OcrMethods.SetUseGpu;
+    public bool RequiresAllDevices(string method) => OcrPageTools.Set.RulesMethodOf(method) is OcrMethods.SetUseGpu;
 
-    public bool IsAudited(string method) => method is OcrMethods.SaveReader or OcrMethods.DeleteReader or OcrMethods.ReadNow or OcrMethods.SetUseGpu;
+    public bool IsAudited(string method) => !PluginTool.IsPreviewMethod(method) && OcrPageTools.Set.RulesMethodOf(method) is OcrMethods.SaveReader or OcrMethods.DeleteReader or OcrMethods.ReadNow or OcrMethods.SetUseGpu;
 
     /// <summary>The page reads only (Viewer on); changing readers is a right of its own.</summary>
     /// <summary>The read tools (docs/spec/mcp.md "Plugins"): the readers and the recent texts of one, "show" like the page.</summary>
-    public IReadOnlyList<PluginTool> Tools => OcrTools.All;
+    public IReadOnlyList<PluginTool> Tools { get; } = [.. OcrTools.All, .. OcrPageTools.Set.Tools];
 
     public IReadOnlyList<PermissionDefinition> Permissions { get; } =
     [
@@ -186,7 +190,7 @@ public sealed partial class OcrPlugin : ICorePlugin, IDynamicEventSource, IActio
 
     /// <summary>New, Delete, Save, Read now and Use GPU: "change"; the rest (the page's preview too): "show".</summary>
     public string? RequiredPermission(string method) =>
-        method is OcrMethods.SaveReader or OcrMethods.DeleteReader or OcrMethods.ReadNow or OcrMethods.SetUseGpu ? OcrInfo.ChangePermission : PermissionKeys.Show;
+        OcrPageTools.Set.RulesMethodOf(method) is OcrMethods.SaveReader or OcrMethods.DeleteReader or OcrMethods.ReadNow or OcrMethods.SetUseGpu ? OcrInfo.ChangePermission : PermissionKeys.Show;
 
     /// <summary>In-process calls without a user (the host itself, tests): as a user with all devices.</summary>
     public Task<string?> InvokeAsync(string method, string? payloadJson, CancellationToken ct) =>

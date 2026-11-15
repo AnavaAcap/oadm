@@ -36,14 +36,17 @@ public sealed class LiveViewPlugin : ICorePlugin, IDisposable
         new(LiveViewPluginInfo.ManageKey, "Change views", "Create, change and delete the saved views of the Live View page."),
     ];
 
-    public string? RequiredPermission(string method) => method switch
+    /// <summary>The tools (docs/spec/mcp.md "Plugins"): the saved views and the page's Save and Delete; live video stays in the client.</summary>
+    public IReadOnlyList<PluginTool> Tools => LiveViewTools.Set.Tools;
+
+    public string? RequiredPermission(string method) => LiveViewTools.Set.RulesMethodOf(method) switch
     {
         "list" => PermissionKeys.Show,
         "save" or "delete" => LiveViewPluginInfo.ManageKey,
         _ => null,
     };
 
-    public bool IsAudited(string method) => method is "save" or "delete";
+    public bool IsAudited(string method) => LiveViewTools.Set.RulesMethodOf(method) is "save" or "delete" && !PluginTool.IsPreviewMethod(method);
 
     public Task StartAsync(ICorePluginContext ctx, CancellationToken ct)
     {
@@ -66,6 +69,11 @@ public sealed class LiveViewPlugin : ICorePlugin, IDisposable
     public async Task<string?> InvokeAsync(ICallContext caller, string method, string? payloadJson, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(caller);
+        if (LiveViewTools.Set.Handles(method))
+        {
+            return await LiveViewTools.Set.InvokeAsync(this, caller, method, payloadJson, ct).ConfigureAwait(false);
+        }
+
         switch (method)
         {
             case "list":
@@ -123,7 +131,10 @@ public sealed class LiveViewPlugin : ICorePlugin, IDisposable
     /// devices; a change keeps the owner (a view of another group answers like a deleted one). Every camera must be in the
     /// owner's devices (else NOT_FOUND, nothing stored); names are unique among the owner's views.
     /// </summary>
-    internal async Task<SavedView> SaveAsync(ICallContext caller, SaveViewRequest request, CancellationToken ct)
+    internal Task<SavedView> SaveAsync(ICallContext caller, SaveViewRequest request, CancellationToken ct) => SaveAsync(caller, request, store: true, ct);
+
+    /// <summary>The checks of a save; <paramref name="store"/> false answers the view it would store and writes nothing (a tool's preview).</summary>
+    internal async Task<SavedView> SaveAsync(ICallContext caller, SaveViewRequest request, bool store, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(caller);
         ArgumentNullException.ThrowIfNull(request);
@@ -191,7 +202,11 @@ public sealed class LiveViewPlugin : ICorePlugin, IDisposable
                 next.Add(saved);
             }
 
-            await StoreAsync(next, owner, ct).ConfigureAwait(false);
+            if (store)
+            {
+                await StoreAsync(next, owner, ct).ConfigureAwait(false);
+            }
+
             return dropped == 0 ? saved : saved with { Dropped = dropped };
         }
         finally

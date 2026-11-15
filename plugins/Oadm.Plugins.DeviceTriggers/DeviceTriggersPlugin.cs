@@ -97,15 +97,31 @@ public sealed partial class DeviceTriggersPlugin : ICorePlugin, IDynamicEventSou
 
     private ILogger Logger => _ctx?.Logger ?? NullLogger.Instance;
 
-    public UserRole RequiredRole(string method) => DeviceTriggersMethods.IsAdminMethod(method) ? UserRole.Admin : UserRole.Operator;
+    /// <summary>A tool of the page (<see cref="TriggerPageTools"/>) has the role of the page method it wraps.</summary>
+    public UserRole RequiredRole(string method) => DeviceTriggersMethods.IsAdminMethod(TriggerPageTools.Set.RulesMethodOf(method)) ? UserRole.Admin : UserRole.Operator;
+
+    /// <summary>The Admin methods are audited, a tool's preview never (it writes nothing).</summary>
+    public bool IsAudited(string method) => !PluginTool.IsPreviewMethod(method) && RequiredRole(method) == UserRole.Admin;
 
     /// <summary>Saving and turning on count the devices every trigger watches together (one limit for the server).</summary>
-    public string? SystemAccessReason(string method) => method is DeviceTriggersMethods.Save or DeviceTriggersMethods.SetEnabled
+    public string? SystemAccessReason(string method) => TriggerPageTools.Set.RulesMethodOf(method) is DeviceTriggersMethods.Save or DeviceTriggersMethods.SetEnabled
         ? "counts the devices all triggers watch together (a limit of the server), shows no device data"
         : null;
 
-    /// <summary>The read tools (docs/spec/mcp.md "Plugins"): the page's list and one trigger's devices, "show" like the page.</summary>
-    public IReadOnlyList<PluginTool> Tools => TriggerTools.All;
+    /// <summary>
+    /// The tools (docs/spec/mcp.md "Plugins"): the page's list and one trigger's devices ("show"), and the page's actions with
+    /// the rights of their page methods: read the devices' events, save, turn on or off, copy and delete a trigger.
+    /// </summary>
+    public IReadOnlyList<PluginTool> Tools { get; } = [.. TriggerTools.All, .. TriggerPageTools.Set.Tools];
+
+    /// <summary>The running context; refuses a call while the plugin is stopped.</summary>
+    internal ICorePluginContext Context => _ctx ?? throw new InvalidOperationException(NotRunning);
+
+    /// <summary>The triggers the caller sees (the page's rule).</summary>
+    internal TriggerDefinition? VisibleTrigger(ICallContext caller, Guid id) => Visible(caller).FirstOrDefault(t => t.Id == id);
+
+    /// <summary>The progress of a read of the caller's devices' events; null for an unknown read or another user's.</summary>
+    internal ReadStatusReply? ReadOf(ICallContext caller, string readId) => _reads?.StatusOf(caller, readId);
 
     /// <summary>Changing triggers is one right ("manage", the Admin methods); seeing them is "show".</summary>
     public IReadOnlyList<PermissionDefinition> Permissions { get; } =
@@ -207,6 +223,11 @@ public sealed partial class DeviceTriggersPlugin : ICorePlugin, IDynamicEventSou
             return TriggerTools.TriggersAnswerOf([.. Visible(caller).Select(Summary)], payloadJson);
         }
 
+        if (TriggerPageTools.Set.Handles(method))
+        {
+            return await TriggerPageTools.Set.InvokeAsync(this, caller, method, payloadJson, ct).ConfigureAwait(false);
+        }
+
         if (method == TriggerTools.Devices.Method)
         {
             if (TriggerTools.TriggerIdOf(payloadJson, out var errors) is not { } triggerId)
@@ -263,13 +284,7 @@ public sealed partial class DeviceTriggersPlugin : ICorePlugin, IDynamicEventSou
             case DeviceTriggersMethods.SetEnabled:
             {
                 var request = TriggerJson.Deserialize<SetEnabledRequest>(payloadJson);
-                var target = Visible(caller).FirstOrDefault(t => t.Id == request.Id);
-                if (request.Enabled && target is { Enabled: false } turningOn
-                    && await WatchedCountAsync([.. Triggers.Where(t => t.Enabled), turningOn], ct).ConfigureAwait(false) > _options.MaxWatchedDevices)
-                {
-                    throw new ArgumentException(DeviceTriggersPluginInfo.TooManyDevicesText);
-                }
-
+                var target = await CheckSetEnabledAsync(caller, request, ct).ConfigureAwait(false);
                 await ChangeAsync(ctx, list =>
                 {
                     var i = target is null ? -1 : list.FindIndex(t => t.Id == request.Id);
@@ -419,9 +434,44 @@ public sealed partial class DeviceTriggersPlugin : ICorePlugin, IDynamicEventSou
     /// </summary>
     private async Task<SaveReply> SaveAsync(ICorePluginContext ctx, ICallContext caller, TriggerDefinition? incoming, CancellationToken ct)
     {
+        var (refusal, trigger, left) = await PrepareSaveAsync(ctx, caller, incoming, ct).ConfigureAwait(false);
+        if (refusal is not null)
+        {
+            return refusal;
+        }
+
+        if (trigger.Id == Guid.Empty)
+        {
+            trigger = trigger with { Id = Guid.NewGuid() };
+        }
+
+        var saved = trigger;
+        await ChangeAsync(ctx, list =>
+        {
+            var i = list.FindIndex(t => t.Id == saved.Id);
+            if (i < 0)
+            {
+                list.Add(saved);
+            }
+            else
+            {
+                list[i] = saved;
+            }
+
+            return true;
+        }, typesChanged: true, saved.Owner, ct).ConfigureAwait(false);
+        return new SaveReply(saved, null, null) { Dropped = left };
+    }
+
+    /// <summary>
+    /// Every check of a save, nothing stored (the page's save and the preview of the save tool): the refusal, else the
+    /// trigger as it will be stored (a new one still without an id) and how many devices the save leaves out.
+    /// </summary>
+    internal async Task<(SaveReply? Refusal, TriggerDefinition Trigger, int Dropped)> PrepareSaveAsync(ICorePluginContext ctx, ICallContext caller, TriggerDefinition? incoming, CancellationToken ct)
+    {
         if (incoming is null)
         {
-            return new SaveReply(null, "The trigger is empty.", null);
+            return (new SaveReply(null, "The trigger is empty.", null), new TriggerDefinition(), 0);
         }
 
         var stored = incoming.Id == Guid.Empty ? null : Visible(caller).FirstOrDefault(t => t.Id == incoming.Id);
@@ -476,36 +526,16 @@ public sealed partial class DeviceTriggersPlugin : ICorePlugin, IDynamicEventSou
 
         if (errors.Count > 0)
         {
-            return new SaveReply(null, null, errors);
+            return (new SaveReply(null, null, errors), trigger, left.Count);
         }
 
         var isNew = trigger.Id == Guid.Empty || others.Count == Triggers.Count;
         if (isNew && Triggers.Count >= DeviceTriggersPluginInfo.MaxTriggers)
         {
-            return new SaveReply(null, $"At most {DeviceTriggersPluginInfo.MaxTriggers} triggers.", null);
+            return (new SaveReply(null, $"At most {DeviceTriggersPluginInfo.MaxTriggers} triggers.", null), trigger, left.Count);
         }
 
-        if (trigger.Id == Guid.Empty)
-        {
-            trigger = trigger with { Id = Guid.NewGuid() };
-        }
-
-        var saved = trigger;
-        await ChangeAsync(ctx, list =>
-        {
-            var i = list.FindIndex(t => t.Id == saved.Id);
-            if (i < 0)
-            {
-                list.Add(saved);
-            }
-            else
-            {
-                list[i] = saved;
-            }
-
-            return true;
-        }, typesChanged: true, saved.Owner, ct).ConfigureAwait(false);
-        return new SaveReply(saved, null, null) { Dropped = left.Count };
+        return (null, trigger, left.Count);
     }
 
     /// <summary>
@@ -514,15 +544,10 @@ public sealed partial class DeviceTriggersPlugin : ICorePlugin, IDynamicEventSou
     /// </summary>
     private async Task<SaveReply> DuplicateAsync(ICorePluginContext ctx, ICallContext caller, Guid id, CancellationToken ct)
     {
-        var source = Visible(caller).FirstOrDefault(t => t.Id == id);
+        var (source, refusal) = CheckDuplicate(caller, id);
         if (source is null)
         {
-            return new SaveReply(null, "The trigger no longer exists.", null);
-        }
-
-        if (Triggers.Count >= DeviceTriggersPluginInfo.MaxTriggers)
-        {
-            return new SaveReply(null, $"At most {DeviceTriggersPluginInfo.MaxTriggers} triggers.", null);
+            return new SaveReply(null, refusal, null);
         }
 
         var owner = OwnerScope.ForSave(ctx, caller, null, isNew: true);
@@ -535,8 +560,7 @@ public sealed partial class DeviceTriggersPlugin : ICorePlugin, IDynamicEventSou
             source = source with { DeviceIds = kept };
         }
 
-        var names = Triggers.Where(t => OwnerScope.Of(t.Owner) == owner).Select(t => t.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
-        var name = CopyName(source.Name, names);
+        var name = CopyNameFor(ctx, caller, source);
         var copy = source with { Id = Guid.NewGuid(), Name = name, Enabled = false, Owner = owner == ICallContext.AllDevicesScopeKey ? null : owner };
         await ChangeAsync(ctx, list =>
         {
@@ -545,6 +569,43 @@ public sealed partial class DeviceTriggersPlugin : ICorePlugin, IDynamicEventSou
         }, typesChanged: true, copy.Owner, ct).ConfigureAwait(false);
         return new SaveReply(copy, null, null) { Dropped = dropped };
     }
+
+    /// <summary>
+    /// The check of turning a trigger on or off (the page's and the tool's): the trigger the caller sees (null: unknown, the
+    /// page changes nothing); turning on refuses a trigger that would take the watched devices over the limit.
+    /// </summary>
+    internal async Task<TriggerDefinition?> CheckSetEnabledAsync(ICallContext caller, SetEnabledRequest request, CancellationToken ct)
+    {
+        var target = Visible(caller).FirstOrDefault(t => t.Id == request.Id);
+        if (request.Enabled && target is { Enabled: false } turningOn
+            && await WatchedCountAsync([.. Triggers.Where(t => t.Enabled), turningOn], ct).ConfigureAwait(false) > _options.MaxWatchedDevices)
+        {
+            throw new ArgumentException(DeviceTriggersPluginInfo.TooManyDevicesText);
+        }
+
+        return target;
+    }
+
+    /// <summary>The checks of a copy (the page's and the copy tool's): the trigger to copy, else the refusal.</summary>
+    internal (TriggerDefinition? Source, string? Refusal) CheckDuplicate(ICallContext caller, Guid id)
+    {
+        var source = Visible(caller).FirstOrDefault(t => t.Id == id);
+        if (source is null)
+        {
+            return (null, NoLongerExists);
+        }
+
+        return Triggers.Count >= DeviceTriggersPluginInfo.MaxTriggers ? (null, $"At most {DeviceTriggersPluginInfo.MaxTriggers} triggers.") : (source, null);
+    }
+
+    /// <summary>The name a copy of <paramref name="source"/> gets for the caller (the copy belongs to the caller's devices).</summary>
+    internal string CopyNameFor(ICorePluginContext ctx, ICallContext caller, TriggerDefinition source)
+    {
+        var owner = OwnerScope.ForSave(ctx, caller, null, isNew: true);
+        return CopyName(source.Name, Triggers.Where(t => OwnerScope.Of(t.Owner) == owner).Select(t => t.Name).ToHashSet(StringComparer.OrdinalIgnoreCase));
+    }
+
+    internal const string NoLongerExists = "The trigger no longer exists.";
 
     /// <summary>"&lt;name&gt; (copy)", "(copy 2)", ... within the name limit.</summary>
     internal static string CopyName(string name, IReadOnlySet<string> taken)

@@ -44,7 +44,7 @@ public sealed class ToolTests : IAsyncLifetime
     public async Task The_applications_are_summed_up_per_application_and_paged_per_device_without_a_read()
     {
         ICorePlugin core = _plugin;
-        Assert.Equal("applications", Assert.Single(core.Tools).Name);
+        Assert.Equal(["applications", "read", "log", "settings"], core.Tools.Select(t => t.Name));
         Assert.Equal(AppManagementInfo.ViewPermission, core.RequiredPermission(AppTools.Applications.Method));
         Assert.Equal(UserRole.Operator, core.RequiredRole(AppTools.Applications.Method));
         var devices = Enumerable.Range(1, 3).Select(i => _ctx.Add(Samples.ManagedDevice($"10.0.0.{i}"), Samples.Camera(Vmd, Lpv))).ToList();

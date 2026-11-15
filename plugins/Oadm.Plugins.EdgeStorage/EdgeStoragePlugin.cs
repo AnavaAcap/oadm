@@ -62,20 +62,24 @@ public sealed partial class EdgeStoragePlugin : ICorePlugin, IAsyncDisposable
         },
     ];
 
-    /// <summary>The SD card tool (docs/spec/mcp.md "Plugins"): the table the page read last, "show" like the page; it reads no camera.</summary>
-    public IReadOnlyList<PluginTool> Tools => StorageTools.All;
+    /// <summary>
+    /// The tools (docs/spec/mcp.md "Plugins"): the SD card table the page read last ("show" like the page; it reads no camera)
+    /// and the page's Read (<c>oadm_edge_storage_read</c>) with the rights of its page method.
+    /// </summary>
+    public IReadOnlyList<PluginTool> Tools { get; } = [.. StorageTools.All, .. StoragePageTools.Set.Tools];
 
-    public string? RequiredPermission(string method) => method switch
+    public string? RequiredPermission(string method) => StoragePageTools.Set.RulesMethodOf(method) switch
     {
         EdgeStorageMethods.Read or EdgeStorageMethods.GetState => PermissionKeys.Show,
-        _ when method == StorageTools.Cards.Method => PermissionKeys.Show,
+        var other when other == StorageTools.Cards.Method => PermissionKeys.Show,
         EdgeStorageMethods.Change => EdgeStorageMethods.ManagePermission,
         EdgeStorageMethods.Format => EdgeStorageMethods.FormatPermission,
         _ => null,
     };
 
     /// <summary>Every run is in the audit log (the method: change or format).</summary>
-    public bool IsAudited(string method) => method is EdgeStorageMethods.Change or EdgeStorageMethods.Format;
+    public bool IsAudited(string method) =>
+        !PluginTool.IsPreviewMethod(method) && StoragePageTools.Set.RulesMethodOf(method) is EdgeStorageMethods.Change or EdgeStorageMethods.Format;
 
     /// <summary>The table of all devices while the plugin runs (tests).</summary>
     internal DeviceSweep<StorageRow>? Sweep => _sweeps?.For(ICallContext.AllDevicesScopeKey);
@@ -113,18 +117,16 @@ public sealed partial class EdgeStoragePlugin : ICorePlugin, IAsyncDisposable
     public async Task<string?> InvokeAsync(ICallContext caller, string method, string? payloadJson, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(caller);
-        var sweeps = _sweeps ?? throw new InvalidOperationException(NotRunning);
+        _ = _sweeps ?? throw new InvalidOperationException(NotRunning);
+        if (StoragePageTools.Set.Handles(method))
+        {
+            return await StoragePageTools.Set.InvokeAsync(this, caller, method, payloadJson, ct).ConfigureAwait(false);
+        }
+
         switch (method)
         {
             case EdgeStorageMethods.Read:
-                var ids = ReadIds(payloadJson);
-                if (ids is not null)
-                {
-                    ids = await CallDevices.KnownAsync(caller, ids, ct).ConfigureAwait(false);
-                }
-
-                sweeps.For(caller)?.Start(ids);
-                return EdgeStorageJson.Serialize(await StateAsync(caller, ct).ConfigureAwait(false));
+                return EdgeStorageJson.Serialize(await StartReadAsync(caller, ReadIds(payloadJson), ct).ConfigureAwait(false));
             case var _ when method == StorageTools.Cards.Method:
                 return StorageTools.Answer(await StateAsync(caller, ct).ConfigureAwait(false), payloadJson); // what the page read last, no camera
             case EdgeStorageMethods.GetState:
@@ -137,6 +139,18 @@ public sealed partial class EdgeStoragePlugin : ICorePlugin, IAsyncDisposable
     }
 
     public async ValueTask DisposeAsync() => await StopAsync(CancellationToken.None).ConfigureAwait(false);
+
+    /// <summary>
+    /// The page's Read: starts reading <paramref name="ids"/> (null: every camera of the caller) in the caller's table; a group
+    /// user's ids must all be in the view, a user with all devices reads the ones that still exist. The state at once.
+    /// </summary>
+    internal async Task<StorageState> StartReadAsync(ICallContext caller, IEnumerable<Guid>? ids, CancellationToken ct)
+    {
+        var sweeps = _sweeps ?? throw new InvalidOperationException(NotRunning);
+        HashSet<Guid>? known = ids is null ? null : await CallDevices.KnownAsync(caller, ids, ct).ConfigureAwait(false);
+        sweeps.For(caller)?.Start(known);
+        return await StateAsync(caller, ct).ConfigureAwait(false);
+    }
 
     /// <summary>Reads one camera's card again (after a task on it), in every table that has a row of it.</summary>
     internal async Task RefreshRowAsync(Guid deviceId)

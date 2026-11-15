@@ -47,7 +47,8 @@ have the fact, and say why.
 | How OADM works | `oadm_docs_search` |
 
 A plugin tool is listed only while its plugin is on. A page tool that answers nothing read yet (applications, SD cards,
-action rules) means the page has not read the devices: tell the user to open the page and choose the devices.
+action rules, image health) means the page has not read the devices: start the read with the page's read tool
+(`oadm_app_management_read`, `oadm_edge_storage_read`, `oadm_device_rules_read`, `oadm_image_health_check`), then ask again.
 
 ## The device filter
 
@@ -102,7 +103,10 @@ What the pages show (read only, while their plugin is on): SD cards `oadm_edge_s
 `oadm_recordings_search`, image health `oadm_image_health_results`, inputs and outputs `oadm_io_ports`, open event
 streams `oadm_metadata_streams`, dashboards `oadm_dashboards_list` and `oadm_dashboards_values`, load tests
 `oadm_load_test_checks` and `oadm_load_test_check`, snapshot tiles `oadm_snapshot_report_sources`, recipients of the event
-rules `oadm_recipients_list`. An empty answer with a note means the page has read nothing yet: ask the user to use it.
+rules `oadm_recipients_list`.
+
+The plugin pages' own actions are tools too: a read or a check runs at once, every other change (save, delete, press a
+dashboard button, start a load test) is a preview and a run like any change. They have the rights of the page.
 
 ## Rules
 

@@ -65,7 +65,7 @@ internal static class LoadTestTools
     private static string? Time(DateTimeOffset? time) =>
         time?.UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", CultureInfo.InvariantCulture);
 
-    private static SummaryAnswer SummaryOf(RunSummary s) => new(
+    internal static SummaryAnswer SummaryOf(RunSummary s) => new(
         s.RunId.ToString(),
         Time(s.StartedUtc)!,
         Time(s.EndedUtc),

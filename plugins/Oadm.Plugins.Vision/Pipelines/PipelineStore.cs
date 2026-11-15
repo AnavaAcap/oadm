@@ -83,13 +83,33 @@ internal sealed partial class PipelineStore(IPluginRecords records, ILogger logg
     /// <see cref="PipelineFieldException"/> and nothing is stored. <paramref name="deviceOf"/> finds any managed camera (system
     /// view) for the count of watching pipelines per site; it shows the caller no device data.
     /// </summary>
-    public async Task<(Pipeline Saved, Pipeline? Before)> SaveAsync(
+    public Task<(Pipeline Saved, Pipeline? Before)> SaveAsync(
         ICorePluginContext ctx,
         ICallContext caller,
         Pipeline incoming,
         int maxWatching,
         Func<Pipeline, GraphCheck> check,
         Func<Guid, CancellationToken, Task<IDeviceInfo?>> deviceOf,
+        CancellationToken ct) => SaveAsync(ctx, caller, incoming, maxWatching, check, deviceOf, onlyCheck: false, ct);
+
+    /// <summary>Every check of a save without storing anything (a tool's preview): the pipeline as it would be stored (a new one without its id) and the one it replaces.</summary>
+    public Task<(Pipeline Saved, Pipeline? Before)> CheckSaveAsync(
+        ICorePluginContext ctx,
+        ICallContext caller,
+        Pipeline incoming,
+        int maxWatching,
+        Func<Pipeline, GraphCheck> check,
+        Func<Guid, CancellationToken, Task<IDeviceInfo?>> deviceOf,
+        CancellationToken ct) => SaveAsync(ctx, caller, incoming, maxWatching, check, deviceOf, onlyCheck: true, ct);
+
+    private async Task<(Pipeline Saved, Pipeline? Before)> SaveAsync(
+        ICorePluginContext ctx,
+        ICallContext caller,
+        Pipeline incoming,
+        int maxWatching,
+        Func<Pipeline, GraphCheck> check,
+        Func<Guid, CancellationToken, Task<IDeviceInfo?>> deviceOf,
+        bool onlyCheck,
         CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(incoming);
@@ -165,6 +185,11 @@ internal sealed partial class PipelineStore(IPluginRecords records, ILogger logg
                         throw new PipelineFieldException(PipelineFields.Mode, PipelineRules.TooManyWatchingAtSite(camera.SiteName));
                     }
                 }
+            }
+
+            if (onlyCheck)
+            {
+                return (pipeline with { OwnerScopeKey = owner == ICallContext.AllDevicesScopeKey ? null : owner }, before);
             }
 
             var saved = pipeline with
