@@ -333,6 +333,36 @@ public sealed partial class AssistantFileItem(AssistantFile file) : AssistantIte
 }
 
 /// <summary>
+/// A secret a run made (a new access key, docs/spec/mcp.md "Access keys"): a card with its title and Copy. Copy fetches the
+/// secret once (<c>AssistantService.Download</c>) straight to the clipboard; it is never shown, kept or sent into the chat.
+/// </summary>
+public sealed partial class AssistantSecretItem(AssistantSecretCard card) : AssistantItem
+{
+    public string Title { get; } = card?.Title ?? string.Empty;
+
+    public string FileRef { get; } = card?.FileRef ?? string.Empty;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasStatus))]
+    public partial string StatusText { get; internal set; } = string.Empty;
+
+    public bool HasStatus => StatusText.Length > 0;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CanCopy))]
+    public partial bool IsCopying { get; internal set; }
+
+    /// <summary>Copied once: OADM cannot hand it out again.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CanCopy))]
+    public partial bool IsCopied { get; internal set; }
+
+    [ObservableProperty] public partial bool HasFailed { get; internal set; }
+
+    public bool CanCopy => !IsCopying && !IsCopied;
+}
+
+/// <summary>
 /// A change the model prepared (docs/spec/assistant.md rule 2): title, device count, the first devices, the skipped ones and
 /// the warnings; only the user's Run runs it. After Run the card follows its tasks in the client's task mirror
 /// (<see cref="TaskStore"/>) and links to the tasks pane.
