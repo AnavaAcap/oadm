@@ -100,6 +100,9 @@ Every tool with what it does: [Tools of AI agents](./tools/).
 - Add and remove tags, read sites and compliance results, and create, change or delete event rules.
 - Read PKI certificates and create one, and read the NTP server, DHCP server and Hardening scan pages. Other plugins can
   bring their own tools, shown only while the plugin is on.
+- Run commands of the [VAPIX Commander](../vapix-commander/) library and saved commands on many devices, for settings
+  no task covers (image, video, I/O, PTZ, storage and more). Not offered: dangerous commands, commands with a password or
+  a file, and changes OADM's own tasks make. A value that looks like a password in an answer shows as `***`.
 - Upload files, such as a firmware file, without the file passing through the agent.
 
 Every change has two steps. The agent asks OADM for a **preview** that checks everything and writes nothing. It answers

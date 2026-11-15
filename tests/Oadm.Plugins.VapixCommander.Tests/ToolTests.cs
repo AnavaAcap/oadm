@@ -206,6 +206,74 @@ public sealed class ToolTests
     }
 
     [Fact]
+    public async Task A_value_that_makes_the_request_one_of_an_OADM_task_is_refused_as_it_is_sent()
+    {
+        var (ctx, plugin) = await StartAsync();
+        var device = ctx.Add(new SdkTesting.FakeDevice { Apis = [new DeviceApi("mqtt-client", "1.0")] });
+        var admin = ctx.CallAsAllDevices();
+
+        // A saved command whose path is a field: harmless as saved, the agent's value would make it a change of NTP.
+        var anyCgi = plugin.Library.Find("events.mqtt.client.activate")!.Clone();
+        anyCgi.Id = "custom.anycgi";
+        anyCgi.Request.Path = "/axis-cgi/{{cgi}}.cgi";
+        anyCgi.Fields = [new CommandField { Name = "cgi", Label = "CGI", Type = FieldTypes.String, Default = JsonSerializer.SerializeToElement("mqtt/client") }];
+        var saved = CommandJson.Read<SaveCommandReply>(await ctx.InvokeAsync(plugin, admin, CommanderMethods.Save, JsonSerializer.Serialize(new SaveCommandRequest { Command = anyCgi }, CommandJson.Api)));
+        Assert.Null(saved.Error);
+
+        var refused = JsonNode.Parse((await ctx.InvokeAsync(plugin, admin, CommanderTools.CommandRun.PreviewMethod,
+            $$"""{"command":"saved:custom.anycgi","device_ids":["{{device.Id}}"],"values":[{"field":"cgi","value":"ntp"}]}"""))!)!;
+        Assert.Equal("values", refused["errors"]![0]!["field"]!.GetValue<string>());
+        Assert.Equal(CommanderTools.HasOwnTask, refused["errors"]![0]!["error"]!.GetValue<string>());
+
+        var plan = JsonNode.Parse((await ctx.InvokeAsync(plugin, admin, CommanderTools.CommandRun.PreviewMethod,
+            $$"""{"command":"saved:custom.anycgi","device_ids":["{{device.Id}}"]}"""))!)!;
+        Assert.Null(plan["errors"]); // the saved default stays allowed
+        Assert.Empty(ctx.TaskRuns);
+    }
+
+    [Fact]
+    public async Task A_change_of_the_time_settings_through_param_cgi_is_left_to_OADMs_tasks()
+    {
+        var (ctx, plugin) = await StartAsync();
+        var device = ctx.Add(new SdkTesting.FakeDevice { Apis = ParamApi });
+        var admin = ctx.CallAsAllDevices();
+        var ntp = plugin.Library.Find("image.brightness.set")!.Clone();
+        ntp.Id = "custom.ntpserver";
+        ntp.Request.Query = new Dictionary<string, string> { ["action"] = "update", ["Time.NTP.Server"] = "{{value}}" };
+        ntp.Fields = [new CommandField { Name = "value", Label = "Server", Type = FieldTypes.String, Default = JsonSerializer.SerializeToElement("10.0.0.1") }];
+        Assert.Null(CommandJson.Read<SaveCommandReply>(await ctx.InvokeAsync(plugin, admin, CommanderMethods.Save,
+            JsonSerializer.Serialize(new SaveCommandRequest { Command = ntp }, CommandJson.Api))).Error);
+
+        Assert.DoesNotContain((await AllCommandsAsync(ctx, plugin, admin)).Select(r => r["id"]!.GetValue<string>()), id => id == "saved:custom.ntpserver");
+        var refused = JsonNode.Parse((await ctx.InvokeAsync(plugin, admin, CommanderTools.CommandRun.PreviewMethod,
+            $$"""{"command":"saved:custom.ntpserver","device_ids":["{{device.Id}}"]}"""))!)!;
+        Assert.Equal(CommanderTools.HasOwnTask, refused["errors"]![0]!["error"]!.GetValue<string>());
+    }
+
+    [Fact]
+    public async Task A_run_of_an_agent_masks_secret_values_and_runs_the_definition_it_checked()
+    {
+        var (ctx, plugin) = await StartAsync();
+        var device = ctx.Add(new SdkTesting.FakeDevice { Apis = ParamApi });
+
+        await ctx.InvokeAsync(plugin, ctx.CallAsAllDevices(), CommanderTools.CommandRun.RunMethod, $$"""{"command":"library:network.snmp.get","device_ids":["{{device.Id}}"]}""");
+
+        using var payload = JsonDocument.Parse(Assert.Single(ctx.TaskRuns).PayloadJson!);
+        Assert.True(payload.RootElement.GetProperty("maskSecrets").GetBoolean());
+        Assert.Equal("network.snmp.get", payload.RootElement.GetProperty("commands")[0].GetProperty("command").GetProperty("id").GetString());
+
+        var outcome = new CommandOutcome
+        {
+            Success = true,
+            Summary = "SNMP.V1ReadCommunity = s3cret, SNMP.Enabled = yes",
+            Values = [new NamedValue("SNMP.V1ReadCommunity", "s3cret"), new NamedValue("SNMP.Enabled", "yes")],
+        };
+        Assert.Equal("SNMP.V1ReadCommunity = ***, SNMP.Enabled = yes", SecretValues.Mask(outcome.Summary, outcome));
+        Assert.True(SecretValues.IsSecretName("MQTT.Password"));
+        Assert.False(SecretValues.IsSecretName("ImageSource.I0.Sensor.Brightness"));
+    }
+
+    [Fact]
     public void The_tools_need_the_rollout_right_and_are_named_vapix()
     {
         var plugin = new VapixCommanderPlugin(LibraryDirectory);

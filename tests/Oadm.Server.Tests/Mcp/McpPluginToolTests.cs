@@ -399,7 +399,7 @@ public sealed class McpPluginToolTests
             foreach (var tool in group.OrderBy(t => t["name"]!.GetValue<string>(), StringComparer.Ordinal))
             {
                 var name = tool["name"]!.GetValue<string>();
-                var description = (tool["description"]?.GetValue<string>() ?? string.Empty).ReplaceLineEndings(" ").Replace("|", "\\|", StringComparison.Ordinal);
+                var description = (tool["description"]?.GetValue<string>() ?? string.Empty).ReplaceLineEndings(" ").Replace("|", "\\|", StringComparison.Ordinal).Replace("{", "&#123;", StringComparison.Ordinal).Replace("<", "&lt;", StringComparison.Ordinal); // MDX reads { and < as code
                 text.Append("| `").Append(name).Append("` | ").Append(Kind(name, tool)).Append(" | ").Append(description).Append(" |").Append(NewLine);
             }
         }

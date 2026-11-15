@@ -494,6 +494,7 @@ public sealed partial class VapixCommanderPlugin : ICorePlugin, Oadm.Sdk.Actions
             StopOnFirstError = request.StopOnFirstError,
             Confirmed = request.Confirmed,
             ConfirmedDangerous = request.Confirmed && request.ConfirmedDangerous,
+            MaskSecrets = request.MaskSecrets,
         };
         var problems = new List<string>();
         var writes = new List<string>();

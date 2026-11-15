@@ -93,15 +93,15 @@ public sealed class McpAccess(AuthTokenStore tokens, RoleStore roles, DeviceView
     /// <summary>The answer to a change with a Read only key.</summary>
     public const string ReadOnlyKey = "This access key is Read only.";
 
+    /// <summary>The client machine of an agent's calls before its key name: a task's owner reads "admin@AI agent Laptop".</summary>
+    public const string AgentMachinePrefix = "AI agent ";
+
     /// <summary>
     /// The tool caller of <paramref name="key"/> (its user with the role and devices of now, client machine "AI agent &lt;key name&gt;",
     /// task owner "&lt;user&gt;@AI agent &lt;key name&gt;", bound to the key's hash and its user); null when the key is missing, unknown,
     /// ended, its user is disabled (audited) or the key or its user is over its calls a second (then <see cref="McpSignIn.Throttled"/>).
     /// The call is counted as soon as the key validates, before the role and the device view are read.
     /// </summary>
-    /// <summary>The client machine of an agent's calls before its key name: a task's owner reads "admin@AI agent Laptop".</summary>
-    public const string AgentMachinePrefix = "AI agent ";
-
     public async Task<McpSignIn> SignInAsync(string? key, string clientAddress, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(clientAddress);

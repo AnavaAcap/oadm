@@ -95,14 +95,64 @@ internal static class CommanderTools
             return IsDangerous;
         }
 
-        var path = RequestSafety.Target(command.Request.Path).Path;
-        if (!path.StartsWith('/'))
+        if (level == SafetyLevel.Read)
         {
-            path = "/" + path;
+            return null;
         }
 
-        return level != SafetyLevel.Read && OwnTaskPaths.Contains(path) ? HasOwnTask : null;
+        var names = (command.Request.Query?.Keys ?? Enumerable.Empty<string>())
+            .Concat(command.Request.Body is System.Text.Json.Nodes.JsonValue body && body.TryGetValue<string>(out var text) ? PairNames(text) : []);
+        return IsOwnTask(command.Request.Path, names) ? HasOwnTask : null;
     }
+
+    /// <summary>
+    /// Why an agent may not send the filled-in request (a value can change the path or the parameters); null when it may. The
+    /// request decides as it is sent, as for the page: dangerous, or a change of what OADM's own tasks change.
+    /// </summary>
+    internal static string? Refusal(CommandDefinition command, RenderedRequest rendered)
+    {
+        var level = RequestSafety.Of(command, rendered);
+        if (level == SafetyLevel.Dangerous)
+        {
+            return IsDangerous;
+        }
+
+        if (level == SafetyLevel.Read)
+        {
+            return null;
+        }
+
+        var target = RequestSafety.Target("/" + rendered.RelativeUri);
+        var names = PairNames(target.Query)
+            .Concat(rendered.Form?.Select(p => p.Key) ?? [])
+            .Concat(rendered.Body is { } body ? PairNames(body) : []);
+        return IsOwnTask(target.Path, names) ? HasOwnTask : null;
+    }
+
+    /// <summary>A change of a path OADM's own tasks change, or of their parameters through param.cgi (Time.*: Date and time, NTP).</summary>
+    private static bool IsOwnTask(string path, IEnumerable<string> names)
+    {
+        var normal = RequestSafety.Target(path.StartsWith('/') ? path : "/" + path).Path;
+        if (!normal.StartsWith('/'))
+        {
+            normal = "/" + normal;
+        }
+
+        if (OwnTaskPaths.Contains(normal))
+        {
+            return true;
+        }
+
+        return normal.EndsWith("/param.cgi", StringComparison.Ordinal)
+            && names.Any(n => n.StartsWith("Time.", StringComparison.OrdinalIgnoreCase) || n.StartsWith("root.Time.", StringComparison.OrdinalIgnoreCase));
+    }
+
+    /// <summary>The names of a query or a form-like text ("a=1&amp;b=2"), decoded.</summary>
+    private static IEnumerable<string> PairNames(string text) =>
+        text.Split(['&', ';', '\n', '\r'], StringSplitOptions.RemoveEmptyEntries)
+            .Select(p => p.Split('=', 2)[0].Trim())
+            .Where(n => n.Length > 0)
+            .Select(n => Uri.UnescapeDataString(n.Replace('+', ' ')));
 
     // ---- invoke ----
 
@@ -164,9 +214,9 @@ internal static class CommanderTools
             return PluginToolErrors.Answer(errors);
         }
 
-        if (RequestSafety.Of(command, rendered) == SafetyLevel.Dangerous)
+        if (Refusal(command, rendered) is { } sent)
         {
-            errors.Add(new("values", IsDangerous)); // the filled-in request decides, as for the page
+            errors.Add(new("values", sent)); // the filled-in request decides, as for the page
             return PluginToolErrors.Answer(errors);
         }
 
@@ -207,12 +257,15 @@ internal static class CommanderTools
             throw new InvalidOperationException("No chosen device can run this command. Nothing was started.");
         }
 
-        // The user agreed to the preview: that is the confirmation the page asks for; a dangerous command never gets here.
+        // The user agreed to the preview: that is the confirmation the page asks for; a dangerous command never gets here. The
+        // rollout gets the definition checked here (never a fresh read of a saved command that may have changed meanwhile), and
+        // masks secret values in what the agent reads.
         var reply = await plugin.RolloutAsync(new RolloutRequest
         {
             DeviceIds = [.. plan.Run.Select(d => d.Id)],
-            Commands = [new RolloutCommand { Command = reference, Values = values }],
+            Commands = [new RolloutCommand { Command = new CommandRef { Source = CommandSources.Inline, Command = command }, Values = values }],
             Confirmed = true,
+            MaskSecrets = true,
         }, caller, ct).ConfigureAwait(false);
         if (reply.Error is { Length: > 0 } error)
         {
