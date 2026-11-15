@@ -1,5 +1,7 @@
 using Grpc.Core;
 
+using Oadm.Core.Auth;
+
 using Oadm.Core.Security;
 using Oadm.Server.Tests.Support;
 
@@ -150,6 +152,9 @@ public sealed class AddDevicesServiceTests
         Assert.Equal(Proto.DeviceStatus.PasswordNotSet, devices["10.9.0.3"].Status);
         Assert.False(devices["10.9.0.3"].HasCredentials);
         Assert.Equal(Proto.DeviceStatus.Ok, devices["10.9.0.1"].Status); // per-device override won over the default
+        var added = Assert.Single((await host.Audit.ListAsync(new Proto.ListAuditRequest())).Entries, e => e.Action == AuditActions.DevicesAdded);
+        Assert.Equal(TestServerHost.AdminUserName, added.UserName); // who added the devices, from the add page
+        Assert.Contains("10.9.0.1", added.Target, StringComparison.Ordinal);
 
         // Second commit with the same serials adds nothing; discovery now reports them as managed.
         var again = await host.AddDevices.CommitAsync(new Proto.CommitRequest { SessionId = session, DiscoveredIds = { FakeSerials.Make(1) } });

@@ -617,6 +617,9 @@ public sealed class McpDeviceChangeTests
         Assert.Equal(("root", Password), (stored!.UserName, stored.Password));
         Assert.DoesNotContain(Password, run.ToJsonString(), StringComparison.Ordinal);
         Assert.DoesNotContain("other-password", run.ToJsonString(), StringComparison.Ordinal);
+        var entries = (await server.Host.Audit.ListAsync(new Proto.ListAuditRequest())).Entries;
+        Assert.Contains(entries, e => e.Action == AuditActions.DevicesAdded && e.Target == "10.9.0.1" && e.Detail == "1 device"
+            && e.UserName == Oadm.Core.Auth.AccessKeyStore.AgentNameOf("agent"));
         Assert.True((await server.CallToolAsync(key, "oadm_devices_add_run", new JsonObject { ["handle"] = handle }))["isError"]!.GetValue<bool>());
     }
 

@@ -187,7 +187,8 @@ the credential that worked (server memory); `Commit` stores that credential for 
 (explicit `credentials` in the request win). Passwords never leave the server once
 stored; RetryAuth credentials travel only client -> server and are kept in server memory (or the
 credential list when asked). Adding devices is not a task; the first full refresh is queued in the
-background. The add's one login with the stored credential (`DeviceAdder.VerifyAsync`, basicdeviceinfo or its parameters)
+background. `Commit` audits "Added devices" (target up to 5 addresses and "+N more", detail the count; the add page, an
+import and an AI agent's add over MCP alike, as "Removed devices" is). The add's one login with the stored credential (`DeviceAdder.VerifyAsync`, basicdeviceinfo or its parameters)
 also stores model, AXIS OS version, ProdType, category, Soc and Architecture at once, so a device that tells nothing anonymously
 (401 with the realm only) is never Unknown, and offered live video, while the refresh waits.
 

@@ -231,6 +231,11 @@ public sealed partial class AddDevicesGrpcService(
                 actions.QueueRefresh(refresh);
             }
 
+            // Who added which devices (the add page, an import, an agent's add over MCP): like "Removed devices".
+            var addresses = selected.Where(s => added.ContainsKey(s.DiscoveredId)).Select(s => s.ConnectAddress).ToList();
+            var target = string.Join(", ", addresses.Take(5)) + (addresses.Count > 5 ? $" +{addresses.Count - 5} more" : string.Empty);
+            await audit.WriteAsync(AuditActions.DevicesAdded, target, addresses.Count == 1 ? "1 device" : $"{addresses.Count} devices", ct).ConfigureAwait(false);
+
             var caller = AuthInterceptor.CallerOf(context);
             await MembershipAudit.AddedAsync(views, audit, caller.AuditUserName ?? caller.UserName, caller.ClientAddress, ids, string.Empty, ct, logger).ConfigureAwait(false);
         }
