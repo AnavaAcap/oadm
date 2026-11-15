@@ -186,8 +186,13 @@ nothing is selected.
   `isError` with one entry per field (`{"field": "ip", "error": "Enter an IPv4 address."}`, the dialog's texts).
 - `oadm_task_run(handle)`: the run; re-checks the permissions and the role's `RequiredPermissions`; answers the batch id
   and the task count. Each task still re-checks its device (`Require`, HARD RULE device safety).
-- `oadm_tasks_list(batch, status, cursor)`, `oadm_tasks_get(task_id)` (steps and per-task log), `oadm_tasks_cancel`
-  (preview/run). Waiting for tasks: the agent polls `oadm_tasks_list(batch)`, which answers counts per state first.
+- `oadm_tasks_list(batch, device_id, status, plugin, owner, text, since, cursor)`, `oadm_tasks_get(task_id)` (steps and
+  per-task log), `oadm_tasks_cancel` (preview/run). Waiting for tasks: the agent polls `oadm_tasks_list(batch)`, which
+  answers counts per state first.
+- `oadm_tasks_summary(filters, group_by)`: the task history OADM keeps (the caller's devices, the list's filters) summed
+  up: counts per state, the oldest task, and at most 50 groups by result message (default), state, task name, plugin,
+  owner, device or day, the largest first, each with its failed count, device count, newest time and an example task id;
+  the rest as `other`. "Which tasks failed and why" is one call with `status: ["Failed"]`.
 
 ### Other areas
 
@@ -198,12 +203,38 @@ delete, the event log), logs (server log search with `since`, `level`, `text`, a
 the PKI plugin), the user docs (`oadm_docs_search(query)`: at most 5 pages of oadm.app with title, address and the best
 passage, from the index the server is built with, `Assistant/DocsIndex`; no gRPC method, so every caller has it).
 
+`oadm_server_status` (read only, every signed-in caller): what the Plugins page, the License card and the page MCP &
+Assistant show every user, through the reads `LicenseService.GetLicense`, `PluginService.ListPackages`, `McpService.Get`,
+`AssistantService.GetSettings` and `VulnerabilityService.Get`: OADM PRO (status, plan, device limit, end, trial), the
+plugins (on by default, `all` or `none`) with version, group, PRO and license state, MCP on and running, the assistant on
+with its provider and the picture setting, the date, count and source of the list of Axis vulnerabilities. Never the
+server ID, a customer, a license key, an API key or a certificate. The tools name no MCP type: the host passes the read of
+`McpService.Get` as a function.
+
+**OADM's data first.** OADM already holds most facts (the polled device data, the task history, the logs, the last
+reads of its pages). The tools answer from it; a tool that asks the devices (a VAPIX command, a snapshot) is the last
+resort, and the skill says so. A page tool answers what its page read last, never a read of its own.
+
 ### Plugins
 
 Core plugins and task plugins bring their tools through the SDK; the host prefixes them `oadm_<plugin area>_` and lists
 them only while the plugin is on and the role has its permission. Bundled plugins get tools for their pages (e.g. PKI
 certificate list and Create certificate, NTP and DHCP status and leases, Hardening scan results, VAPIX Commander commands
 and their run). A task plugin without a payload schema is not offered over MCP (fail closed).
+
+The page reads of the bundled plugins (read only, the page's own rights and device group rules, nothing read from a device):
+
+- `oadm_edge_storage_cards(state, used_above)` (Edge storage, "show"): the SD card table the page read last for the
+  caller's device scope, with the five counts of the page's cards; rows by device id.
+- `oadm_app_management_applications(application, status)` (Application management, "View applications"): the rows the
+  Applications page read last in the caller's login session (an MCP key has its own session, so nothing until a page
+  read; the assistant has the user's), of the devices the caller sees now: per application its device count, running
+  count, versions (at most 10) and license problems (at most 30 applications), then one row per device and application.
+- `oadm_est_enrollments(result, text)` (EST server, Operator): its state, the certificates it issued, how many cameras did
+  not renew in time, and the enrollments of the caller's devices, newest first. While the server is off: its state only.
+- `oadm_radius_log(result, text)` (802.1X server, Operator): its state and its log of the caller's devices, newest first
+  (switch, port, MAC, device, result, reason, VLAN, the serial of the device's certificate). Never a shared secret or a
+  certificate. While the server is off: its state only.
 
 **VAPIX Commander** (`oadm_vapix_commands`, `oadm_vapix_command_preview` / `_run`, `CommanderTools`): only library and saved
 commands by id (`library:<id>`, `saved:<id>`), never a request of the agent's own. Not offered: a dangerous command
@@ -219,8 +250,8 @@ names a secret (community, password, key, token, ...), never a yes/no value.
 ### Not over MCP
 
 Live video, Live View tabs, Dashboards live values, Metadata Monitor and I/O Monitor streams, Web View; users, roles,
-device groups, access keys, license, plugins on/off, Forget server; Settings changes; backup restore, Delete all tasks,
-Delete all devices. Backups stay GUI only: no tool creates, downloads or restores one (decision 2026-11-15).
+device groups, access keys, license changes, plugins on/off, Forget server; Settings changes; backup restore, Delete all
+tasks, Delete all devices (reading the license and plugin state is `oadm_server_status`). Backups stay GUI only: no tool creates, downloads or restores one (decision 2026-11-15).
 
 ## Files
 
@@ -251,7 +282,9 @@ New default interface members (SDK minor version up, `docs/spec/plugins.md`):
 
 ## Skill
 
-One skill `oadm` (`SKILL.md` plus a few workflow files: AXIS OS rollout, network change, certificates, health check),
+One skill `oadm` (`SKILL.md` with a table of which tool answers which question from OADM's own data, plus workflow files:
+AXIS OS rollout, network change, certificates, health check, troubleshoot one device, vulnerabilities, failed tasks,
+event rules, applications, SD cards, sites; every tool name in them is a tool the server offers, `McpPluginToolTests`),
 kept in `src/Oadm.Server/Mcp/Skill/`, served over MCP (skills extension `io.modelcontextprotocol/skills` and resource
 `oadm://skill/SKILL.md`) and as **Download skill** on the Settings card. It says: call `oadm_server_info` first; start
 with summaries, narrow with filters; always preview, show the plan and the skipped reasons to the user, then run; never
