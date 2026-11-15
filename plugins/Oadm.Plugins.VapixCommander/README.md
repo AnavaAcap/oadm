@@ -214,7 +214,9 @@ run (paged by id, with their fields); `oadm_vapix_command_preview` / `_run` runs
 `oadm_devices_search`. Left out: dangerous commands, commands with a password or a file field, and changes OADM's own tasks
 make (`CommanderTools.OwnTaskPaths`: time, NTP, applications, AXIS OS, restart, users, network). Values come as
 `{field, value}` text pairs, converted by the field's type and checked by `CommandRenderer`. The run calls `RolloutAsync`
-with `Confirmed` (the user's OK of the preview), never `ConfirmedDangerous`; it needs `rollout` and is audited. Tests:
+with `Confirmed` (the user's OK of the preview), never `ConfirmedDangerous`, and `MaskSecrets`: the steps, the log and
+the answer show `***` for a value whose label, parameter or path names a secret (`SecretValues`, never a yes/no value);
+it needs `rollout` and is audited. Tests:
 `ToolTests`.
 
 ## Tests

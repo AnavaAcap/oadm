@@ -633,7 +633,7 @@ box back with the error below the list (`PluginsViewModel.SwitchAsync`).
   (`docs/spec/recipient-sessions.md` "Security"); `IServerCertificates` by PKI (SDK 0.13.0): the certificate with its key and
   issuers that a server policy picks for a server the host runs (`HostServers.Mcp`, the MCP server of the policy MCP server,
   docs/spec/mcp.md), or why there is none, and `Changed`; only the host reads it, and only while that server is on (like a
-  PKI server's Turn on, the first load gives a policy without a certificate the shared server certificate). Test fake: `FakePluginServices` (`FakeCoreContext.FakeServices`).
+  PKI server's Turn on, the first load of the MCP server policy without a certificate makes the MCP Server Certificate). Test fake: `FakePluginServices` (`FakeCoreContext.FakeServices`).
 - **Tasks for MCP** (SDK 0.13.0, `docs/spec/mcp.md` "SDK"): `ITaskPlugin.PayloadType` (the payload record; the host's
   `TaskPayloadSchemas` exports its JSON Schema with `PayloadJsonOptions`, default `PluginJson.CreateOptions()`;
   `[Description]`, `[MaxLength]`, `[MinLength]`, `[Length]`, `[StringLength]`, `[Range]`; texts, numbers and lists without a

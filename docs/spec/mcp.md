@@ -30,7 +30,8 @@ host change.
 4. **No secrets.** No tool takes or returns a password, private key, license key, access key or token. Stored
    credentials are used by name; a task that needs a new password is not offered over MCP ("Set the password in OADM.").
 5. **Least rights.** The tool list shows only what the key may do now (its role and device group, plugins on); a role like
-   Viewer gives a look-only agent. An agent can never raise rights: users, roles, device groups, access keys, license, plugins on/off, server
+   Viewer gives a look-only agent; a role that may run no task (no `task:` right) lists no task or file tool and is refused
+   "Your role may run no task." (`TaskRunTools.NoTaskRight`). An agent can never raise rights: users, roles, device groups, access keys, license, plugins on/off, server
    settings, backups (create, download, restore) and data resets are GUI only.
 6. **Device data is data.** Texts written by devices or other users (names, locations, tags, event texts, log lines) are
    returned only as JSON field values, never inside tool descriptions or messages to the agent, and the skill says they are
@@ -65,13 +66,15 @@ preview/run handles and caller rules.
   port (default **TCP 5082**), Kestrel in the server process, official C# SDK `ModelContextProtocol.AspNetCore` 2.x
   (`WithHttpTransport` stateless, `MapMcp`). No stdio, no SSE GET stream, no sampling, no MCP logging (deprecated).
 - **Off by default.** Settings card **AI**, section **MCP** (GUI only; a later section Assistant may follow below it): Turn
-  on, Port, Listen on (interfaces, like the EST server), the certificate, **Connect an agent** (see below), **Download
+  on, Port, Listen on (the interfaces that are up with an address other than IPv6 link-local, and the loopback;
+  `McpListener.Interfaces`), the certificate, **Connect an agent** (see below), **Download
   skill**, **Access keys** (administrators). Off: the port is closed.
 - **Certificate**: picked from the PKI Certificates list by the PKI server policy **MCP server**, like the EST and 802.1X
   servers (`docs/spec/pki.md` "Server certificates": a certificate with its key, server authentication, not ended, not on
   the not-accepted list; the policy refuses a certificate that does not name the server's addresses or host name). Its own
   certificate, never the shared "802.1X and EST server" (decision 2026-11-15): the first Turn on, while the policy has none,
-  makes "MCP Server Certificate" (this computer's addresses and host name, the CA of the shared one, ECC P-256, server
+  makes "MCP Server Certificate" (this computer's addresses and host name, plus `localhost`, `127.0.0.1` and `::1` for an
+  agent on the server's computer, `PkiService.LoopbackNames`; the CA of the shared one, ECC P-256, server
   authentication), also without OADM PRO; the policy's Certificate field changes it afterwards. PKI never makes or assigns
   one for this policy at a start or a license change. The agent's computer trusts its CA once (**Download CA certificate** on the card; Claude Code: `NODE_EXTRA_CA_CERTS`, else
   the OS store). Without PKI running, the card says "PKI is not running. The server log says why." and MCP cannot be turned on.
@@ -202,7 +205,9 @@ changes what OADM's own tasks change (date and time, NTP, applications, AXIS OS,
 Every command, a read too, goes preview then run. The preview checks the values (the page's renderer) and plans the chosen
 devices from cached data (an id outside the caller's view refuses the call; Certificate changed, Site offline and a missing
 API skip a device); the run is the page's rollout, one task per device, with the user's OK of the preview as the
-confirmation, and needs the plugin's "Run on many devices" right. At most 1,000 devices a run.
+confirmation, and needs the plugin's "Run on many devices" right. At most 1,000 devices a run. An agent's run masks secret
+values as `***` in its steps and log (`RolloutPayload.MaskSecrets`, `SecretValues`): a value whose label, parameter or path
+names a secret (community, password, key, token, ...), never a yes/no value.
 
 ### Not over MCP
 
@@ -249,7 +254,8 @@ workflows.
 ## Connect an agent
 
 The card's **Connect an agent** has one compact row per client with this server's address, never a key (the command and
-files read it from `OADM_KEY` or ask for it):
+files read it from `OADM_KEY` or ask for it). The address is the certificate's first name that is not `localhost` or a
+loopback address (`AgentConnections.HostOf`):
 
 - **Claude Code**: the one-line command and Copy:
   `claude mcp add --transport http oadm https://oadm.example:5082/mcp --header "Authorization: Bearer ${OADM_KEY}"`.

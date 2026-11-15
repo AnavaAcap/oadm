@@ -27,7 +27,8 @@ The MCP server is part of the OADM server. It is off until an administrator turn
 </Steps>
 
 Agents connect over HTTPS. The certificate comes from the **MCP server** policy of the [PKI](../pki/) page, and the
-first **Turn on** makes its own certificate, **MCP Server Certificate**. You can choose another one in that policy. When
+first **Turn on** makes its own certificate, **MCP Server Certificate**. It also names `localhost`, for an agent on the
+server's own computer. You can choose another one in that policy. When
 PKI is not running, the card says "PKI is not running. The server log says why." On Windows the installed server opens
 the port in the firewall while the MCP server is on. On Linux and macOS open it yourself if a firewall runs.
 

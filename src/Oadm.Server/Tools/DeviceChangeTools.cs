@@ -207,7 +207,7 @@ internal static class DeviceChangeTools
             [StartRangePath, ProbePath, WatchPath, StopScanPath, EndPath, WaitingListPath, CommitPath, WaitingAddPath, WaitingTryPath],
             call => AddPreviewAsync(call, handles, time))
         {
-            ActsOutside = true, // it sends packets to the network: not a read, hidden from Read only callers, counted as a change
+            ActsOutside = true, // it sends packets to the network: not announced as a read, counted as a change
         };
 
         yield return new OadmTool(

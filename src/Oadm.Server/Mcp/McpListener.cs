@@ -18,7 +18,7 @@ public sealed record McpStatus(McpSettings Settings, bool Running, string Text, 
 
 /// <summary>
 /// Opens and closes the MCP server's port (docs/spec/mcp.md "Transport and certificate"): while the setting is on, PKI runs and
-/// its policy MCP server picks a usable certificate (the first Turn on gives the policy the shared server certificate), the
+/// its policy MCP server picks a usable certificate (the first Turn on makes the MCP Server Certificate for it), the
 /// server listens on the port and interface; otherwise the port is closed and the status says why. It follows the setting (Save on the card), PKI's certificate (a change of the policy or the
 /// Certificates list), PKI being turned on or off and, every 30 s, whatever it could not open before (a port in use, an
 /// interface that is gone). The Windows service keeps a firewall rule for the port only while it listens.

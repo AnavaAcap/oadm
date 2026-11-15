@@ -61,7 +61,7 @@ internal sealed record OadmTool(
 
     /// <summary>
     /// The call reaches devices or the network although it writes nothing to OADM (a scan that logs in with the credential
-    /// list): a Read only caller does not get it, and a channel counts it like a change.
+    /// list): it is never announced as a plain read, and a channel counts it like a change.
     /// </summary>
     public bool ActsOutside { get; init; }
 
