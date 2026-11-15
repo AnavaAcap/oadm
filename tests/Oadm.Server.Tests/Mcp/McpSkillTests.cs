@@ -42,6 +42,7 @@ public sealed partial class McpSkillTests
         "oadm_recordings_search", "oadm_image_health_results", "oadm_io_ports", "oadm_metadata_streams",
         "oadm_dashboards_list", "oadm_dashboards_values", "oadm_load_test_checks", "oadm_load_test_check", "oadm_snapshot_report_sources",
         "oadm_recipients_list",
+        "oadm_app_management_read", "oadm_app_management_log", "oadm_app_management_settings", "oadm_edge_storage_read", "oadm_device_rules_read", "oadm_image_health_check",
     ];
 
     private static readonly string[] Workflows =
