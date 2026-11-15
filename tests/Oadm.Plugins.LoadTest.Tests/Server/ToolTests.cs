@@ -20,8 +20,8 @@ public sealed class ToolTests
         }
 
         ICorePlugin core = rig.Plugin;
-        Assert.Equal(["checks", "check"], core.Tools.Select(t => t.Name)); // never a name ending in _run, which the host reads as the run of a change
-        Assert.All(core.Tools, t => Assert.Equal(PermissionKeys.Show, core.RequiredPermission(t.Method)));
+        Assert.Equal(["checks", "check"], LoadTestTools.All.Select(t => t.Name)); // never a name ending in _run, which the host reads as the run of a change
+        Assert.All(LoadTestTools.All, t => Assert.Equal(PermissionKeys.Show, core.RequiredPermission(t.Method)));
         Assert.Empty(Answer(await rig.Ctx.InvokeAsync(rig.Plugin, rig.Admin, LoadTestTools.Checks.Method, null))["runs"]!.AsArray());
 
         var started = await rig.StartCheckAsync(cameras, batchSize: 5);
@@ -95,8 +95,8 @@ public sealed class ToolTests
         var requests = rig.Ctx.Cameras.Values.Sum(c => c.Requests.Count);
 
         ICorePlugin core = rig.Plugin;
-        Assert.All(core.Tools, t => Assert.False(t.Changes)); // no change tool here: every tool is a read
-        foreach (var tool in core.Tools)
+        Assert.All(LoadTestTools.All, t => Assert.False(t.Changes)); // the reads; Plan, Cancel and the changes: PageToolTests
+        foreach (var tool in core.Tools.Where(t => !t.Changes))
         {
             Assert.NotNull(await rig.Ctx.InvokeAsync(rig.Plugin, rig.Admin, tool.Method, $$"""{"run_id":"{{started.RunId}}"}"""));
             Assert.NotNull(await rig.Ctx.InvokeAsync(rig.Plugin, rig.Admin, tool.Method, $$"""{"run_id":"{{started.RunId}}","limit":1}"""));

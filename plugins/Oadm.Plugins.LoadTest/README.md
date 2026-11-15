@@ -99,7 +99,18 @@ plan's read of the video sources still runs detached from the call (`Detached`),
 `Tools/LoadTestTools` (`ICorePlugin.Tools`, area `load_test`, docs/spec/mcp.md): the read-only tools
 `oadm_load_test_checks` (the kept checks of the caller's scope with verdict, peak rate, worst loss, headroom, progress) and
 `oadm_load_test_check` (one check: the summary, the ramp steps on the first page, then its streams worst first with their
-result, loss, rate, jitter and first problem, paged). Right "show"; Start, Cancel and Delete stay in the page.
+result, loss, rate, jitter and first problem, paged). Right "show".
+
+`Tools/LoadTestPageTools` (`PluginPageTools`, decision 2026-11-15): the page's actions with the rights of their page
+methods, through `CheckService` with the caller. `oadm_load_test_plan` (`plan`, "show", the host's device filter or
+`all_devices`, batch size and minutes per step with the page's texts; reads the cameras' sources like the page),
+`oadm_load_test_start_preview` / `_run` (`start`, "run": the preview is the plan, its refusal (more than 1,000 streams), the
+one-check-at-a-time refusal (`RefuseStartWhileRunning`, the page's texts) and the exposure warning of the page's
+confirmation; the run is the page's Start with every safety of the check, `SystemAccessReason` only for the run),
+`oadm_load_test_cancel` (`cancel`, "run", like the page without asking: the exposure goes back, the measured part is kept)
+and `oadm_load_test_check_delete_preview` / `_run` (`deleteRun`, "run", destructive; a running check: "Cancel the check
+first."; another group's check answers like a deleted one). Plans derive from `PluginToolPlan` (camera streams, check).
+Tests: `Server/PageToolTests`.
 
 ## Tests
 
