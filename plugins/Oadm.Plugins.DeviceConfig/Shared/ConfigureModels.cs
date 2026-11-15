@@ -294,8 +294,9 @@ public sealed record ConfigurePayload
     public IReadOnlyList<ConfigActionRule>? ActionRules { get; init; }
 
     /// <summary>
-    /// The payload came in the agent's form (<see cref="Settings"/>, <see cref="ActionRules"/>): it has no secret value, and the
-    /// task never writes a password parameter of it (TODO(secret-handle): a secret handle of branch feat/agent-transfer).
+    /// The payload came in the agent's form (<see cref="Settings"/>, <see cref="ActionRules"/>): its secret values are the ones
+    /// the person entered through the secret channel (<see cref="SecretsOf"/>, docs/spec/mcp.md "Secrets"); the task never
+    /// writes a device password parameter of it whose name is no secret name (that value would be the agent's own).
     /// </summary>
     [JsonIgnore]
     public bool FromAgent { get; init; }
@@ -338,8 +339,80 @@ public sealed record ConfigurePayload
 
     public const string BadText = "A value is too long or has control characters.";
 
-    /// <summary>An agent's payload with a password or another secret value (pass, secret, community in the name).</summary>
+    /// <summary>A device password parameter of an agent's payload whose name is no secret name: its value would be the agent's own.</summary>
     public const string SetPasswordInOadm = "Set the password in OADM.";
+
+    /// <summary>A secret value of an agent's payload the person has not entered (at the run: never, the host hands every one).</summary>
+    public const string EnterPassword = "Enter the password.";
+
+    /// <summary>Most secret values of one agent's run (the secret channel's slots of one preview).</summary>
+    public const int MaxSecretValues = 8;
+
+    public const string TooManySecrets = "Set at most 8 passwords in one run.";
+
+    /// <summary>
+    /// The secrets of an agent's payload (<see cref="Oadm.Sdk.Plugins.ITaskPlugin.SecretsOf"/>): every setting and action parameter with a secret
+    /// name (pass, secret, community), whose value the person enters: <c>setting_&lt;i&gt;</c> at <c>settings[i].value</c>,
+    /// <c>rule_&lt;i&gt;_parameter_&lt;j&gt;</c> at <c>actionRules[i].action.parameters[j].value</c>. The dialog's form has none
+    /// (the person typed its values). Empty for a payload that cannot be read.
+    /// </summary>
+    public static IReadOnlyList<TaskSecret> SecretsOf(string? json)
+    {
+        ConfigurePayload? read;
+        try
+        {
+            read = string.IsNullOrWhiteSpace(json) ? null : JsonSerializer.Deserialize<ConfigurePayload>(json, Options);
+        }
+        catch (JsonException)
+        {
+            return [];
+        }
+
+        if (read is null || (read.Settings is null && read.ActionRules is null))
+        {
+            return [];
+        }
+
+        var secrets = new List<TaskSecret>();
+        var settings = read.Settings ?? [];
+        for (var i = 0; i < settings.Count; i++)
+        {
+            if (settings[i] is { Name: { Length: > 0 } name } && SecretNames.IsSecret(name))
+            {
+                secrets.Add(new TaskSecret(string.Create(CultureInfo.InvariantCulture, $"setting_{i}"), SecretLabel(name), At("settings", i, "value")));
+            }
+        }
+
+        var rules = read.ActionRules ?? [];
+        for (var i = 0; i < rules.Count; i++)
+        {
+            var parameters = rules[i]?.Action?.Parameters ?? [];
+            for (var j = 0; j < parameters.Count; j++)
+            {
+                if (parameters[j] is { Name: { Length: > 0 } name } && SecretNames.IsSecret(name))
+                {
+                    secrets.Add(new TaskSecret(string.Create(CultureInfo.InvariantCulture, $"rule_{i}_parameter_{j}"), SecretLabel(name),
+                        string.Create(CultureInfo.InvariantCulture, $"actionRules[{i}].action.parameters[{j}].value")));
+                }
+            }
+        }
+
+        return secrets;
+    }
+
+    /// <summary>"password for root.Mqtt.Password" (the last part of the name when that is too long; at most 64 characters).</summary>
+    public static string SecretLabel(string name)
+    {
+        ArgumentNullException.ThrowIfNull(name);
+        const string Prefix = "password for ";
+        var label = Prefix + name;
+        if (label.Length > 64)
+        {
+            label = Prefix + name[(name.LastIndexOf('.') + 1)..];
+        }
+
+        return label.Length > 64 ? label[..64] : label;
+    }
 
     /// <summary>A payload with both forms.</summary>
     public const string BothForms = "Send settings and actionRules, or parameters and rules, not both.";
@@ -360,7 +433,14 @@ public sealed record ConfigurePayload
     /// form also refuses device addresses (<see cref="DangerousParameters.AddressNote"/>), secret values
     /// (<see cref="SetPasswordInOadm"/>) and values no parameter takes. Reads only the payload, never a device.
     /// </summary>
-    public static (ConfigurePayload? Payload, IReadOnlyList<PayloadError> Errors) Check(string? json)
+    public static (ConfigurePayload? Payload, IReadOnlyList<PayloadError> Errors) Check(string? json) => Check(json, requireSecrets: true);
+
+    /// <summary>
+    /// <see cref="Check(string?)"/>; with <paramref name="requireSecrets"/> false an agent's empty secret value is no problem (the
+    /// plan of a preview, before the person entered it). With it, an empty one is refused at its field ("Enter the password."),
+    /// after every other check passed, so a preview that ignores those fields still sees every other problem.
+    /// </summary>
+    public static (ConfigurePayload? Payload, IReadOnlyList<PayloadError> Errors) Check(string? json, bool requireSecrets)
     {
         if (string.IsNullOrWhiteSpace(json))
         {
@@ -441,8 +521,14 @@ public sealed record ConfigurePayload
             return (null, errors);
         }
 
+        var missing = new List<PayloadError>();
         if (agent)
         {
+            if (payload.Parameters.Count(p => SecretNames.IsSecret(p.Name)) + payload.Rules.Sum(r => r?.Action?.Parameters?.Count(p => p is not null && SecretNames.IsSecret(p.Name ?? string.Empty)) ?? 0) > MaxSecretValues)
+            {
+                return Fail(parameters, TooManySecrets);
+            }
+
             for (var i = 0; i < payload.Parameters.Count; i++)
             {
                 var p = payload.Parameters[i];
@@ -450,10 +536,9 @@ public sealed record ConfigurePayload
                 {
                     errors.Add(new(At(parameters, i, "name"), DangerousParameters.AddressNote));
                 }
-                else if (SecretNames.IsSecret(p.Name))
+                else if (SecretNames.IsSecret(p.Name) && p.Value.Length == 0)
                 {
-                    // TODO(secret-handle): take a secret handle (branch feat/agent-transfer) for this value instead of refusing it.
-                    errors.Add(new(At(parameters, i, "value"), SetPasswordInOadm));
+                    missing.Add(new(At(parameters, i, "value"), EnterPassword)); // the person enters it (SecretsOf)
                 }
                 else if (ValueProblem(p.Value) is { } problem)
                 {
@@ -503,10 +588,10 @@ public sealed record ConfigurePayload
             var actionParameters = payload.Rules[i].Action.Parameters;
             for (var j = 0; j < actionParameters.Count; j++)
             {
-                if (SecretNames.IsSecret(actionParameters[j].Name) && actionParameters[j].Value.Length > 0)
+                if (SecretNames.IsSecret(actionParameters[j].Name) && actionParameters[j].Value.Length == 0)
                 {
-                    // TODO(secret-handle): a password of an action (a recipient's) comes as a secret handle later.
-                    errors.Add(new(string.Create(CultureInfo.InvariantCulture, $"{rules}[{i}].action.parameters[{j}].value"), SetPasswordInOadm));
+                    // A password of an action (a recipient's): the person enters it (SecretsOf).
+                    missing.Add(new(string.Create(CultureInfo.InvariantCulture, $"{rules}[{i}].action.parameters[{j}].value"), EnterPassword));
                 }
             }
         }
@@ -539,9 +624,9 @@ public sealed record ConfigurePayload
         var known = payload.Schedules.Select(s => s.Id).ToHashSet(StringComparer.Ordinal);
         for (var i = 0; i < payload.Rules.Count; i++)
         {
-            if (payload.Rules[i].ScheduleIds.FirstOrDefault(id => !known.Contains(id)) is { } missing)
+            if (payload.Rules[i].ScheduleIds.FirstOrDefault(id => !known.Contains(id)) is { } unknownSchedule)
             {
-                errors.Add(new(At(rules, i), MissingSchedule(missing)));
+                errors.Add(new(At(rules, i), MissingSchedule(unknownSchedule)));
             }
         }
 
@@ -583,7 +668,7 @@ public sealed record ConfigurePayload
             return Fail(string.Empty, BadText);
         }
 
-        return (payload, []);
+        return requireSecrets && missing.Count > 0 ? (null, missing) : (payload, []);
     }
 
     private static (ConfigurePayload?, IReadOnlyList<PayloadError>) Fail(string field, string message) => (null, [new(field, message)]);
