@@ -5,12 +5,12 @@ import "Protos/common.proto";
 import "google/protobuf/timestamp.proto";
 
 // The MCP server (docs/spec/mcp.md), the Settings card AI, section MCP. Off by default; its certificate is the one
-// PKI's policy MCP server picks. Every signed-in user reads the state and the CA certificate; changing it is Administrator
+// the PKI policy MCP server picks (the MCP Server Certificate it makes on the first Turn on, or another one). Every signed-in user reads the state and the CA certificate; changing it is Administrator
 // only (users with all devices), audited like the other server settings.
 service McpService {
   rpc Get (Empty) returns (McpState);
   // Turn on or off, the port and Listen on. INVALID_ARGUMENT for a port outside 1025..65535 or an unknown interface,
-  // FAILED_PRECONDITION "Turn on PKI to choose the certificate." for Turn on while PKI does not run.
+  // FAILED_PRECONDITION "PKI is not running. The server log says why." for Turn on while PKI does not run.
   rpc Set (McpSettings) returns (McpState);
   // The CA certificates of the MCP server's certificate (PEM) for the agent's computer; NOT_FOUND without a certificate.
   rpc GetCaCertificate (Empty) returns (McpCaCertificate);
@@ -34,13 +34,13 @@ message McpInterface {
 message McpState {
   McpSettings settings = 1;
   bool running = 2;                       // the port is open
-  // "Running on port 5082", "Off", "Turn on PKI to choose the certificate.", "The MCP server has no certificate. Choose
-  // one in its policy.", "Port 5082 cannot be opened: ..."
+  // "Running on port 5082", "Off", "PKI is not running. The server log says why.",
+  // "The MCP server has no certificate yet.", "Port 5082 cannot be opened: ..."
   string status = 3;
-  bool pki_available = 4;                 // PKI runs: the policy MCP server can pick a certificate
+  bool pki_available = 4;                 // PKI runs: the PKI policy MCP server can pick a certificate
   string certificate = 5;                 // "MCP Server Certificate (OADM Root CA SERVER01), until 2036-11-14"; empty without one
   repeated string certificate_names = 6;  // the addresses and names the certificate holds
-  repeated McpInterface interfaces = 7;   // the choices of Listen on (administrators only)
+  repeated McpInterface interfaces = 7;   // the choices of Listen on: up, with a usable address, and the loopback (administrators only)
   bool has_ca_certificate = 8;            // GetCaCertificate has something to give
 }
 
