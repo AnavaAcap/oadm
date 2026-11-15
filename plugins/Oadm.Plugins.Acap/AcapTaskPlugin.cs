@@ -782,9 +782,16 @@ public sealed class AcapTaskPlugin : ITaskPlugin, ITaskPluginQuery
             {
                 return await EapZip.OpenBuildAsync(stream, Zip.Name, ZipBuilds[index].EntryName, ct).ConfigureAwait(false);
             }
-            catch (InvalidEapException ex)
+            catch (Exception ex)
             {
-                throw new InvalidOperationException(ex.Message + " Nothing was changed.", ex);
+                // The ZIP could not be opened: its file is closed here (an archive that opened closed it already).
+                await stream.DisposeAsync().ConfigureAwait(false);
+                if (ex is InvalidEapException invalid)
+                {
+                    throw new InvalidOperationException(invalid.Message + " Nothing was changed.", invalid);
+                }
+
+                throw;
             }
         }
     }
