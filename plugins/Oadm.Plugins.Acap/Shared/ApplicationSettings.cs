@@ -116,8 +116,8 @@ public static class AppSettings
         return SecretWords.Any(w => plain.Contains(w, StringComparison.OrdinalIgnoreCase));
     }
 
-    /// <summary>A password setting is set in OADM, never from an agent's payload (the run's and the check's text).</summary>
-    public static string SetPasswordInOadm(string displayName) => $"{displayName} is a password. Set it in OADM.";
+    /// <summary>A password setting of an agent goes in passwords, whose values the person enters (the run's and the check's text).</summary>
+    public static string PasswordGoesInPasswords(string displayName) => $"{displayName} is a password. List it in passwords: the user enters it.";
 
     /// <summary>
     /// The problems of a payload's settings that need no device (the server's check before any task starts), each with the
@@ -147,7 +147,7 @@ public static class AppSettings
             }
             else if (!passwordsAllowed && NamesSecret(name))
             {
-                problems.Add((name, SetPasswordInOadm(name)));
+                problems.Add((name, PasswordGoesInPasswords(name)));
             }
             else if (!TryNormalize(new AppSettingDefinition(name, AppSettingKind.Text), value, out _, out var problem))
             {
@@ -393,10 +393,11 @@ public static class AppSettings
     /// Why <paramref name="values"/> cannot be written to an application with <paramref name="definitions"/>, one text per
     /// problem with the setting's name (never its value); empty when every value fits. <paramref name="normalized"/> gets the
     /// values as the device takes them. Without <paramref name="passwordsAllowed"/> a value for a password setting is a
-    /// problem ("Set it in OADM."): an agent's payload never writes one.
+    /// problem: an agent's payload writes one only when the person entered it (<paramref name="enteredPasswords"/>).
     /// </summary>
     public static IReadOnlyList<string> Check(
-        IReadOnlyList<AppSettingDefinition> definitions, IReadOnlyDictionary<string, string> values, string application, out IReadOnlyDictionary<string, string> normalized, bool passwordsAllowed = true)
+        IReadOnlyList<AppSettingDefinition> definitions, IReadOnlyDictionary<string, string> values, string application, out IReadOnlyDictionary<string, string> normalized, bool passwordsAllowed = true,
+        IReadOnlySet<string>? enteredPasswords = null)
     {
         ArgumentNullException.ThrowIfNull(definitions);
         ArgumentNullException.ThrowIfNull(values);
@@ -418,9 +419,9 @@ public static class AppSettings
             {
                 problems.Add($"{definition.DisplayName} cannot be changed.");
             }
-            else if (!passwordsAllowed && (definition.Kind == AppSettingKind.Password || NamesSecret(name)))
+            else if (!passwordsAllowed && enteredPasswords?.Contains(name) != true && (definition.Kind == AppSettingKind.Password || NamesSecret(name)))
             {
-                problems.Add(SetPasswordInOadm(definition.DisplayName));
+                problems.Add(PasswordGoesInPasswords(definition.DisplayName));
             }
             else if (!TryNormalize(definition, value, out var fit, out var problem))
             {
