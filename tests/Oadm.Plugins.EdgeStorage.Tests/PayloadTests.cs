@@ -32,7 +32,7 @@ public sealed class PayloadTests
     [InlineData(StorageActions.Retention, 0)]
     [InlineData(StorageActions.Retention, 30)]
     [InlineData(StorageActions.Retention, 7000)]
-    public void Every_payload_the_page_sends_passes_except_encrypt(string action, int? days)
+    public void Every_payload_the_page_sends_passes(string action, int? days)
     {
         // exactly what EdgeStoragePlugin.RunAsync hands the task runner
         var json = EdgeStorageJson.Serialize(new TaskPayload(action, days));
@@ -40,11 +40,23 @@ public sealed class PayloadTests
     }
 
     [Fact]
-    public void Encrypt_is_refused_at_its_action_because_it_needs_a_passphrase()
+    public async Task Encrypt_asks_the_person_for_the_passphrase_and_checks_it_with_the_pages_rules()
     {
-        var json = EdgeStorageJson.Serialize(new TaskPayload(StorageActions.EncryptionOn, Passphrase: "secret phrase"));
-        var error = Assert.Single(Task().ValidatePayload(json, Caller));
-        Assert.Equal(("action", "Encrypt on the Edge storage page. It needs a passphrase."), (error.Field, error.Message));
+        var task = Task();
+        var agent = Json(new StorageMcpPayload(StorageMcpAction.EncryptionOn));
+        Assert.Equal([new Oadm.Sdk.Tasks.TaskSecret("passphrase", "passphrase", "passphrase")], task.SecretsOf(agent));
+        Assert.Empty(task.SecretsOf(Json(new StorageMcpPayload(StorageMcpAction.Format))));
+
+        // Before the person entered it, its field is the only problem (the preview leaves it to the check of the entered value).
+        var missing = Assert.Single(task.ValidatePayload(agent, Caller));
+        Assert.Equal(("passphrase", "Enter a passphrase."), (missing.Field, missing.Message));
+        var control = Assert.Single(task.ValidatePayload(EdgeStorageJson.Serialize(new TaskPayload(StorageActions.EncryptionOn, Passphrase: "a\u0001b")), Caller));
+        Assert.Equal("passphrase", control.Field);
+        Assert.Empty(task.ValidatePayload(EdgeStorageJson.Serialize(new TaskPayload(StorageActions.EncryptionOn, Passphrase: "secret phrase")), Caller));
+
+        var plan = await task.PlanAsync(agent, [new FakeDevice()], CancellationToken.None);
+        Assert.Equal([StoragePayloadRules.PassphraseNote, StoragePayloadRules.DeletesRecordings, StoragePayloadRules.StopsRecording], plan.Warnings);
+        Assert.Equal([EdgeStorageMethods.FormatPermission], task.PagePermissions(agent));
     }
 
     [Fact]
@@ -53,21 +65,21 @@ public sealed class PayloadTests
         foreach (var (action, text) in new[]
                  {
                      (StorageMcpAction.Check, "check"), (StorageMcpAction.Repair, "repair"), (StorageMcpAction.Retention, "retention"),
-                     (StorageMcpAction.Format, "format"), (StorageMcpAction.EncryptionOff, "encryptionOff"),
+                     (StorageMcpAction.Format, "format"), (StorageMcpAction.EncryptionOff, "encryptionOff"), (StorageMcpAction.EncryptionOn, "encryptionOn"),
                  })
         {
             var json = Json(new StorageMcpPayload(action, action == StorageMcpAction.Retention ? 14 : null));
             Assert.Equal(text, EdgeStorageJson.Deserialize<TaskPayload>(json).Action);
-            Assert.Empty(Task().ValidatePayload(json, Caller));
+            Assert.Equal(action == StorageMcpAction.EncryptionOn ? 1 : 0, Task().ValidatePayload(json, Caller).Count); // its passphrase comes later
         }
 
         var task = Task();
         Assert.Equal(typeof(StorageMcpPayload), task.PayloadType);
-        var schema = EdgeStorageJson.Options.GetJsonSchemaAsNode(typeof(StorageMcpPayload), new JsonSchemaExporterOptions { TreatNullObliviousAsNonNullable = true });
+        var schema = Oadm.Server.Tasks.TaskPayloadSchemas.Of(task)!; // as the host offers it: the secret left out
         var properties = schema["properties"]!.AsObject();
         Assert.Equal(["action", "retentionDays"], properties.Select(p => p.Key));
-        Assert.Equal(["check", "repair", "retention", "format", "encryptionOff"], properties["action"]!["enum"]!.AsArray().Select(v => v!.GetValue<string>()));
-        Assert.DoesNotContain("passphrase", schema.ToJsonString(), StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(["check", "repair", "retention", "format", "encryptionOff", "encryptionOn"], properties["action"]!["enum"]!.AsArray().Select(v => v!.GetValue<string>()));
+        Assert.DoesNotContain("passphrase", properties.Select(p => p.Key));
     }
 
     [Theory]
