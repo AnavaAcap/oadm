@@ -44,27 +44,33 @@ public sealed record AcapPackageFile(
     [property: Description("The SHA-256 the upload answered."), MaxLength(64)] string? Sha256 = null,
     [property: Description("Several packages: the architecture of this one (aarch64, armv7hf, ...)."), MaxLength(32)] string? Architecture = null);
 
-/// <summary>What the Applications task may do for AI agents: not license keys and not settings (they can carry secrets).</summary>
+/// <summary>What the Applications task may do for AI agents: not license keys (secrets); settings without passwords.</summary>
 public enum AcapMcpAction
 {
     Install = 0,
     Remove = 1,
     Start = 2,
     Stop = 3,
+
+    /// <summary>Change settings (<see cref="AcapAction.Settings"/>); a password setting is refused.</summary>
+    Settings = 5,
 }
 
 /// <summary>
 /// The input of "Applications (ACAP)" for AI agents (docs/spec/mcp.md): install or upgrade from uploaded packages, remove,
-/// start and stop. License keys and application settings are done in OADM. The payload of the dialog without those fields;
-/// the task reads the same text as an <see cref="AcapPayload"/>.
+/// start, stop and change settings. License keys are done in OADM, and so are password settings: this record has no
+/// <see cref="AcapPayload.PasswordsAllowed"/>, so the task refuses a value for a setting the application declares as a
+/// password, and <see cref="AppSettings.OfflineProblems"/> refuses a name that points to a secret. The task reads the same
+/// text as an <see cref="AcapPayload"/>.
 /// </summary>
-[Description("Install, upgrade, remove, start or stop an application.")]
+[Description("Install, upgrade, remove, start or stop an application, or change its settings.")]
 public sealed record AcapMcpPayload(
-    [property: Description("Install also upgrades.")] AcapMcpAction Action,
-    [property: Description("Remove, Start and Stop: the package name of the application (as oadm_devices_get lists it). Install: leave it out."), MaxLength(64)] string? Application = null,
+    [property: Description("Install also upgrades. Settings changes values of one installed application.")] AcapMcpAction Action,
+    [property: Description("Remove, Start, Stop and Settings: the package name of the application (as oadm_devices_get lists it). Install: leave it out."), MaxLength(64)] string? Application = null,
     [property: Description("Install: the uploaded .eap package, or one per architecture."), MaxLength(AcapPayload.MaxFiles)] IReadOnlyList<AcapPackageFile>? Files = null,
     [property: Description("Install: allow an older version than the installed one.")] bool AllowDowngrade = false,
-    [property: Description("Install: start the application afterwards.")] bool StartAfterInstall = false);
+    [property: Description("Install: start the application afterwards.")] bool StartAfterInstall = false,
+    [property: Description("Settings: the new values by setting name, as text (at most 200). Each device checks them against the application's settings before anything is written. Passwords are set in OADM.")] IReadOnlyDictionary<string, string>? Values = null);
 
 /// <summary>Task payload produced by the dialog. Contains no passwords; license keys are kept in memory like every payload.</summary>
 public sealed record AcapPayload
@@ -91,6 +97,17 @@ public sealed record AcapPayload
     /// payload; never in a log, a step text or the task name.
     /// </summary>
     public IReadOnlyDictionary<string, string>? Values { get; init; }
+
+    // TODO(secret-handle): when the secret channel of feat/agent-transfer lands, an agent's password value arrives as a
+    // secret handle; resolve it server side (in memory only) and allow that one setting instead of refusing it.
+
+    /// <summary>
+    /// Settings: a person typed the values in OADM's Change settings dialog, so password settings may be among them. False (the
+    /// default, and always for AI agents: <see cref="AcapMcpPayload"/> has no such field, and the tools refuse unknown fields)
+    /// refuses a value for a setting the application declares as a password, and a name that points to a secret, before
+    /// anything is written.
+    /// </summary>
+    public bool PasswordsAllowed { get; init; }
 
     /// <summary>At most this many packages in one install.</summary>
     public const int MaxFiles = 16;
