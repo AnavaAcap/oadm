@@ -32,9 +32,9 @@ public sealed class ToolTests
     {
         using var host = new PluginHost();
         ICorePlugin core = host.Plugin;
-        Assert.Equal(["list", "values"], core.Tools.Select(t => t.Name));
-        Assert.All(core.Tools, t => Assert.Equal(PermissionKeys.Show, core.RequiredPermission(t.Method)));
-        Assert.All(core.Tools, t => Assert.False(core.IsAudited(t.Method)));
+        Assert.Equal(["list", "values"], DashboardTools.All.Select(t => t.Name));
+        Assert.All(DashboardTools.All, t => Assert.Equal(PermissionKeys.Show, core.RequiredPermission(t.Method)));
+        Assert.All(DashboardTools.All, t => Assert.False(core.IsAudited(t.Method)));
         var hall = await host.Plugin.SaveAsync(new SaveDashboardRequest(null, "Hall", 0,
             [Number("t", 0, A), new Widget { Id = "v", Kind = WidgetKind.Video, X = 4, Y = 0, DeviceId = A }]), CancellationToken.None);
         await host.Plugin.SaveAsync(new SaveDashboardRequest(null, "Entrance", 0, []), CancellationToken.None);
@@ -112,8 +112,8 @@ public sealed class ToolTests
         var published = host.Events.Of(DashboardsMethods.DashboardsTopic).Count;
 
         ICorePlugin core = host.Plugin;
-        Assert.All(core.Tools, t => Assert.False(t.Changes)); // no change tool here: every tool is a read
-        foreach (var tool in core.Tools)
+        Assert.All(DashboardTools.All, t => Assert.False(t.Changes)); // the page actions: PageToolTests
+        foreach (var tool in core.Tools.Where(t => !t.Changes))
         {
             Assert.NotNull(await host.Plugin.InvokeAsync(tool.Method, null, CancellationToken.None));
             Assert.NotNull(await host.Plugin.InvokeAsync(tool.Method, $$"""{"dashboard_id":"{{hall.Id}}","limit":1}""", CancellationToken.None));
