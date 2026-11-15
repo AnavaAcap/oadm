@@ -32,9 +32,10 @@ host change.
 4. **No secret through the model** (decision 2026-11-15). No tool returns a secret, and no secret ever goes through the
    model; a secret reaches OADM only through the secret channel ("Secrets"): a preview names a slot, the person types the
    value into a command of their own shell (MCP) or into the preview card (the assistant), and the run reads it once. No
-   tool takes a password, private key, license key, access key or token as an argument. Stored credentials are used by
-   name; a task whose payload has a `[Secret]` is still not offered ("Set the password in OADM.") until its preview
-   declares the slot.
+   tool takes a password, private key, license key, access key or token as an argument (a task's `[Secret]` properties are
+   left out of its schema, a value at a task's secret field is refused). Stored credentials are used by name; every
+   action that needs a new secret declares its slots in its preview (decision 2026-11-15: every secret hook of the host,
+   the tasks and the plugin pages goes through the channel).
 5. **Least rights.** The tool list shows only what the key may do now (its role and device group, plugins on); a role like
    Viewer gives a look-only agent; a role that may run no task (no `task:` right) lists no task or file tool and is refused
    "Your role may run no task." (`TaskRunTools.NoTaskRight`). An agent can never raise rights: users, roles, device groups, access keys, license, plugins on/off, server
@@ -415,9 +416,26 @@ without ever passing through the AI model.
 - **Held** in server memory only (`ToolSecrets`), encrypted with the master key (AES-256-GCM, the binding key, the handle
   and the slot as associated data), bound to the caller and the preview's run tool, ended with the handle (10 minutes,
   `FakeTimeProvider` in the tests), at most 20 previews with slots per caller; zeroed when taken or ended.
-- **First user**: the recipients' password fields (`SaveRecipient`; its tools are built on `feat/agent-host-actions`,
-  whose TODO hook declares the slot `password` in the save preview and reads it in the run as above). The test tool
-  `SecretDemoTools` (tests) shows the whole path over MCP and the assistant.
+- **Checked when entered.** A slot may carry the run's own check of a value (`ToolSecretSlot.Check`: a passphrase policy, a
+  PKCS#12 password that opens its file, the plugin's rules). It runs before the value is taken: MCP answers 400 with the
+  refusal and the link stays; the assistant's card shows it below the field and stays. The run checks everything again.
+- **Task secrets** (`oadm_task_preview`/`_run`, SDK `ITaskPlugin.SecretsOf`): the task names what a run of the payload
+  needs (`TaskSecret`: name, label, field such as `password` or `settings[2].value`; default: the top-level `[Secret]`
+  properties, `[Secret(Label = "passphrase")]`). `TaskService.Plan` answers them (`secrets`, never a value) and leaves
+  out the payload's errors at their fields; the preview refuses an agent's value there ("Leave this empty. The user
+  enters it through the secret link.") and declares one slot each for `oadm_task_run`, whose check is `Plan` with
+  `check_only` and the value at its field (the error at that field). The run puts the values into the payload at their
+  fields for `TaskService.Run` only (in memory, `TaskSecretPaths`); the handle keeps the payload without them. Payloads are
+  never persisted, the task name, steps and log never hold a value, and `TaskRun` is audited with the task and the count.
+- **Plugin tool secrets** (SDK `PluginToolSecret`, `PluginToolPlan.SecretsNeeded`, `PluginToolInput.Secret`): a change's
+  plan names its secrets in `secrets_needed`; the host takes that out of the answer (and of the published output schema),
+  declares the slots for the run tool, checks an entered value by calling the preview method with that one value in the
+  payload's `secrets` (a field error at `secrets.<name>` refuses it) and hands all values in `secrets` to the run method. A
+  caller never sends `secrets` (the strict schema; the host removes it from every payload it did not make). The plugin's
+  audit detail and answers never name a value.
+- The test tool `SecretDemoTools` (tests) shows the whole path over MCP and the assistant; `McpTaskSecretTests`,
+  `McpPluginSecretTests` and `AssistantTransferTests` the task and plugin paths; `SecretScan` checks a canary against the
+  answers, the audit log, the server log, the tasks (names, steps, logs) and every file of the data folder.
 
 ## SDK
 
@@ -444,7 +462,10 @@ New default interface members (SDK minor version up, `docs/spec/plugins.md`):
   method (`PageMethodOf`, `RulesMethodOf`) for the plugin's rules. `PluginToolPlan(WillChange, Unit)` is the base of a plan,
   so the Assistant's card says "1 reader" (`AssistantCards`). Tests: `McpPageActionTests` and each plugin's `PageToolTests`;
   `McpAddOnToolSchemaTests` checks the schemas of the optional plugins without starting them.
-- `[Secret]` (`SecretAttribute`) on a payload property: a task whose payload has one, anywhere, is not offered over MCP.
+- `[Secret]` (`SecretAttribute`, `Label`) on a payload property: left out of the task's input schema; with
+  `ITaskPlugin.SecretsOf(payloadJson)` (`TaskSecret`, default `TaskSecrets.FromAttributes`) the secrets the person enters
+  for a run ("Secrets"). A plugin tool's input type with a `[Secret]` is still never offered: its plan names the secrets
+  (`PluginToolSecret`, `PluginToolPlan.SecretsNeeded`, `PluginToolSecrets`, `PluginToolInput.Secrets`).
 - `ITaskPlugin.PagePermissions(payloadJson)`: a page task names the keys of its core plugin one run needs; then the task
   tools offer it with those rights ("Offered tasks").
 - `ITaskExecutionContext.SaveResultFileAsync(fileName, contentType, content, ct)` and `TaskResultFile.MaxBytes` (64 MB):

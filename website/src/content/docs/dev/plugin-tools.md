@@ -30,7 +30,8 @@ longer name is left out and logged.
 
 - `InputType` is the record of the arguments. The host writes its JSON Schema like it does for
   [task payloads](../tasks/#tasks-for-ai-agents): `[Description]` explains a property, `[MaxLength]` and `[Range]` bound it,
-  nothing else is accepted. A `[Secret]` property keeps the tool out. `InputSchema` takes the schema as text instead.
+  nothing else is accepted. A `[Secret]` property keeps the tool out (a change asks for a secret through its plan, see
+  [Secrets](#secrets)). `InputSchema` takes the schema as text instead.
 - `OutputType` is the record of the answer, an object. A text from a device or a user goes only in a value, never in a
   description.
 - `Description`: one to three short sentences. The host checks every call against the schema before your code runs, and an
@@ -130,6 +131,24 @@ internal sealed record SavePlan(string Name) : PluginToolPlan(1, "gate"); // the
 public string? RequiredPermission(string method) => GateTools.Set.RulesMethodOf(method) is "save" ? PermissionKeys.Manage : PermissionKeys.Show;
 public bool IsAudited(string method) => !PluginTool.IsPreviewMethod(method) && GateTools.Set.RulesMethodOf(method) is "save";
 ```
+## Secrets
+
+A change that needs a password, a passphrase or a key never takes it as an argument. Its plan names it, and the person enters
+it in their own shell or in the assistant's card:
+
+```csharp
+(plugin, caller, input, ct) => input.Secret("password") is { Length: < 8 }
+    ? throw new PluginToolInputException("secrets.password", "Use at least 8 characters.") // checked when entered
+    : Task.FromResult(new SavePlan(input.Args.Name) { SecretsNeeded = [new PluginToolSecret("password", "password")] }),
+(plugin, caller, input, plan, ct) => plugin.SaveAsync(caller, plan, input.Secret("password")!, ct),
+```
+
+- The preview has no value (`input.Secret` is null). When the person enters one, the host calls the check with that value
+  alone; a field error at `secrets.<name>` refuses it and the person corrects it. The run gets every value.
+- A tool without `PluginPageTools` puts `secrets_needed` (`PluginToolSecrets.Property`, a list of `PluginToolSecret`) into
+  its preview's answer and reads the values with `PluginToolSecrets.Of(payloadJson)`.
+- Never put a value into an answer, an audit detail, a log line or a stored setting in clear (`ctx.Secrets`).
+
 ## Files
 
 A tool that hands the caller a file (an export, a report, a certificate) sets `ReturnsFile` and puts a `PluginToolFile`

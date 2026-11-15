@@ -641,12 +641,15 @@ box back with the error below the list (`PluginsViewModel.SwitchAsync`).
   bound get the host's: 4,096 characters, the 32-bit range, 100,000 items), `ValidatePayload(payloadJson, caller)`
   (`PayloadError` per JSON field with the dialog's text; `TaskService.Run` and `Plan` call it, a throwing check refuses the
   run), `PlanAsync(payloadJson, devices, ct)` (`TaskPlan`: per device run or skip with a reason, warnings; default
-  `TaskPlan.ByCanRun`; an overload with `IUploadedFiles` lets a plan name the uploads it uses, `TaskPlan.Files`). A task without a payload type, with a `[Secret]` property anywhere in it, or with a value of any
-  type is not offered to the tools. `PagePermissions(payloadJson)`: a page task (hidden from the menus, no permissions of
+  `TaskPlan.ByCanRun`; an overload with `IUploadedFiles` lets a plan name the uploads it uses, `TaskPlan.Files`). A task without a payload type or with a value of any
+  type is not offered to the tools; a `[Secret]` property (`Label`) is left out of its schema, and `SecretsOf(payloadJson)`
+  (`TaskSecret`: name, label, field; default the top-level `[Secret]` properties) names what the person enters for a run
+  (docs/spec/mcp.md "Secrets"). A plugin tool's plan names its secrets with `PluginToolPlan.SecretsNeeded`
+  (`PluginToolSecret`), the run reads `PluginToolInput.Secret(name)`. `PagePermissions(payloadJson)`: a page task (hidden from the menus, no permissions of
   its own) names the keys of its package's core plugin one run needs; `TaskService.Plan` and `Run` then run it with those
   rights (`TaskRunPermissions.RequireOutsidePage`) and the tools' catalog lists it, the client's menus never; null (the
   default): only its page starts it. Bundled: Restart and Use OADM NTP server (empty records), Date and time
-  (`DateTimePayload`, `PayloadValidator`), Users (its password is `[Secret]`: not offered); the full list in
+  (`DateTimePayload`, `PayloadValidator`), Users (its password is `[Secret]`: a slot of the preview); the full list in
   `docs/spec/mcp.md` "Offered tasks".
 - **Plugin tools** (SDK 0.13.0, `docs/spec/mcp.md` "Stage 3 as built", `website/src/content/docs/dev/plugin-tools.md`):
   `ICorePlugin.Tools` (`PluginTool`: name, title, description, input and output schema, read only or change, permission)

@@ -254,9 +254,20 @@ public Task<TaskPlan> PlanAsync(string? payloadJson, IReadOnlyList<IDeviceInfo> 
   calls it before every run, also for the client: an invalid payload starts no task. Use it in your dialog too.
 - `PlanAsync` says per device whether the run changes it or why not, from the cached data only (no device request). The
   default uses `CanRun` and `NotSupportedReason`.
-- Mark a password or key with `[Secret]`: such a task is never offered to agents. When the dialog's payload carries a
-  password, give agents their own record without it as `PayloadType` (the task reads both). A secret never goes through an AI
-  model; the host's secret channel takes it from the person (an agent's shell, the assistant's card) and hands it to the run.
+- Mark a password or key with `[Secret]` (`[Secret(Label = "passphrase")]` names what the person is asked for). The
+  host leaves it out of the agent's schema: a secret never goes through an AI model. The person types it into their own
+  shell or the assistant's card, the host checks it at once with your `ValidatePayload` (the error at that field) and puts
+  it into the run's payload at its field. Your `ValidatePayload` holds the rule for the value too; while the person has not
+  entered it, the preview ignores its errors there.
+- `SecretsOf(payloadJson)` answers the secrets one run needs: by default the top-level `[Secret]` properties. Override it
+  when it depends on the payload (a removal needs no password) or when a secret sits in a list, with the field as
+  `ValidatePayload` names it:
+
+```csharp
+public IReadOnlyList<TaskSecret> SecretsOf(string? payloadJson) =>
+    [.. Settings(payloadJson).Select((s, i) => (s, i)).Where(p => p.s.IsPassword)
+        .Select(p => new TaskSecret($"setting_{p.i}", "password for " + p.s.Name, $"settings[{p.i}].value"))];
+```
 - A task only your page starts (`ShowInMenus` false, no `Permissions`) is offered to agents when `PagePermissions`
   names the keys of your core plugin's permissions one run needs (`["format"]`). Return null for the page's own payload
   to keep it on the page.
