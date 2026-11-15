@@ -111,20 +111,27 @@ public sealed class AssistantTests
         await panel.SendCommand.ExecuteAsync(null);
 
         Assert.False(panel.IsStreaming);
+        // The tool lines folded into one Steps row at the top of the answer, below the notice where the data goes.
         Assert.Equal(
-            [typeof(AssistantUserItem), typeof(AssistantNoticeItem), typeof(AssistantAnswerItem), typeof(AssistantToolItem), typeof(AssistantTableItem),
-                typeof(AssistantPictureItem), typeof(AssistantPreviewItem), typeof(AssistantToolItem), typeof(AssistantNoticeItem)],
+            [typeof(AssistantUserItem), typeof(AssistantNoticeItem), typeof(AssistantStepsItem), typeof(AssistantAnswerItem), typeof(AssistantTableItem),
+                typeof(AssistantPictureItem), typeof(AssistantPreviewItem), typeof(AssistantNoticeItem)],
             panel.Items.Select(i => i.GetType()));
-        Assert.Equal("Two devices are **offline**.", ((AssistantAnswerItem)panel.Items[2]).Text); // the pieces join into one answer
+        var steps = (AssistantStepsItem)panel.Items[2];
+        Assert.Equal(["Looking at devices", "Not allowed"], steps.Steps.Select(s => s.Text));
+        Assert.Equal("Steps (2)", steps.Header);
+        Assert.True(steps.HasFailed);
+        Assert.True(steps.IsExpanded); // the answer failed: open by itself
+        Assert.Equal("Two devices are **offline**.", ((AssistantAnswerItem)panel.Items[3]).Text); // the pieces join into one answer
         var table = (AssistantTableItem)panel.Items[4];
         Assert.True(table.HasMore);
         Assert.Equal("+58 more", table.MoreText);
+        Assert.Equal("60 devices", table.Title);
+        Assert.True(table.ShowsLabel); // the answer's first result card
         var preview = (AssistantPreviewItem)panel.Items[6];
         Assert.Equal(("Restart", "25 devices", "10.0.0.1, 10.0.0.2, +23 more"), (preview.Title, preview.CountText, preview.DevicesText));
         Assert.True(preview.IsReady);
         Assert.True(panel.HasReadyPreview); // Run is the main button now
-        Assert.True(((AssistantToolItem)panel.Items[7]).Failed);
-        var error = (AssistantNoticeItem)panel.Items[8];
+        var error = (AssistantNoticeItem)panel.Items[7];
         Assert.True(error.IsError);
         Assert.Equal("The provider did not answer. Try again.", error.Text);
         Assert.Equal(string.Empty, panel.Draft);
@@ -752,7 +759,7 @@ public sealed class AssistantTests
             var scroller = conversation.GetVisualDescendants().OfType<ScrollViewer>().First();
             scroller.Offset = new Avalonia.Vector(0, 0);
             Pump();
-            Assert.Contains("Looking at devices", VisibleTexts(window));
+            Assert.Contains("Steps (2)", VisibleTexts(window)); // the tool lines folded
             Assert.Contains(window.GetVisualDescendants().OfType<DataGrid>(), g => g.IsEffectivelyVisible);
             Save(window, outDir, "assistant-panel-answer-table.png");
 

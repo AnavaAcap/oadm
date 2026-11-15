@@ -47,6 +47,17 @@ public static class AssistantTexts
     public const string SaveCsv = Oadm.Client.Controls.MarkdownText.SaveCsv;
     public const string StartHeading = "What can I do for your devices?";
 
+    // The section labels of the panel (small, in capitals by the theme's TextBlock.sectionLabel).
+    public const string SourcesLabel = "SOURCES";
+    public const string ResultsLabel = "RESULTS";
+    public const string NextLabel = "NEXT";
+
+    /// <summary>The muted line under the message box.</summary>
+    public const string Footnote = "Answers come from OADM's data. Check a plan before you run it.";
+
+    /// <summary>The folded tool lines of an answer: "Steps (5)".</summary>
+    public static string Steps(int count) => string.Create(CultureInfo.CurrentCulture, $"Steps ({count:N0})");
+
     /// <summary>The title bar button's tooltip with its key.</summary>
     public const string TitleTip = "Assistant (Ctrl+J)";
 

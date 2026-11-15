@@ -39,7 +39,8 @@ shows the chat.
 - Providers (`AssistantProviders`): Anthropic (the official `Anthropic` SDK's `IChatClient`), OpenAI and
   OpenAI-compatible (`Microsoft.Extensions.AI.OpenAI`), Ollama (`OllamaSharp`). Only the server references them.
 - **Client**: the panel. gRPC `AssistantService` (`src/Oadm.Contracts/Protos/assistant.proto`): `Chat` server-streaming
-  (the answer's text as it comes, short tool lines, preview cards, pictures, tables, the end of the answer), `Stop`, `Run`
+  (the answer's text as it comes, short tool lines, preview cards, pictures, tables, the sources and the next questions,
+  the end of the answer), `Stop`, `Run`
   (a preview's handle; streams the run's tasks like any task), `End`, `ListModels`, `GetSettings`, `SetSettings`, `Test`. Run goes
   through the same tool registry (the run tool of the preview), not through the model.
 
@@ -64,9 +65,36 @@ shows the chat.
 
 ## What the panel shows
 
-- **Thinking**: right after Send, a small ring and "Thinking" where the answer will appear, until the answer's first
-  event (text, tool line, card, picture, table) or its end; the notice where the data goes shows above it.
-- The model's answer streams as Markdown (paragraphs, lists, bold, code, tables), with **Copy** on every answer.
+- **The live status line** (decision 2026-11-15, replaces the list of tool lines): right after Send one line at the end of
+  the list, a small ring and "Thinking"; each tool line the server sends replaces its text ("Looking at devices", no
+  ellipsis like every progress text). Streamed text takes its place (the text shows that the answer runs); the next tool
+  brings it back; cards, pictures and tables go above it. The notice where the data goes shows above it.
+- **Steps**: when the answer ended, its tool lines become one row "Steps (5)" at its top (below the question and the
+  notice) with the chevron of a section (`ToggleButton.sectionExpander steps`); a click opens the list (a check per step,
+  a failed one with a red triangle and its text in red; the row shows a red triangle too). Closed, unless the answer
+  failed (its error or a refusal). An answer without a tool has no Steps row. Copy chat keeps the steps as lines.
+- The model's answer streams as Markdown with **Copy** on every answer, set for reading (`MarkdownText`, the theme's
+  styles): headings H1 to H3 one size step each (18, 15, 13) with room above (not above the first block), bold lead-ins,
+  bullet lists with a small accent dot and ordered lists with a dim "01.", both with a hanging indent (the text in its own
+  column, both lists at the same indent), 10 px between blocks and a line height of 1.5, inline code in the mono font on
+  the raised surface, code blocks in a `CodeView`. Links stay teal like every link in OADM (`Button.link`), not the accent.
+  The user's message is a soft bubble on the right (rounder corners, more padding, the raised surface, at most 85 % of
+  the row); its files show below it as small file cards (icon, name, size).
+- **Section labels**: small dim capitals with letter spacing (`TextBlock.sectionLabel`): RESULTS above the first device
+  card of an answer, SOURCES and NEXT below it.
+- **Sources** (`AssistantEvent.sources`): the server sends once before done, when a tool answered, one short chip per
+  area of the tools the answer used, in the order of first use, at most 6 (`AssistantSources`): the device tools as the
+  count of devices they matched ("7 devices"), else "Compliance", "Docs", "Tasks", "Logs", "Audit log", "Event log",
+  "Event rules", "Sites", "Tags", "Files", "Settings", "Server", "Camera picture", a plugin's tool by its title; previews
+  are left out (their card shows). Copy chat writes them as "Sources: ...".
+- **Next questions** (`AssistantEvent.follow_ups`): the system prompt asks the model to end an answer with one line
+  `<<next>> question 1 | question 2` (at most 3, only when useful). The server takes that line out of the streamed text
+  (`FollowUpFilter`: only at the start of a line, spaces before it allowed, any case; the text is held back only while
+  the start of a line can still become the marker, also across pieces; the same characters inside a line stay text) and
+  sends the questions once before done (at most 3, each at most 200 characters, no empty or repeated ones), only when the
+  answer ended well. The panel shows them under NEXT as quiet rows (`Button.followUp`); a click sends that text as the
+  user's message (like a suggestion), never as an instruction of the model. Only the newest answer keeps them: a new
+  message removes the older ones in one step.
   Short answers (decision 2026-11-15, the system prompt in `AssistantChats.SystemPrompt`): the answer first in one to
   three sentences, detail only when asked; never a repeat of the device table a tool showed; a table only when asked
   and no tool showed one; no guessing when no tool gives the data.
@@ -79,8 +107,11 @@ shows the chat.
 - **Scrolling**: the list follows new content only while the user is at its end (within 40 px); scrolled up it stays and
   a round **Go to the latest** button (arrow down) floats above the message box; it goes to the end and follows again. A
   new message always goes to the end. One scroll per burst of changes.
-- **Tool lines**: one short line per tool call ("Looking at devices", "Checking 812 devices for the upgrade").
-- **Preview cards** with **Run** and **Cancel**; several previews in one answer show one card each. After Run the card
+- **Tool lines**: one short line per tool call ("Looking at devices", "Checking 812 devices for the upgrade"), shown in the
+  live status line and then folded into Steps.
+- **Result cards** (`c:ResultCard`): a device table, a Markdown table and a preview card are cards on the raised surface
+  with a header line (accent icon, title, a dim subtitle, the card's actions right as flat command and icon buttons).
+- **Preview cards** (title and count in the header) with **Run** and **Cancel**; several previews in one answer show one card each. After Run the card
   follows its tasks live (running, done, failed, from the task stream the client already has) and links to the tasks pane.
   When every task ended with failures its line says so with the reasons ("11 done, 1 failed: Wrong password"; the most
   frequent first, at most 3 and "+N more"), and **Try the failed devices again** asks the server (`RetryFailed`) for the
@@ -92,9 +123,10 @@ shows the chat.
   rules or devices deleted or removed; a plugin's preview: its plain fields one level deep), each line at most 200
   characters, at most 12 lines with "+N more". Run is red for a delete or removal (`destructive`).
 - **Pictures**: a camera picture (`oadm_devices_snapshot`) shows in the answer, click to enlarge; never stored.
-- **Tables**: a device list the model got from a tool shows as a small table (name, address, model, status) where a click
-  on a row selects the device in the device grid; the panel shows the first 8 rows, the message carries up to 50, then
-  "+N more" with **Select all in the grid** (every matching id up to 10,000 comes with the table).
+- **Tables**: a device list the model got from a tool shows as a result card "7 devices" with a small table (name,
+  address, model, status) where a click on a row selects the device in the device grid; **Select all in the grid** (every
+  matching id up to 10,000 comes with the table), **Copy as CSV** and **Save as CSV** in the card's header; the panel
+  shows the first 8 rows, the message carries up to 50, then "+N more" below the table.
 - **Stop** ends the answer that is streaming; the conversation stays.
 - **Clear** (header, eraser icon; was New chat) empties it and starts a new conversation. **Copy chat** (icon in the header) copies the conversation as Markdown: questions, answers, tool
   lines, notices, tables, pictures by device name and card summaries (title, count, what Run does, the state); only what
@@ -111,9 +143,10 @@ shows the chat.
   store is a link (teal): a click selects it in the device grid; the right button shows Select, Open live view and Open
   web interface as the role allows (the grid's checks). Found per word of the answer (O(text), independent of the device
   count).
-- **Tables**: device tables and Markdown tables have **Copy as CSV** and **Save as CSV** (icons below them). A device
-  table exports every device of the table the client knows (up to 10,000) in the columns of Export devices, only for a
-  role with Export devices; a Markdown table its cells.
+- **Tables**: device tables and Markdown tables have **Copy as CSV** and **Save as CSV** (icons in the card's header; a
+  Markdown table's card is titled with its row count, "3 rows"). A device table exports every device of the table the
+  client knows (up to 10,000) in the columns of Export devices, only for a role with Export devices; a Markdown table its
+  cells.
 - A user's first message after the panel opened shows once: "Your messages and the data the assistant reads go to
   <provider>." (not for Ollama).
 
@@ -151,11 +184,13 @@ Administrators only; changes audited ("Changed assistant").
   while the user moves between pages. Hidden when the assistant is off or the role lacks the permission.
 - Bottom: the message box like the chat apps, one rounded box (`Border.composer`, the input colours, the accent border
   while it has the focus): the chosen devices and the attached files as chips on top, the text (one line at first, grows to 200 px, then
-  scrolls), and a row with **Attach file** (paperclip icon), **Choose devices** (devices icon), the model picker , the tokens of today (dim, right) and the round send arrow (`Button.send`,
+  scrolls), and a row with **Attach file** (paperclip icon), **Choose devices** (devices icon), the model picker as a chip
+  (thin border, round ends, a small sparkles icon before the model's name), the tokens of today (dim, right) and the round send arrow (`Button.send`,
   tooltip Send, dimmed while empty) that turns into a round **Stop** while an answer streams. While a preview card waits
   for Run, the send arrow is not the accent (`Button.send.quiet`): Run is the panel's one accent button. Below the box:
   its problem in red (the selection limit, "Choose a model.", the server's refusal of the model), a message ("Copied.",
-  an upload's problem) and the selection count ("12 devices selected", nothing without a selection).
+  an upload's problem), the selection count ("12 devices selected", nothing without a selection) and one small dim
+  centered line "Answers come from OADM's data. Check a plan before you run it." (`AssistantTexts.Footnote`).
 - Files dragged over the panel show "Drop files to attach" over it.
 - Keys: Ctrl+J opens the panel with the focus in the message box and closes it while the focus is in it (the title bar
   button's tooltip says so), Enter sends, Shift+Enter a new line, @ chooses devices, Escape stops an answer that streams (focus in the panel), Up arrow in the
@@ -200,6 +235,12 @@ context.
   latest, Try again and Edit with `replace_last` and the old entries gone in one step, dropped and pasted files with the
   limit, Escape and Up arrow, and screenshots of the message box (empty, thinking, answer, streaming, scrolled up, drop,
   attachments). Server: `replace_last` drops the last exchange and needs one.
+- The answer's parts (`AssistantChatUxTests`): one live status line that follows the tools, Steps folded at the end (open
+  only after a failed answer, a failed step marked), a next question sent as the user's message and only the newest
+  answer's questions kept, and screenshots in dark and light (`OADM_TEST_APPEARANCE=Light`) of the status line, the steps
+  folded and open, a device card with sources and next questions, an answer with headings and lists, and the composer.
+  Server (`AssistantFollowUpTests`): the `<<next>>` line taken out wherever the stream cuts it, no marker, a marker inside
+  a line, more than 3 questions, the sources and the questions once before done.
 
 ## Open points
 

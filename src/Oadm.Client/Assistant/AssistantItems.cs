@@ -36,6 +36,9 @@ public sealed partial class AssistantUserItem(string text, IReadOnlyList<Assista
 
     public bool HasFiles => FilesText.Length > 0;
 
+    /// <summary>The files as small cards below the bubble (icon, name, size).</summary>
+    public bool ShowsFiles => Files.Count > 0;
+
     /// <summary>The server answered this message (it is in the server's conversation): Try again and Edit replace it there.</summary>
     public bool Reached { get; internal set; }
 
@@ -43,8 +46,37 @@ public sealed partial class AssistantUserItem(string text, IReadOnlyList<Assista
     [ObservableProperty] public partial bool CanEdit { get; internal set; }
 }
 
-/// <summary>"Thinking" where the answer will appear, from Send until the answer's first event.</summary>
-public sealed class AssistantThinkingItem : AssistantItem;
+/// <summary>
+/// The live status line of an answer that runs (a small ring and one line): "Thinking" from Send, then the line of the tool
+/// that runs ("Looking at devices"). It sits at the end of the list while the answer waits for something other than text;
+/// streamed text takes its place, the next tool brings it back.
+/// </summary>
+public sealed partial class AssistantStatusItem : AssistantItem
+{
+    [ObservableProperty] public partial string Text { get; internal set; } = AssistantTexts.Thinking;
+}
+
+/// <summary>
+/// The tool lines of one answer, folded: once the answer ended, one row "Steps (5)" at its top with a chevron that opens the
+/// list. A failed step keeps its red mark; the list is open by itself only when the answer failed.
+/// </summary>
+public sealed partial class AssistantStepsItem : AssistantItem
+{
+    private readonly List<AssistantToolItem> _steps = [];
+
+    public IReadOnlyList<AssistantToolItem> Steps => _steps;
+
+    public int Count => _steps.Count;
+
+    /// <summary>"Steps (5)".</summary>
+    public string Header => AssistantTexts.Steps(_steps.Count);
+
+    public bool HasFailed => _steps.Any(s => s.Failed);
+
+    [ObservableProperty] public partial bool IsExpanded { get; set; }
+
+    internal void Add(AssistantToolItem step) => _steps.Add(step);
+}
 
 /// <summary>
 /// A part of the model's answer, as Markdown; grows while it streams. Pieces collect in a buffer (<see cref="Append"/>) and
@@ -73,8 +105,8 @@ public sealed partial class AssistantAnswerItem : AssistantItem
     }
 }
 
-/// <summary>A short line per tool call ("Looking at devices"); a refused one in the error colour.</summary>
-public sealed class AssistantToolItem(string text, bool failed) : AssistantItem
+/// <summary>A short line per tool call ("Looking at devices"), a step of <see cref="AssistantStepsItem"/>; a refused one in the error colour.</summary>
+public sealed class AssistantToolItem(string text, bool failed)
 {
     public string Text { get; } = text;
 
@@ -126,6 +158,21 @@ public sealed class AssistantPictureItem(string deviceId, string deviceName, byt
     }
 }
 
+/// <summary>The chips of what an answer used (the server's sources: "7 devices", "Compliance", "Docs") under the label SOURCES.</summary>
+public sealed class AssistantSourcesItem(IReadOnlyList<string> chips) : AssistantItem
+{
+    public IReadOnlyList<string> Chips { get; } = chips;
+}
+
+/// <summary>
+/// The model's next questions (1 to 3) under the label NEXT: a click sends one as the user's message. Plain text, never
+/// instructions; only the newest answer keeps them (a new message takes them away).
+/// </summary>
+public sealed class AssistantFollowUpsItem(IReadOnlyList<string> questions) : AssistantItem
+{
+    public IReadOnlyList<string> Questions { get; } = questions;
+}
+
 /// <summary>One row of a device table: a click selects the device in the grid.</summary>
 public sealed record AssistantTableRow(string DeviceId, string Name, string Address, string Model, string Status);
 
@@ -149,6 +196,12 @@ public sealed class AssistantTableItem : AssistantItem
     public IReadOnlyList<AssistantTableRow> ShownRows => Rows.Count <= MaxShownRows ? Rows : [.. Rows.Take(MaxShownRows)];
 
     public int Total { get; }
+
+    /// <summary>The card's title: "60 devices".</summary>
+    public string Title => AssistantTexts.Devices(Total);
+
+    /// <summary>The first result card of an answer shows the label RESULTS above it.</summary>
+    public bool ShowsLabel { get; internal set; }
 
     public IReadOnlyList<string> AllDeviceIds { get; }
 
