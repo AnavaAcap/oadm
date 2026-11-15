@@ -51,9 +51,10 @@ tests render light with `OADM_TEST_APPEARANCE=Light` (client tests).
   `CorePluginGroups.RailOrder`), Reporting (Snapshot report; System report
   has no page), Maintenance (Edge Recording Export, Edge storage), Integrations, Utilities (Web View), Extensions (default,
   third-party)): only groups with pages appear, the server's order inside a group; expanded rail = a small grey header (`TextBlock.navGroup`) above
-  each group (in the lighter accent color), collapsed = a separator at each group start; the pages scroll when they do not fit. Pinned bottom, top to bottom: Plugins with a divider below it (it changes what the whole client offers), Permissions,
-  Credentials (these three Admin only: hidden for operators, follow the session role live), Logs, Settings, About (icons
-  `plugin`, `users`, `key`, `logs`, `settings`, `info`), then the expand toggle. The logged-in user (an initial avatar and
+  each group (in the lighter accent color), collapsed = a separator at each group start; the pages scroll when they do not fit. Pinned bottom, top to bottom: Plugins with a divider below it (it changes what the whole client offers), Permissions, Credentials
+  (these three Admin only: hidden for operators, follow the session role live), Logs, MCP & Assistant (every user: the cards
+  MCP and Assistant, administrators change them; between Logs and Settings, alphabetical there), Settings, About (icons
+  `plugin`, `users`, `key`, `logs`, `sparkles`, `settings`, `info`), then the expand toggle. The logged-in user (an initial avatar and
   the name, `Button.titleUser`, opens "Your role") and Log out (icon-only `ui:ToolbarButton`) sit at the right of the title
   bar, left of them MyAxis (icon `cloud`, [myaxis.md](myaxis.md); its warning dot is the theme's
   `Ellipse.problemDot.corner`) and Help ([help.md](help.md)), both icon-only `ui:ToolbarButton`s, next to the system window buttons (`Oadm.Theme.Shell.TitleBarLayout` keeps clear of them: `ContentMargin`, or `ContentMarginWithoutMaximize` for the OADM Site Node app; title bars use the theme style `Border.titleBar`: right on Windows and Linux, left on
@@ -127,7 +128,9 @@ tests render light with `OADM_TEST_APPEARANCE=Light` (client tests).
   (`WindowDecorations="BorderOnly"`); the first row is `ui:DialogTitleBar`, the title as a
   heading and an X top right that closes the window, aligned with the content. Modal, not movable and fixed size
   (`CanResize="False"`: a resizable border-only window shows a white resize strip on top on Windows), like a dialog on a
-  web page. The main window and plugin windows keep the custom title bar.
+  web page. The main window and plugin windows keep the custom title bar. While a dialog is open, the window behind it
+  is dimmed (`Oadm.DialogDimBrush`: black at 45 % dark, 30 % light; title bar included; `Oadm.Theme.Shell.DialogDim`,
+  attached in `App` of the client and the site node app, only for windows opened with `ShowDialog`; decision 2026-11-15).
 - **Login and new version**: the login window, "Trust this server?"
   and the new version dialog have no `DialogTitleBar` but a `tc:HeroBand` on top (the OADM logo in the middle, 120 px; its
   X quits the login, closes the others), the title centered below it (`TextBlock.heroTitle`, a `heroSubtitle` line under it

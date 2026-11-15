@@ -107,10 +107,9 @@ public sealed class AiAgentsTests
         {
             var card = new AiAgentsViewModel(api, Substitute.For<IDialogService>(), Session(UserRole.Admin));
             await card.LoadAsync();
-            var window = new Window { Width = 900, Height = 700, Content = new AiAgentsCardView { DataContext = card, Margin = new Avalonia.Thickness(24) } };
+            var window = new Window { Width = 900, Height = 700, Content = new AiPageView { DataContext = card, Margin = new Avalonia.Thickness(24) } };
             window.Show();
             Pump();
-            window.GetVisualDescendants().OfType<Oadm.Client.Controls.CollapsibleCard>().Single().IsExpanded = true;
             Pump();
 
             card.SelectedInterface = card.Listen.Find("eth0");
@@ -139,25 +138,23 @@ public sealed class AiAgentsTests
         var outDir = Environment.GetEnvironmentVariable("OADM_SCREENSHOT_DIR");
         var done = await HeadlessSession.Shared.Dispatch(async () =>
         {
-            foreach (var (role, name) in new[] { (UserRole.Admin, "client-page-settings-ai.png"), (UserRole.Operator, "client-page-settings-ai-operator.png") })
+            foreach (var (role, name) in new[] { (UserRole.Admin, "client-page-ai.png"), (UserRole.Operator, "client-page-ai-operator.png") })
             {
                 var api = new FakeOadmApi(TimeSpan.FromMilliseconds(5));
                 using var f = new DevicesFixture(api);
                 using var connection = new ServerConnection(f.Api, f.Store, f.Tasks, f.Ui, Microsoft.Extensions.Logging.Abstractions.NullLogger<ServerConnection>.Instance);
                 var session = Session(role);
                 var card = new AiAgentsViewModel(api, Substitute.For<IDialogService>(), session);
-                var settings = new SettingsViewModel(f.Api, connection, Microsoft.Extensions.Logging.Abstractions.NullLogger<SettingsViewModel>.Instance, session, aiAgents: card);
-                await settings.LoadAsync();
+                await card.LoadAsync();
                 if (role == UserRole.Admin)
                 {
                     await card.TurnOnCommand.ExecuteAsync(null);
                 }
 
-                var window = new Window { Width = 1520, Height = 1100, Content = new SettingsView { DataContext = settings, Margin = new Avalonia.Thickness(24) } };
+                var window = new Window { Width = 1520, Height = 1100, Content = new AiPageView { DataContext = card, Margin = new Avalonia.Thickness(24) } };
                 window.Show();
                 Pump();
-                var view = Assert.Single(window.GetVisualDescendants().OfType<AiAgentsCardView>(), c => c.IsEffectivelyVisible);
-                view.GetVisualDescendants().OfType<Oadm.Client.Controls.CollapsibleCard>().Single().IsExpanded = true;
+                var view = Assert.Single(window.GetVisualDescendants().OfType<AiPageView>(), c => c.IsEffectivelyVisible);
                 Pump();
                 var texts = view.GetVisualDescendants().OfType<TextBlock>().Where(t => t.IsEffectivelyVisible).Select(t => t.Text).ToList();
                 Assert.Contains(AiAgentsViewModel.Intro, texts);
@@ -187,8 +184,7 @@ public sealed class AiAgentsTests
             clipboard.SetTextAsync(Arg.Any<string>()).Returns(true);
             var session = Session(UserRole.Admin);
             var card = new AiAgentsViewModel(api, dialogs, session, clipboard);
-            var settings = new SettingsViewModel(f.Api, connection, Microsoft.Extensions.Logging.Abstractions.NullLogger<SettingsViewModel>.Instance, session, aiAgents: card);
-            await settings.LoadAsync();
+            await card.LoadAsync();
             Assert.False(card.HasConnections); // off: no address to give
 
             await card.TurnOnCommand.ExecuteAsync(null);
@@ -211,11 +207,10 @@ public sealed class AiAgentsTests
             await dialogs.Received(1).SaveFileAsync("Download skill", "oadm-skill.zip", Arg.Any<FileType>(), Arg.Is<byte[]>(b => b.Length > 4 && b[0] == (byte)'P' && b[1] == (byte)'K'));
             Assert.Equal("Saved oadm-skill.zip.", card.Message);
 
-            var window = new Window { Width = 1520, Height = 1500, Content = new SettingsView { DataContext = settings, Margin = new Avalonia.Thickness(24) } };
+            var window = new Window { Width = 1520, Height = 1500, Content = new AiPageView { DataContext = card, Margin = new Avalonia.Thickness(24) } };
             window.Show();
             Pump();
-            var view = Assert.Single(window.GetVisualDescendants().OfType<AiAgentsCardView>(), c => c.IsEffectivelyVisible);
-            view.GetVisualDescendants().OfType<Oadm.Client.Controls.CollapsibleCard>().Single().IsExpanded = true;
+            var view = Assert.Single(window.GetVisualDescendants().OfType<AiPageView>(), c => c.IsEffectivelyVisible);
             Pump();
             Assert.True(view.FindControl<Control>("ConnectAgent")!.IsEffectivelyVisible);
             Assert.True(view.FindControl<Button>("McpDownloadSkill")!.IsEffectivelyVisible);
@@ -223,7 +218,7 @@ public sealed class AiAgentsTests
             Assert.Equal(["Claude Code", ".mcp.json", "VS Code"], view.FindControl<Control>("ConnectAgent")!.GetVisualDescendants().OfType<Oadm.Sdk.Client.Controls.FormField>().Where(c => c.IsEffectivelyVisible).Select(c => c.Label));
             var texts = view.GetVisualDescendants().OfType<TextBlock>().Where(t => t.IsEffectivelyVisible).Select(t => t.Text).ToList();
             Assert.Contains("Connect an agent", texts);
-            Save(window, outDir, "client-page-settings-ai-mcp-connect.png");
+            Save(window, outDir, "client-page-ai-mcp-connect.png");
             window.Close();
             return true;
         }, CancellationToken.None);
@@ -376,8 +371,7 @@ public sealed class AiAgentsTests
             });
             var session = Session(UserRole.Admin);
             var card = new AiAgentsViewModel(api, dialogs, session);
-            var settings = new SettingsViewModel(f.Api, connection, Microsoft.Extensions.Logging.Abstractions.NullLogger<SettingsViewModel>.Instance, session, aiAgents: card);
-            await settings.LoadAsync();
+            await card.LoadAsync();
             await card.TurnOnCommand.ExecuteAsync(null);
             Assert.Equal(["Health check", "Lobby-bot"], card.Keys.Keys.Select(k => k.Name));
             var lobby = card.Keys.Keys.Single(k => k.Name == "Lobby-bot");
@@ -391,11 +385,10 @@ public sealed class AiAgentsTests
             Assert.Equal(groups.Groups.Count + 1, shown.DeviceOptions.Count);
             Assert.Equal(["Health check", "Lobby-bot", "Yard"], card.Keys.Keys.Select(k => k.Name)); // the list after Create
 
-            var window = new Window { Width = 1520, Height = 1600, Content = new SettingsView { DataContext = settings, Margin = new Avalonia.Thickness(24) } };
+            var window = new Window { Width = 1520, Height = 1600, Content = new AiPageView { DataContext = card, Margin = new Avalonia.Thickness(24) } };
             window.Show();
             Pump();
-            var view = Assert.Single(window.GetVisualDescendants().OfType<AiAgentsCardView>(), c => c.IsEffectivelyVisible);
-            view.GetVisualDescendants().OfType<Oadm.Client.Controls.CollapsibleCard>().Single().IsExpanded = true;
+            var view = Assert.Single(window.GetVisualDescendants().OfType<AiPageView>(), c => c.IsEffectivelyVisible);
             Pump();
             Assert.True(view.FindControl<Control>("AccessKeys")!.IsEffectivelyVisible);
             var grid = view.FindControl<DataGrid>("KeysGrid")!;
@@ -403,7 +396,7 @@ public sealed class AiAgentsTests
             var texts = view.GetVisualDescendants().OfType<TextBlock>().Where(t => t.IsEffectivelyVisible).Select(t => t.Text).ToList();
             Assert.Contains("MCP", texts);
             Assert.Contains(AccessKeyWords.Title, texts);
-            Save(window, outDir, "client-page-settings-ai-mcp.png");
+            Save(window, outDir, "client-page-ai-mcp.png");
 
             await card.Keys.DeleteCommand.ExecuteAsync(card.Keys.Keys.Single(k => k.Name == "Yard"));
             await dialogs.Received(1).ConfirmAsync("Delete access key", "Agents that use Yard can no longer connect.", "Delete"); // red: starts with Delete

@@ -41,6 +41,7 @@ public partial class App : Application
             window.Icon ??= Icon.Value;
         });
         WindowFit.Attach(); // a small or scaled screen: the window shrinks to fit
+        DialogDim.Attach(); // the window behind a dialog is dimmed
 
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {

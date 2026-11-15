@@ -33,6 +33,7 @@ public partial class App : Application
     {
         ApplyCrispTextToAllWindows();
         WindowFit.Attach();
+        DialogDim.Attach();
         Oadm.Sdk.Client.Controls.GridSort.Install();
         Infrastructure.WheelScroll.Attach();
         if (Options.UpdateHelper is { } helper && ApplicationLifetime is IClassicDesktopStyleApplicationLifetime helperDesktop)

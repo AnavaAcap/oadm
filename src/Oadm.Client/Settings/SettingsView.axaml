@@ -176,14 +176,12 @@
         </StackPanel>
       </StackPanel>
 
-      <!-- Right column: backup and restore (administrators), the license and AI (every user), then support (administrators) -->
+      <!-- Right column: backup and restore (administrators), the license (every user), then support (administrators) -->
       <StackPanel x:Name="RightColumn" Grid.Column="2" Spacing="16" VerticalAlignment="Top">
         <backup:BackupCardView DataContext="{Binding Backup}"
                                IsVisible="{Binding $parent[UserControl].((settings:SettingsViewModel)DataContext).ShowBackup}" />
         <licensing:LicenseCardView DataContext="{Binding License}"
                                    IsVisible="{Binding $parent[UserControl].((settings:SettingsViewModel)DataContext).ShowLicense}" />
-        <settings:AiAgentsCardView DataContext="{Binding AiAgents}"
-                                   IsVisible="{Binding $parent[UserControl].((settings:SettingsViewModel)DataContext).ShowAiAgents}" />
         <support:SupportCardView DataContext="{Binding Support}"
                                  IsVisible="{Binding $parent[UserControl].((settings:SettingsViewModel)DataContext).ShowSupport}" />
       </StackPanel>

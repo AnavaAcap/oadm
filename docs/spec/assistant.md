@@ -121,7 +121,7 @@ Administration; not the developer pages) ship with the server as a search index 
 `website/src/content/docs` at build time into the server's resources). Answers title, page address on oadm.app and the
 matching passage (at most 5 hits, 32 KB). A registry tool like every other, so MCP agents get it too.
 
-## Settings (card **AI**, section **Assistant**, below the section **MCP**)
+## Settings (rail page **MCP & Assistant**, card **Assistant**, right of the card **MCP**)
 
 Administrators only; changes audited ("Changed assistant").
 

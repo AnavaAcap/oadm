@@ -44,6 +44,9 @@
     <DataTemplate DataType="settings:SettingsViewModel">
       <settings:SettingsView />
     </DataTemplate>
+    <DataTemplate DataType="settings:AiAgentsViewModel">
+      <settings:AiPageView />
+    </DataTemplate>
     <DataTemplate DataType="settings:UsersViewModel">
       <settings:UsersPageView />
     </DataTemplate>

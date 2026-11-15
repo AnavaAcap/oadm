@@ -366,5 +366,5 @@ public static class AccessKeyTexts
         : "The access keys " + string.Join(", ", names.Take(names.Count - 1)) + " and " + names[^1] + " have";
 
     /// <summary>The answer of the MCP server to a missing or ended key (HTTP 401).</summary>
-    public const string NotValid = "The access key is not valid. An administrator creates a new one in OADM under Settings, AI.";
+    public const string NotValid = "The access key is not valid. An administrator creates a new one in OADM on the page MCP & Assistant.";
 }

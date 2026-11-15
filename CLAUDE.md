@@ -195,14 +195,14 @@ must never break.
   AI agents do what a user can in the client, through the server's gRPC services in process with an access key
   (`InProcessCalls`); the tools are one registry that knows nothing of MCP (`ToolRegistry`,
   the caller a parameter, never the HTTP request; MCP is a thin adapter: transport, access keys, its own limits); off by
-  default, own port (TCP 5082) with the certificate of the PKI policy MCP server; "MCP" is the feature's UI name (Settings
-  card AI, section MCP); access keys only by administrators there, each an identity of its own with a name, a role, its
+  default, own port (TCP 5082) with the certificate of the PKI policy MCP server; "MCP" is the feature's UI name (rail
+  page MCP & Assistant, card MCP); access keys only by administrators there, each an identity of its own with a name, a role, its
   devices (all or one group) and an end, audit user and task owner "MCP <name>", stored only as SHA-256, never a session;
   every change is preview then run; never all devices in a result (pages with the total and a sort-key cursor, logs with
   `more` instead of a total, answers at most 32 KB); no secrets over MCP; rights and settings GUI only.
 - **[Assistant](docs/spec/assistant.md)**: a chat with an AI model in the client's side panel (title bar button); the loop
   runs on the server with the tool registry as the signed-in user; the model only reads and previews, a person presses Run;
-  nothing kept; pictures reach the provider only with an administrator's setting; off by default, set up on the card AI.
+  nothing kept; pictures reach the provider only with an administrator's setting; off by default, set up on the page MCP & Assistant.
 - **[Load test](docs/spec/load-test.md)** (core plugin `oadm.load-test`, off by default): a load test of the chosen
   cameras and the network to the server, at most 1,000 camera streams per check in batches of at most 200; the exposure
   is the only write and always goes back.

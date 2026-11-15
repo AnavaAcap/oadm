@@ -878,20 +878,18 @@ public sealed class AssistantTests
         var outDir = Environment.GetEnvironmentVariable("OADM_SCREENSHOT_DIR");
         var done = await HeadlessSession.Shared.Dispatch(async () =>
         {
-            foreach (var (admin, name) in new[] { (true, "client-page-settings-ai-assistant.png"), (false, "client-page-settings-ai-assistant-operator.png") })
+            foreach (var (admin, name) in new[] { (true, "client-page-ai-assistant.png"), (false, "client-page-ai-assistant-operator.png") })
             {
                 var api = new FakeOadmApi(TimeSpan.FromMilliseconds(5));
                 using var f = new DevicesFixture(api);
                 using var connection = new ServerConnection(f.Api, f.Store, f.Tasks, f.Ui, NullLogger<ServerConnection>.Instance);
                 var session = Session(admin);
                 var card = new AiAgentsViewModel(api, Substitute.For<IDialogService>(), session);
-                var settings = new SettingsViewModel(f.Api, connection, NullLogger<SettingsViewModel>.Instance, session, aiAgents: card);
-                await settings.LoadAsync();
-                var window = new Window { Width = 1520, Height = 1700, Content = new SettingsView { DataContext = settings, Margin = new Avalonia.Thickness(24) } };
+                await card.LoadAsync();
+                var window = new Window { Width = 1520, Height = 1700, Content = new AiPageView { DataContext = card, Margin = new Avalonia.Thickness(24) } };
                 window.Show();
                 Pump();
-                var view = Assert.Single(window.GetVisualDescendants().OfType<AiAgentsCardView>(), c => c.IsEffectivelyVisible);
-                view.GetVisualDescendants().OfType<CollapsibleCard>().Single().IsExpanded = true;
+                var view = Assert.Single(window.GetVisualDescendants().OfType<AiPageView>(), c => c.IsEffectivelyVisible);
                 Pump();
                 Assert.True(view.FindControl<Control>("AssistantSection")!.IsEffectivelyVisible);
                 Assert.Equal(admin, view.FindControl<ComboBox>("AssistantProvider")!.IsEffectivelyVisible);
@@ -909,7 +907,7 @@ public sealed class AssistantTests
                     Assert.Contains(AssistantTexts.LimitRange, limit.GetVisualDescendants().OfType<TextBlock>().Where(t => t.IsEffectivelyVisible).Select(t => t.Text));
                     view.FindControl<Control>("AssistantSection")!.BringIntoView();
                     Pump();
-                    Save(window, outDir, "client-page-settings-ai-assistant-errors.png");
+                    Save(window, outDir, "client-page-ai-assistant-errors.png");
                     card.Assistant.Provider = AssistantProvider.Anthropic;
                     card.Assistant.Address = "";
                     card.Assistant.DailyLimit = "2,000,000";
