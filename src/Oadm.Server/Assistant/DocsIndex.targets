@@ -1,0 +1,122 @@
+<Project>
+
+  <!-- The search index of oadm_docs_search (docs/spec/assistant.md "Questions about OADM"): the user docs of the website (Get
+       started, Devices, Sites, Device tasks, Plugins, Administration; never the developer pages) as one small JSON file in the
+       server's resources: per page its title, its address on oadm.app and its text without MDX imports, components and images. -->
+  <PropertyGroup>
+    <OadmDocsRoot>$([MSBuild]::NormalizeDirectory('$(MSBuildThisFileDirectory)', '..', '..', '..', 'website', 'src', 'content', 'docs'))</OadmDocsRoot>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <OadmDocsPage Include="$(OadmDocsRoot)start/**/*.md;$(OadmDocsRoot)start/**/*.mdx" />
+    <OadmDocsPage Include="$(OadmDocsRoot)devices/**/*.md;$(OadmDocsRoot)devices/**/*.mdx" />
+    <OadmDocsPage Include="$(OadmDocsRoot)sites/**/*.md;$(OadmDocsRoot)sites/**/*.mdx" />
+    <OadmDocsPage Include="$(OadmDocsRoot)tasks/**/*.md;$(OadmDocsRoot)tasks/**/*.mdx" />
+    <OadmDocsPage Include="$(OadmDocsRoot)tools/**/*.md;$(OadmDocsRoot)tools/**/*.mdx" />
+    <OadmDocsPage Include="$(OadmDocsRoot)admin/**/*.md;$(OadmDocsRoot)admin/**/*.mdx" />
+  </ItemGroup>
+
+  <UsingTask TaskName="OadmWriteDocsIndex" TaskFactory="RoslynCodeTaskFactory" AssemblyFile="$(MSBuildToolsPath)\Microsoft.Build.Tasks.Core.dll">
+    <ParameterGroup>
+      <Root ParameterType="System.String" Required="true" />
+      <Pages ParameterType="Microsoft.Build.Framework.ITaskItem[]" Required="true" />
+      <Output ParameterType="System.String" Required="true" />
+    </ParameterGroup>
+    <Task>
+      <Using Namespace="System" />
+      <Using Namespace="System.IO" />
+      <Using Namespace="System.Linq" />
+      <Using Namespace="System.Text" />
+      <Using Namespace="System.Text.RegularExpressions" />
+      <Code Type="Fragment" Language="cs"><![CDATA[
+        Func<string, string> esc = text =>
+        {
+            var sb = new StringBuilder();
+            foreach (var c in text)
+            {
+                switch (c)
+                {
+                    case '"': sb.Append("\\\""); break;
+                    case '\\': sb.Append("\\\\"); break;
+                    case '\n': sb.Append("\\n"); break;
+                    case '\t': sb.Append(' '); break;
+                    case '\r': break;
+                    default:
+                        if (c < ' ') { sb.Append(' '); } else { sb.Append(c); }
+                        break;
+                }
+            }
+            return sb.ToString();
+        };
+        var root = Path.GetFullPath(Root);
+        var json = new StringBuilder("[");
+        var count = 0;
+        foreach (var page in Pages.Select(p => Path.GetFullPath(p.ItemSpec)).Distinct().OrderBy(p => p, StringComparer.Ordinal))
+        {
+            var text = File.ReadAllText(page).Replace("\r\n", "\n");
+            var title = string.Empty;
+            if (text.StartsWith("---\n"))
+            {
+                var end = text.IndexOf("\n---", 4, StringComparison.Ordinal);
+                if (end > 0)
+                {
+                    var front = text.Substring(4, end - 4);
+                    var match = Regex.Match(front, "^title:\\s*(.+)$", RegexOptions.Multiline);
+                    if (match.Success) { title = match.Groups[1].Value.Trim().Trim('"', '\''); }
+                    text = text.Substring(Math.Min(text.Length, end + 4));
+                }
+            }
+
+            text = Regex.Replace(text, "^(import|export) .*$", string.Empty, RegexOptions.Multiline);
+            text = Regex.Replace(text, "\\{/\\*.*?\\*/\\}", string.Empty, RegexOptions.Singleline);
+            text = Regex.Replace(text, "<!--.*?-->", string.Empty, RegexOptions.Singleline);
+            text = Regex.Replace(text, "!\\[[^\\]]*\\]\\([^)]*\\)", string.Empty);
+            text = Regex.Replace(text, "\\[([^\\]]*)\\]\\([^)]*\\)", "$1");
+            text = Regex.Replace(text, "</?[A-Za-z][^>]*>", string.Empty);
+            text = Regex.Replace(text, "^:::.*$", string.Empty, RegexOptions.Multiline);
+            text = Regex.Replace(text, "[ \\t]+", " ");
+            text = Regex.Replace(text, " *\\n *", "\n");
+            text = Regex.Replace(text, "\\n{3,}", "\n\n").Trim();
+            var relative = page.Substring(root.Length).Replace('\\', '/').TrimStart('/');
+            relative = relative.Substring(0, relative.LastIndexOf('.'));
+            if (relative.EndsWith("/index", StringComparison.Ordinal)) { relative = relative.Substring(0, relative.Length - "/index".Length); }
+            json.Append(count++ == 0 ? "\n" : ",\n");
+            json.Append("{\"t\":\"").Append(esc(title)).Append("\",\"p\":\"").Append(esc(relative.ToLowerInvariant())).Append("\",\"x\":\"").Append(esc(text)).Append("\"}");
+        }
+
+        json.Append("\n]\n");
+        if (count == 0)
+        {
+            Log.LogError("No user docs found under " + root + " for the assistant's docs search.");
+            return false;
+        }
+
+        Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(Output)));
+        var content = json.ToString();
+        if (!File.Exists(Output) || File.ReadAllText(Output) != content)
+        {
+            File.WriteAllText(Output, content, new UTF8Encoding(false));
+        }
+      ]]></Code>
+    </Task>
+  </UsingTask>
+
+  <!-- The intermediate folder is known only once the SDK's targets set it. -->
+  <Target Name="OadmDocsIndexPath">
+    <PropertyGroup>
+      <OadmDocsIndexFile>$([System.IO.Path]::Combine('$(MSBuildProjectDirectory)', '$(IntermediateOutputPath)', 'docs-index.json'))</OadmDocsIndexFile>
+    </PropertyGroup>
+  </Target>
+
+  <Target Name="OadmDocsIndex" DependsOnTargets="OadmDocsIndexPath" Inputs="@(OadmDocsPage);$(MSBuildThisFileFullPath)" Outputs="$(OadmDocsIndexFile)">
+    <OadmWriteDocsIndex Root="$(OadmDocsRoot)" Pages="@(OadmDocsPage)" Output="$(OadmDocsIndexFile)" />
+  </Target>
+
+  <Target Name="OadmDocsIndexResource" BeforeTargets="AssignTargetPaths" DependsOnTargets="OadmDocsIndex">
+    <ItemGroup>
+      <EmbeddedResource Include="$(OadmDocsIndexFile)" LogicalName="Oadm.Server.Assistant.docs-index.json" />
+      <FileWrites Include="$(OadmDocsIndexFile)" />
+    </ItemGroup>
+  </Target>
+
+</Project>

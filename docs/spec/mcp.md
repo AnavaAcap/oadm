@@ -39,9 +39,9 @@ host change.
 
 ## Tools and MCP
 
-The tools do not depend on MCP: a later built-in assistant (a chat window of the client that runs on the server against a
-hosted or local model) calls the same tools in process, with the same `oadm_*` names, schemas, device filter,
-preview/run handles and caller rules.
+The tools do not depend on MCP: the built-in assistant (`docs/spec/assistant.md`, a chat panel of the client that runs on
+the server against a hosted or local model) calls the same tools in process, with the same `oadm_*` names, schemas, device
+filter, preview/run handles and caller rules.
 
 - **One tool registry** in the server (`src/Oadm.Server/Tools/`, `ToolRegistry`): every tool's descriptor (name, title,
   description, read only or change, starts tasks), its input and output schemas, its permission (the gRPC methods it calls,
@@ -51,7 +51,7 @@ preview/run handles and caller rules.
   access key itself), the key cursors and handles are bound to, and what the channel tells of itself (its access key and
   its own limits, for `oadm_server_info`). Nothing comes from the HTTP request; an in-process gRPC call carries only the
   caller's address. The registry checks only each tool's own rules (`AccessPolicy` of its methods, its gate); a channel adds
-  no permission of its own (the assistant planned later gets its own rule).
+  no permission of its own (the assistant's chat needs "Use the assistant" on its gRPC methods, never on a tool).
 - **MCP is a thin adapter** (`src/Oadm.Server/Mcp/`): the transport and its checks, access keys (which make the
   `ToolCaller`), its own limits (calls per second, calls at once, changes per minute, per key and for the port), the mapping to `tools/list` and
   `tools/call` (`McpToolAdapter`, also an image result as MCP image content), the file links and the skill resources.
@@ -152,7 +152,11 @@ Every tool that works on devices takes one **device filter**, resolved on the se
 ```
 
 All fields optional and combined with AND; an empty filter means every device the caller sees: a list of them comes page by
-page, every page with the total and a cursor.
+page, every page with the total and a cursor. `"selection": true` means the devices the user selected in the client's
+device grid (`ToolCaller.Selection`, sent by the assistant with every message and cut to the caller's view; with `ids`
+as well, the ids that are both). The registry applies it after the schema check (`SelectionTools.Apply`); nothing
+selected is a refusal ("No devices are selected. Select them in the device list first."), never every device. Over MCP
+nothing is selected.
 
 - `oadm_server_info`: version, who calls ("MCP <key name>"), role, the permissions, the limits, the device count. The first call.
 - `oadm_devices_summary(filter, group_by)`: counts by status, model, AXIS OS version, site, tag or category (at most 50 groups,
@@ -162,6 +166,8 @@ page, every page with the total and a cursor.
   UPnP name are separate fields and the search matches each. The cursor is the last row's sort key and id, bound to the key
   and the search, so a device added, removed or changed elsewhere never moves the rows between pages. Truncated answers say
   how to narrow ("312 more. Add a filter, e.g. site or model.").
+- `oadm_selection(fields, cursor, limit)`: the selected devices as pages of `oadm_devices_search` rows; over MCP an empty
+  page with a note.
 - `oadm_devices_get(device_id)`: one device with its details (the client's device details, no credentials).
 - `oadm_devices_snapshot(device_id)`: one JPEG of the camera as image content (Live view permission, at most 1280 px wide).
 - Refresh, Remove, Set credentials (by stored credential name), Add devices (Network range, Add manually, the waiting
@@ -189,7 +195,8 @@ Each a few tools with the same rules (summary or search first, preview/run for c
 (results, checks), event rules (the catalog of events and actions `oadm_rules_catalog`, list, get, create, change,
 delete, the event log), logs (server log search with `since`, `level`, `text`, at most 200 lines; audit log), files
 (`oadm_files_upload_link`, list, delete), settings (read only), PKI policies (read only, `oadm_pki_policies`, a tool of
-the PKI plugin).
+the PKI plugin), the user docs (`oadm_docs_search(query)`: at most 5 pages of oadm.app with title, address and the best
+passage, from the index the server is built with, `Assistant/DocsIndex`; no gRPC method, so every caller has it).
 
 ### Plugins
 

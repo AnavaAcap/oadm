@@ -28,7 +28,7 @@ public sealed partial class McpToolTests
         "oadm_devices_summary", "oadm_files_delete_preview", "oadm_files_delete_run", "oadm_files_list",
         "oadm_files_upload_link", "oadm_logs_audit", "oadm_logs_search", "oadm_server_info", "oadm_settings_get",
         "oadm_task_preview", "oadm_task_run", "oadm_tasks_cancel_preview", "oadm_tasks_cancel_run", "oadm_tasks_catalog",
-        "oadm_tasks_get", "oadm_tasks_list",
+        "oadm_tasks_get", "oadm_tasks_list", "oadm_selection", "oadm_docs_search",
     ];
 
     /// <summary>The tools of the areas stage 3 (tags, sites, compliance, event rules, the event log): <see cref="McpAreaToolTests"/>.</summary>

@@ -362,6 +362,7 @@ internal static class TaskRunTools
         var request = new Proto.RunTaskRequest { PluginId = run.PluginId, PayloadJson = run.PayloadJson ?? string.Empty };
         request.DeviceIds.AddRange(run.DeviceIds);
         var reply = await call.CallAsync<TaskGrpcService, Proto.RunTaskRequest, Proto.RunTaskReply>(RunPath, request, (s, r, c) => s.Run(r, c)).ConfigureAwait(false);
+        call.TaskIds = [.. reply.TaskIds];
         return new JsonObject { ["batch"] = reply.BatchId, ["tasks"] = reply.TaskIds.Count, ["task_name"] = run.TaskName };
     }
 
