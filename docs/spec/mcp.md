@@ -773,8 +773,9 @@ The website gets a user page (Administration > MCP server, `admin/mcp-server`, n
     devices skips them all; a setting or action parameter with a secret name (pass, secret, community) is sent empty and is a slot of
     the secret channel (`setting_<i>`, `rule_<i>_parameter_<j>`, "password for <name>", at most 8); a device password
     parameter whose name is no secret name is skipped on the device), **Create
-    configuration file** and **Export configuration** (read-only tasks; the file is the task's result in its log: name,
-    size, SHA-256, then the text in parts; download links follow, `TODO(download-link)`), **Import configuration** (one
+    configuration file** and **Export configuration** (read-only tasks; the file is the task's result file, fetched with
+    `oadm_files_download_link` and `task_id` or the assistant's file card; the log has its name, size and SHA-256; done,
+    no longer an open point), **Import configuration** (one
     `.json` from an upload link for every device of its model, no ZIP; "Import connection settings" and the lock-out
     warning for the area `connection`; the plan reads the uploaded file only).
   - Edge storage (page task `oadm.edge-storage.task`): check, repair, retention, format, encryption off; format and

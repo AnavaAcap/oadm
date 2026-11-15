@@ -257,6 +257,24 @@ internal sealed class RecordingContext : ITaskExecutionContext
     public void ReportWarning(string message) => Warnings.Add(message);
 
     public void Log(TaskLogLevel level, string message) => Logs.Add((level, message));
+
+    /// <summary>False: a host that keeps no result files (an older one).</summary>
+    public bool KeepsResultFiles { get; init; } = true;
+
+    /// <summary>The result file the task kept last; null before any.</summary>
+    public (string Name, string ContentType, byte[] Bytes)? ResultFile { get; private set; }
+
+    public async Task SaveResultFileAsync(string fileName, string contentType, Stream content, CancellationToken ct)
+    {
+        if (!KeepsResultFiles)
+        {
+            throw new NotSupportedException("This host keeps no result files.");
+        }
+
+        using var copy = new MemoryStream();
+        await content.CopyToAsync(copy, ct);
+        ResultFile = (fileName, contentType, copy.ToArray());
+    }
 }
 
 internal sealed class QueryContext(IVapixClient vapix) : ITaskQueryContext

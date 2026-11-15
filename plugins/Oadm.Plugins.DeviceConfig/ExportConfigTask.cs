@@ -79,7 +79,7 @@ public sealed class ExportConfigTask : ITaskPlugin, ITaskPluginQuery
 
     /// <summary>
     /// Read only (the dialog reads through <see cref="DeviceConfigIds.ExportQuery"/> instead): the device's export, unchanged,
-    /// as the task's result in its log (<see cref="TaskFileResult"/>; TODO(download-link)).
+    /// as the task's result file (<see cref="TaskFileResult"/>).
     /// </summary>
     public async Task ExecuteAsync(ITaskExecutionContext ctx, IDeviceInfo device, string? payloadJson, CancellationToken ct)
     {
@@ -112,7 +112,7 @@ public sealed class ExportConfigTask : ITaskPlugin, ITaskPluginQuery
             var text = await ConfigApi.ExportAsync(ctx.Vapix, ct).ConfigureAwait(false);
             var bytes = System.Text.Encoding.UTF8.GetBytes(text);
             var name = ConfigFileNames.ForDevice(device.Address, device.Serial, device.Model);
-            TaskFileResult.Log(ctx, name, bytes);
+            await TaskFileResult.SaveAsync(ctx, name, bytes, ct).ConfigureAwait(false);
             step.Complete(TaskFileResult.Summary(name, bytes.Length));
         }
     }
