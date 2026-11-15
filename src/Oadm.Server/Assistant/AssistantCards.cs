@@ -401,14 +401,14 @@ internal static class AssistantCards
             case "oadm_mcp_set_preview":
             case "oadm_assistant_settings_preview":
                 var title = preview.Name == "oadm_mcp_set_preview" ? "MCP server" : "Assistant";
-                if (answer["now"] is JsonObject before && answer["after"] is JsonObject after)
+                if (answer["now"] is JsonObject now && answer["after"] is JsonObject after)
                 {
-                    foreach (var (name, value) in after.Where(p => !JsonNode.DeepEquals(p.Value, before[p.Key])))
+                    foreach (var (name, value) in after.Where(p => !JsonNode.DeepEquals(p.Value, now[p.Key])))
                     {
-                        Add(details, name == "has_api_key" ? "API key" : Label(name), name == "has_api_key" ? (Flag(value) == true ? "a new one, entered here" : "none") : Arrow(Plain(before[name]), Plain(value)));
+                        Add(details, name == "has_api_key" ? "API key" : Label(name), name == "has_api_key" ? (Flag(value) == true ? "a new one, entered here" : "none") : Arrow(Plain(now[name]), Plain(value)));
                     }
 
-                    if (Flag(before["enabled"]) == true && Flag(after["enabled"]) == false)
+                    if (Flag(now["enabled"]) == true && Flag(after["enabled"]) == false)
                     {
                         card.Destructive = true; // Turn off
                         Add(details, "Turns off", title);
