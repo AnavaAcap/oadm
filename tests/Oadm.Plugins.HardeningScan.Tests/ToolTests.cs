@@ -25,7 +25,7 @@ public sealed class ToolTests(ITestOutputHelper output)
         await plugin.StartAsync(ctx, CancellationToken.None);
         ICorePlugin core = plugin;
         Assert.Equal("hardening", core.ToolArea);
-        Assert.Equal("results", Assert.Single(core.Tools).Name);
+        Assert.Equal(["results", "scan_start", "scan_stop", "detail"], core.Tools.Select(t => t.Name));
         Assert.Equal(UserRole.Operator, core.RequiredRole(HardeningTools.Results.Method));
         Assert.Equal(PermissionKeys.Show, core.RequiredPermission(HardeningTools.Results.Method)); // starting a scan stays "scan"
 
@@ -133,8 +133,8 @@ public sealed class ToolTests(ITestOutputHelper output)
         Assert.NotEmpty(ctx.PluginSettings.Values); // the scan stored its results: there is something to compare
 
         ICorePlugin core = plugin;
-        Assert.All(core.Tools, t => Assert.False(t.Changes)); // no change tool here: every tool is a read
-        foreach (var tool in core.Tools)
+        Assert.All(core.Tools, t => Assert.False(t.Changes)); // no change tool here: the page starts a scan without asking
+        foreach (var tool in core.Tools.Where(t => t.Name is not ("scan_start" or "scan_stop"))) // the page's starts: PageToolTests
         {
             Assert.NotNull(await ctx.InvokeAsync(plugin, admin, tool.Method, null));
             Assert.NotNull(await ctx.InvokeAsync(plugin, admin, tool.Method, """{"level":"basic","limit":1}"""));
