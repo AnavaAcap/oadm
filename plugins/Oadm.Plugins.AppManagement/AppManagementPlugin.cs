@@ -42,6 +42,12 @@ public sealed class AppManagementPlugin : ICorePlugin, IAsyncDisposable
     /// <summary>The running service (tests).</summary>
     internal AppReadService? Service => _service;
 
+    /// <summary>The running service; refuses a call while the plugin is stopped.</summary>
+    internal AppReadService RunningService => _service ?? throw new InvalidOperationException(NotRunning);
+
+    /// <summary>The jobs of the users' reads.</summary>
+    internal IPluginJobs Jobs => _ctx?.Jobs ?? throw new InvalidOperationException("This OADM server cannot read applications.");
+
     public async Task StartAsync(ICorePluginContext ctx, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(ctx);
@@ -70,10 +76,13 @@ public sealed class AppManagementPlugin : ICorePlugin, IAsyncDisposable
         new(AppManagementInfo.ViewPermission, "View applications", "See the applications of the chosen devices. Changes need the rights of Applications (ACAP)."),
     ];
 
-    /// <summary>The applications tool (docs/spec/mcp.md "Plugins"): what the page read last in the caller's session; it reads no device.</summary>
-    public IReadOnlyList<PluginTool> Tools => AppTools.All;
+    /// <summary>
+    /// The tools (docs/spec/mcp.md "Plugins"): the applications the page read last in the caller's session (it reads no device),
+    /// and the page's Read devices, Show log and Settings read with the rights of their page methods.
+    /// </summary>
+    public IReadOnlyList<PluginTool> Tools { get; } = [.. AppTools.All, .. AppPageTools.Set.Tools];
 
-    /// <summary>Every method needs "view"; the actions also need the Applications plugin's task rights (checked by the run).</summary>
+    /// <summary>Every method needs "view" (a tool too); the actions also need the Applications plugin's task rights (checked by the run).</summary>
     public string? RequiredPermission(string method) => AppManagementInfo.ViewPermission;
 
     /// <summary>A user's call: the chosen devices must be the caller's; the rows belong to the caller's login session.</summary>
@@ -81,7 +90,12 @@ public sealed class AppManagementPlugin : ICorePlugin, IAsyncDisposable
     {
         ArgumentNullException.ThrowIfNull(caller);
         var service = _service ?? throw new InvalidOperationException(NotRunning);
-        var jobs = _ctx?.Jobs ?? throw new InvalidOperationException("This OADM server cannot read applications.");
+        var jobs = Jobs;
+        if (AppPageTools.Set.Handles(method))
+        {
+            return await AppPageTools.Set.InvokeAsync(this, caller, method, payloadJson, ct).ConfigureAwait(false);
+        }
+
         if (method == AppTools.Applications.Method)
         {
             var (rows, state) = await service.SnapshotAsync(caller, ct).ConfigureAwait(false);

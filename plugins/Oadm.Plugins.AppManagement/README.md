@@ -54,8 +54,16 @@ callers with `task:oadm.acap:settings`, travel only in the task payload and are 
 The read-only tool `oadm_app_management_applications` (`Tools/AppTools.cs`, docs/spec/mcp.md "Plugins"): the rows the
 page read last in the caller's login session (`AppReadService.SnapshotAsync`: no device read, no new session), of the
 devices the caller sees now; a summary per application (at most 30), then one row per device and application, paged.
-An MCP access key has its own session, so it sees nothing until a page read; the assistant has the user's. Tests:
+An MCP access key has its own session, so it sees nothing until it reads; the assistant has the user's. Tests:
 `ToolTests`.
+
+The page's reads as tools (`Tools/AppPageTools.cs`, `PluginPageTools`, decision 2026-11-15), each with "View applications"
+like its page method, one tool each (the page reads without asking): `oadm_app_management_read` (`read`: the host's device
+filter, at most 500, or `all_devices`; fills the caller's session), `oadm_app_management_log` (`getLog`: one device and
+application, the newest lines, at most 200 of 300 characters within about 24 KB) and `oadm_app_management_settings`
+(`getSettings`: the chosen devices, per setting its most common values with device counts, at most 40 settings and 10
+values). Values only with the right to change settings (the page's rule), never of a password or a setting whose name
+names a key, password, token or secret. Installs and setting changes stay `oadm.acap` tasks. Tests: `PageToolTests`.
 
 ## Tests
 
