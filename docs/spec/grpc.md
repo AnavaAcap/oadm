@@ -403,7 +403,8 @@ used again.
   `Stop` ends the answer that streams (`done.stopped`), `End` forgets the chat, both always succeed. `Run` (the chat's
   preview handle, once): the run tool of the preview as the caller; NOT_FOUND "This preview has ended. Ask again." for a
   handle of another chat, session or user, one that ran or ended; FAILED_PRECONDITION with the run's refusal; the reply
-  names the batch and the first 10,000 task ids. `GetSettings` (signed in: the settings without the key and without a
+  names the batch and the first 10,000 task ids, and `files`: the files the run offers (Back up now, decision 2026-11-15),
+  saved with `Download` like a tool answer's. `GetSettings` (signed in: the settings without the key and without a
   model, `has_api_key`, the tokens of today, the status On or Off). `SetSettings` and `Test` (Admin,
   all devices; INVALID_ARGUMENT with the trailer `oadm-field` = `provider`, `address`, `api_key`, `daily_limit` or
   `user_daily_limit`; an empty `api_key` keeps the saved one only for the same provider and address, else `api_key` "Enter the API key."). `SetSettings` is audited "Changed

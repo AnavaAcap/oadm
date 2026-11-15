@@ -818,17 +818,7 @@ public sealed partial class AssistantChats
         var offers = FileOffers(answer).Take(MaxFileCards).ToList();
         foreach (var offer in offers)
         {
-            await emit(new Proto.AssistantEvent
-            {
-                File = new Proto.AssistantFile
-                {
-                    FileRef = Text(offer["file_ref"]) ?? string.Empty,
-                    Name = Text(offer["name"]) ?? string.Empty,
-                    Size = offer["size"] is JsonValue size && size.TryGetValue<long>(out var bytes) ? bytes : -1,
-                    ContentType = Text(offer["content_type"]) ?? string.Empty,
-                    ExpiresUtc = Text(offer["expires"]) ?? string.Empty,
-                },
-            }).ConfigureAwait(false);
+            await emit(new Proto.AssistantEvent { File = FileOf(offer) }).ConfigureAwait(false);
         }
 
         if (offers.Count > 0)
@@ -866,6 +856,16 @@ public sealed partial class AssistantChats
 
         return Result(request, answer);
     }
+
+    /// <summary>The file card of a file reference a tool answer offered.</summary>
+    private static Proto.AssistantFile FileOf(JsonObject offer) => new()
+    {
+        FileRef = Text(offer["file_ref"]) ?? string.Empty,
+        Name = Text(offer["name"]) ?? string.Empty,
+        Size = offer["size"] is JsonValue size && size.TryGetValue<long>(out var bytes) ? bytes : -1,
+        ContentType = Text(offer["content_type"]) ?? string.Empty,
+        ExpiresUtc = Text(offer["expires"]) ?? string.Empty,
+    };
 
     /// <summary>The files a tool answer offers: its fields that are file references, and the references in its lists (one level deep).</summary>
     private static IEnumerable<JsonObject> FileOffers(JsonObject answer)
@@ -1104,6 +1104,7 @@ public sealed partial class AssistantChats
             TaskCount = Number(answer["tasks"]) ?? result.TaskIds?.Count ?? 0,
         };
         reply.TaskIds.AddRange((result.TaskIds ?? []).Take(AssistantTexts.MaxSelectedDevices));
+        reply.Files.AddRange(FileOffers(answer).Take(MaxFileCards).Select(FileOf)); // a file the run made (Back up now): a file card with Save
         lock (conversation.Gate)
         {
             conversation.Notes.Add("The user pressed Run on a preview of " + runTool + ". The run answered: " + answer.ToJsonString(ToolAnswers.Json));

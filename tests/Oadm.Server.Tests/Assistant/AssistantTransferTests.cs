@@ -103,6 +103,38 @@ public sealed class AssistantTransferTests
         Assert.Equal(2, audit.Count(e => e.Action == AuditActions.FileDownloaded && e.Target == file.Name));
     }
 
+    [Fact]
+    public async Task BackUpNowTakesThePasswordTwiceInTheCardAndItsRunAnswersTheFileCard()
+    {
+        await using var server = await AssistantTestServer.StartAsync(configureServices: services =>
+        {
+            services.AddSingleton(sp => new Oadm.Core.Backup.BackupArchive(sp.GetRequiredService<OadmPaths>()) { Iterations = 1000 });
+        });
+        server.Model.Call(("oadm_backups_create_preview", AssistantTestServer.Args("{}"))).Say("Enter the password twice and press Run.");
+
+        var events = await server.ChatAsync("Back up the server now");
+
+        var card = Assert.Single(events, e => e.KindCase == Proto.AssistantEvent.KindOneofCase.Preview).Preview;
+        Assert.Equal(["password", "password_again"], card.Secrets.Select(s => s.Name));
+        Assert.Equal("1 backup", card.CountText);
+        var run = new Proto.AssistantRunRequest { ConversationId = "chat-1", Handle = card.Handle };
+        run.Secrets["password"] = Canary;
+        run.Secrets["password_again"] = Canary;
+        var reply = await server.Service().RunAsync(run);
+
+        var file = Assert.Single(reply.Files);
+        Assert.EndsWith(".oadmbackup", file.Name, StringComparison.Ordinal);
+        var bytes = await DownloadAsync(server.Service(), "chat-1", file.FileRef);
+        Assert.Equal("OADMBACKUP", Encoding.ASCII.GetString(bytes, 0, 10));
+        Assert.Contains((await server.Host.Audit.ListAsync(new Proto.ListAuditRequest())).Entries, e => e.Action == AuditActions.BackupCreated);
+        foreach (var request in server.Model.Requests)
+        {
+            Assert.DoesNotContain(Canary, request.AllText(), StringComparison.Ordinal);
+        }
+
+        Assert.DoesNotContain(Canary, McpSecretTests.ReadLogs(server.Host.Get<OadmPaths>().LogsDirectory), StringComparison.Ordinal);
+    }
+
     private static async Task<byte[]> DownloadAsync(Proto.AssistantService.AssistantServiceClient client, string chat, string fileRef)
     {
         using var call = client.Download(new Proto.AssistantDownloadRequest { ConversationId = chat, FileRef = fileRef });

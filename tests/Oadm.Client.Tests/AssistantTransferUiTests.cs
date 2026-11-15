@@ -114,4 +114,60 @@ public sealed class AssistantTransferUiTests
         }, CancellationToken.None);
         Assert.True(done);
     }
+
+    [Fact]
+    public async Task BackUpNowTakesThePasswordTwiceInTheCardAndItsRunShowsTheFileBelowTheCard()
+    {
+        var outDir = Environment.GetEnvironmentVariable("OADM_SCREENSHOT_DIR");
+        var done = await HeadlessSession.Shared.Dispatch(async () =>
+        {
+            var api = new FakeOadmApi(TimeSpan.FromMilliseconds(5), seedSampleData: false);
+            using var f = new DevicesFixture(api);
+            var panel = await PanelAsync(api, f);
+            var window = PanelWindow(panel);
+            window.Show();
+            Pump();
+
+            var handle = api.AddAssistantPreview([], "password", "password_again");
+            var reference = api.AddAssistantFile("oadm-backup-2026-11-15-2040.oadmbackup", "OADMBACKUP"u8.ToArray());
+            api.AssistantRunFiles[handle] = new AssistantFile { FileRef = reference, Name = "oadm-backup-2026-11-15-2040.oadmbackup", Size = 10, ContentType = "application/octet-stream" };
+            var card = new AssistantPreviewCard
+            {
+                Handle = handle, Title = "Back up now", CountText = "1 backup",
+                Details = { "Makes: a backup of this server, encrypted with the password you enter here" },
+                Warnings = { "Keep the password: the backup cannot be restored without it." },
+                Secrets =
+                {
+                    new AssistantSecretField { Name = "password", Label = "backup password" },
+                    new AssistantSecretField { Name = "password_again", Label = "backup password again" },
+                },
+            };
+            api.AssistantScript = (_, ct) => Script([new AssistantEvent { Preview = card }, new AssistantEvent { Text = "Enter the password twice and press **Run**." }], ct);
+            panel.Draft = "Back up the server now";
+            await panel.SendCommand.ExecuteAsync(null);
+            Pump();
+            var preview = panel.Items.OfType<AssistantPreviewItem>().Single();
+            Assert.Equal(2, preview.Secrets.Count);
+            foreach (var secret in preview.Secrets)
+            {
+                secret.Value = Typed;
+            }
+
+            Pump();
+            Save(window, outDir, "assistant-backup-card.png");
+            await panel.RunPreviewCommand.ExecuteAsync(preview);
+            Pump();
+
+            // The run's file is a file card right below its preview card; both values went with Run only.
+            var run = Assert.Single(api.AssistantSecretRuns);
+            Assert.Equal((Typed, Typed), (run.Secrets["password"], run.Secrets["password_again"]));
+            var file = panel.Items.OfType<AssistantFileItem>().Single();
+            Assert.Equal(panel.Items.IndexOf(preview) + 1, panel.Items.IndexOf(file));
+            Assert.Contains("oadm-backup-2026-11-15-2040.oadmbackup", VisibleTexts(window));
+            Save(window, outDir, "assistant-backup-run-file.png");
+            window.Close();
+            return true;
+        }, CancellationToken.None);
+        Assert.True(done);
+    }
 }

@@ -141,7 +141,8 @@ shows the chat.
   shows below that field and the card stays. The values are cleared once Run went to the server or the card was
   cancelled, and the fields hide. The model gets `needs_secrets` (the names) and a note that the user types them into the
   card; never `secret_links`.
-- **File cards** (`AssistantEvent.file`): a file a tool answer offered (a device list or compliance CSV, a task's result
+- **File cards** (`AssistantEvent.file`, and `AssistantRunReply.files` below the card a Run answered, such as Back up now):
+  a file a tool answer offered (a device list or compliance CSV, a task's result
   file, a plugin's export, report or certificate) is a result card with the file icon, its name and size and **Save**
   (command button, download icon). Save asks where with the save picker, then fetches the file through
   `AssistantService.Download` (the user's rights of then, audited "Downloaded file"; "Saving the file", then "Saved." or

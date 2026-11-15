@@ -187,11 +187,22 @@ public sealed partial class FakeOadmApi
         }
 
         var reply = new AssistantRunReply { BatchId = Guid.NewGuid().ToString(), TaskCount = ids.Count };
+        lock (_gate)
+        {
+            if (AssistantRunFiles.TryGetValue(handle, out var file))
+            {
+                reply.Files.Add(file); // a run that makes a file (Back up now)
+            }
+        }
+
         reply.TaskIds.AddRange(ids);
         return reply;
     }
 
     private readonly HashSet<string> _assistantRan = new(StringComparer.Ordinal);
+
+    /// <summary>The file a preview's Run offers, by handle (tests: Back up now).</summary>
+    public Dictionary<string, AssistantFile> AssistantRunFiles { get; } = new(StringComparer.Ordinal);
 
     /// <summary>The secrets a preview's Run needs, by handle (tests: <see cref="AddAssistantPreview(IEnumerable{string}, string[])"/>).</summary>
     private readonly Dictionary<string, string[]> _assistantSecrets = new(StringComparer.Ordinal);

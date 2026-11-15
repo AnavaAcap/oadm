@@ -966,6 +966,20 @@ public sealed partial class AssistantPanelViewModel : ObservableObject
             var reply = await _api.AssistantRunAsync(request, CancellationToken.None).ConfigureAwait(true);
             preview.ClearSecrets();
             preview.Follow([.. reply.TaskIds], _tasks);
+            var at = Items.IndexOf(preview);
+            foreach (var file in reply.Files)
+            {
+                // A file the run made (Back up now): a file card with Save right below its preview card.
+                var card = new AssistantFileItem(file);
+                if (at >= 0)
+                {
+                    Items.Insert(++at, card);
+                }
+                else
+                {
+                    Add(card);
+                }
+            }
         }
         catch (RpcException ex) when (preview.HasSecrets && ex.StatusCode is StatusCode.FailedPrecondition or StatusCode.InvalidArgument
             && ex.Trailers.GetValue(Contracts.Assistant.AssistantTexts.FieldTrailer) is { Length: > 0 } field)
