@@ -16,8 +16,11 @@ shows the chat.
 2. **A person presses Run.** A change is always a preview the model asks for; the panel shows the plan as a card (what,
    how many devices, the skipped ones with their reasons, the warnings) with a **Run** button. Only the user's click runs
    it (the run tool with the preview's handle). The model never calls a run tool: run tools are never offered to it.
-3. **No secrets.** The provider's API key is stored encrypted with the master key (like every secret), never sent to a
-   client, never logged. No tool takes or returns a password, key or token (`docs/spec/mcp.md` rule 4).
+3. **No secrets through the model** (decision 2026-11-15). The provider's API key is stored encrypted with the master key
+   (like every secret), never sent to a client, never logged. No tool returns a secret, and no secret ever goes through
+   the model (`docs/spec/mcp.md` rule 4): a preview that needs one (a password, a PKCS#12 password, a license key) shows a
+   password field in its card; the value goes from the client with Run straight to the server (`AssistantRunRequest.secrets`)
+   and never into the conversation, the context sent to the provider, the chat's notes, a log line or the audit log.
 4. **Device texts are data.** Names, tags, event texts, log lines, tool answers and file names go to the model as data,
    never as instructions (the system prompt says so, like the skill); a text that tries to give an order never changes
    what a run does, because every run is the user's click on a preview.
@@ -122,6 +125,19 @@ shows the chat.
   files; a rule's name, what it watches and does, where it sends, its problem; the tags added and removed; the files,
   rules or devices deleted or removed; a plugin's preview: its plain fields one level deep), each line at most 200
   characters, at most 12 lines with "+N more". Run is red for a delete or removal (`destructive`).
+- **Secret fields** (decision 2026-11-15, `docs/spec/mcp.md` "Secrets"): a preview whose run needs a secret
+  (`AssistantPreviewCard.secrets`) shows one `ui:PasswordBox` per secret in a `ui:FormField` ("Password") above Cancel and
+  Run; "Enter the password." below the field once it was edited or left empty, Run disabled with that reason as its tooltip
+  while a field is empty. Run sends the values with the handle; the server's refusal of a field ("Enter the password.")
+  shows below that field and the card stays. The values are cleared once Run went to the server or the card was
+  cancelled, and the fields hide. The model gets `needs_secrets` (the names) and a note that the user types them into the
+  card; never `secret_links`.
+- **File cards** (`AssistantEvent.file`): a file a tool answer offered (a device list or compliance CSV, a task's result
+  file, a plugin's export, report or certificate) is a result card with the file icon, its name and size and **Save**
+  (command button, download icon). Save asks where with the save picker, then fetches the file through
+  `AssistantService.Download` (the user's rights of then, audited "Downloaded file"; "Saving the file", then "Saved." or
+  the refusal in the card); a cancelled or failed save leaves no cut file. The model gets the answer and a note that the
+  panel shows the file; it never gets the bytes. At most 5 cards per tool answer. Copy chat names the file.
 - **Pictures**: a camera picture (`oadm_devices_snapshot`) shows in the answer, click to enlarge; never stored.
 - **Tables**: a device list the model got from a tool (`oadm_devices_search`, `oadm_selection`, `oadm_vulnerabilities`)
   shows as a result card "7 devices" with a small table (name, address, model, status) where a click on a row selects
@@ -228,6 +244,11 @@ context.
 - The selection reaches the tools (`oadm_selection`, the `selection` filter) and is cut to the caller's group.
 - Pictures: shown to the client always, sent to the model only with the setting on.
 - No secret in any answer, log line or audit entry (the scan of the MCP tests over the assistant's traffic).
+- Secrets and files (`AssistantTransferTests`): a preview with a secret slot is a card with the field; Run without it is
+  refused with the field named and the card stays; with it the run gets the value once; no request to the fake model, no
+  event, log line or audit entry holds it; a file card's `Download` from the own chat only (another user's session or
+  chat: NOT_FOUND). Client (`AssistantTransferUiTests`, headless screenshots): the field empty (Run disabled with its
+  reason), its error below it, filled, the values sent with Run and cleared, a file card before and after Save.
 - The daily limit with a `FakeTimeProvider` (reset at midnight), per server and per user.
 - `oadm_docs_search` finds a known page.
 - Headless panel tests with screenshots (empty with suggestions, an answer with a table and a picture, a preview card

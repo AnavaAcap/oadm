@@ -21,14 +21,18 @@ host change.
    apply exactly as for the client. A tool never reads stores, `VapixClient` or plugins around that layer.
 2. **No change without a preview.** Every tool that changes something (devices, tags, rules, files, tasks) is two calls:
    a preview that checks all input on the server and returns the plan and a handle, and a run that takes only that
-   handle. Nothing is written by a preview. One exception: `oadm_files_upload_link` hands out a one-time link and writes
+   handle. Nothing is written by a preview (a secret a preview declares is held for its run, never written). One exception: `oadm_files_upload_link` hands out a one-time link and writes
    nothing itself; the file sent to it is the change, and a task that uses the file is again a preview and a run
    (`ToolRegistryTests.PreviewAndRunStayTwoTools` names it as the only exception).
 3. **Never all devices in a result.** Lists return at most 50 rows by default (at most 200), always with the total and a
    cursor; the first answer about devices is a summary (counts), never a list. Logs are the exception: a log list answers
    `more` and a cursor instead of a total (a text or time filter would need a count of the whole log).
-4. **No secrets.** No tool takes or returns a password, private key, license key, access key or token. Stored
-   credentials are used by name; a task that needs a new password is not offered over MCP ("Set the password in OADM.").
+4. **No secret through the model** (decision 2026-11-15). No tool returns a secret, and no secret ever goes through the
+   model; a secret reaches OADM only through the secret channel ("Secrets"): a preview names a slot, the person types the
+   value into a command of their own shell (MCP) or into the preview card (the assistant), and the run reads it once. No
+   tool takes a password, private key, license key, access key or token as an argument. Stored credentials are used by
+   name; a task whose payload has a `[Secret]` is still not offered ("Set the password in OADM.") until its preview
+   declares the slot.
 5. **Least rights.** The tool list shows only what the key may do now (its role and device group, plugins on); a role like
    Viewer gives a look-only agent; a role that may run no task (no `task:` right) lists no task or file tool and is refused
    "Your role may run no task." (`TaskRunTools.NoTaskRight`). An agent can never raise rights: users, roles, device groups, access keys, license, plugins on/off, server
@@ -297,7 +301,8 @@ counts first; decision 2026-11-15 "the agents see everything OADM shows"): `oadm
 with the target as scheme, host and port, `has_password` only, the rules that use them and the connection of a persistent
 type (the first answer of `WatchRecipientStatus`). Not offered: System report (its jobs belong to a user's session and
 hold the devices' configuration), Outputs (an action without state; `oadm_io_ports` shows the outputs), starting reads,
-checks, streams, exports and reports (they stay in the pages). A read's name never ends in `_preview` or `_run`, which name
+checks and streams (they stay in the pages); exports and reports are files ("Files", decision 2026-11-15: the snapshot report is
+a preview and a run of its job, its PDF a file). A read's name never ends in `_preview` or `_run`, which name
 the two halves of a change (the load test's are `checks` and `check`).
 
 ### Not over MCP
@@ -312,8 +317,65 @@ server; Settings changes; backup restore, Delete all tasks, Delete all devices (
 `oadm_files_upload_link(name, size)` answers a one-time HTTPS URL on the MCP port (10 minutes, one file, the file limits
 of `FileService`, PUT with the same Bearer key) and the command for the agent's shell (`curl --cacert oadm-ca.pem -H
 "Authorization: Bearer $OADM_KEY" -T <file> <url>`). The file never passes the model. The upload answers the file id and
-SHA-256, used in a task preview like a file uploaded in the client (`IUploadedFiles`). Downloads (reports, exports; never
-backups) work the same way with a one-time download link.
+SHA-256, used in a task preview like a file uploaded in the client (`IUploadedFiles`).
+
+**Downloads** (decision 2026-11-15; never a backup, a private key or a PKCS#12 file):
+
+- A tool that makes a file answers a **file reference** (`ToolFiles.Offer`: `file_ref`, `name`, `size` or null,
+  `content_type`, `expires`), never the bytes. The reference is bound to the caller (key or session), good for 10 minutes
+  and may make several links (`ToolHandles.AddOffer`/`FindOffer`); the bytes are made only when a link is fetched, through
+  the gRPC download of the area as the caller of then (its rights, device group and audit).
+- `oadm_files_download_link(file_ref | task_id)` (read, signed in; exactly one of both): a one-time `GET /files/<token>`
+  link of the reference, or of a task's result file (`TaskService.GetResultFile`, only the task's owner and
+  administrators), with `name`, `size`, `content_type`, `expires` and the shell command (`curl --cacert oadm-ca.pem -H
+  "Authorization: Bearer $OADM_KEY" -o <name> <url>`). The assistant has no links: a file reference in a tool answer is a
+  file card with Save there (`AssistantEvent.file`, `AssistantService.Download`, docs/spec/assistant.md).
+- **Task result files**: a task keeps one file as its result (SDK `ITaskExecutionContext.SaveResultFileAsync(name, type,
+  stream)`, at most 64 MB; core `TaskResultFiles` in `<datafolder>/task-results`, kept a day or until the server restarts,
+  1 GB for all, the oldest first, deleted with the task; the task log says "Kept the result file <name>."). Any task with
+  a result works without a change of the host: `oadm_tasks_get` answers `result_file` (a reference, or null).
+  `TaskService.DownloadResult` audits the download itself.
+- **Plugin files**: a plugin tool with `PluginTool.ReturnsFile` puts a `PluginToolFile` (one of its downloads,
+  `ICorePluginDownloads`, with its payload) into the answer's `file`; the host replaces it by a reference whose link calls
+  `PluginService.Download` in process as the caller (the download's permission and the plugin's audit).
+- **Producers** (2026-11-15): `oadm_devices_export(filter)` (the device list as CSV, the columns of Export devices the
+  server knows, the permission Export the device list), `oadm_compliance_export(filter)` (the Compliance page's export:
+  device columns, then one column per check that is on), both written at download time from `DeviceService.Search` and
+  `ComplianceService` (`Tools/ExportTools`, the shared `Oadm.Contracts.Text.CsvWriter`); a task's `result_file`;
+  `oadm_recordings_export` (Edge Recording Export, the download `export`), `oadm_snapshot_report_report_preview`/`_run`
+  and `oadm_snapshot_report_report_file(job_id)` (the report PDF of the caller's job, download `downloadReport`),
+  `oadm_pki_certificate_file(id, format)` and `oadm_pki_ca_file(previous_id, format)` (PEM or DER of the certificate only,
+  downloads `downloadCertificate`, `exportPublic`, `exportPrevious`; Administrator), `oadm_hardening_results_csv` (download
+  `resultsCsv`).
+- Every download over a link is audited "Downloaded file" as the caller ("MCP <key name>", or the user from the
+  assistant), once (a source that audits itself, such as `TaskService.DownloadResult`, is not audited twice).
+
+## Secrets
+
+Decision 2026-11-15: a password, a PKCS#12 password, a license key or an SD card passphrase can be set by an agent's user
+without ever passing through the AI model.
+
+- **A preview declares a slot.** After it made its handle, the preview calls `ToolSecretAnswers.Declare(call, answer,
+  handle, runTool, [new ToolSecretSlot("password", "password")])` (`Tools/ToolSecrets.cs`): at most 8 slots, each a name
+  (lower case words with underscores) and a label in lower case ("password", "PKCS#12 password"). The answer gets
+  `needs_secrets` (the names) and, over MCP, `secret_links`: per name a one-time `url` (`PUT /secrets/<token>`), `command`
+  (POSIX shell: asks with `read -rs` and sends with `curl --data-binary @-`), `command_powershell` (PowerShell 7,
+  `Read-Host -MaskInput`) and `expires`. List `ToolSecretAnswers.OutputProperties()` in the preview's output schema.
+- **The person fills it.** MCP: the agent gives the user the command; the user runs it in their own terminal, so the
+  value goes from the keyboard to OADM and the model sees only the command and `{"secret": "password", "set": true}`. The
+  link takes PUT only, with the same access key (another key's link answers like an ended one and stays), once, at most
+  4,096 bytes of UTF-8 (one line end at its end is dropped; more: 413), on the transfer places of `/files/`; audited "Set
+  secret" (the slot's label, "For <run tool title>") as "MCP <key name>", never the value. The assistant: the preview card
+  shows a password field per slot; the value goes with Run (`AssistantRunRequest.secrets`).
+- **The run reads it.** The registry refuses a run whose handle still misses a slot ("Enter the password.", the field
+  `secrets.<name>`) and leaves the handle; otherwise it takes the values once and hands them to the run tool, which reads
+  them with `call.Secret("password")` and never echoes one in an answer, a log line or the audit log.
+- **Held** in server memory only (`ToolSecrets`), encrypted with the master key (AES-256-GCM, the binding key, the handle
+  and the slot as associated data), bound to the caller and the preview's run tool, ended with the handle (10 minutes,
+  `FakeTimeProvider` in the tests), at most 20 previews with slots per caller; zeroed when taken or ended.
+- **First user**: the recipients' password fields (`SaveRecipient`; its tools are built on `feat/agent-host-actions`,
+  whose TODO hook declares the slot `password` in the save preview and reads it in the run as above). The test tool
+  `SecretDemoTools` (tests) shows the whole path over MCP and the assistant.
 
 ## SDK
 
@@ -333,6 +395,10 @@ New default interface members (SDK minor version up, `docs/spec/plugins.md`):
   (`tool.<name>`). Changes get the preview/run pair from the host; the plugin implements `tool.<name>.preview`, which never
   writes. Nothing in the SDK names MCP: a later built-in assistant uses the same tools.
 - `[Secret]` (`SecretAttribute`) on a payload property: a task whose payload has one, anywhere, is not offered over MCP.
+- `ITaskExecutionContext.SaveResultFileAsync(fileName, contentType, content, ct)` and `TaskResultFile.MaxBytes` (64 MB):
+  a task keeps a result file for its user ("Files"); older hosts and system tasks throw `NotSupportedException`.
+- `PluginTool.ReturnsFile` and `PluginToolFile(Method, PayloadJson, FileName, ContentType, Size)`: a plugin tool hands out
+  one of its downloads as a file ("Files"); the JSON names of `PluginToolFile` are fixed.
 
 ## Skill
 
@@ -371,6 +437,12 @@ The website gets a user page (Administration > MCP server, `admin/mcp-server`, n
   tool has a preview; a role without a permission does not list its tools (a Viewer key lists no write tool).
 - Handles: once, 10 minutes (`FakeTimeProvider`), bound to the key; a cursor of another key is refused.
 - No secret in any answer or log (a scan for the test passwords and keys over all tool outputs).
+- Files and secrets (`McpTransferTests`, `AssistantTransferTests`, `McpPluginToolTests`): a task's result file to its owner
+  only (another key's link 404, another user and another group none), once, its size and type, 10 minutes and bound to the
+  caller (`FakeTimeProvider`); the device list CSV only for a role with Export devices; a plugin's file through
+  `PluginService.Download`; a secret through its link once, bound to the key and the preview, 10 minutes, at most 4,096
+  bytes, never in an answer, a log line (Serilog's files) or the audit log, audited "Set secret" as "MCP <key name>"; the
+  assistant's card and its fake model's requests (above).
 - Invalid input of every bundled task's schema gives field errors and starts no task; `TaskService.Run` refuses it too.
 - The same caller sees the same devices over MCP and gRPC (device groups).
 
@@ -508,7 +580,7 @@ The website gets a user page (Administration > MCP server, `admin/mcp-server`, n
   application install warns that the package runs on the devices; `oadm_files_list` (the files this key sent, newest first, 50 a page;
   `FileService.List`) and `oadm_files_delete_preview`/`_run`.
 - **Download links**: `GET /files/<token>` on the MCP port serves a `PlannedDownload`: once, 10 minutes, bound to the key,
-  the same key check as uploads, audited "Downloaded file". No tool hands one out yet;
+  the same key check as uploads, audited "Downloaded file"; `oadm_files_download_link` hands them out ("Files");
   never a backup (backups stay GUI only).
 - **Request body**: at most 1 MB for every request, `/files/` too, until its key passed and its upload link was taken;
   only then `McpFiles.ReceiveAsync` raises the limit to the link's exact size.
@@ -595,6 +667,9 @@ The website gets a user page (Administration > MCP server, `admin/mcp-server`, n
 ## Open points
 
 - Client support for the MCP tasks extension: if it spreads, `oadm_task_run` may answer a task handle instead of polling.
+- Recipients' passwords through the secret channel come with the recipient tools of `feat/agent-host-actions`; tasks with a
+  `[Secret]` payload (Users, Install certificates) stay not offered until their previews declare slots.
+- The client's task details have no Save for a task's result file yet (agents and the assistant have it).
 - Not offered yet: changing recipients, changing compliance checks, turning a rule on or off by itself; the waiting list keeps no
   tags or site for a device an agent puts there.
 - The skills extension is declared without fields; when its schema settles, `McpSkill` may list the skill there too.

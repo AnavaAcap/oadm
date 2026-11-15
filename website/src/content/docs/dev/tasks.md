@@ -254,7 +254,21 @@ public Task<TaskPlan> PlanAsync(string? payloadJson, IReadOnlyList<IDeviceInfo> 
   calls it before every run, also for the client: an invalid payload starts no task. Use it in your dialog too.
 - `PlanAsync` says per device whether the run changes it or why not, from the cached data only (no device request). The
   default uses `CanRun` and `NotSupportedReason`.
-- Mark a password or key with `[Secret]`: such a task is never offered to agents.
+- Mark a password or key with `[Secret]`: such a task is never offered to agents. A secret never goes through an AI
+  model; the host's secret channel takes it from the person (an agent's shell, the assistant's card) and hands it to the run.
+
+### A file as the result
+
+A task that makes a file (an exported configuration, a report) keeps it for the user who started it (SDK 0.13.0):
+
+```csharp
+using var content = new MemoryStream(Encoding.UTF8.GetBytes(export));
+await ctx.SaveResultFileAsync("config-" + device.Serial + ".txt", "text/plain", content, ct);
+```
+
+One file per task (a second call replaces it), at most 64 MB, kept a day. The user fetches it with the task: an agent
+gets a one-time download link, the assistant shows a card with Save. Never a private key or a secret the user did not ask
+for. Older hosts and tasks the system started throw `NotSupportedException`.
 
 ## Device safety
 
