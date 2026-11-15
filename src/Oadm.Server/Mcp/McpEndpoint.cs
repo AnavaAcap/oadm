@@ -20,7 +20,7 @@ namespace Oadm.Server.Mcp;
 /// <summary>Where and with which certificate the MCP server listens.</summary>
 /// <param name="Port">The TCP port.</param>
 /// <param name="Addresses">The addresses of the chosen interface; null for every interface.</param>
-/// <param name="Certificate">The certificate with its key (PKI's policy MCP server).</param>
+/// <param name="Certificate">The certificate with its key (PKI's policy AI agents).</param>
 /// <param name="Issuers">Its issuers, sent with it so agents can build the chain to the CA they trust.</param>
 public sealed record McpListenOptions(int Port, IReadOnlyList<IPAddress>? Addresses, X509Certificate2 Certificate, IReadOnlyList<X509Certificate2> Issuers);
 
@@ -193,7 +193,7 @@ public static class McpEndpoint
         ?? throw new InvalidOperationException("An MCP request without its caller."); // the guard runs first: never reached
 
     /// <summary>The checks before the SDK sees a request.</summary>
-    private static async Task GuardAsync(HttpContext http, RequestDelegate next, McpAccess access, IReadOnlyCollection<string>? serverNames, McpFiles files, ToolRegistry tools, string? filesUrl)
+    internal static async Task GuardAsync(HttpContext http, RequestDelegate next, McpAccess access, IReadOnlyCollection<string>? serverNames, McpFiles files, ToolRegistry tools, string? filesUrl)
     {
         var path = http.Request.Path.Value ?? string.Empty;
         var upload = path.StartsWith(FilesPath, StringComparison.Ordinal) ? path[FilesPath.Length..] : null;
@@ -227,7 +227,9 @@ public static class McpEndpoint
 
         if (http.Features.Get<IHttpMaxRequestBodySizeFeature>() is { IsReadOnly: false } limit)
         {
-            limit.MaxRequestBodySize = upload is null ? MaxBodyBytes : null; // also a body without a length; an upload is bound by its link
+            // Also a body without a length, and every /files/ request before its key is checked: only a taken upload link
+            // raises it, to the link's exact size (McpFiles.ReceiveAsync).
+            limit.MaxRequestBodySize = MaxBodyBytes;
         }
 
         var header = http.Request.Headers.Authorization.ToString();
