@@ -329,7 +329,7 @@
                     <DataGridTextColumn Header="{x:Static a:AssistantTexts.ColumnName}" Width="*" Binding="{Binding Name}" x:DataType="a:AssistantTableRow" />
                     <DataGridTextColumn Header="{x:Static a:AssistantTexts.ColumnAddress}" Width="100" Binding="{Binding Address}" x:DataType="a:AssistantTableRow" />
                     <DataGridTextColumn Header="{x:Static a:AssistantTexts.ColumnModel}" Width="90" Binding="{Binding Model}" x:DataType="a:AssistantTableRow" />
-                    <DataGridTextColumn Width="110" Binding="{Binding Fourth}" x:DataType="a:AssistantTableRow">
+                    <DataGridTextColumn Width="Auto" MinWidth="96" Binding="{Binding Fourth}" x:DataType="a:AssistantTableRow">
                       <DataGridTextColumn.Header>
                         <TextBlock Text="{Binding $parent[DataGrid].((a:AssistantTableItem)DataContext).FourthHeader}" />
                       </DataGridTextColumn.Header>
