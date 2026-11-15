@@ -29,6 +29,7 @@ public static class HostPermissions
     public const string ComplianceGroup = "Compliance";
     public const string EventRulesGroup = "Event rules";
     public const string LogsGroup = "Logs";
+    public const string AssistantGroup = "Assistant";
 
     public const string DevicesAddRemove = HostPermissionKeys.DevicesAddRemove;
     public const string DevicesRefresh = HostPermissionKeys.DevicesRefresh;
@@ -49,6 +50,7 @@ public static class HostPermissions
     public const string EventsClearLog = HostPermissionKeys.EventsClearLog;
     public const string LogsServer = HostPermissionKeys.LogsServer;
     public const string SitesView = HostPermissionKeys.SitesView;
+    public const string AssistantUse = HostPermissionKeys.AssistantUse;
 
     /// <summary>The host rows of the matrix, in order.</summary>
     public static IReadOnlyList<PermissionEntry> All { get; } =
@@ -72,6 +74,7 @@ public static class HostPermissions
         Host(EventsManage, "Change event rules", "Create, change, turn on or off and delete event rules. Rules act on devices on their own.", EventRulesGroup, 2, false, false, fullControl: true),
         Host(EventsClearLog, "Delete the event log", "Delete every entry of the event log.", EventRulesGroup, 2, false, false),
         Host(LogsServer, "See the server log", "Read the server's log on the Logs page. It shows device addresses and user names.", LogsGroup, 3, false, false),
+        Host(AssistantUse, "Use the assistant", "Chat with the assistant. It has the user's rights and asks before every change.", AssistantGroup, 4, false, false),
     ];
 
     private static PermissionEntry Host(string key, string name, string description, string group, int order, bool operatorDefault, bool viewerDefault, bool fullControl = false) =>
@@ -121,7 +124,7 @@ public sealed class PermissionCatalog
         ArgumentException.ThrowIfNullOrEmpty(permission);
         var entry = Find(permission);
         var name = entry is null ? permission
-            : entry.Group is HostPermissions.DevicesGroup or HostPermissions.TasksGroup or HostPermissions.EventRulesGroup or HostPermissions.LogsGroup ? entry.Name
+            : entry.Group is HostPermissions.DevicesGroup or HostPermissions.TasksGroup or HostPermissions.EventRulesGroup or HostPermissions.LogsGroup or HostPermissions.AssistantGroup ? entry.Name
             : entry.Group + ": " + entry.Name;
         return $"Your role does not allow: {name}.";
     }
