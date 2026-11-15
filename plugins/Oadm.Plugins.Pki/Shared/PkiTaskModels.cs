@@ -1,3 +1,6 @@
+using System.ComponentModel;
+using System.ComponentModel.DataAnnotations;
+
 namespace Oadm.Plugins.Pki;
 
 /// <summary>Ids and menu names of the contributed Security tasks (spec part 2), shared by server, dialogs and tests.</summary>
@@ -212,13 +215,38 @@ public sealed record InstallPayload
 }
 
 /// <summary>One CA certificate of "Install CA certificates": the name for the step and the PEM.</summary>
-public sealed record CaCertificatePayload(string Name, string Pem);
+public sealed record CaCertificatePayload(
+    [property: Description("A name for the certificate, shown in the task's steps."), MinLength(1), MaxLength(128)] string Name,
+    [property: Description("The CA certificate in PEM text (certificates only, never a private key)."), MinLength(1), MaxLength(CaCertificatePayload.MaxPemLength)] string Pem)
+{
+    /// <summary>The longest PEM text of one certificate (a CA certificate is a few KB).</summary>
+    public const int MaxPemLength = 16 * 1024;
+}
 
 /// <summary>
 /// Payload of "Install CA certificates": the CA certificates for every selected device (public data only, a few KB each,
 /// so no upload). The task checks every one again before the first write.
 /// </summary>
+[Description("Install CA certificates on devices.")]
 public sealed record InstallCaPayload
 {
+    [Description("The CA certificates, at most 20."), MinLength(1), MaxLength(20)]
     public IReadOnlyList<CaCertificatePayload> Certificates { get; init; } = [];
 }
+
+/// <summary>The input of a Security task without settings (Disable HTTPS, Disable IEEE 802.1X) for AI agents.</summary>
+[Description("This task takes no settings.")]
+public sealed record PkiNoSettingsPayload;
+
+/// <summary>
+/// The input of Enable HTTPS and Enable IEEE 802.1X for AI agents: the issuing policy. The clock question of the dialog is not
+/// asked over MCP: a device whose clock is behind refuses the task ("Nothing was changed"); fix the clock or run it in OADM.
+/// </summary>
+[Description("Issue a certificate by a policy of the PKI page and switch the device to it.")]
+public sealed record PkiIssueMcpPayload(
+    [property: Description("The id of the issuing policy of this kind; leave it out for the first one.")] Guid? PolicyId = null);
+
+/// <summary>The input of Renew certificates for AI agents (the IEEE 802.1X policy; HTTPS renews with the first HTTPS policy).</summary>
+[Description("Renew the certificates OADM issued on the devices.")]
+public sealed record PkiRenewMcpPayload(
+    [property: Description("The id of the IEEE 802.1X certificate policy; leave it out for the first one.")] Guid? Dot1xPolicyId = null);

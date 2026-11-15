@@ -22,6 +22,9 @@ service EventService {
   rpc SaveRule (SaveRuleRequest) returns (RuleDetail);
   // Admin. A rule that is on runs its off actions first. NOT_FOUND.
   rpc DeleteRule (RuleId) returns (Empty);
+  // Admin. Checks a rule like SaveRule and answers its summary (what it watches and does), without saving or applying
+  // anything. INVALID_ARGUMENT with the first problem, NOT_FOUND for a rule id that does not exist.
+  rpc CheckRule (SaveRuleRequest) returns (RuleSummary);
   // Admin. Turning a rule off runs its off actions. NOT_FOUND.
   rpc SetRuleEnabled (SetRuleEnabledRequest) returns (RuleSummary);
   // Admin. A copy named "<name> (copy)", turned off, with the stored password values. NOT_FOUND.
@@ -304,6 +307,8 @@ message ListEventLogRequest {
   int32 limit = 1;
   int32 offset = 2;
   string rule_id = 3;        // optional filter
+  int64 before_id = 4;       // only entries with a smaller id (0 = none): the cursor of the last entry of a page
+  bool skip_total = 5;       // do not count the entries: total_count is 0
 }
 
 message EventLogPage {

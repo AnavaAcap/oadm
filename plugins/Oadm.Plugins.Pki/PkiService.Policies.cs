@@ -82,6 +82,16 @@ public sealed partial class PkiService
         ];
     }
 
+    /// <summary>The owner of the policy AI agents' first start (<see cref="McpServerPolicies"/>).</summary>
+    public const string McpServerOwner = PkiPluginInfo.PluginId + ":mcp-server";
+
+    /// <summary>
+    /// The policy AI agents (docs/spec/mcp.md "Transport and certificate"), once on a new server and on one updated from a
+    /// version without it: a system policy without a certificate (the server for AI agents is off by default; its first Turn
+    /// on gives it the shared server certificate, <see cref="EnsureServerCertificatesAsync"/>).
+    /// </summary>
+    public static IReadOnlyList<PkiPolicy> McpServerPolicies() => [new PkiPolicy { Name = PolicyLimits.McpServerName, Kind = PolicyKinds.McpServer }];
+
     /// <summary>The owner of the conversion of the RADIUS server CA into a CA of the list (<see cref="ConvertRadiusCasAsync"/>).</summary>
     public const string RadiusCaOwner = PkiPluginInfo.PluginId + ":radius-ca-2026-10-25";
 
@@ -191,6 +201,7 @@ public sealed partial class PkiService
         var config = _config;
         await Policies.ConvertOnceAsync(PkiPluginInfo.PluginId, _ => Task.FromResult(ConvertOwnSettings(config)), ct).ConfigureAwait(false);
         await Policies.ConvertOnceAsync(IssuingOwner, async token => ConvertIssuing(config, await _store.UsedBeforeAsync(token).ConfigureAwait(false)), ct).ConfigureAwait(false);
+        await Policies.ConvertOnceAsync(McpServerOwner, _ => Task.FromResult(McpServerPolicies()), ct).ConfigureAwait(false);
         Policies.Changed += OnPoliciesChanged;
         HandExpiryWarning();
     }

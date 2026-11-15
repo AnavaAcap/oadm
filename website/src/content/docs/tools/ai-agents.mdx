@@ -1,0 +1,130 @@
+---
+title: AI agents
+description: Let an AI agent look at your devices and roll out changes in OADM, with your rights.
+---
+
+import { Steps, Aside } from '@astrojs/starlight/components';
+
+An AI agent such as Claude Code or VS Code can work in OADM like you do: look at your devices, check
+their health, and run tasks on many devices. It signs in with an **access key** and has the rights of the user who made
+the key. The agent never sees a password.
+
+AI agents are part of the OADM server. They are off until an administrator turns them on.
+
+## Turn it on
+
+<Steps>
+
+1. Open **Settings** and the card **AI agents**.
+2. Choose the **Port** (default 5082) and **Listen on**, the interface the agents reach the server on.
+3. Click **Turn on**. The status next to the buttons shows **Running on port 5082**.
+
+</Steps>
+
+Agents connect over HTTPS. The certificate comes from the **AI agents** policy of the [PKI](../pki/) page, and the first
+**Turn on** picks the shared server certificate for it. Without PKI the card says "Turn on PKI to choose the
+certificate." On Windows the installed server opens the port in the firewall while AI agents are on. On Linux and macOS
+open it yourself if a firewall runs.
+
+**Turn off** closes the port. Agents can no longer connect.
+
+## Create an access key
+
+You need the permission **Use AI agents**. Only administrators have it at first: give it to other roles on the
+Permissions page.
+
+<Steps>
+
+1. Open the account menu (your name, top right) and click **Access keys**.
+2. Enter a **Name** for the agent or the computer (letters, digits, spaces, `-`, `_` and `.`), choose how long the key lasts (30, 90 or 365 days) and click
+   **Create**.
+3. Click the copy button next to the new key and keep it where the agent can read it.
+
+</Steps>
+
+OADM shows the key once and cannot show it again. Lost it? Delete it and create a new one. Each user can have 20 keys.
+
+**Read only** gives the agent a key that looks but changes nothing. Use it for reports and health checks.
+
+A key ends when you delete it, when its user is disabled or gets a new password, or on its expiry date. Administrators
+see and delete the keys of every user on the Permissions page.
+
+## Connect an agent
+
+While AI agents run, **Connect an agent** on the card shows the setting for each client with this server's address.
+Click the copy button next to it.
+
+- **Claude Code**: a `claude mcp add` command for a terminal.
+- **.mcp.json**: the same for a project folder.
+- **VS Code**: the entry for `.vscode/mcp.json`. VS Code asks for the key when it connects.
+
+Claude Desktop is not listed until a bridge is tested with this server.
+
+Put your key in the variable `OADM_KEY` on the agent's computer before you start Claude Code, for example
+`export OADM_KEY=oadm_...`.
+
+The agent's computer must trust your CA once. Click **Download CA certificate** on the card. Claude Code reads the file
+named in the variable `NODE_EXTRA_CA_CERTS`. For other agents add the file to the computer's trusted certificates.
+
+## The skill
+
+The skill `oadm` tells an agent how to work with OADM: look at a summary first, narrow the devices with filters, show
+you the plan and the skipped devices before it runs anything, and never ask for passwords. It also has a workflow each for
+an AXIS OS rollout, a network change, certificates and a health check.
+
+The server hands the skill to agents that support it. For an agent that does not, click **Download skill** on the card
+and put the folder `oadm` from the ZIP file where your agent reads its skills.
+
+## What agents can do
+
+- Look at devices: counts by status, model, AXIS OS version, site or tag, lists with filters, the details of one
+  device, one picture of a camera.
+- Read tasks and their results, the server log, the audit log and the event log.
+- Run tasks on many devices, such as restart, date and time, Upgrade AXIS OS, network settings, applications or
+  certificates. A task shows in your Tasks list like one you started. Its owner is "your name@MCP key name". Cancel
+  tasks.
+- Refresh, remove and add devices, and set their login from the credential list by its name.
+- Add and remove tags, read sites and compliance results, and create, change or delete event rules.
+- Read PKI certificates and create one, and read the NTP server, DHCP server and Hardening scan pages. Other plugins can
+  bring their own tools, shown only while the plugin is on.
+- Upload files, such as a firmware file, without the file passing through the agent.
+
+Every change has two steps. The agent asks OADM for a **preview** that checks everything and writes nothing. It answers
+what would run, on which devices, what is skipped and why, and any warning. Only after you agree does the agent run it,
+and the run can only do what the preview showed.
+
+A user with a [device group](../../admin/device-groups/) gets only the devices of the group, through an agent too. A
+role without a permission does not get the tools for it. The audit log names the user and the key: "your name via access
+key Laptop".
+
+## What agents cannot do
+
+- Read or set passwords, private keys, license keys or tokens. A task that needs a new password is not offered: set the
+  password in OADM.
+- Change users, roles, device groups, access keys, the license, plugins or the server settings, restore a backup or
+  delete all devices or tasks.
+- Show live video.
+- Do more than the user of the key. A Read only key lists no tool that changes something.
+
+Texts that come from devices, such as names, locations and log lines, are data for the agent, never orders.
+
+## Limits
+
+A key can make 20 calls a second, 10 changes and 30 camera pictures a minute, and all keys of one user together the
+same. A list answers at
+most 200 rows at a time, with the total, and no answer is larger than 32 KB. An agent asks for a summary first and
+narrows with filters.
+
+## Troubleshooting
+
+| What you see | What to do |
+|---|---|
+| **Turn on PKI to choose the certificate.** | Turn on PKI in Settings. |
+| **Port 5082 cannot be opened** | Another program uses the port. Choose another port and save. |
+| The agent says **The access key is not valid. Create a new one in OADM under Access keys.** | The key is wrong, deleted or has ended. Create a new one. |
+| The agent does not trust the server | Trust the CA once: **Download CA certificate** on the card. |
+| The agent says **This access key is Read only.** | Create a key without **Read only** for changes. |
+| The agent has no tool for something | The key's user does not have the permission, or the plugin is off. Check the role on the Permissions page. |
+| **Too many calls with this access key** | The agent waits a second and tries again. |
+| **Too many changes with this access key. Wait a minute.** | The agent made 10 changes in a minute. It waits. |
+| **Too many pictures with this access key. Wait a minute.** | The agent took 30 camera pictures in a minute. It waits. |

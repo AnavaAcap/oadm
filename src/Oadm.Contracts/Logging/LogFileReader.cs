@@ -32,8 +32,10 @@ public static partial class LogFileReader
     /// The page <paramref name="offset"/> .. <paramref name="offset"/> + <paramref name="limit"/> of the entries at or above
     /// <paramref name="minRank"/> that contain <paramref name="search"/> (any case, in source, message or exception), newest
     /// first, from the files of <paramref name="folder"/> matching <paramref name="pattern"/>. A missing folder is an empty page.
+    /// <paramref name="notAfter"/>: only entries at or before that time (the page after a line of that time: newer lines
+    /// never move it).
     /// </summary>
-    public static LogFilePage Read(string folder, string pattern, int offset, int limit, int minRank, string? search, CancellationToken ct)
+    public static LogFilePage Read(string folder, string pattern, int offset, int limit, int minRank, string? search, CancellationToken ct, DateTimeOffset? notAfter = null)
     {
         offset = Math.Max(0, offset);
         limit = Math.Clamp(limit, 1, MaxPageSize);
@@ -53,7 +55,7 @@ public static partial class LogFileReader
             for (var i = entries.Count - 1; i >= 0; i--)
             {
                 var entry = entries[i];
-                if (entry.Rank < minRank || !Matches(entry, search))
+                if (entry.Rank < minRank || !Matches(entry, search) || entry.Time > notAfter)
                 {
                     continue;
                 }

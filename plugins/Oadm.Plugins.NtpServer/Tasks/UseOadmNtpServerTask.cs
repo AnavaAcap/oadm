@@ -55,6 +55,9 @@ public sealed class UseOadmNtpServerTask : ITaskPlugin
         return TaskSupportReasons.NeedsApi("the NTP API", device);
     }
 
+    /// <summary>The task takes no settings (SDK 0.13.0): the address is the NTP server's own.</summary>
+    public Type? PayloadType => typeof(UseOadmNtpServerPayload);
+
     public string GetTaskName(string? payloadJson) =>
         _service()?.NameAddress is { } address ? $"Use OADM NTP server {address}" : "Use OADM NTP server";
 
@@ -194,3 +197,7 @@ public sealed class UseOadmNtpServerTask : ITaskPlugin
         return addresses.FirstOrDefault(a => a.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork) ?? (addresses.Count > 0 ? addresses[0] : null);
     }
 }
+
+/// <summary>The settings of Use OADM NTP server: none (the server's own address).</summary>
+[System.ComponentModel.Description("Use OADM NTP server takes no settings.")]
+public sealed record UseOadmNtpServerPayload;

@@ -34,6 +34,10 @@ public sealed partial class CanaryTests
         // tags and compliance
         ["/oadm.v1.TagService/SetDeviceTags"] = async (c, id) =>
             await new Proto.TagService.TagServiceClient(c.Invoker).SetDeviceTagsAsync(new Proto.SetDeviceTagsRequest { DeviceIds = { c.Inside.ToString(), id.ToString() }, Add = { "Free" } }),
+        ["/oadm.v1.TagService/PlanDeviceTags"] = async (c, id) =>
+            await new Proto.TagService.TagServiceClient(c.Invoker).PlanDeviceTagsAsync(new Proto.PlanDeviceTagsRequest { Filter = new Proto.DeviceFilter { Ids = { c.Inside.ToString(), id.ToString() } }, Add = { "Free" } }),
+        ["/oadm.v1.ComplianceService/Summarize"] = async (c, id) =>
+            await new Proto.ComplianceService.ComplianceServiceClient(c.Invoker).SummarizeAsync(new Proto.SummarizeComplianceRequest { Filter = new Proto.DeviceFilter { Ids = { c.Inside.ToString(), id.ToString() } } }),
         ["/oadm.v1.ComplianceService/SaveCheck"] = async (c, id) =>
             await new Proto.ComplianceService.ComplianceServiceClient(c.Invoker).SaveCheckAsync(new Proto.ComplianceCheckDetail
             {
@@ -84,6 +88,13 @@ public sealed partial class CanaryTests
             await Devices(c).SetFirstPasswordAsync(new Proto.SetFirstPasswordRequest { DeviceIds = { c.Inside.ToString(), id.ToString() }, Password = "Secret123" }),
         ["/oadm.v1.DeviceService/GetWebUiUrl"] = async (c, id) =>
             await Devices(c).GetWebUiUrlAsync(new Proto.DeviceId { Id = id.ToString() }),
+        ["/oadm.v1.DeviceService/Search"] = async (c, id) =>
+            await Devices(c).SearchAsync(new Proto.SearchDevicesRequest
+            {
+                Filter = new Proto.DeviceFilter { Ids = { c.Inside.ToString(), id.ToString() } }, Limit = 10, WithApis = true, GroupBy = "status",
+            }),
+        ["/oadm.v1.DeviceService/Resolve"] = async (c, id) =>
+            await Devices(c).ResolveAsync(new Proto.ResolveDevicesRequest { Filter = new Proto.DeviceFilter { Ids = { c.Inside.ToString(), id.ToString() } }, Shown = 5 }),
         ["/oadm.v1.DeviceWebService/Open"] = async (c, id) =>
             await new Proto.DeviceWebService.DeviceWebServiceClient(c.Invoker).OpenAsync(new Proto.OpenDeviceWebRequest { DeviceId = id.ToString() }),
         ["/oadm.v1.DeviceWebService/Exchange"] = (c, id) => Inside(c, id, async () =>
@@ -102,6 +113,8 @@ public sealed partial class CanaryTests
         }),
         ["/oadm.v1.LiveViewService/ListSources"] = (c, id) => Inside(c, id, async () =>
             await Live(c).ListSourcesAsync(new Proto.LiveViewSourcesRequest { DeviceId = id.ToString() })),
+        ["/oadm.v1.LiveViewService/GetSnapshot"] = (c, id) => Inside(c, id, async () =>
+            await Live(c).GetSnapshotAsync(new Proto.SnapshotRequest { DeviceId = id.ToString() })),
         ["/oadm.v1.LiveViewService/GetOptics"] = async (c, id) =>
             await Live(c).GetOpticsAsync(new Proto.OpticsRequest { DeviceId = id.ToString() }),
         ["/oadm.v1.LiveViewService/SetOptics"] = (c, id) => Inside(c, id, async () =>
@@ -119,6 +132,12 @@ public sealed partial class CanaryTests
             {
                 PluginId = CanaryTaskPlugin.PluginId,
                 DeviceIds = { id == c.Inside ? new[] { id.ToString() } : new[] { c.Inside.ToString(), id.ToString() } },
+            }),
+        ["/oadm.v1.TaskService/Plan"] = async (c, id) =>
+            await new Proto.TaskService.TaskServiceClient(c.Invoker).PlanAsync(new Proto.PlanTaskRequest
+            {
+                PluginId = CanaryTaskPlugin.PluginId,
+                Filter = new Proto.DeviceFilter { Ids = { c.Inside.ToString(), id.ToString() } },
             }),
         ["/oadm.v1.TaskService/Query"] = async (c, id) =>
             await new Proto.TaskService.TaskServiceClient(c.Invoker).QueryAsync(new Proto.TaskQueryRequest
@@ -307,6 +326,12 @@ public sealed partial class CanaryTests
             await c.Discovery.StopAsync(new Proto.DiscoverySession { SessionId = c.AdminSession });
             await c.AdminSessionStillWorksAsync();
         },
+        ["/oadm.v1.DiscoveryService/End"] = async c =>
+        {
+            // Another user's session answers like an unknown one and keeps running, its logins too.
+            await c.Discovery.EndAsync(new Proto.DiscoverySession { SessionId = c.AdminSession });
+            await c.AdminSessionStillWorksAsync();
+        },
         ["/oadm.v1.AddDevicesService/Prepare"] = async c =>
             await CannotAddAsync(() => c.AddDevices.PrepareAsync(new Proto.PrepareRequest { SessionId = c.AdminSession, DiscoveredIds = { OutsideSerial } }).ResponseAsync),
         ["/oadm.v1.AddDevicesService/Commit"] = async c =>
@@ -369,6 +394,12 @@ public sealed partial class CanaryTests
         ["/oadm.v1.UpdateService/Watch"] = "the steps of a server update (version and step), no device",
         ["/oadm.v1.MyAxisService/SignIn"] = "the caller's own MyAxis sign-in, no device",
         ["/oadm.v1.MyAxisService/SignOut"] = "the caller's own MyAxis sign-in, no device",
+        ["/oadm.v1.McpService/Get"] = "the AI agents card: on, port, interface, the certificate's names, no device",
+        ["/oadm.v1.McpService/GetCaCertificate"] = "the CA certificates of the AI agents server, no device",
+        ["/oadm.v1.McpService/GetSkill"] = "the skill for AI agents as a ZIP, no device",
+        ["/oadm.v1.AccessKeyService/ListMine"] = "the caller's own access keys, no device",
+        ["/oadm.v1.AccessKeyService/Create"] = "an access key of the caller, no device",
+        ["/oadm.v1.AccessKeyService/Delete"] = "an access key of the caller, no device",
         ["/oadm.v1.AuthService/Login"] = "open: the session",
         ["/oadm.v1.AuthService/CreateFirstAdmin"] = "open: only while no user exists",
         ["/oadm.v1.AuthService/Logout"] = "the own session",
@@ -377,6 +408,7 @@ public sealed partial class CanaryTests
         ["/oadm.v1.RoleService/Mine"] = "the own role and group summary (sites, tags, counts of the own view; never excepted devices)",
         ["/oadm.v1.FileService/Upload"] = "an upload of the caller; tasks check their devices",
         ["/oadm.v1.FileService/Delete"] = "an upload by id; no device data",
+        ["/oadm.v1.FileService/List"] = "the caller's own uploads; no device data",
         ["/oadm.v1.PluginService/ListCorePlugins"] = "the plugin pages the role may show",
         ["/oadm.v1.PluginService/ListPackages"] = "the plugin packages",
         ["/oadm.v1.PluginService/ListAddOns"] = "the add-ons of this version, no device data",

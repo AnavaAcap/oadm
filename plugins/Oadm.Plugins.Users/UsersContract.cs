@@ -63,7 +63,8 @@ public sealed class UsersPayload
             ? [.. UserNames.Select(n => (n ?? string.Empty).Trim()).Distinct(StringComparer.Ordinal)]
             : string.IsNullOrWhiteSpace(UserName) ? [] : [UserName.Trim()];
 
-    /// <summary>New password for Add, or for Change when <see cref="ChangePassword"/> is set. Never logged.</summary>
+    /// <summary>New password for Add, or for Change when <see cref="ChangePassword"/> is set. Never logged, never offered to AI agents.</summary>
+    [Oadm.Sdk.Tasks.Secret]
     public string? Password { get; init; }
 
     public UserRole Role { get; init; } = UserRole.Viewer;

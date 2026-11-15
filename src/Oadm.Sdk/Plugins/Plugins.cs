@@ -106,6 +106,44 @@ public interface ITaskPlugin : IPlugin
     Sites.SiteSupport? SiteSupport => null;
 
     /// <summary>
+    /// The record the payload is read into (SDK 0.13.0). The host exports its JSON Schema (properties with
+    /// <c>[Description]</c>, <c>[MaxLength]</c>, <c>[Range]</c>, <c>[Length]</c>; enums by name) as the input of the task over
+    /// MCP. Null (the default), a payload with a <see cref="Tasks.SecretAttribute"/> property, or one whose schema leaves a text,
+    /// number or list without its bounds: the task is not offered over MCP. A task without settings returns an empty record.
+    /// </summary>
+    Type? PayloadType => null;
+
+    /// <summary>
+    /// The serializer options the payload is read with (SDK 0.13.0); the host exports <see cref="PayloadType"/> with them, so
+    /// the schema has the names and enum texts the plugin reads. Null: <see cref="PluginJson.CreateOptions"/>.
+    /// </summary>
+    System.Text.Json.JsonSerializerOptions? PayloadJsonOptions => null;
+
+    /// <summary>
+    /// The problems of a payload, one per field, with the texts the dialog shows below that field (SDK 0.13.0; the same rules
+    /// as the dialog, which can call it too). <c>TaskService.Run</c> calls it before any task starts and refuses an invalid
+    /// payload (INVALID_ARGUMENT with the first text); the MCP preview answers every one. Read the payload only, never contact
+    /// a device; empty when the payload is valid. Default: no problems (the task checks its payload itself).
+    /// </summary>
+    IReadOnlyList<Tasks.PayloadError> ValidatePayload(string? payloadJson, ICallContext caller) => [];
+
+    /// <summary>
+    /// Which of <paramref name="devices"/> a run of <paramref name="payloadJson"/> would change and why the others are skipped,
+    /// from the cached device data only (no device request; SDK 0.13.0): the server-side twin of the dialog's preview, e.g.
+    /// "No file for this model." Default: <see cref="CanRun"/> and <see cref="NotSupportedReason"/>. Called only with a valid
+    /// payload.
+    /// </summary>
+    Task<Tasks.TaskPlan> PlanAsync(string? payloadJson, IReadOnlyList<IDeviceInfo> devices, CancellationToken ct) =>
+        Task.FromResult(Tasks.TaskPlan.ByCanRun(this, devices));
+
+    /// <summary>
+    /// The same plan with the caller's uploads (<paramref name="files"/>: only the uploads of the caller's session), so the plan
+    /// can name each uploaded file it would use (<see cref="Tasks.TaskPlan.Files"/>). Default: <see cref="PlanAsync(string?, IReadOnlyList{IDeviceInfo}, CancellationToken)"/>.
+    /// </summary>
+    Task<Tasks.TaskPlan> PlanAsync(string? payloadJson, IReadOnlyList<IDeviceInfo> devices, IUploadedFiles files, CancellationToken ct) =>
+        PlanAsync(payloadJson, devices, ct);
+
+    /// <summary>
     /// Runs once per device. Return normally for Done, call <see cref="ITaskExecutionContext.ReportWarning"/>
     /// for Done with warnings, throw for Failed. <paramref name="payloadJson"/> comes from the dialog;
     /// it is kept in memory only and never persisted, so it may carry secrets such as passwords.
@@ -209,6 +247,22 @@ public interface ICorePlugin : IPlugin
     /// <c>ctx.System</c> refuses there like <c>ctx.Devices</c>. Keep the list short: the canary test prints it.
     /// </summary>
     string? SystemAccessReason(string method) => null;
+
+    /// <summary>
+    /// The tools of this plugin (SDK 0.13.0): steps a program such as an assistant may take without the plugin's page. The host
+    /// lists them while the plugin is on and the caller's role has their permission, and calls the plugin's own
+    /// <see cref="InvokeAsync(ICallContext, string, string?, CancellationToken)"/> with the caller (<see cref="PluginTool.Method"/>,
+    /// <see cref="PluginTool.PreviewMethod"/>), so <see cref="RequiredRole"/>, <see cref="RequiredPermission"/>,
+    /// <see cref="RequiresAllDevices"/> and the audit of <see cref="IsAudited"/> apply to a tool as to a page method. Default: none.
+    /// </summary>
+    IReadOnlyList<PluginTool> Tools => [];
+
+    /// <summary>
+    /// The word the host puts after <c>oadm_</c> in the names of this plugin's tools (SDK 0.13.0): "pki" gives
+    /// <c>oadm_pki_certificates</c>. Lower case letters, digits and underscores. Default null: the plugin's id without "oadm."
+    /// ("oadm.pki" gives "pki", "oadm.io-monitor" gives "io_monitor").
+    /// </summary>
+    string? ToolArea => null;
 }
 
 /// <summary>Role of an OADM user. Admin may do everything; Operator works with devices and tasks.</summary>
@@ -742,7 +796,7 @@ public static class TaskPluginNames
 public static class SdkInfo
 {
     /// <summary>The SDK version; a plugin whose <c>minSdkVersion</c> is newer is not loaded.</summary>
-    public const string Version = "0.12.0";
+    public const string Version = "0.13.0";
 
     /// <summary>
     /// The first SDK with the call context (<see cref="ICallContext"/>, OADM 4.5). Users with a device group may call only

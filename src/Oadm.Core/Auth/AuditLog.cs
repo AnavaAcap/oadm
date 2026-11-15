@@ -24,6 +24,7 @@ public static class AuditActions
     public const string CredentialAdded = "Added credential";
     public const string CredentialRemoved = "Removed credential";
     public const string CredentialRevealed = "Showed credential password";
+    public const string DeviceCredentialsSet = "Set device credentials";
     public const string TaskRun = "Started task";
     public const string TasksDeletedAll = "Deleted all tasks";
     public const string DevicesRemoved = "Removed devices";
@@ -78,6 +79,7 @@ public static class AuditActions
     public const string RoleChanged = "Changed role";
     public const string RoleDeleted = "Deleted role";
     public const string OpticsChanged = "Changed zoom or focus";
+    public const string SnapshotTaken = "Took a snapshot";
     public const string RtspPortChanged = "Changed RTSP port in OADM";
     public const string BackupCreated = "Created backup";
     public const string BackupDownloaded = "Downloaded backup";
@@ -91,6 +93,15 @@ public static class AuditActions
     public const string ServerUpdateStarted = "Started server update";
     public const string ServerUpdated = "Updated server";
     public const string ServerUpdateFailed = "Server update failed";
+    public const string AccessKeyCreated = "Created access key";
+    public const string AccessKeyDeleted = "Deleted access key";
+    public const string AccessKeyRefused = "Access key refused";
+    public const string AiAgentsChanged = "Changed AI agents";
+    public const string FileUploaded = "Uploaded file";
+    public const string FileDownloaded = "Downloaded file";
+
+    /// <summary>The user of an entry an AI agent caused: "&lt;user&gt; via access key &lt;name&gt;" (docs/spec/mcp.md "Access keys").</summary>
+    public static string ViaAccessKey(string userName, string keyName) => userName + " via access key " + keyName;
 }
 
 /// <summary>
@@ -115,7 +126,7 @@ public sealed partial class AuditLog(IDbContextFactory<OadmDbContext> dbFactory,
     public Task WriteAsync(string action, string target, string? detail = null, CancellationToken ct = default)
     {
         var caller = CallerContext.Current;
-        return WriteAsync(caller?.UserName ?? "system", caller?.ClientAddress ?? string.Empty, action, target, detail, ct);
+        return WriteAsync(caller?.AuditUserName ?? caller?.UserName ?? "system", caller?.ClientAddress ?? string.Empty, action, target, detail, ct);
     }
 
     /// <summary>Writes an entry for an explicit user (login attempts). Failures are logged, never thrown.</summary>
@@ -180,13 +191,22 @@ public sealed partial class AuditLog(IDbContextFactory<OadmDbContext> dbFactory,
     /// </summary>
     public static string Clean(string? text) => Cut(text);
 
-    /// <summary>Newest first; <paramref name="limit"/> 0 = <see cref="DefaultListLimit"/>.</summary>
-    public async Task<(IReadOnlyList<AuditRecord> Entries, int TotalCount)> ListAsync(int limit, int offset, CancellationToken ct)
+    /// <summary>
+    /// Newest first; <paramref name="limit"/> 0 = <see cref="DefaultListLimit"/>. <paramref name="beforeId"/> above 0: only
+    /// entries older than that entry (the page after it, which a new entry never moves); the total counts every entry.
+    /// </summary>
+    public async Task<(IReadOnlyList<AuditRecord> Entries, int TotalCount)> ListAsync(int limit, int offset, CancellationToken ct, long beforeId = 0)
     {
         limit = limit <= 0 ? DefaultListLimit : Math.Min(limit, MaxListLimit);
         await using var db = await dbFactory.CreateDbContextAsync(ct).ConfigureAwait(false);
         var total = await db.AuditEntries.CountAsync(ct).ConfigureAwait(false);
-        var rows = await db.AuditEntries.AsNoTracking()
+        var query = db.AuditEntries.AsNoTracking();
+        if (beforeId > 0)
+        {
+            query = query.Where(e => e.Id < beforeId);
+        }
+
+        var rows = await query
             .OrderByDescending(e => e.Id)
             .Skip(Math.Max(0, offset))
             .Take(limit)

@@ -67,9 +67,11 @@ public sealed partial class MainWindowViewModel : ObservableObject
         Sites.SitesViewModel? sites = null,
         IUiDispatcher? ui = null,
         Func<HelpWindowViewModel>? help = null,
-        MyAxis.MyAxisAccount? myAxis = null)
+        MyAxis.MyAxisAccount? myAxis = null,
+        Func<AccessKeysViewModel>? accessKeys = null)
     {
         MyAxis = myAxis;
+        _accessKeys = accessKeys;
         _liveVideo = liveVideo;
         _help = help;
         _ui = ui;
@@ -141,6 +143,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         Devices.Toolbar.ApplyPermissions(session.Has);
         session.PermissionsChanged += (_, _) =>
         {
+            OnPropertyChanged(nameof(CanUseAiAgents));
             Devices.Toolbar.ApplyPermissions(session.Has);
             SyncEventRulesItem();
             SyncComplianceItem();
@@ -200,6 +203,28 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
     /// <summary>Raised with a loaded "Your role" view model; the window shows it (a click on the user in the rail).</summary>
     public event EventHandler<MyRoleViewModel>? MyRoleRequested;
+
+    private readonly Func<AccessKeysViewModel>? _accessKeys;
+
+    /// <summary>The account menu offers Access keys: the role may use AI agents ("Use AI agents", docs/spec/mcp.md).</summary>
+    public bool CanUseAiAgents => _accessKeys is not null && Session.Has(Oadm.Sdk.Plugins.HostPermissionKeys.McpUse);
+
+    /// <summary>Raised with a loaded Access keys view model; the window shows it (account menu, Access keys).</summary>
+    public event EventHandler<AccessKeysViewModel>? AccessKeysRequested;
+
+    /// <summary>The account menu's Access keys: the user's own keys for AI agents.</summary>
+    [RelayCommand]
+    private async Task ShowAccessKeysAsync()
+    {
+        if (_accessKeys is null)
+        {
+            return;
+        }
+
+        var keys = _accessKeys();
+        await keys.LoadAsync().ConfigureAwait(true);
+        AccessKeysRequested?.Invoke(this, keys);
+    }
 
     /// <summary>The user in the rail: what the user's role allows.</summary>
     [RelayCommand]

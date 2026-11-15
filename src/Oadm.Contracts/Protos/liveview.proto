@@ -23,6 +23,23 @@ service LiveViewService {
   rpc GetPtz (PtzRequest) returns (PtzState);
   rpc MovePtz (MovePtzRequest) returns (Empty);
   rpc SetRtspPort (SetRtspPortRequest) returns (RtspPortReply);
+  // One JPEG of a source of the camera now (the camera's single picture request, through the device's route), at the
+  // largest resolution the source offers that is at most max_width wide. Live view permission. FAILED_PRECONDITION for a
+  // device that cannot be reached, UNAVAILABLE when the camera sends no picture.
+  rpc GetSnapshot (SnapshotRequest) returns (SnapshotReply);
+}
+
+message SnapshotRequest {
+  string device_id = 1;
+  int32 camera = 2;        // 1-based source (see ListSources); 0 = the first one
+  int32 max_width = 3;     // 0 = 1280
+  int32 compression = 4;   // the camera's JPEG compression, 1 (best picture) to 100 (smallest file); 0 = the camera's default
+}
+
+message SnapshotReply {
+  bytes jpeg = 1;
+  int32 width = 2;
+  int32 height = 3;
 }
 
 message OpticsRequest {

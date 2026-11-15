@@ -201,6 +201,7 @@ public sealed partial class FakeOadmApi
         P("events.manage", "Change event rules", "Create, change, turn on or off and delete event rules. Rules act on devices on their own.", "Event rules", full: true),
         P("events.clearLog", "Delete the event log", "Delete every entry of the event log.", "Event rules"),
         P("logs.server", "See the server log", "Read the server's log on the Logs page. It shows device addresses and user names.", "Logs"),
+        P("mcp.use", "Use AI agents", "Create access keys and let an AI agent do what this role allows.", "AI agents"),
         P("oadm.ntp-server:show", "Show the page", "See the NTP server page and what it shows.", "NTP server", op: true, icon: "metronome"),
         P("oadm.ntp-server:manage", "Change the NTP server", "Turn the NTP server on or off and choose its network and time source.", "NTP server", icon: "metronome"),
         P("oadm.dhcp-server:show", "Show the page", "See the DHCP server page and what it shows.", "DHCP server", op: true, icon: "network"),

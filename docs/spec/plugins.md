@@ -496,18 +496,18 @@ for server reports.
 
 ## SDK versions
 
-`SdkInfo.Version` (0.12.0) is the SDK version, `SdkInfo.CallContextVersion` (0.4.0) the first one with the call context.
+`SdkInfo.Version` (0.13.0) is the SDK version, `SdkInfo.CallContextVersion` (0.4.0) the first one with the call context.
 Both are constants: a plugin that reads them gets the value of the SDK it was built against, not the host's. The table of
 what each version added is `website/src/content/docs/dev/compatibility.md`.
 
-- `Oadm.Plugin.Versions.props` sets `OadmMinSdkVersion` 0.12.0: a plugin rebuilt on this SDK writes `minSdkVersion` 0.12.0
+- `Oadm.Plugin.Versions.props` sets `OadmMinSdkVersion` 0.13.0: a plugin rebuilt on this SDK writes `minSdkVersion` 0.13.0
   into `plugin.json`, so an older host refuses it. A plugin that uses no newer member may set a lower `OadmMinSdkVersion`
   in its project to stay loadable on older hosts; below 0.4.0 it is refused for users with a device group. The bundled
   packages keep their own hand-written `plugin.json`: 0.4.0, or the version of the newest member a package uses at run time
-  (0.12.0: `PluginJson` or `ByteSize` in Action Rule Editor, Applications (ACAP), Application management, the
+  (0.13.0: PKI with the EST and 802.1X servers, which offers `IServerCertificates`, Date and time (`ValidatePayload`) and
+  Users (`Secret`); 0.12.0: `PluginJson` or `ByteSize` in Action Rule Editor, Applications (ACAP), Application management, the
   configuration tasks, Dashboards, Device triggers, DHCP server, Edge recording export, Edge storage, Hardening scan,
-  Image Health, I/O monitor, Live view, Load test, Metadata monitor, Network, NTP server, PKI with the EST and 802.1X
-  servers, Snapshot report, System report, Text recognition, Upgrade AXIS OS, Users, VAPIX commander and Vision Center; PKI also
+  Image Health, I/O monitor, Live view, Load test, Metadata monitor, Network, NTP server, Snapshot report, System report, Text recognition, Upgrade AXIS OS, Users, VAPIX commander and Vision Center; PKI also
   `IRecipientCertificates` and `IRecipientCertificateUse`; Modbus, MQTT and OPC UA `RecipientType.Sessions`; 0.11.0:
   Notifications `ActionField.Recipient`; constants such as `AxisOsTexts.Name` are compiled in and need none; 0.4.0:
   Date and time, Outputs, Restart, Web View).
@@ -628,7 +628,26 @@ box back with the error below the list (`PluginsViewModel.SwitchAsync`).
   `PurposeOf(serial)` (the use of a listed certificate, a lookup in memory); the request's `Purpose`
   (`DeviceCertificatePurposes`). `CertificateDescriber` (SDK) and the client SDK's `CertificateWindow` show a certificate
   in plain names. Also `IRecipientCertificates` by PKI, which only the host reads, and `IRecipientCertificateUse` by the host for PKI
-  (`docs/spec/recipient-sessions.md` "Security"). Test fake: `FakePluginServices` (`FakeCoreContext.FakeServices`).
+  (`docs/spec/recipient-sessions.md` "Security"); `IServerCertificates` by PKI (SDK 0.13.0): the certificate with its key and
+  issuers that a server policy picks for a server the host runs (`HostServers.Mcp`, the MCP server of the policy AI agents,
+  docs/spec/mcp.md), or why there is none, and `Changed`; only the host reads it, and only while that server is on (like a
+  PKI server's Turn on, the first load gives a policy without a certificate the shared server certificate). Test fake: `FakePluginServices` (`FakeCoreContext.FakeServices`).
+- **Tasks for AI agents** (SDK 0.13.0, `docs/spec/mcp.md` "SDK"): `ITaskPlugin.PayloadType` (the payload record; the host's
+  `TaskPayloadSchemas` exports its JSON Schema with `PayloadJsonOptions`, default `PluginJson.CreateOptions()`;
+  `[Description]`, `[MaxLength]`, `[MinLength]`, `[Length]`, `[StringLength]`, `[Range]`; texts, numbers and lists without a
+  bound get the host's: 4,096 characters, the 32-bit range, 100,000 items), `ValidatePayload(payloadJson, caller)`
+  (`PayloadError` per JSON field with the dialog's text; `TaskService.Run` and `Plan` call it, a throwing check refuses the
+  run), `PlanAsync(payloadJson, devices, ct)` (`TaskPlan`: per device run or skip with a reason, warnings; default
+  `TaskPlan.ByCanRun`; an overload with `IUploadedFiles` lets a plan name the uploads it uses, `TaskPlan.Files`). A task without a payload type, with a `[Secret]` property anywhere in it, or with a value of any
+  type is not offered to the tools. Bundled: Restart and Use OADM NTP server (empty records), Date and time
+  (`DateTimePayload`, `PayloadValidator`), Users (its password is `[Secret]`: not offered).
+- **Plugin tools** (SDK 0.13.0, `docs/spec/mcp.md` "Stage 3 as built", `website/src/content/docs/dev/plugin-tools.md`):
+  `ICorePlugin.Tools` (`PluginTool`: name, title, description, input and output schema, read only or change, permission)
+  and `ICorePlugin.ToolArea` (default: the plugin id without `oadm.`); the host calls `InvokeAsync` with the caller as
+  `tool.<name>` and, for a change, `tool.<name>.preview` first (it never writes); `PluginToolPage` cuts a list to its limit
+  and about 24 KB, `PluginToolErrors` answers field errors. Nothing names MCP: the same tools serve any channel. Bundled:
+  PKI (`certificates`, `policies`, `certificate_create`), NTP server (`status`), DHCP server (`status`, `leases`), Hardening
+  scan (`results`).
 - **Protected tags** (`ICorePluginContext.ProtectedTags`, `Oadm.Sdk.Devices.IProtectedTags.Protect(names, refusal)`;
   server `ProtectedTagRegistry`): a core plugin whose settings act on devices by tag names those tags; only users with all
   devices then add them to or remove them from devices (`docs/spec/tags.md` "Protected tags"). Each call replaces the

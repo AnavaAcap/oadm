@@ -51,6 +51,14 @@ public sealed class ComplianceService(
         return view.HasAllDevices ? all : [.. all.Where(c => OwnerScopes.Sees(view, c.Check.Owner))];
     }
 
+    /// <summary>The checks the user sees, with the counts of the devices in <paramref name="only"/> (null = every device).</summary>
+    public IReadOnlyList<ComplianceCheckState> ListChecks(DeviceView view, IReadOnlySet<Guid>? only)
+    {
+        ArgumentNullException.ThrowIfNull(view);
+        var all = engine.ListChecks(only);
+        return view.HasAllDevices ? all : [.. all.Where(c => OwnerScopes.Sees(view, c.Check.Owner))];
+    }
+
     /// <summary>One check the user sees, else <see cref="KeyNotFoundException"/> (unknown and hidden alike).</summary>
     public ComplianceCheckState Find(DeviceView view, Guid id) =>
         ListChecks(view).FirstOrDefault(c => c.Check.Id == id) ?? throw new KeyNotFoundException(NoLongerExists);

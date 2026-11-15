@@ -294,7 +294,27 @@ public sealed partial class ComplianceEngine : IHostEventSource, IAsyncDisposabl
             return [.. _checks.Values
                 .OrderByDescending(c => c.Check.BuiltIn)
                 .ThenBy(c => c.Check.Name, StringComparer.CurrentCultureIgnoreCase)
-                .Select(StateOf)];
+                .Select(r => StateOf(r))];
+        }
+    }
+
+    /// <summary>
+    /// <see cref="ListChecks()"/> with the counts of the devices in <paramref name="only"/> (the results of the other devices
+    /// are left out); null = every device. Cost: the smaller of the set and the results of a check.
+    /// </summary>
+    public IReadOnlyList<ComplianceCheckState> ListChecks(IReadOnlySet<Guid>? only)
+    {
+        if (only is null)
+        {
+            return ListChecks();
+        }
+
+        lock (_sync)
+        {
+            return [.. _checks.Values
+                .OrderByDescending(c => c.Check.BuiltIn)
+                .ThenBy(c => c.Check.Name, StringComparer.CurrentCultureIgnoreCase)
+                .Select(r => StateOf(r, only))];
         }
     }
 
@@ -722,7 +742,7 @@ public sealed partial class ComplianceEngine : IHostEventSource, IAsyncDisposabl
         }
     }
 
-    private ComplianceCheckState StateOf(CheckRuntime runtime)
+    private ComplianceCheckState StateOf(CheckRuntime runtime, IReadOnlySet<Guid>? only = null)
     {
         var type = _catalog.Find(runtime.Check.TypeId);
         string? problem = type is null
@@ -746,16 +766,17 @@ public sealed partial class ComplianceEngine : IHostEventSource, IAsyncDisposabl
             runtime.SummaryType = type;
         }
 
+        var counts = only is null ? runtime.Counts() : runtime.CountsOf(only);
         return new ComplianceCheckState(
             runtime.Check.Clone(copySettings: false), // the settings are never changed; a configuration file is large
             type?.Type.DisplayName ?? runtime.Check.TypeId,
             summary,
             type?.Type.UsesCachedDataOnly == false,
-            runtime.Count(ComplianceOutcome.Passed),
-            runtime.Count(ComplianceOutcome.Failed),
-            runtime.Count(ComplianceOutcome.NotChecked),
-            runtime.Count(ComplianceOutcome.NotApplicable),
-            runtime.Count(ComplianceOutcome.CouldNotCheck),
+            counts[(int)ComplianceOutcome.Passed],
+            counts[(int)ComplianceOutcome.Failed],
+            counts[(int)ComplianceOutcome.NotChecked],
+            counts[(int)ComplianceOutcome.NotApplicable],
+            counts[(int)ComplianceOutcome.CouldNotCheck],
             problem);
     }
 
@@ -1498,6 +1519,36 @@ public sealed partial class ComplianceEngine : IHostEventSource, IAsyncDisposabl
         }
 
         public int Count(ComplianceOutcome outcome) => _counts[(int)outcome];
+
+        public int[] Counts() => [.. _counts];
+
+        /// <summary>The counts of the results of the devices in <paramref name="only"/>.</summary>
+        public int[] CountsOf(IReadOnlySet<Guid> only)
+        {
+            var counts = new int[_counts.Length];
+            if (only.Count < Results.Count)
+            {
+                foreach (var id in only)
+                {
+                    if (Results.TryGetValue(id, out var result))
+                    {
+                        counts[(int)result.Outcome]++;
+                    }
+                }
+            }
+            else
+            {
+                foreach (var (id, result) in Results)
+                {
+                    if (only.Contains(id))
+                    {
+                        counts[(int)result.Outcome]++;
+                    }
+                }
+            }
+
+            return counts;
+        }
 
         public void Set(Guid deviceId, Result result)
         {

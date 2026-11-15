@@ -1,6 +1,7 @@
 using Oadm.Plugins.Pki.Device;
 using Oadm.Sdk.Devices;
 using Oadm.Sdk.Plugins;
+using Oadm.Sdk.Tasks;
 using Oadm.Sdk.Vapix;
 
 namespace Oadm.Plugins.Pki.Tasks;
@@ -32,6 +33,51 @@ public abstract class PkiTaskBase : ITaskPlugin
 
     /// <summary>Certificate work on many devices at once loads the server (signing) and the network little; 8 is fine.</summary>
     public virtual int? MaxParallelDevices => null;
+
+    /// <summary>The payload record AI agents send (SDK 0.13.0); null: the task is not offered over MCP (a secret, or a choice only the dialog can make).</summary>
+    public virtual Type? PayloadType => null;
+
+    /// <summary>The names the payload is read with.</summary>
+    public virtual System.Text.Json.JsonSerializerOptions? PayloadJsonOptions => PkiJson.Options;
+
+    /// <summary>The problems of a payload by the dialog's rules, before any task starts; none by default.</summary>
+    public virtual IReadOnlyList<PayloadError> ValidatePayload(string? payloadJson, ICallContext caller) => [];
+
+    /// <summary>The devices the task can run on (cached data only), with the confirmation text of the dialog when it has one.</summary>
+    public virtual Task<TaskPlan> PlanAsync(string? payloadJson, IReadOnlyList<IDeviceInfo> devices, CancellationToken ct) =>
+        Task.FromResult(WarnAbout(TaskPlan.ByCanRun(this, devices)));
+
+    /// <summary>The warning the dialog shows before the task (a change that can make devices unreachable); null without.</summary>
+    protected virtual string? Warning => null;
+
+    private TaskPlan WarnAbout(TaskPlan plan) => Warning is { } warning ? plan with { Warnings = [warning] } : plan;
+
+    /// <summary>The problem of the chosen issuing policy ("The chosen policy no longer exists."), at its field.</summary>
+    protected IReadOnlyList<PayloadError> PolicyErrors(string kind, Guid? policyId, string field, bool firstIfNone)
+    {
+        if (Service is not { } service)
+        {
+            return [new(string.Empty, "The PKI plugin is not running.")];
+        }
+
+        try
+        {
+            if (firstIfNone)
+            {
+                IssuingChoice.Resolve(service, kind, policyId);
+            }
+            else
+            {
+                IssuingChoice.Chosen(service, kind, policyId);
+            }
+
+            return [];
+        }
+        catch (InvalidOperationException ex)
+        {
+            return [new(policyId is null ? string.Empty : field, ex.Message)];
+        }
+    }
 
     /// <summary>The PKI service (null while the core plugin is stopped).</summary>
     protected PkiService? Service => _service();

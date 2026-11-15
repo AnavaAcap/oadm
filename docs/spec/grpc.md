@@ -33,7 +33,8 @@ used again.
   (unset = keep; audited "devices Building B"); a password or disabling ends the user's sessions, a role applies to the
   next call, new devices end the user's streams like a new role), `Delete`. FAILED_PRECONDITION for the own account or
   the last enabled administrator.
-- **`AuditService`** (`auth.proto`, Admin): `List(limit, offset)` newest first + `total_count` (limit 0 = 10,000).
+- **`AuditService`** (`auth.proto`, Admin): `List(limit, offset, before_id = 3)` newest first + `total_count` (limit 0 =
+  10,000; `before_id`: only entries older than that entry, the page after it, which new entries never move).
 - **`RoleService`** (`roles.proto`, Admin except `Mine`): `GetMatrix` (every `PermissionInfo` {key, name, description,
   group, icon_key, operator_default, viewer_default, full_device_control, available} in matrix order and every `RoleInfo`
   {id, name, description, kind, permissions, user_count, version, start_page}), `SaveRoles(roles)` (create = empty id;
@@ -63,6 +64,23 @@ used again.
   the client does not use it: 23 MB for 5,000 devices with their API lists), `Remove` and `SetCredentials` (one
   transaction for all ids), `Refresh`, `GetWebUiUrl`, `GetCredentialUserName(DeviceIds)` (the stored user name the
   devices share, else empty: prefill of the Log in dialog).
+  - `Search(SearchDevicesRequest)` (signed in, like `List`; the MCP device tools, `docs/spec/mcp.md`): the devices of the
+    caller's view that match `DeviceFilter` {ids, search (address, host name, UPnP name, serial, model, AXIS OS version,
+    site, tags; any case), tags, sites ("This server" = no site), models, firmware_below, firmware_at_least, statuses,
+    categories; fields combined with AND, a list matches any value}, sorted by `sort` ("address" by default, IPv4 in number
+    order; "host_name", "upnp_name", "model", "firmware", "status", "last_seen"; a leading "-" descending; ties by id), one
+    page of `limit` (0 to 500) after the row `after_key` + `after_id` (the sort key and id of the last row before, from
+    `sort_keys`; rows added or removed elsewhere never move a page), the rows without API lists unless `with_apis`, and with
+    `group_by` (status, model, firmware, site, tag, category) the `counts` of every value, the most devices first. Reply
+    `total`, `devices`, `sort_keys`, `counts`, `after_cursor` (the matches after the cursor). Every device of the view is
+    looked at, read without its API list, and only the page is mapped (100,000 devices: about 1.5 s, docs/spec/mcp.md
+    "Measured"); no filter, rows or counts answers the view's cached count. Ids in the filter read only those devices: any
+    one that is unknown or outside the view refuses the request (NOT_FOUND, like every method); INVALID_ARGUMENT for a sort,
+    count field, limit or id it does not know.
+  - `Resolve(filter, shown)` (signed in, like `Search`; the AI agents' device previews): the ids of the filter's devices in
+    the caller's view in address order and the first `shown` rows, so a run takes a fixed list.
+  - `SetStoredCredentials(device_ids, credential_id)` (Administrator, the rule of `SettingsService.ListCredentials`;
+    audited "Set device credentials"): the login of an entry of the credential list, so no password is sent or answered.
   - `LogIn(device_ids, user_name, password, save_to_credential_list)` (context menu "Log in", `docs/spec/main-window.md`;
     Operator): per device (`Oadm.Core.Devices.DeviceLoginService`, 8 at a time, 15 s each) the stored address, scheme
     and pinned certificate with the new credential, authenticated `basicdeviceinfo`, the serial must be the record's;
@@ -120,6 +138,11 @@ used again.
   tags or single devices only gets PERMISSION_DENIED "Your device group has no site, so you cannot add devices."
   (`AddDeviceTexts.CannotAdd`); a managed device outside the caller's devices is sent with only its id, entered address
   and ALREADY_ADDED. Details: `docs/spec/add-devices.md`.
+  - `End(session)` ("Add and remove devices", the owner only): stops the session and forgets its owner and its logins at
+    once, so no login with the credential list goes on (`Stop` keeps the logins for Add); the AI agents' add run.
+  - `StartRangeScan` and `ProbeAddress` take `own_networks_only` (bare IP addresses inside a network of the server's
+    interfaces or of an online site node, else INVALID_ARGUMENT naming the allowed networks) and `no_logins` (the devices
+    are only looked at; a user name and password are refused): the AI agents' add preview.
 - **`AddDevicesService`** (`adddevices.proto`): `RetryAuth(session_id, discovered_id, user_name, password,
   save_to_credential_list, related_session_ids = 6)` (returns the updated DiscoveredDevice, also pushed to the stream; on
   success the credential is tried on the failed devices of the session and of the related sessions; NOT_FOUND,
@@ -142,12 +165,22 @@ used again.
     (`NotRunnableGroup` {reason, device_ids, count, other_devices}): why the plugin cannot run on the other devices
     (`ITaskPlugin.NotSupportedReason`, computed in the same cache), grouped by reason, most devices first, every id sent
     once: with `runnable_on_all_except` the not-runnable ids are sorted by group and each group takes its `count` of them,
-    otherwise the most common reason is `other_devices` (no ids) and the rarer ones list their ids.
+    otherwise the most common reason is `other_devices` (no ids) and the rarer ones list their ids. `with_payload_schema = 2`:
+    `payload_schema_json = 12` (the JSON Schema of `ITaskPlugin.PayloadType`; empty when the task is not offered to the
+    tools); `filter = 3` (DeviceFilter): counts only within the filter's devices, `runnable_count = 13` and the groups
+    without ids.
   - `StreamTaskPlugins(ListTaskPluginsRequest)`: the same entries, one `TaskPluginInfo` message per plugin; the client
     uses it (at 100,000 devices the whole list can pass its 32 MB message limit, one plugin stays at a few MB) and falls
     back to `ListTaskPlugins` when a server answers UNIMPLEMENTED.
-  - `Run(pluginId, deviceIds, payloadJson)`: one task per device, reply `task_ids` (`task_id` is deprecated = first id),
-    all tasks of a Run written in one transaction.
+  - `Run(pluginId, deviceIds, payloadJson)`: one task per device, reply `task_ids` (`task_id` is deprecated = first id) and
+    `batch_id = 3`, all tasks of a Run written in one transaction. Before any task starts the plugin checks the payload
+    (`ITaskPlugin.ValidatePayload`, SDK 0.13.0): INVALID_ARGUMENT with the first problem's text and its field in the trailer
+    `oadm-field`; a check that throws refuses the run ("The task settings cannot be checked. Nothing was changed.").
+  - `Plan(PlanTaskRequest {plugin_id, filter (DeviceFilter), payload_json})` (like Run, nothing written; the preview of the
+    tools, `docs/spec/mcp.md` "Tasks"): NOT_FOUND unknown plugin, PERMISSION_DENIED page task or what the run needs; the
+    payload's `errors` {field, message} (then nothing else), else the filter's devices in the caller's view in address order
+    (NOT_FOUND for an id outside it), `run_device_ids` (`PlanAsync`, cached data only), `skipped` {reason, count},
+    `task_name`, `device_count`, `warnings`.
   - `List(ListTasksRequest)`: newest first, `limit` / `offset` paging, `TaskList.total_count = 2`, limit 0 = all.
     `Watch(WatchTasksRequest)`: every active task plus the newest `snapshot_limit` (0 = all), `SNAPSHOT_END` (kind 4, no
     task) when `snapshot_end_marker`, then live changes. For a user with a group both are filtered in the query
@@ -164,6 +197,7 @@ used again.
   - `Run` and `Query` answer a task plugin their permission lookup does not find with NOT_FOUND "Unknown task plugin 'x'."
     at once (one turned on meanwhile never runs unchecked). `Run` refuses a page task (hidden from the menus, no
     permissions of its own) for every caller: PERMISSION_DENIED "This task starts only from its page."
+  - `Plan` answers `files` (`PlanFile`: name and SHA-256 of each upload the plan uses, from the caller's uploads).
 - **`FileService`** (`files.proto`): `Upload` (client stream: header {name, size}, then 256 KB data chunks; returns id,
   name, size, SHA-256; INVALID_ARGUMENT; RESOURCE_EXHAUSTED over `Uploads.MaxMegabytes`, over the 10 GB of all uploads
   together or when less than 1 GB of disk would stay free, `docs/spec/security.md` "Limits"), `Delete(fileId)`. Uploads
@@ -171,6 +205,7 @@ used again.
   15 min) and reach tasks through `IUploadedFiles`. An upload belongs to the caller's user and session (`UploadOwner` in
   the `.json`): `Delete`, `BackupService.Inspect` / `Restore` and the tasks that user starts in that session see it; for
   anyone else its id answers NOT_FOUND like an unknown one.
+  - `List` (signed in): the caller's own finished uploads, newest first, with `created` (the AI agents' `oadm_files_list`).
 - **`PluginService`** (`plugins.proto`):
   - `ListCorePlugins`: the rail pages; `CorePluginInfo.no_page = 4` for a core plugin without a page (`ICorePlugin.HasPage`
     false: no rail entry).
@@ -223,6 +258,8 @@ used again.
     `AddOnLayout.Digest`, SHA-256 over one "path sha256" line per file sorted by path; NOT_FOUND unknown or not installed;
     FAILED_PRECONDITION over 24 MB or while the same session waits for one already). A server without add-ons
     (UNIMPLEMENTED, an older server): clients hide the card.
+  - `Invoke`: a Read only access key may call only the methods of a plugin's read tools and the previews of its change
+    tools, never a method the plugin audits.
 - **`SettingsService`** (`settings.proto`): `Get`, `Set` (field numbers in `docs/spec/settings-backup.md`; 0 or unset keeps
   the stored value; read-only `server_version = 21` and `key_replaced = 20` in both replies), `ListCredentials`,
   `AddCredential(user_name, password)` (INVALID_ARGUMENT, RESOURCE_EXHAUSTED over 20 entries; an identical pair returns the
@@ -243,6 +280,10 @@ used again.
   FAILED_PRECONDITION "The camera refused: <camera text>"). Only for devices of the caller's view (NOT_FOUND "1 device
   is no longer available.", the camera is never asked; the RTSP port methods refuse the whole selection); `Watch` ends
   with that NOT_FOUND when its device leaves the view.
+  - `GetSnapshot(device_id, camera, max_width, compression)` (Live view permission, device group): one JPEG of the largest
+    size at most `max_width` (the AI agents' `oadm_devices_snapshot`). At most 30 pictures a minute per user, all sessions and access keys
+    together (RESOURCE_EXHAUSTED "Too many pictures. Wait a minute."); audited once per user and minute with the counts of
+    pictures and devices.
 - **`EventService`** (`events.proto`, `docs/spec/event-rules.md`; every method `AccessRule.AllDevices`, rules have no
   owner): `GetCatalog`, `ListRules`, `WatchRules`, `GetRule` (password values never included), `SaveRule`, `DeleteRule`,
   `SetRuleEnabled`, `DuplicateRule`, `ListActionChoices`, `ListLog` (newest first, limit 0 = 10,000), `WatchLog`,
@@ -252,8 +293,11 @@ used again.
   connection of every persistent recipient that has one, the whole list first, then after each change, at most every 500 ms; missing means not
   used, `docs/spec/recipient-sessions.md`), `ListRecipientCertificates` (like `SaveRule`: the certificates of PKI for the recipient dialog, both
   lists empty while PKI is not running; ids and texts only, never a key). `GetCatalog` also gives `recipient_types` (`persistent`: one shared connection).
+  - `CheckRule(SaveRuleRequest)` (like `SaveRule`): the rule editor's checks, answers the rule's summary or INVALID_ARGUMENT
+    with the first problem; nothing is saved. `ListLog` takes `before_id` (the page before that entry) and `skip_total`.
 - **`ServerLogService`** (`logs.proto`, permission `logs.server`, users with all devices): `List` (the server's log
-  files, a page newest first), see `docs/spec/main-window.md` "Logs page".
+  files, a page newest first; `not_after = 5`: only lines at or before that ISO 8601 time, the page after a line, which new
+  lines never move; INVALID_ARGUMENT for another text), see `docs/spec/main-window.md` "Logs page".
 - **`DeviceWebService`** (`deviceweb.proto`, the Web View relay, `plugins/Oadm.Plugins.WebView/README.md`):
   `Open(device_id)` (Operator; refuses Certificate changed, Credentials required, Password not set with the shared
   text; audit "Opened web interface"), `Exchange` (one bidirectional call per HTTP request or WebSocket of the embedded
@@ -270,6 +314,8 @@ used again.
   on or off, off by default, `ComplianceCheckList.enabled`; users with all devices only). Users of a group see and change
   only their group's checks and results (others NOT_FOUND); `CheckNow` and `ListChoices` take only devices of the view,
   empty lists = the view.
+  - `Summarize(filter)` (like `ListChecks`): every check with the pass, fail and unknown counts of the filter's devices in
+    the caller's view.
 - **`TagService`** (`tags.proto`, `docs/spec/tags.md`): `List` (every definition sorted by name with its `device_count`
   in the caller's view and, for users with all devices, the `group_names` that use it; then names used on devices of the
   view without a definition, `defined = false`), `Watch` (the whole `TagList` on subscribe and after every change of the
@@ -283,6 +329,8 @@ used again.
   PERMISSION_DENIED for a user with a device group who adds or removes a tag a device group uses; RESOURCE_EXHAUSTED when
   a device would get more than 20 tags; reply `devices_changed`, `created`). Every write publishes one Updated device
   change per changed device; moves into or out of device groups are audited per group.
+  - `PlanDeviceTags(filter, add, remove)` (like `SetDeviceTags`): the counts and the ids of the devices that would change;
+    writes nothing.
 - **`LicenseService`** (`license.proto`, `docs/spec/licensing.md`): `GetLicense` (every signed-in user), `ImportLicense`
   and `RemoveLicense` (Admin, audited; INVALID_ARGUMENT with the reason), `StartTrial` (Admin, audited, once per server;
   FAILED_PRECONDITION with the reason).
@@ -297,6 +345,16 @@ used again.
   "Signed in to MyAxis"; FAILED_PRECONDITION "MyAxis did not accept the sign-in. Try again."; UNAVAILABLE "MyAxis could
   not be reached. Check the server's internet access."), `SignOut` (deletes it, audited "Signed out of MyAxis" when there
   was one; always succeeds). The session never comes back in an answer.
+- **`McpService`** (`mcp.proto`, `docs/spec/mcp.md`, the Settings card AI agents): `Get` (signed in: on, port, Listen on,
+  running, the status text, PKI there, the certificate and its names; the interfaces for the Administrator role only),
+  `Set` (Admin, all devices; audited "Changed AI agents" with what changed; INVALID_ARGUMENT for a port outside 1025 to
+  65535 or an unknown interface, FAILED_PRECONDITION "Turn on PKI to choose the certificate."), `GetCaCertificate` (signed
+  in: the issuers of the MCP server's certificate as PEM, `oadm-ca.pem`; NOT_FOUND without one).
+  - `GetSkill` (signed in): the skill `oadm` as `oadm-skill.zip` (**Download skill**).
+- **`AccessKeyService`** (`mcp.proto`, `docs/spec/mcp.md` "Access keys"): `ListMine`, `Delete` (signed in, the caller's own
+  keys; NOT_FOUND "The access key no longer exists." also for another user's), `Create` ("Use AI agents"; INVALID_ARGUMENT
+  with the field's text, RESOURCE_EXHAUSTED at 20 keys; the reply holds the key once), `ListAll`, `DeleteAny` (Admin). No
+  answer holds a key or its hash, only an opaque id.
 - **`SupportService`** (`support.proto`, `docs/spec/settings-backup.md` "Support report"): `CreateReport` (Admin, audited
   "Created support report"; stream of `DownloadChunk`: name and length first, 256 KB chunks, uncompressed).
 - **`BackupService`** (`backup.proto`, Admin): `GetState`, `SetSchedule`, `Create`, `Download`, `Delete`, `Inspect`,

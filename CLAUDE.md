@@ -187,9 +187,15 @@ must never break.
   Turn on on its tab of the PKI page, runs only with OADM PRO): RADIUS on UDP 1812 with EAP-TLS for the switch ports,
   only devices OADM manages with a certificate of a CA of an 802.1X trusted CA policy pass; its rules (its certificate,
   TLS, trusted CAs, VLAN, Block) are PKI's policies (docs/spec/pki.md), never settings of its own.
-- **[MCP server](docs/spec/mcp.md)** (spec, not built): AI agents do what a user can in the client, through the server's
-  gRPC services with an access key (the user's role and device group); off by default, own port with a PKI certificate;
-  every change is preview then run; never all devices in a result; no secrets over MCP; rights and settings GUI only.
+- **[MCP server](docs/spec/mcp.md)** (all four stages built: the endpoint, access keys, the read tools, tasks with
+  preview and run, file links, device actions, tags, sites, compliance, event rules, plugin tools, the skill and Connect
+  an agent):
+  AI agents do what a user can in the client, through the server's gRPC services in process with an access key (the
+  user's role and device group, `InProcessCalls`); the tools are one registry that knows nothing of MCP (`ToolRegistry`,
+  the caller a parameter, never the HTTP request; MCP is a thin adapter: transport, access keys, its own limits); off by default, own port (TCP 5082) with the certificate of the PKI
+  policy AI agents ("MCP" only in the config snippet and the docs); access keys stored only as SHA-256, never a session;
+  every change is preview then run; never all devices in a result (pages with the total and a sort-key cursor, logs with
+  `more` instead of a total, answers at most 32 KB); no secrets over MCP; rights and settings GUI only.
 - **[Load test](docs/spec/load-test.md)** (core plugin `oadm.load-test`, off by default): a load test of the chosen
   cameras and the network to the server, at most 1,000 camera streams per check in batches of at most 200; the exposure
   is the only write and always goes back.

@@ -255,6 +255,8 @@ public sealed class OadmDbContext(DbContextOptions<OadmDbContext> options) : DbC
             e.Property(t => t.ClientAddress).IsRequired().HasMaxLength(64);
             e.Property(t => t.CreatedUtc).HasConversion(UtcConverter);
             e.Property(t => t.ExpiresUtc).HasConversion(UtcConverter);
+            e.Property(t => t.Name).IsRequired().HasMaxLength(AuthTokenStore.MaxAccessKeyNameLength);
+            e.Property(t => t.LastUsedUtc).HasConversion(NullableUtcConverter);
             e.HasIndex(t => t.UserId);
             e.HasOne<UserEntity>().WithMany().HasForeignKey(t => t.UserId).OnDelete(DeleteBehavior.Cascade);
         });

@@ -26,8 +26,15 @@ public sealed partial class PkiService
     private const string OidServerAuth = "1.3.6.1.5.5.7.3.1";
     private const string OidClientAuth = "1.3.6.1.5.5.7.3.2";
 
-    /// <summary>OADM makes a key and a certificate with an issuing policy (HTTPS or IEEE 802.1X); the key is kept encrypted.</summary>
-    internal async Task<CertificateActionReply> CreateCertificateAsync(CreateCertificateRequest request, string userName, CancellationToken ct)
+    /// <summary>What Create would make, checked and fixed: the use, the issuing policy and its CA, the name and the addresses.</summary>
+    internal sealed record CreatePlan(string Use, PkiPolicy Policy, CaMaterial Ca, string Name, IReadOnlyList<string> Ips, IReadOnlyList<string> Dns);
+
+    /// <summary>
+    /// Every check of Create, before anything is made: the fields, the policy, the CA with its key, the key store and the
+    /// limit. The page's Create and the preview of the tool (docs/spec/mcp.md "Plugins") use this one method, so they never differ.
+    /// A refusal is the reply the dialog shows; nothing is written either way.
+    /// </summary>
+    internal (CreatePlan? Plan, CertificateActionReply? Refusal) CheckCreate(CreateCertificateRequest request)
     {
         ArgumentNullException.ThrowIfNull(request);
         var errors = new Dictionary<string, string>(StringComparer.Ordinal);
@@ -43,22 +50,39 @@ public sealed partial class PkiService
         Add(errors, CertificateFields.Addresses, addressError);
         if (errors.Count > 0)
         {
-            return new CertificateActionReply { Errors = errors };
+            return (null, new CertificateActionReply { Errors = errors });
         }
 
         // The CA of the issuing policy (decision 2026-10-25: any CA with its key).
         if (IssuingCa(policy!.CaId) is not { } ca)
         {
-            return new CertificateActionReply { Error = CertificateRules.NoCa };
+            return (null, new CertificateActionReply { Error = CertificateRules.NoCa });
         }
 
         if (!_local.CanKeepKeys)
         {
-            return new CertificateActionReply { Error = CertificateRules.NoKeyStore };
+            return (null, new CertificateActionReply { Error = CertificateRules.NoKeyStore });
         }
 
-        var name = request.Name!.Trim();
-        using var rsa = policy!.Key == PolicyKeys.Rsa ? RSA.Create(2048) : null;
+        if (_local.List.Count >= CertificateRules.MaxLocalCertificates)
+        {
+            return (null, new CertificateActionReply { Error = CertificateRules.TooMany });
+        }
+
+        return (new CreatePlan(use!, policy, ca, request.Name!.Trim(), ips, dns), null);
+    }
+
+    /// <summary>OADM makes a key and a certificate with an issuing policy (HTTPS or IEEE 802.1X); the key is kept encrypted.</summary>
+    internal async Task<CertificateActionReply> CreateCertificateAsync(CreateCertificateRequest request, string userName, CancellationToken ct)
+    {
+        var (plan, refusal) = CheckCreate(request);
+        if (plan is null)
+        {
+            return refusal!;
+        }
+
+        var (use, policy, ca, name, ips, dns) = (plan.Use, plan.Policy, plan.Ca, plan.Name, plan.Ips, plan.Dns);
+        using var rsa = policy.Key == PolicyKeys.Rsa ? RSA.Create(2048) : null;
         using var ec = rsa is null ? ECDsa.Create(ECCurve.NamedCurves.nistP256) : null;
         var csr = rsa is not null
             ? new CertificateRequest("CN=x", rsa, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1)
@@ -66,7 +90,7 @@ public sealed partial class PkiService
         X509Certificate2 signed;
         try
         {
-            signed = DeviceCertificateIssuer.Sign(ca, csr.CreateSigningRequestPem(), new CertificateNames(name, ips, dns), use!, Now, DeviceCertificateValidity(policy.ValidDays, ca));
+            signed = DeviceCertificateIssuer.Sign(ca, csr.CreateSigningRequestPem(), new CertificateNames(name, ips, dns), use, Now, DeviceCertificateValidity(policy.ValidDays, ca));
         }
         catch (CertificateRequestRejectedException ex)
         {
@@ -83,7 +107,7 @@ public sealed partial class PkiService
                     Id = Guid.NewGuid().ToString("N"),
                     Kind = ListedCertificateKind.Created,
                     Name = name,
-                    Purpose = use!,
+                    Purpose = use,
                     Der = Convert.ToBase64String(signed.RawData),
                     IssuerFingerprint = ca.Id,
                     PolicyId = policy.Id,

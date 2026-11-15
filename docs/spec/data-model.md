@@ -83,6 +83,8 @@ crash; with FULL a poll round of 5,000 devices took 22 s instead of 6 s.
   associated data "OADM MyAxis session <user id>"; null once axis.com refused it), SignedInUtc, LastAcceptedUtc (the sign-in
   check or the last download), Expired (axis.com refused the kept session; the row goes on Sign out, Expired clears on a
   new sign-in). Removed from every backup copy (with a `VACUUM`), like `AuthTokens`.
+- `AuthTokens` holds login sessions and, since migration `AccessKeys`, the access keys of AI agents (`Kind`, `Name`,
+  `ReadOnly`, `LastUsedUtc`; [mcp.md](mcp.md) "Access keys"); every row keeps only the SHA-256 of its token.
 - Other tables live with their feature: `Users`, `Roles`, `AuthTokens`, `AuditEntries` ([security.md](security.md)),
   `Sites`, `RemovedSites` ([sites.md](sites.md)), `EventRules`, `EventRuleStates`, `EventLogEntries`
   ([event-rules.md](event-rules.md)), `Recipients` (migration `Recipients`, [recipients.md](recipients.md): Id, Name unique, TypeId,

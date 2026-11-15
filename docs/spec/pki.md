@@ -175,14 +175,14 @@ The Policies tab is one card and a side panel, like Intune (`PkiView` `PoliciesP
   `DataGridCollectionView`; the header shows the chevron, the group's icon and its name, the group key a `ui:GridGroup`
   with `PolicyTableGroups.IconOf` / `KeyOf`: key, server, network, download, bell; a group without policies shows no
   header), in this order: **Issuing policies** (HTTPS certificate, IEEE 802.1X certificate), **Server policies** (802.1X
-  server, EST server), **802.1X access policies** (802.1X trusted CA, VLAN, Block), **EST enrollment policies**
+  server, EST server, AI agents), **802.1X access policies** (802.1X trusted CA, VLAN, Block), **EST enrollment policies**
   (Enrollment, EST sign-in CA), **Expiry warnings**; built-in policies first in their group, then the others in age order.
   Columns: **Name** (a red dot `Ellipse.problemDot.error` with the reason as tooltip for a later overlap or a CA that can
   no longer issue, also when no CA can issue at all; the **Built-in** badge `Border.badge.system` for a system policy),
   **Type** ("VLAN", "802.1X trusted CA"), **Summary** (the sentence, dimmed). At most 200 policies
   (`PolicyLimits.MaxPolicies`, "Use at most 200 policies.") in a virtualized DataGrid. A search that matches nothing says so
   in one line.
-- **Without OADM PRO** the table shows only the HTTPS certificate, IEEE 802.1X certificate and Expiry warning policies
+- **Without OADM PRO** the table shows only the HTTPS certificate, IEEE 802.1X certificate, AI agents and Expiry warning policies
   (`PolicyKinds.IsPro`); stored PRO policies stay and come back with a license.
 - **Side panel** (theme `Border.sidePanel` with `Border.sidePanelContent`, 560 px): it slides in at the right of the tab
   (0.2 s) and pushes the table to the left; nothing covers the table. A click on a row opens that policy's form; **Create**
@@ -219,6 +219,7 @@ The Policies tab is one card and a side panel, like Intune (`PkiView` `PoliciesP
 | Issuing policies | **IEEE 802.1X certificate** | Issued by, Valid (days), Key, EAPOL version (1, 2 or 3), EAP identity (MAC address, Host name, IP address, Last octet of the IP address, Custom), RADIUS server CA (a CA of the list) | no | Built-in "IEEE 802.1X" (the first-start root CA, 365 days, ECC P-256, RADIUS server CA the first-start root CA; a new installation EAPOL version 2 and the IP address as identity; one used before keeps its identity, EAPOL version and RSA 2048) |
 | Server policies | **802.1X server** (one only, PRO) | Certificate (see "Server certificates"; ECC only), Minimum TLS version (1.0, 1.1, 1.2, 1.3; 1.0 and 1.1 with the hint "Only for old devices: TLS 1.0 and 1.1 are no longer considered secure."; the cipher suites follow it, no selection), Largest EAP packet (500 to 1,400 bytes), Reauthentication (Switch decides, or every 10 to 1,440 minutes) | no | Built-in "802.1X server" (the shared certificate "802.1X and EST server", TLS 1.2, 1,020 bytes as RFC 3748 3.1, Switch decides) |
 | Server policies | **EST server** (one only, PRO) | Certificate (see "Server certificates") | no | Built-in "EST server" (the shared certificate "802.1X and EST server") |
+| Server policies | **AI agents** (stored `mcpServer`, one only, not PRO; [mcp.md](mcp.md)) | Certificate (see "Server certificates"; it must name one of this computer's addresses or its host name, also as a full name such as server01.example.com: "This certificate names none of this server's addresses and not its host name. Choose another one.") | no | Built-in "AI agents" (conversion owner `oadm.pki:mcp-server`), without a certificate until it gets the shared certificate "802.1X and EST server": on the first Turn on of AI agents, also without OADM PRO, or when OADM PRO makes it for the other servers |
 | 802.1X access policies (PRO) | **802.1X trusted CA** (stored `allowCa`) | CA; Only devices OADM manages (on) or Any device with a valid certificate | no | the first-start root CA under its real name, e.g. "OADM Root CA SERVER01", and "Axis device ID", both only managed (`RadiusPolicies.DefaultAllowCaPolicies`; policies already stored keep their names) |
 | 802.1X access policies (PRO) | **VLAN** | VLAN ID (1 to 4094) | yes | none |
 | 802.1X access policies (PRO) | **Block** | none (the devices only) | yes | none |
@@ -231,7 +232,7 @@ server, Enrollment, two EST sign-in CA). The 802.1X tab counts 802.1X server, 80
 tab EST server, Enrollment and EST sign-in CA.
 
 - **System policies** (`PolicyStore.IsSystem`, the Built-in badge): the first (oldest) policy of HTTPS certificate, IEEE
-  802.1X certificate, 802.1X server, EST server, Expiry warning and Enrollment. OADM needs them, so they have no Delete (the
+  802.1X certificate, 802.1X server, EST server, AI agents, Expiry warning and Enrollment. OADM needs them, so they have no Delete (the
   server refuses it: "OADM needs this policy. Change its values instead."); their values stay editable, also the devices of
   the Expiry warning and Enrollment ones (else their "All devices" would overlap every policy added next to them). Users add
   their own policies: further issuing policies (picked in the task dialogs and the EST profiles), 802.1X trusted CA, VLAN,
@@ -334,8 +335,10 @@ tab EST server, Enrollment and EST sign-in CA.
 
 ## Server certificates
 
-The 802.1X server and the EST server show one certificate each, picked by their server policy from the Certificates list,
-like any TLS server. The server certificate names the server; the cameras' own certificates come from the issuing policies
+The 802.1X server, the EST server and the host's server for AI agents ([mcp.md](mcp.md), policy AI agents) show one
+certificate each, picked by their server policy from the Certificates list, like any TLS server. The host reads the one of
+AI agents through the SDK's `IServerCertificates` (PKI offers it; the certificate with its key, its issuer chain and the
+problem texts below, and `Changed` when the policies or the list change), only while AI agents is on. The server certificate names the server; the cameras' own certificates come from the issuing policies
 and are checked against the 802.1X trusted CA and EST sign-in CA policies. The two are independent.
 
 - **Certificate** (`PkiPolicy.CertificateId`, the id of a row of the Certificates list): a certificate with a key OADM holds
@@ -348,9 +351,11 @@ and are checked against the 802.1X trusted CA and EST sign-in CA policies. The t
   Pick another certificate first.") and shows the server under Used by.
 - **No Create in the policy:** other certificates come from the Certificates tab (Create, Sign request, Import); the field
   lists them.
-- **One certificate for both servers:** when OADM PRO becomes active, on every start with OADM PRO and on Turn on, a server
-  policy without a certificate gets the shared one (`PkiService.EnsureServerCertificatesAsync`, a system write
-  `PolicyStore.SetServerCertificateAsync`, only where none is set): "802.1X and EST server", from the CA a server policy
+- **One certificate for every server:** when OADM PRO becomes active, on every start with OADM PRO, on Turn on and on the
+  first Turn on of AI agents (its first load through `IServerCertificates`, also without OADM PRO), every server policy
+  without a certificate (802.1X server, EST server, AI agents) gets the shared one (`PkiService.EnsureServerCertificatesAsync`,
+  a system write `PolicyStore.SetServerCertificateAsync`, only where none is set): the one a server policy already shows
+  while it is usable (in the list with its key, not ended, still accepted), else a new "802.1X and EST server", from the CA a server policy
   names when it can issue (the first-start root CA by default), else the first CA that can issue
   (`PkiService.ServerIssuingCa`), ECC P-256, 10 years (never past the CA's end), server authentication, kept in the
   Certificates list with its key (created, use Server), naming this computer's addresses and name, the names the running

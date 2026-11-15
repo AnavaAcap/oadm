@@ -2,6 +2,7 @@ syntax = "proto3";
 package oadm.v1;
 option csharp_namespace = "Oadm.Contracts.V1";
 import "Protos/common.proto";
+import "google/protobuf/timestamp.proto";
 
 // Uploads from client dialogs (firmware images, ACAP packages). The server keeps them in
 // <datafolder>/uploads for Uploads.RetentionHours (default 24) and enforces Uploads.MaxMegabytes
@@ -11,6 +12,8 @@ service FileService {
   // name, size mismatch), RESOURCE_EXHAUSTED (over the size limit).
   rpc Upload (stream UploadChunk) returns (UploadedFileInfo);
   rpc Delete (FileIdRequest) returns (Empty);
+  // The caller's own finished uploads (this login session), newest first. The tools of AI agents use it (docs/spec/mcp.md "Files").
+  rpc List (Empty) returns (UploadedFileList);
 }
 
 message UploadHeader {
@@ -30,6 +33,9 @@ message UploadedFileInfo {
   string name = 2;
   int64 size = 3;
   string sha256 = 4;   // upper-case hex
+  google.protobuf.Timestamp created = 5;  // set by List
 }
+
+message UploadedFileList { repeated UploadedFileInfo files = 1; }
 
 message FileIdRequest { string file_id = 1; }

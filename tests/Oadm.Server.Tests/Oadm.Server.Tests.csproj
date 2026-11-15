@@ -27,8 +27,20 @@
     <ProjectReference Include="..\..\plugins\Oadm.Plugins.Notifications\Oadm.Plugins.Notifications.csproj" />
     <ProjectReference Include="..\..\src\Oadm.Sdk.Testing\Oadm.Sdk.Testing.csproj" />
     <ProjectReference Include="..\..\plugins\Oadm.Plugins.Restart\Oadm.Plugins.Restart.csproj" />
+    <!-- The bundled tasks the tools of AI agents offer and refuse (docs/spec/mcp.md "Tasks"). -->
+    <ProjectReference Include="..\..\plugins\Oadm.Plugins.DateTime\Oadm.Plugins.DateTime.csproj" />
+    <ProjectReference Include="..\..\plugins\Oadm.Plugins.Users\Oadm.Plugins.Users.csproj" />
+    <ProjectReference Include="..\..\plugins\Oadm.Plugins.Firmware\Oadm.Plugins.Firmware.csproj" />
+    <ProjectReference Include="..\..\plugins\Oadm.Plugins.Network\Oadm.Plugins.Network.csproj" />
+    <ProjectReference Include="..\..\plugins\Oadm.Plugins.Acap\Oadm.Plugins.Acap.csproj" />
+    <ProjectReference Include="..\..\plugins\Oadm.Plugins.Pki\Oadm.Plugins.Pki.csproj" />
     <ProjectReference Include="..\..\plugins\Oadm.Plugins.VapixCommander\Oadm.Plugins.VapixCommander.csproj" />
     <ProjectReference Include="..\..\plugins\Oadm.Plugins.SystemReport\Oadm.Plugins.SystemReport.csproj" />
+    <!-- The tools of the bundled plugins (docs/spec/mcp.md "Plugins"). -->
+    <ProjectReference Include="..\..\plugins\Oadm.Plugins.Pki\Oadm.Plugins.Pki.csproj" />
+    <ProjectReference Include="..\..\plugins\Oadm.Plugins.NtpServer\Oadm.Plugins.NtpServer.csproj" />
+    <ProjectReference Include="..\..\plugins\Oadm.Plugins.DhcpServer\Oadm.Plugins.DhcpServer.csproj" />
+    <ProjectReference Include="..\..\plugins\Oadm.Plugins.HardeningScan\Oadm.Plugins.HardeningScan.csproj" />
     <!-- The real OADM Site Node in the same process (sites tests). -->
     <ProjectReference Include="..\..\src\Oadm.SiteNode\Oadm.SiteNode.csproj" />
   </ItemGroup>

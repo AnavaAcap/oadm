@@ -68,6 +68,20 @@ public sealed partial class FileGrpcService(UploadStore store, ILogger<FileGrpcS
         return new Proto.Empty();
     }
 
+    /// <summary>The caller's own finished uploads (never another session's), newest first.</summary>
+    public override async Task<Proto.UploadedFileList> List(Proto.Empty request, ServerCallContext context)
+    {
+        var reply = new Proto.UploadedFileList();
+        foreach (var listing in await store.ListAsync(UploadOwner.Of(AuthInterceptor.CallerOf(context)), context.CancellationToken).ConfigureAwait(false))
+        {
+            var info = Mappers.ToProto(listing.File);
+            info.Created = Google.Protobuf.WellKnownTypes.Timestamp.FromDateTime(listing.CreatedUtc);
+            reply.Files.Add(info);
+        }
+
+        return reply;
+    }
+
     [LoggerMessage(Level = LogLevel.Information, Message = "Upload {FileId} received ({Size} bytes) from {Owner}")]
     private partial void LogUploaded(string fileId, long size, string owner);
 }

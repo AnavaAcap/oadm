@@ -4,6 +4,7 @@ using System.Security.Cryptography;
 using Oadm.Plugins.Pki.Device;
 using Oadm.Sdk.Devices;
 using Oadm.Sdk.Plugins;
+using Oadm.Sdk.Tasks;
 
 namespace Oadm.Plugins.Pki.Tasks;
 
@@ -25,6 +26,30 @@ public sealed class InstallCaTask(Func<PkiService?> service) : PkiTaskBase(servi
     public override string DisplayName => PkiTaskIds.InstallCaName;
 
     public override string? IconKey => "upload";
+
+    /// <summary>
+    /// Not offered to AI agents (null, SDK 0.13.0): the certificates would become trust anchors on the devices, and an agent
+    /// could bring any one. The dialog shows each certificate to the person who installs it.
+    /// </summary>
+    public override Type? PayloadType => null;
+
+    /// <summary>Every certificate checked as before the first write (<see cref="Validate"/>): a CA certificate, valid now.</summary>
+    public override IReadOnlyList<PayloadError> ValidatePayload(string? payloadJson, ICallContext caller)
+    {
+        InstallCaPayload? payload;
+        try
+        {
+            payload = PkiJson.TryDeserialize<InstallCaPayload>(payloadJson);
+        }
+        catch (ArgumentException)
+        {
+            payload = null;
+        }
+
+        return payload is null
+            ? [new(string.Empty, "The task payload is not valid. Nothing was changed.")]
+            : Validate(payload, Time.GetUtcNow().UtcDateTime).Problem is { } problem ? [new("certificates", problem)] : [];
+    }
 
     public override bool RequiresDialog => true;
 

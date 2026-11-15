@@ -31,6 +31,71 @@ service DeviceService {
   // Pins the fingerprint the user confirmed for each device (checked again: pinned to it, serial with the stored
   // credentials), keeps the record and queues its refresh. One call for the selection.
   rpc TrustNewCertificates (TrustNewCertificatesRequest) returns (TrustNewCertificatesReply);
+  // The devices of the caller's view that match a filter, one page in a fixed order after the last row of the page before
+  // (its sort key and id), with the number of matches and, when asked, the counts of a field. Only the page is mapped:
+  // the MCP device tools (docs/spec/mcp.md) use it instead of List.
+  rpc Search (SearchDevicesRequest) returns (SearchDevicesReply);
+  // Every device of the caller's view that matches a filter, as the ids in address order (the fixed list of a preview), and the
+  // first `shown` of them as rows. Unknown ids and ids outside the view refuse the request (NOT_FOUND), like Search.
+  rpc Resolve (ResolveDevicesRequest) returns (ResolveDevicesReply);
+  // Stores one entry of the credential list as the login of the devices, without the password ever leaving the server:
+  // the entry is chosen by its id. Only users with all devices (the credential list is never used for a device group).
+  // NOT_FOUND for an unknown entry or device, INVALID_ARGUMENT for no devices.
+  rpc SetStoredCredentials (SetStoredCredentialsRequest) returns (Empty);
+}
+
+// Which devices: every field optional, the fields combined with AND, a list matches any of its values; empty = every device
+// of the view.
+message DeviceFilter {
+  repeated string ids = 1;
+  string search = 2;                 // in the address, host name, UPnP name, serial, model, AXIS OS version, site or tags (any case)
+  repeated string tags = 3;          // tag names (any case)
+  repeated string sites = 4;         // site names (any case); "This server" for the server's own network
+  repeated string models = 5;        // any case
+  string firmware_below = 6;         // only an AXIS OS older than this, e.g. "12.11"
+  string firmware_at_least = 7;      // only this AXIS OS or newer
+  repeated DeviceStatus statuses = 8;
+  repeated DeviceCategory categories = 9;
+}
+
+message SearchDevicesRequest {
+  DeviceFilter filter = 1;
+  // "address" (default; IPv4 in number order), "host_name", "upnp_name", "model", "firmware", "status", "last_seen";
+  // a leading "-" sorts descending. Ties in id order.
+  string sort = 2;
+  string after_key = 3;     // the sort key of the last row of the page before (SearchDevicesReply.sort_keys)
+  string after_id = 4;      // its id; both empty for the first page
+  int32 limit = 5;          // rows, 0 to 500 (0: only the total and the counts)
+  bool with_apis = 6;       // the API lists of the rows (one device's details); without them the rows have none
+  string group_by = 7;      // counts by "status", "model", "firmware", "site", "tag" or "category"; empty: no counts
+}
+
+message DeviceFieldCount {
+  string value = 1;
+  int32 count = 2;
+}
+
+message SearchDevicesReply {
+  int32 total = 1;                      // every device that matches
+  repeated Device devices = 2;          // the page
+  repeated string sort_keys = 3;        // the sort key of each row of the page
+  repeated DeviceFieldCount counts = 4; // with group_by: every value, the most devices first
+  int32 after_cursor = 5;               // the matches after the cursor (the page and the rest); total without a cursor
+}
+
+message ResolveDevicesRequest {
+  DeviceFilter filter = 1;
+  int32 shown = 2;                      // rows of `first`, 0 to 100
+}
+
+message ResolveDevicesReply {
+  repeated string ids = 1;              // every match, in address order (without the API lists)
+  repeated Device first = 2;            // the first `shown` matches
+}
+
+message SetStoredCredentialsRequest {
+  repeated string device_ids = 1;
+  string credential_id = 2;             // an entry of SettingsService.ListCredentials
 }
 
 message DeviceId { string id = 1; }

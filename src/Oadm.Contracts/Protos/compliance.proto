@@ -2,6 +2,7 @@ syntax = "proto3";
 package oadm.v1;
 option csharp_namespace = "Oadm.Contracts.V1";
 import "Protos/common.proto";
+import "Protos/devices.proto";
 import "Protos/device_groups.proto";
 import "Protos/events.proto";
 
@@ -34,7 +35,11 @@ service ComplianceService {
   // Turns compliance on or off for the server (off by default; audited). Off: nothing is checked, no events, the results
   // are removed; the checks stay. Reply: the checks with the new state.
   rpc SetEnabled (SetComplianceEnabledRequest) returns (ComplianceCheckList);
+  // ListChecks with the counts of the devices of a filter only (in the caller's view). NOT_FOUND for an id outside the view.
+  rpc Summarize (SummarizeComplianceRequest) returns (ComplianceCheckList);
 }
+
+message SummarizeComplianceRequest { DeviceFilter filter = 1; }
 
 message SetComplianceEnabledRequest { bool enabled = 1; }
 

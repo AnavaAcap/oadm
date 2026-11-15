@@ -142,6 +142,32 @@ public sealed class EventGrpcService(
         }
     }
 
+    public override async Task<Proto.RuleSummary> CheckRule(Proto.SaveRuleRequest request, ServerCallContext context)
+    {
+        RuleDefinition definition;
+        try
+        {
+            definition = RuleDefinition.FromJson(request.DefinitionJson);
+        }
+        catch (JsonException)
+        {
+            throw GrpcGuard.InvalidArgument("The rule could not be read.");
+        }
+
+        try
+        {
+            return ToProto(await rules.CheckAsync(definition, context.CancellationToken).ConfigureAwait(false));
+        }
+        catch (RuleValidationException ex)
+        {
+            throw GrpcGuard.InvalidArgument(ex.Message);
+        }
+        catch (KeyNotFoundException ex)
+        {
+            throw GrpcGuard.NotFound(ex.Message);
+        }
+    }
+
     public override async Task<Proto.Empty> DeleteRule(Proto.RuleId request, ServerCallContext context)
     {
         var id = GrpcGuard.ParseId(request.Id, "rule id");
@@ -196,7 +222,7 @@ public sealed class EventGrpcService(
     public override async Task<Proto.EventLogPage> ListLog(Proto.ListEventLogRequest request, ServerCallContext context)
     {
         Guid? ruleId = string.IsNullOrEmpty(request.RuleId) ? null : GrpcGuard.ParseId(request.RuleId, "rule id");
-        var (lines, total) = await log.ListAsync(request.Limit, request.Offset, ruleId, context.CancellationToken).ConfigureAwait(false);
+        var (lines, total) = await log.ListAsync(request.Limit, request.Offset, ruleId, context.CancellationToken, request.BeforeId, !request.SkipTotal).ConfigureAwait(false);
         var page = new Proto.EventLogPage { TotalCount = total };
         page.Entries.AddRange(lines.Select(ToProto));
         return page;

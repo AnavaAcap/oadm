@@ -78,6 +78,16 @@ AuthTokens, AuditEntries) and `Roles`; client `Shell/AppShell`, `LoginViewModel`
   one audit entry per client address and minute ("Unknown user", then its detail counts: "12 failed logins with unknown
   user names", `AuthManager.AuditUnknownAsync`), so made-up names never push the history out; a wrong password of a
   user keeps one entry each. A setup code over 64 characters is wrong.
+  **Access keys** of AI agents ([mcp.md](mcp.md) "Access keys") are rows of the same table (`AuthTokens.Kind` AccessKey,
+  `Name`, `ReadOnly`, `LastUsedUtc`, migration `AccessKeys`; `AuthTokenStore.CreateAccessKeyAsync`, `ValidateAccessKeyAsync`):
+  `oadm_` + 32 random bytes, only the SHA-256 kept, a fixed end (30, 90 or 365 days), at most 20 per user, the last use
+  stored at most once a minute; they end with the sessions (new password, disabled or deleted user, a restore) and by
+  Delete. A session token is never an access key and an access key never a session (UNAUTHENTICATED on gRPC, 401 on MCP).
+  Audited: every change an agent causes as "<user> via access key <name>" (`AuthenticatedCaller.AuditUserName`), "Uploaded
+  file" (an upload link), "Created access key" (the name, Read only, the end), "Deleted access key" ("user: name"), "Access key refused"
+  (the key's user and name when its row is still there, else "Unknown access key" or "No access key"; one entry per address
+  and key a minute with the count). `AccessKeyService` (`mcp.proto`): own keys for every user, Create with "Use AI agents",
+  every user's for the Administrator role (the card Access keys of the Permissions page).
   `AuthMaintenanceHostedService` removes expired sessions and old audit entries hourly. A new password or a disabled user
   ends the sessions; a new role applies to the next call (`AuthTokenStore.SetRole`). An expired session ends like a
   logout (`SessionsEnded` for its token, when its next use finds it expired or in the hourly cleanup): its streams, plugin
@@ -95,7 +105,7 @@ AuthTokens, AuditEntries) and `Roles`; client `Shell/AppShell`, `LoginViewModel`
   `devices.liveView`, `devices.opticsControl` ("Optics Control": zoom, focus and the RTSP port), `devices.export`, `tags.assign`, `tags.manage`, `tasks.cancel`, `tasks.delete`, `tasks.deleteAll`,
   `compliance.view` ("See compliance", Operator and Viewer yes), `compliance.manage` ("Change compliance checks", Operator no),
   `events.view`, `events.manage`, `events.clearLog`, `logs.server`, `sites.view` ("See sites", Operator and
-  Viewer yes)), "<plugin id>:<key>" for core plugins (every page gets "show"
+  Viewer yes), `mcp.use` ("Use AI agents", group AI agents, off for Operator and Viewer; [mcp.md](mcp.md))), "<plugin id>:<key>" for core plugins (every page gets "show"
   automatically) and "task:<id>" / "task:<id>:<key>" for task plugins. `PermissionCatalog.Build` collects them from every
   loaded plugin (on or off) at start (a task hidden from the menus, `ShowInMenus` false, is left out of the role editor,
   its page's methods carry the rights, unless it declares permissions of its own: those stay listed and grantable; test
@@ -196,7 +206,9 @@ AuthTokens, AuditEntries) and `Roles`; client `Shell/AppShell`, `LoginViewModel`
   of another client of the same user). On Linux and macOS it is created with mode 0600 and an older file
   is limited to its owner once at the start; on Windows it has the rights of the user's data folder.
 - The title bar shows the logged-in user (initial avatar + name, tooltip "Logged in as ... (role) on ...") with Log out; a
-  click on the user opens **Your role** (`Shell/MyRoleWindow`, `MyRoleViewModel`, `RoleService.Mine`): the role's name
+  click on the user opens the account menu: **Your role** and, for roles with "Use AI agents", **Access keys**
+  (`Shell/AccessKeysWindow`, `AccessKeysViewModel`: the user's keys with Delete, a new key with Name, Expires and Read only,
+  shown once with Copy). **Your role** (`Shell/MyRoleWindow`, `MyRoleViewModel`, `RoleService.Mine`): the role's name
   and what it allows, grouped like the matrix, read-only. `UserSession` keeps role name and permission keys
   (`Has(key)`, `PermissionsChanged`), fed by Login / Me and the session stream (`ServerConnection`); a server without
   roles sends none: Administrator everything, others everything but the Administrator-only parts.
@@ -344,7 +356,8 @@ AuthTokens, AuditEntries) and `Roles`; client `Shell/AppShell`, `LoginViewModel`
   opens "OADM Server (Load test, UDP 50000-50799)" for the RTP over UDP of its stream probes only while a check
   runs ([live-view.md](live-view.md) "Stream probes"). The site port keeps "OADM Server (Site nodes, TCP 5081)" while it
   listens (`SiteManager`), and every plugin listener on the server's own network keeps a rule named by its reason while
-  it is open (`LocalNetwork`): "OADM Server (EST server, TCP 9454)", "OADM Server (802.1X server, UDP 1812)".
+  it is open (`LocalNetwork`): "OADM Server (EST server, TCP 9454)", "OADM Server (802.1X server, UDP 1812)"; the MCP server for AI agents keeps "OADM
+  Server (AI agents, TCP 5082)" while it listens ([mcp.md](mcp.md)).
 - **Folders** (the service runs as SYSTEM / root): at start (step 0 of `OadmServerHost.StartAsync`, service mode only)
   the data folder, the runtime extraction folder and every plugin folder must be writable only by administrators / root
   (`Oadm.Server.Hosting.FolderGuard` over `IFolderPermissions`: `WindowsFolderPermissions`, `UnixFolderPermissions`). Windows: owner and every entry SYSTEM / Administrators / TrustedInstaller, no

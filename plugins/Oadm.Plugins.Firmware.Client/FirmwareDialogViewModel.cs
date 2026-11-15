@@ -251,12 +251,7 @@ public sealed partial class FirmwareDialogViewModel : ObservableObject, IDisposa
         : null;
 
 
-    public string? ModeWarning => SelectedMode.Mode switch
-    {
-        FactoryDefaultMode.Soft => "Soft factory default: all settings, users and passwords are reset; the IP address and network settings are kept. OADM loses access until a new password is set.",
-        FactoryDefaultMode.Hard => "Hard factory default: everything is reset, including the IP address. Devices with a static address fall back to DHCP or 192.168.0.90 and may become unreachable for OADM.",
-        _ => null,
-    };
+    public string? ModeWarning => FirmwareWarnings.Of(SelectedMode.Mode);
 
     public bool HasModeWarning => ModeWarning is not null;
 

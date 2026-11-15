@@ -30,6 +30,27 @@ public sealed class DeviceRepositoryTests : IAsyncLifetime
     };
 
     [Fact]
+    public async Task APageWithoutApisReadsEveryOtherColumn()
+    {
+        // The search of the MCP device tools reads devices without their API lists (the largest column): the projection
+        // must name every other column, also one added later.
+        await using var context = await _db.Get<Microsoft.EntityFrameworkCore.IDbContextFactory<Oadm.Core.Persistence.OadmDbContext>>().CreateDbContextAsync();
+        var columns = context.Model.FindEntityType(typeof(Device))!.GetProperties().Select(p => p.Name).Where(n => n != nameof(Device.Apis)).Order(StringComparer.Ordinal);
+        var named = ((System.Linq.Expressions.MemberInitExpression)DeviceRepository.WithoutApis.Body).Bindings.Select(b => b.Member.Name).Order(StringComparer.Ordinal);
+        Assert.Equal(columns, named);
+
+        var device = NewDevice();
+        device.Apis = [new Oadm.Sdk.Vapix.DeviceApi("time-service", "1.0")];
+        var added = await _repo.AddAsync(device, CancellationToken.None);
+        var lean = Assert.Single(await _repo.ListDevicesPageAsync(null, 10, CancellationToken.None, withApis: false));
+        Assert.Empty(lean.Apis);
+        Assert.Equal((added.Id, "ACCC8E010203", "192.168.0.90", "11.11.73", DeviceStatus.Ok), (lean.Id, lean.Serial, lean.Address, lean.FirmwareVersion, lean.Status));
+        Assert.Equal(["lobby", "floor-1"], lean.Tags);
+        Assert.Single(Assert.Single(await _repo.GetManyAsync([added.Id], CancellationToken.None)).Apis);
+        Assert.Empty(Assert.Single(await _repo.GetManyAsync([added.Id], CancellationToken.None, withApis: false)).Apis);
+    }
+
+    [Fact]
     public async Task AddNormalizesSerialAndRoundTripsAllColumns()
     {
         var added = await _repo.AddAsync(NewDevice(), CancellationToken.None);

@@ -96,6 +96,7 @@ public static partial class OadmServerHost
                 .MinimumLevel.Override("Microsoft.EntityFrameworkCore", LogEventLevel.Warning)
                 .MinimumLevel.Override("System.Net.Http", LogEventLevel.Warning) // never log auth headers
                 .MinimumLevel.Override("Grpc", LogEventLevel.Warning)
+                .MinimumLevel.Override("ModelContextProtocol", LogEventLevel.Warning) // the MCP SDK: never request contents
                 .ReadFrom.Configuration(sp.GetRequiredService<IConfiguration>())
                 .Enrich.FromLogContext()
                 // Capped (never fills the disk): a new file per day or at 20 MB, files of the last 14 days, at most 30
@@ -146,6 +147,8 @@ public static partial class OadmServerHost
         app.MapGrpcService<Logging.ServerLogGrpcService>();
         app.MapGrpcService<Sites.SiteGrpcService>();
         app.MapGrpcService<Updates.UpdateGrpcService>();
+        app.MapGrpcService<AccessKeyGrpcService>();
+        app.MapGrpcService<Mcp.McpGrpcService>();
         if (app.Environment.IsDevelopment())
         {
             app.MapGrpcReflectionService();
@@ -187,6 +190,40 @@ public static partial class OadmServerHost
         services.AddSingleton<CallerStreams>();
         services.AddSingleton<LoginAddressLimit>();
         services.AddHostedService<AuthMaintenanceHostedService>();
+
+        // The tools (docs/spec/mcp.md "Tools and MCP"): one registry that calls the gRPC services in process as its caller and
+        // knows no channel. AI agents reach it through MCP: access keys and the MCP server on its own port (off by default).
+        services.AddSingleton<InProcessCalls>();
+        services.AddSingleton<Tools.ToolCursors>();
+        services.AddSingleton(sp => new Tools.ToolHandles(sp.GetRequiredService<TimeProvider>()));
+        services.AddSingleton<Tools.PluginTools>();
+        services.AddSingleton(sp =>
+        {
+            var roles = sp.GetRequiredService<Core.Auth.RoleStore>();
+            var cursors = sp.GetRequiredService<Tools.ToolCursors>();
+            return new Tools.ToolRegistry(
+                [
+                    Tools.ServerInfoTool.Create(() => roles.Catalog),
+                    .. Tools.DeviceTools.Create(cursors),
+                    .. Tools.TaskTools.Create(cursors),
+                    .. Tools.LogTools.Create(cursors),
+                    .. Tools.TaskRunTools.Create(sp.GetRequiredService<Tools.ToolHandles>()),
+                    .. Tools.TagTools.Create(cursors, sp.GetRequiredService<Tools.ToolHandles>()),
+                    .. Tools.SiteTools.Create(cursors),
+                    .. Tools.ComplianceTools.Create(),
+                    .. Tools.RuleTools.Create(cursors, sp.GetRequiredService<Tools.ToolHandles>()),
+                    .. Tools.DeviceChangeTools.Create(sp.GetRequiredService<Tools.ToolHandles>(), sp.GetRequiredService<TimeProvider>()),
+                    .. Tools.SettingsTools.Create(),
+                    .. Tools.FileTools.Create(cursors, sp.GetRequiredService<Tools.ToolHandles>()),
+                ],
+                sp.GetRequiredService<InProcessCalls>(), roles,
+                [sp.GetRequiredService<Tools.PluginTools>()]); // the tools of the plugins that are on
+        });
+        services.AddSingleton<Mcp.McpAccess>();
+        services.AddSingleton<Mcp.McpToolAdapter>();
+        services.AddSingleton<Mcp.McpFiles>();
+        services.AddSingleton(sp => new Mcp.McpListener(sp, sp.GetRequiredService<ServerSettingsStore>(), sp.GetRequiredService<PluginServiceRegistry>(),
+            sp.GetRequiredService<TimeProvider>(), sp.GetRequiredService<ILogger<Mcp.McpListener>>(), firewall: sp.GetService<Sdk.Network.IFirewallRules>()));
 
         // Installed service (SYSTEM / root): admin-only folders, firewall rules of the NTP and DHCP plugins (Windows).
         var serviceMode = options.ServiceMode ?? ServiceHosting.IsRunningAsService();
@@ -327,6 +364,7 @@ public static partial class OadmServerHost
         services.AddSingleton<IDevicePtz, DevicePtz>();
         services.AddSingleton(new LiveViewHubOptions());
         services.AddSingleton<LiveViewHub>();
+        services.AddSingleton<SnapshotAudit>(); // one audit entry per user, device and minute
         services.AddSingleton<LiveViewAccess>(); // LiveViewService: only devices of the caller's view
         // Device event streams (RTSP metadata) for core plugins such as the Metadata Monitor
         services.AddSingleton<Sdk.Devices.IDeviceEventStreams, DeviceEventStreams>();
@@ -801,6 +839,11 @@ public static partial class OadmServerHost
         sp.GetRequiredService<PluginActivation>().FollowAddedPackages();
         registry.MarkStarted();
 
+        // 4e. AI agents: the MCP server's port opens when it is on and PKI gives it a certificate (it follows PKI from here).
+        var mcp = sp.GetRequiredService<Mcp.McpListener>();
+        registry.EnabledChanged += (_, _) => _ = mcp.ApplyInBackgroundAsync();
+        await mcp.StartAsync(ct).ConfigureAwait(false);
+
         // 5. Background services and Kestrel.
         var listenUrl = options.ListenUrl
             ?? app.Configuration["Oadm:ListenUrl"]
@@ -832,6 +875,7 @@ public static partial class OadmServerHost
     {
         ArgumentNullException.ThrowIfNull(app);
         var sp = app.Services;
+        await sp.GetRequiredService<Mcp.McpListener>().DisposeAsync().ConfigureAwait(false); // no agent call after this
         await app.StopAsync(ct).ConfigureAwait(false);
         await sp.GetRequiredService<Core.Compliance.ComplianceEngine>().DisposeAsync().ConfigureAwait(false);
         await sp.GetRequiredService<Core.Sites.SiteStatusPublisher>().DisposeAsync().ConfigureAwait(false);

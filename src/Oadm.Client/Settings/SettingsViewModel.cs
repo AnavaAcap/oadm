@@ -115,6 +115,11 @@ public sealed partial class SettingsViewModel : ValidatingViewModel
 
     public bool ShowLicense => License is not null;
 
+    /// <summary>The card "AI agents" (every user; administrators change it); null in tests without it.</summary>
+    public AiAgentsViewModel? AiAgents { get; }
+
+    public bool ShowAiAgents => AiAgents is not null;
+
     /// <summary>The card "Backup and restore" (administrators); null without a dialog service (tests).</summary>
     public Oadm.Client.Backup.BackupViewModel? Backup { get; }
 
@@ -138,8 +143,9 @@ public sealed partial class SettingsViewModel : ValidatingViewModel
         Infrastructure.IClientSettingsStore? clientSettings = null, LiveView.GpuDecodingService? gpu = null, Infrastructure.IUiDispatcher? ui = null,
         LiveView.LiveVideoSettings? video = null, Oadm.Client.Backup.BackupViewModel? backup = null,
         Licensing.LicenseViewModel? license = null, Oadm.Client.Support.SupportViewModel? support = null,
-        Devices.DeviceStore? devices = null)
+        Devices.DeviceStore? devices = null, AiAgentsViewModel? aiAgents = null)
     {
+        AiAgents = aiAgents;
         License = license;
         Support = support;
         Video = video ?? new LiveView.LiveVideoSettings(clientSettings);
@@ -321,6 +327,11 @@ public sealed partial class SettingsViewModel : ValidatingViewModel
             if (License is not null)
             {
                 await License.LoadAsync().ConfigureAwait(true);
+            }
+
+            if (AiAgents is not null)
+            {
+                await AiAgents.LoadAsync().ConfigureAwait(true);
             }
         }
         catch (Exception ex)

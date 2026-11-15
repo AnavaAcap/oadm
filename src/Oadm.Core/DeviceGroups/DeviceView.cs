@@ -107,9 +107,10 @@ public sealed class DeviceView
     /// <summary>
     /// Every device of the view in pages of at most <paramref name="take"/> (the snapshot of a stream: one reader never holds
     /// every device at once). All devices: by serial, like the repository's pages. A group: the cached allowed ids, the rows
-    /// read per page and checked again; a device removed meanwhile is left out.
+    /// read per page and checked again; a device removed meanwhile is left out. <paramref name="withApis"/> false: the devices
+    /// come without their API lists (a search that only filters and counts reads far less).
     /// </summary>
-    public async IAsyncEnumerable<IReadOnlyList<Device>> PagesAsync(int take, [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct)
+    public async IAsyncEnumerable<IReadOnlyList<Device>> PagesAsync(int take, [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct, bool withApis = true)
     {
         ArgumentOutOfRangeException.ThrowIfLessThan(take, 1);
         if (Kind == ViewKind.None)
@@ -122,7 +123,7 @@ public sealed class DeviceView
             string? after = null;
             while (true)
             {
-                var page = await _factory.Devices.ListDevicesPageAsync(after, take, ct).ConfigureAwait(false);
+                var page = await _factory.Devices.ListDevicesPageAsync(after, take, ct, withApis).ConfigureAwait(false);
                 if (page.Count > 0)
                 {
                     yield return page;
@@ -141,7 +142,7 @@ public sealed class DeviceView
         foreach (var chunk in ids.Chunk(take))
         {
             var filter = Filter;
-            var page = (await _factory.Devices.GetManyAsync(chunk, ct).ConfigureAwait(false)).Where(filter.Contains).ToList();
+            var page = (await _factory.Devices.GetManyAsync(chunk, ct, withApis).ConfigureAwait(false)).Where(filter.Contains).ToList();
             if (page.Count > 0)
             {
                 yield return page;

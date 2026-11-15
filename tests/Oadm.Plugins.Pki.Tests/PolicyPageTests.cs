@@ -59,6 +59,7 @@ public sealed class PolicyPageTests
                 (PolicyTableGroups.Issuing, "HTTPS", "HTTPS certificate", true),
                 (PolicyTableGroups.Issuing, "IEEE 802.1X", "IEEE 802.1X certificate", true),
                 (PolicyTableGroups.Servers, "EST server", "EST server", true), // in age order: PKI made it before the 802.1X server's conversion
+                (PolicyTableGroups.Servers, "AI agents", "AI agents", true), // PKI's next conversion, also before the 802.1X server's
                 (PolicyTableGroups.Servers, "802.1X server", "802.1X server", true),
                 (PolicyTableGroups.Access, "OADM Root CA SERVER01", "802.1X trusted CA", false),
                 (PolicyTableGroups.Access, "Axis device ID", "802.1X trusted CA", false),
@@ -303,7 +304,8 @@ public sealed class PolicyPageTests
         await page.LoadAsync(CancellationToken.None);
 
         Assert.False(page.List.Pro);
-        Assert.Equal([PolicyTableGroups.Issuing, PolicyTableGroups.Expiry], page.Rows.Select(r => r.Group).Distinct());
+        Assert.Equal([PolicyTableGroups.Issuing, PolicyTableGroups.Servers, PolicyTableGroups.Expiry], page.Rows.Select(r => r.Group).Distinct());
+        Assert.Equal(PolicyKinds.McpServer, page.Rows.Single(r => r.Group == PolicyTableGroups.Servers).Source.Kind); // the MCP server is no PRO part
         Assert.Equal([PolicyKinds.HttpsCertificate, PolicyKinds.Dot1xCertificate, PolicyKinds.ExpiryWarning], page.KindChoices.Select(k => k.Kind));
         Assert.Equal(2, pki.Policies.PoliciesOf(PolicyKinds.Vlan).Count + pki.Policies.PoliciesOf(PolicyKinds.Block).Count); // stored, only hidden
     }

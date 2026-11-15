@@ -231,6 +231,31 @@ The host downloads, checks the size and the SHA-256 and keeps the file for the o
 never gets the session. A failure is an `AxisDownloadException` with a text for the user. Upgrade AXIS OS uses it. In
 tests: `FakeAxisDownloads`.
 
+## Tasks for AI agents
+
+An AI agent runs a task like a user, in two calls: a preview that checks the settings and shows what would happen, then a
+run of that preview (SDK 0.13.0). A task is offered to agents only when it describes its settings:
+
+```csharp
+public Type? PayloadType => typeof(SetNamePayload);                      // the record the dialog sends
+public JsonSerializerOptions? PayloadJsonOptions => SetNamePayload.Json;  // the options you read it with
+
+public IReadOnlyList<PayloadError> ValidatePayload(string? payloadJson, ICallContext caller) =>
+    SetNamePayload.Problems(payloadJson);   // the dialog's rules: ("name", "Enter a name.")
+
+public Task<TaskPlan> PlanAsync(string? payloadJson, IReadOnlyList<IDeviceInfo> devices, CancellationToken ct) =>
+    Task.FromResult(new TaskPlan([.. devices.Select(d => CanRun(d) ? new TaskPlanDevice(d.Id) : new TaskPlanDevice(d.Id, "Needs AXIS OS 11.11 or later."))]));
+```
+
+- The host writes the JSON Schema of `PayloadType` for the agent: `[Description]` explains a property, `[MaxLength]`,
+  `[Length]` and `[Range]` bound it, enums go by name (give them a string converter). Use `[property: ...]` on a positional
+  record. A task without settings returns an empty record.
+- `ValidatePayload` holds the dialog's rules, field by field (the payload's JSON names, dots for nested fields). The server
+  calls it before every run, also for the client: an invalid payload starts no task. Use it in your dialog too.
+- `PlanAsync` says per device whether the run changes it or why not, from the cached data only (no device request). The
+  default uses `CanRun` and `NotSupportedReason`.
+- Mark a password or key with `[Secret]`: such a task is never offered to agents.
+
 ## Device safety
 
 These rules hold for every plugin that changes a device:
@@ -254,4 +279,4 @@ Say "Nothing was changed" in an error when nothing was. The user then knows the 
 
 ## Reference
 
-Every member with its signature in the [SDK reference](../../api/): [`ITaskPlugin`](../../api/sdk/plugins/itaskplugin/), [`ITaskExecutionContext`](../../api/sdk/plugins/itaskexecutioncontext/), [`ITaskStep`](../../api/sdk/plugins/itaskstep/), [`TaskStepExtensions`](../../api/sdk/plugins/taskstepextensions/), [`TaskSupportReasons`](../../api/sdk/plugins/tasksupportreasons/), [`ITaskPluginQuery`](../../api/sdk/plugins/itaskpluginquery/), [`IUploadedFiles`](../../api/sdk/plugins/iuploadedfiles/), [`ITaskPluginDialog`](../../api/sdk/client/itaskplugindialog/), [`ITaskDialogContext`](../../api/sdk/client/itaskdialogcontext/), [`PermissionDefinition`](../../api/sdk/plugins/permissiondefinition/).
+Every member with its signature in the [SDK reference](../../api/): [`ITaskPlugin`](../../api/sdk/plugins/itaskplugin/), [`ITaskExecutionContext`](../../api/sdk/plugins/itaskexecutioncontext/), [`ITaskStep`](../../api/sdk/plugins/itaskstep/), [`TaskStepExtensions`](../../api/sdk/plugins/taskstepextensions/), [`TaskSupportReasons`](../../api/sdk/plugins/tasksupportreasons/), [`ITaskPluginQuery`](../../api/sdk/plugins/itaskpluginquery/), [`IUploadedFiles`](../../api/sdk/plugins/iuploadedfiles/), [`ITaskPluginDialog`](../../api/sdk/client/itaskplugindialog/), [`ITaskDialogContext`](../../api/sdk/client/itaskdialogcontext/), [`PermissionDefinition`](../../api/sdk/plugins/permissiondefinition/), [`PayloadError`](../../api/sdk/tasks/payloaderror/), [`TaskPlan`](../../api/sdk/tasks/taskplan/), [`SecretAttribute`](../../api/sdk/tasks/secretattribute/).

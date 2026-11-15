@@ -1,4 +1,5 @@
 using Oadm.Plugins.HardeningScan.Scanning;
+using Oadm.Plugins.HardeningScan.Tools;
 using Oadm.Sdk.Plugins;
 
 namespace Oadm.Plugins.HardeningScan;
@@ -70,6 +71,12 @@ public sealed class HardeningScanPlugin : ICorePlugin, IAsyncDisposable
         new("scan", "Run scans", "Start and stop a scan of the devices (it only reads them)."),
     ];
 
+    /// <summary>The results tool (docs/spec/mcp.md "Plugins"): read only, "show" like the page's state.</summary>
+    public IReadOnlyList<PluginTool> Tools => HardeningTools.All;
+
+    /// <summary>The tool is named <c>oadm_hardening_results</c>.</summary>
+    public string? ToolArea => "hardening";
+
     public string? RequiredPermission(string method) => method is HardeningMethods.StartScan or HardeningMethods.CancelScan ? "scan" : PermissionKeys.Show;
 
     /// <summary>A user's call: the devices of the user's view; scans are the user's jobs.</summary>
@@ -77,6 +84,13 @@ public sealed class HardeningScanPlugin : ICorePlugin, IAsyncDisposable
     {
         ArgumentNullException.ThrowIfNull(caller);
         var service = _service ?? throw new InvalidOperationException("The hardening scan plugin is not running.");
+        if (method == HardeningTools.Results.Method)
+        {
+            // The devices of the caller's view only, like the page's state.
+            var state = await service.GetStateAsync(caller, ct).ConfigureAwait(false);
+            return HardeningTools.Answer(state, await caller.Devices.ListAsync(ct).ConfigureAwait(false), payloadJson);
+        }
+
         var jobs = _ctx?.Jobs ?? throw new InvalidOperationException("This OADM server cannot run scans.");
         return method switch
         {

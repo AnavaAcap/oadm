@@ -20,6 +20,9 @@
   <ItemGroup>
     <PackageReference Include="Grpc.AspNetCore.Server.Reflection" Version="2.84.0" />
     <PackageReference Include="Serilog.AspNetCore" Version="10.0.0" />
+    <!-- The MCP server for AI agents (docs/spec/mcp.md): the official C# SDK, Streamable HTTP, stateless. 2.3.1 depends on the
+         10.0.13 runtime packages the host uses. -->
+    <PackageReference Include="ModelContextProtocol.AspNetCore" Version="2.3.1" />
     <!-- Windows service (MSI) and systemd unit (.deb); both are no-ops on a console. -->
     <PackageReference Include="Microsoft.Extensions.Hosting.Systemd" Version="10.0.13" />
     <PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" Version="10.0.13" />
@@ -28,6 +31,8 @@
   <ItemGroup>
     <!-- The release's list of Axis CVEs (docs/spec/vulnerabilities.md; made by tools/Oadm.Vulnerabilities). -->
     <EmbeddedResource Include="Vulnerabilities\axis-vulnerabilities.json" LogicalName="Oadm.Server.Vulnerabilities.axis-vulnerabilities.json" />
+    <!-- The skill for AI agents (docs/spec/mcp.md "Skill"): served over MCP and downloaded from the Settings card. -->
+    <EmbeddedResource Include="Mcp\Skill\*.md" LogicalName="Oadm.Server.Mcp.Skill.%(Filename)%(Extension)" />
   </ItemGroup>
 
   <ItemGroup>

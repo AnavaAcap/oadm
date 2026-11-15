@@ -75,6 +75,20 @@ namespace Oadm.Core.Persistence.Migrations
                     b.Property<DateTime>("ExpiresUtc")
                         .HasColumnType("TEXT");
 
+                    b.Property<int>("Kind")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime?>("LastUsedUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("ReadOnly")
+                        .HasColumnType("INTEGER");
+
                     b.Property<bool>("Remember")
                         .HasColumnType("INTEGER");
 

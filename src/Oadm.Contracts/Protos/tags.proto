@@ -2,6 +2,7 @@ syntax = "proto3";
 package oadm.v1;
 option csharp_namespace = "Oadm.Contracts.V1";
 import "Protos/common.proto";
+import "Protos/devices.proto";
 
 // Device tags: tag definitions (name + color) and tagging many devices in one call. Devices carry their tag names
 // in Device.tags; a name used on devices without a definition (older data) is listed with defined = false.
@@ -22,6 +23,9 @@ service TagService {
   // One call and one transaction for the whole selection: adds and removes tag names on every device. A name in add
   // without a definition gets one with a default color. Unknown device ids are ignored.
   rpc SetDeviceTags (SetDeviceTagsRequest) returns (SetDeviceTagsReply);
+  // What SetDeviceTags would do on the devices of a filter (in the caller's view), without writing anything: the counts and
+  // the devices that change. INVALID_ARGUMENT for a bad name or a tag in add and remove, NOT_FOUND for an id outside the view.
+  rpc PlanDeviceTags (PlanDeviceTagsRequest) returns (PlanDeviceTagsReply);
 }
 
 // The fixed palette; the client maps each to the theme brush Oadm.Tag.<Name>Brush.
@@ -74,4 +78,19 @@ message SetDeviceTagsRequest {
 message SetDeviceTagsReply {
   int32 devices_changed = 1;
   repeated DeviceTag created = 2;   // definitions created for names in add
+}
+
+message PlanDeviceTagsRequest {
+  DeviceFilter filter = 1;
+  repeated string add = 2;
+  repeated string remove = 3;
+}
+
+message PlanDeviceTagsReply {
+  int32 devices = 1;                       // the devices of the filter
+  int32 gain = 2;                          // devices that get at least one tag of add they do not have
+  int32 lose = 3;                          // devices that lose at least one tag of remove
+  int32 over_limit = 4;                    // devices that would have more than 20 tags
+  repeated string new_tags = 5;            // names in add without a definition (SetDeviceTags creates them)
+  repeated string change_device_ids = 6;   // the devices that change, in address order
 }

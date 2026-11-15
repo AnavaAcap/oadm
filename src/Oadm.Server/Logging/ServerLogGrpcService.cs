@@ -22,8 +22,16 @@ public sealed class ServerLogGrpcService(OadmPaths paths) : Proto.ServerLogServi
     {
         var minRank = string.IsNullOrEmpty(request.MinLevel) ? 0 : LogFileReader.Rank(request.MinLevel);
         var limit = request.Limit <= 0 ? 200 : request.Limit;
+        DateTimeOffset? notAfter = null;
+        if (!string.IsNullOrEmpty(request.NotAfter))
+        {
+            notAfter = DateTimeOffset.TryParse(request.NotAfter, CultureInfo.InvariantCulture, DateTimeStyles.None, out var time)
+                ? time
+                : throw new RpcException(new Status(StatusCode.InvalidArgument, "Enter a time like 2026-11-14T09:30:00Z."));
+        }
+
         var page = await Task.Run(
-            () => LogFileReader.Read(paths.LogsDirectory, FilePattern, request.Offset, limit, minRank, request.Search, context.CancellationToken),
+            () => LogFileReader.Read(paths.LogsDirectory, FilePattern, request.Offset, limit, minRank, request.Search, context.CancellationToken, notAfter),
             context.CancellationToken).ConfigureAwait(false);
         var reply = new Proto.ServerLogPage { HasMore = page.HasMore };
         reply.Entries.AddRange(page.Entries.Select(e => new Proto.ServerLogEntry

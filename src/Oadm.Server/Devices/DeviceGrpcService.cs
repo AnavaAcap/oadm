@@ -76,6 +76,118 @@ public sealed class DeviceGrpcService(
     }
 
     /// <summary>
+    /// The devices of the caller's view that match the filter, one page after the cursor (the last row's sort key and id),
+    /// with the number of matches and the asked counts (<see cref="DeviceSearch"/>). Every device of the view is looked at,
+    /// only the page is mapped; ids in the filter read only those devices, and any id that is unknown or outside the view
+    /// refuses the whole request (NOT_FOUND, like every method). INVALID_ARGUMENT for a sort, count field, row number or id
+    /// it does not know.
+    /// </summary>
+    public override async Task<Proto.SearchDevicesReply> Search(Proto.SearchDevicesRequest request, ServerCallContext context)
+    {
+        var ct = context.CancellationToken;
+        DeviceSearch search;
+        try
+        {
+            search = DeviceSearch.From(request);
+        }
+        catch (ArgumentException ex)
+        {
+            throw GrpcGuard.InvalidArgument(ex.Message);
+        }
+
+        var view = await views.ForAsync(context).ConfigureAwait(false);
+        if (search.CountsOnly)
+        {
+            var count = await view.CountAsync(ct).ConfigureAwait(false);
+            return new Proto.SearchDevicesReply { Total = count, AfterCursor = count };
+        }
+
+        if (search.Ids is { } ids)
+        {
+            foreach (var device in await view.GetAsync(ids, ct).ConfigureAwait(false))
+            {
+                search.Add(device);
+            }
+        }
+        else
+        {
+            // Without the API lists: they are the largest column, and only one device's details show them.
+            await foreach (var page in view.PagesAsync(SnapshotPageSize, ct, withApis: false).ConfigureAwait(false))
+            {
+                foreach (var device in page)
+                {
+                    search.Add(device);
+                }
+            }
+        }
+
+        var rows = search.Page();
+        var withCredentials = rows.Count == 0 ? (IReadOnlySet<Guid>)new HashSet<Guid>() : await actions.DeviceIdsWithCredentialsAsync(ct).ConfigureAwait(false);
+        Dictionary<Guid, Device>? full = null;
+        if (request.WithApis && search.Ids is null)
+        {
+            full = []; // the page read again with its API lists (a device removed meanwhile keeps its row without them)
+            foreach (var (row, _) in rows)
+            {
+                if (await view.FindAsync(row.Id, ct).ConfigureAwait(false) is { } device)
+                {
+                    full[device.Id] = device;
+                }
+            }
+        }
+        var reply = new Proto.SearchDevicesReply { Total = search.Total, AfterCursor = search.AfterCursor };
+        foreach (var (row, key) in rows)
+        {
+            var device = full?.GetValueOrDefault(row.Id) ?? row;
+            var proto = ToProto(device, withCredentials.Contains(device.Id));
+            if (!request.WithApis)
+            {
+                proto.Apis.Clear();
+            }
+
+            reply.Devices.Add(proto);
+            reply.SortKeys.Add(key);
+        }
+
+        reply.Counts.AddRange(search.Counts().Select(c => new Proto.DeviceFieldCount { Value = c.Value, Count = c.Count }));
+        return reply;
+    }
+
+    /// <summary>
+    /// Every device of the caller's view that matches the filter, as ids in address order (a preview's fixed list), and the
+    /// first <c>shown</c> rows. Ids of the filter that are unknown or outside the view refuse the request (NOT_FOUND).
+    /// </summary>
+    public override async Task<Proto.ResolveDevicesReply> Resolve(Proto.ResolveDevicesRequest request, ServerCallContext context)
+    {
+        var ct = context.CancellationToken;
+        if (request.Shown is < 0 or > 100)
+        {
+            throw GrpcGuard.InvalidArgument("Show 0 to 100 devices.");
+        }
+
+        var view = await views.ForAsync(context).ConfigureAwait(false);
+        IReadOnlyList<Device> matches;
+        try
+        {
+            matches = await DeviceSearch.MatchesAsync(view, request.Filter ?? new Proto.DeviceFilter(), withApis: false, ct).ConfigureAwait(false);
+        }
+        catch (ArgumentException ex)
+        {
+            throw GrpcGuard.InvalidArgument(ex.Message);
+        }
+
+        var reply = new Proto.ResolveDevicesReply();
+        reply.Ids.AddRange(matches.Select(d => d.Id.ToString()));
+        if (request.Shown > 0)
+        {
+            var withCredentials = await actions.DeviceIdsWithCredentialsAsync(ct).ConfigureAwait(false);
+            reply.First.AddRange(matches.Take(request.Shown).Select(d => ToProto(d, withCredentials.Contains(d.Id))));
+        }
+
+        return reply;
+    }
+
+    /// <summary>
     /// Snapshot (one ADDED per device of the caller's view), SNAPSHOT_END when asked for, then live changes until the client
     /// or the server stops. A slow client gets the changes coalesced per device, never dropped. A device that leaves the
     /// view becomes REMOVED, one that enters it ADDED (<see cref="DeviceViewFeed"/>); a change of the caller's group ends the
@@ -179,6 +291,41 @@ public sealed class DeviceGrpcService(
             throw GrpcGuard.NotFound(DeviceMessages.NoLongerAvailable(1));
         }
 
+        return new Proto.Empty();
+    }
+
+    /// <summary>
+    /// Stores an entry of the credential list as the login of the devices; the password never leaves the server. Like the
+    /// automatic login of the add page, the list is used only for users with all devices (AccessPolicy).
+    /// </summary>
+    public override async Task<Proto.Empty> SetStoredCredentials(Proto.SetStoredCredentialsRequest request, ServerCallContext context)
+    {
+        var ct = context.CancellationToken;
+        var ids = GrpcGuard.ParseIds(request.DeviceIds, "device id");
+        if (ids.Length == 0)
+        {
+            throw GrpcGuard.InvalidArgument("Select at least one device.");
+        }
+
+        var entry = Guid.TryParse(request.CredentialId, out var credentialId)
+            ? await credentialList.RevealAsync(credentialId, ct).ConfigureAwait(false)
+            : null;
+        if (entry is null)
+        {
+            throw GrpcGuard.NotFound($"Credential '{request.CredentialId}' not found.");
+        }
+
+        var viewed = await (await views.ForAsync(context).ConfigureAwait(false)).GetAsync(ids, ct).ConfigureAwait(false);
+        try
+        {
+            await actions.SetCredentialsAsync(viewed, entry.UserName, entry.Password, ct).ConfigureAwait(false);
+        }
+        catch (KeyNotFoundException)
+        {
+            throw GrpcGuard.NotFound(DeviceMessages.NoLongerAvailable(1));
+        }
+
+        await audit.WriteAsync(AuditActions.DeviceCredentialsSet, viewed.Count == 1 ? viewed[0].Address : $"{viewed.Count} devices", "From the credential list: " + entry.UserName, ct).ConfigureAwait(false);
         return new Proto.Empty();
     }
 

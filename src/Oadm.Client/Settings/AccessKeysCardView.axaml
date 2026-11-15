@@ -1,0 +1,16 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:c="using:Oadm.Client.Controls"
+             xmlns:settings="using:Oadm.Client.Settings"
+             x:Class="Oadm.Client.Settings.AccessKeysCardView"
+             x:DataType="settings:AllAccessKeysViewModel">
+  <!-- Card "Access keys" of the Permissions page (administrators): every user's keys for AI agents; Delete ends one at once.
+       Users create their own keys in the account menu. -->
+  <Border Classes="card">
+    <StackPanel Spacing="12">
+      <TextBlock Classes="cardTitle" Text="Access keys" />
+      <c:AccessKeyGrid x:Name="AllKeysGrid" MaxHeight="360" />
+      <TextBlock Classes="error" Text="{Binding Message}" TextWrapping="Wrap" IsVisible="{Binding Message, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+    </StackPanel>
+  </Border>
+</UserControl>

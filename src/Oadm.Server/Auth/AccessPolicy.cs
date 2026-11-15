@@ -84,9 +84,12 @@ public static class AccessPolicy
         // Devices: every role sees the list; the rest per permission.
         ["/oadm.v1.DeviceService/List"] = AccessRule.SignedIn,
         ["/oadm.v1.DeviceService/Watch"] = AccessRule.SignedIn,
+        ["/oadm.v1.DeviceService/Search"] = AccessRule.SignedIn, // like List: the caller's view, filtered and paged (the MCP device tools)
         ["/oadm.v1.DeviceService/Remove"] = AccessRule.Needs(HostPermissions.DevicesAddRemove),
         ["/oadm.v1.DeviceService/Refresh"] = AccessRule.Needs(HostPermissions.DevicesRefresh),
         ["/oadm.v1.DeviceService/SetCredentials"] = AccessRule.Needs(HostPermissions.DevicesLogin),
+        ["/oadm.v1.DeviceService/Resolve"] = AccessRule.SignedIn, // like Search: the caller's view, filtered (the MCP device tools)
+        ["/oadm.v1.DeviceService/SetStoredCredentials"] = AccessRule.Admin.ForAllDevices(), // applies an entry of the credential list: the rule of ListCredentials (Administrator, never a device group)
         ["/oadm.v1.DeviceService/LogIn"] = AccessRule.Needs(HostPermissions.DevicesLogin),
         ["/oadm.v1.DeviceService/GetCredentialUserName"] = AccessRule.Needs(HostPermissions.DevicesLogin),
         ["/oadm.v1.DeviceService/SetFirstPassword"] = AccessRule.Needs(HostPermissions.DevicesLogin),
@@ -98,6 +101,7 @@ public static class AccessPolicy
         ["/oadm.v1.DeviceWebService/Exchange"] = AccessRule.Needs(WebViewOpen),
         ["/oadm.v1.LiveViewService/Watch"] = AccessRule.Needs(HostPermissions.DevicesLiveView),
         ["/oadm.v1.LiveViewService/ListSources"] = AccessRule.Needs(HostPermissions.DevicesLiveView),
+        ["/oadm.v1.LiveViewService/GetSnapshot"] = AccessRule.Needs(HostPermissions.DevicesLiveView),
         ["/oadm.v1.LiveViewService/GetOptics"] = AccessRule.Needs(HostPermissions.DevicesLiveView),
         ["/oadm.v1.LiveViewService/SetOptics"] = AccessRule.Needs(HostPermissions.DevicesOpticsControl),
         ["/oadm.v1.LiveViewService/GetRtspPort"] = AccessRule.SignedIn,
@@ -112,6 +116,7 @@ public static class AccessPolicy
         ["/oadm.v1.DiscoveryService/WatchDiscovered"] = AccessRule.Needs(HostPermissions.DevicesAddRemove),
         ["/oadm.v1.DiscoveryService/StopScan"] = AccessRule.Needs(HostPermissions.DevicesAddRemove),
         ["/oadm.v1.DiscoveryService/Stop"] = AccessRule.Needs(HostPermissions.DevicesAddRemove),
+        ["/oadm.v1.DiscoveryService/End"] = AccessRule.Needs(HostPermissions.DevicesAddRemove),
         ["/oadm.v1.AddDevicesService/Prepare"] = AccessRule.Needs(HostPermissions.DevicesAddRemove),
         ["/oadm.v1.AddDevicesService/Commit"] = AccessRule.Needs(HostPermissions.DevicesAddRemove),
         ["/oadm.v1.AddDevicesService/RetryAuth"] = AccessRule.Needs(HostPermissions.DevicesAddRemove),
@@ -126,6 +131,7 @@ public static class AccessPolicy
         ["/oadm.v1.TagService/Watch"] = AccessRule.SignedIn,
         ["/oadm.v1.TagService/Create"] = AccessRule.Needs(HostPermissions.TagsAssign),
         ["/oadm.v1.TagService/SetDeviceTags"] = AccessRule.Needs(HostPermissions.TagsAssign),
+        ["/oadm.v1.TagService/PlanDeviceTags"] = AccessRule.Needs(HostPermissions.TagsAssign),
         ["/oadm.v1.TagService/Update"] = AccessRule.Needs(HostPermissions.TagsManage).ForAllDevices(),
         ["/oadm.v1.TagService/Delete"] = AccessRule.Needs(HostPermissions.TagsManage).ForAllDevices(),
 
@@ -137,6 +143,7 @@ public static class AccessPolicy
         ["/oadm.v1.TaskService/GetLog"] = AccessRule.SignedIn,
         ["/oadm.v1.TaskService/Run"] = AccessRule.InCall,
         ["/oadm.v1.TaskService/Query"] = AccessRule.InCall,
+        ["/oadm.v1.TaskService/Plan"] = AccessRule.InCall, // like Run: the run's permissions are checked in the call, nothing is written
         ["/oadm.v1.TaskService/Cancel"] = AccessRule.Needs(HostPermissions.TasksCancel),
         ["/oadm.v1.TaskService/Delete"] = AccessRule.Needs(HostPermissions.TasksDelete),
         ["/oadm.v1.TaskService/DeleteAll"] = AccessRule.Needs(HostPermissions.TasksDeleteAll).ForAllDevices(),
@@ -144,6 +151,7 @@ public static class AccessPolicy
         // Uploads feed task dialogs (firmware, applications, configuration files); size and quota limit them.
         ["/oadm.v1.FileService/Upload"] = AccessRule.SignedIn,
         ["/oadm.v1.FileService/Delete"] = AccessRule.SignedIn,
+        ["/oadm.v1.FileService/List"] = AccessRule.SignedIn, // the caller's own uploads only
 
         // Compliance.
         ["/oadm.v1.ComplianceService/GetCatalog"] = AccessRule.Needs(HostPermissions.ComplianceView),
@@ -151,6 +159,7 @@ public static class AccessPolicy
         ["/oadm.v1.ComplianceService/WatchChecks"] = AccessRule.Needs(HostPermissions.ComplianceView),
         ["/oadm.v1.ComplianceService/GetCheck"] = AccessRule.Needs(HostPermissions.ComplianceView),
         ["/oadm.v1.ComplianceService/WatchResults"] = AccessRule.Needs(HostPermissions.ComplianceView),
+        ["/oadm.v1.ComplianceService/Summarize"] = AccessRule.Needs(HostPermissions.ComplianceView),
         ["/oadm.v1.ComplianceService/CheckNow"] = AccessRule.Needs(HostPermissions.ComplianceView),
         ["/oadm.v1.ComplianceService/SaveCheck"] = AccessRule.Needs(HostPermissions.ComplianceManage),
         ["/oadm.v1.ComplianceService/DeleteCheck"] = AccessRule.Needs(HostPermissions.ComplianceManage),
@@ -166,6 +175,7 @@ public static class AccessPolicy
         ["/oadm.v1.EventService/ListLog"] = AccessRule.Needs(HostPermissions.EventsView).ForAllDevices(),
         ["/oadm.v1.EventService/WatchLog"] = AccessRule.Needs(HostPermissions.EventsView).ForAllDevices(),
         ["/oadm.v1.EventService/SaveRule"] = AccessRule.Needs(HostPermissions.EventsManage).ForAllDevices(),
+        ["/oadm.v1.EventService/CheckRule"] = AccessRule.Needs(HostPermissions.EventsManage).ForAllDevices(),
         ["/oadm.v1.EventService/DeleteRule"] = AccessRule.Needs(HostPermissions.EventsManage).ForAllDevices(),
         ["/oadm.v1.EventService/SetRuleEnabled"] = AccessRule.Needs(HostPermissions.EventsManage).ForAllDevices(),
         ["/oadm.v1.EventService/DuplicateRule"] = AccessRule.Needs(HostPermissions.EventsManage).ForAllDevices(),
@@ -233,6 +243,17 @@ public static class AccessPolicy
         ["/oadm.v1.SiteService/RenameSite"] = AccessRule.Admin,
         ["/oadm.v1.SiteService/ReplaceSite"] = AccessRule.Admin,
         ["/oadm.v1.SiteService/RemoveSite"] = AccessRule.Admin,
+        // AI agents (docs/spec/mcp.md): the Settings card reads for every role, changes like the server settings; access keys of
+        // the caller's own (creating one needs "Use AI agents"), every user's for administrators (Permissions page).
+        ["/oadm.v1.McpService/Get"] = AccessRule.SignedIn,
+        ["/oadm.v1.McpService/GetCaCertificate"] = AccessRule.SignedIn,
+        ["/oadm.v1.McpService/GetSkill"] = AccessRule.SignedIn,
+        ["/oadm.v1.McpService/Set"] = AccessRule.Admin.ForAllDevices(),
+        ["/oadm.v1.AccessKeyService/ListMine"] = AccessRule.SignedIn,
+        ["/oadm.v1.AccessKeyService/Create"] = AccessRule.Needs(HostPermissions.McpUse),
+        ["/oadm.v1.AccessKeyService/Delete"] = AccessRule.SignedIn,
+        ["/oadm.v1.AccessKeyService/ListAll"] = AccessRule.Admin,
+        ["/oadm.v1.AccessKeyService/DeleteAny"] = AccessRule.Admin,
         // Self update (docs/spec/self-update.md): the Administrator role only (never grantable);
         // the steps reach every signed-in client ("Updating the server to 4.9.0").
         ["/oadm.v1.UpdateService/Get"] = AccessRule.Admin,

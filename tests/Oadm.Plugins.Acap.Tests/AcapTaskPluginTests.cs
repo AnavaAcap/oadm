@@ -403,4 +403,29 @@ public sealed class AcapTaskPluginTests
         await Assert.ThrowsAsync<DeviceNotCompatibleException>(() => Plugin.QueryAsync(ctx, new FakeDevice(), AcapPlugin.ListApplicationsMethod, null, CancellationToken.None));
         Assert.Empty(device.Writes);
     }
+
+    [Fact]
+    public async Task The_plan_of_an_install_names_each_uploaded_package_with_its_hash_and_warns_that_it_runs_on_the_devices()
+    {
+        var (_, _, files) = Setup();
+        var first = files.Add("hello_1_0_0_aarch64.eap", [1, 2, 3]);
+        var second = files.Add("hello_1_0_0_armv7hf.eap", [4, 5, 6]);
+        IReadOnlyList<IDeviceInfo> devices = [new FakeDevice()];
+        var payload = new AcapPayload { Action = AcapAction.Install, Files = [new AcapPackageFile(first.Id, null, "aarch64"), new AcapPackageFile(second.Id, null, "armv7hf")] }.ToJson();
+
+        var plan = await ((ITaskPlugin)Plugin).PlanAsync(payload, devices, files, CancellationToken.None);
+
+        Assert.Equal([new Oadm.Sdk.Tasks.TaskPlanFile(first.Name, first.Sha256), new Oadm.Sdk.Tasks.TaskPlanFile(second.Name, second.Sha256)], plan.Files);
+        Assert.Equal(["The package runs on the devices. Check that it is the one you want."], plan.Warnings);
+
+        // An upload that is not among the caller's: no name, and a second fixed warning.
+        var other = await Plugin.PlanAsync(new AcapPayload { Action = AcapAction.Install, FileId = "0123456789abcdef0123456789abcdef" }.ToJson(), devices, files, CancellationToken.None);
+        Assert.Empty(other.Files);
+        Assert.Equal([AcapTaskPlugin.PackageWarning, AcapTaskPlugin.PackageMissingWarning], other.Warnings);
+
+        // Remove and Start name no file; the dialog's own plan (no uploads) keeps its old warnings.
+        Assert.Empty((await Plugin.PlanAsync(new AcapPayload { Action = AcapAction.Start, Application = "hello" }.ToJson(), devices, files, CancellationToken.None)).Files);
+        Assert.Equal(["The application's settings are lost with it."], (await Plugin.PlanAsync(new AcapPayload { Action = AcapAction.Remove, Application = "hello" }.ToJson(), devices, files, CancellationToken.None)).Warnings);
+        Assert.Empty((await Plugin.PlanAsync(payload, devices, CancellationToken.None)).Warnings);
+    }
 }

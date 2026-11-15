@@ -1,3 +1,4 @@
+using Oadm.Plugins.DhcpServer.Tools;
 using Oadm.Sdk.Plugins;
 
 namespace Oadm.Plugins.DhcpServer;
@@ -56,7 +57,13 @@ public sealed class DhcpServerPlugin : ICorePlugin, IAsyncDisposable
     }
 
     /// <summary>Reading the state is for everyone; saving, static leases and release change the server (Admin, audited).</summary>
-    public UserRole RequiredRole(string method) => method == DhcpServerMethods.GetState ? UserRole.Operator : UserRole.Admin;
+    public UserRole RequiredRole(string method) => method == DhcpServerMethods.GetState || DhcpTools.IsTool(method) ? UserRole.Operator : UserRole.Admin;
+
+    /// <summary>The status and the leases (docs/spec/mcp.md "Plugins"), read only, for the caller's devices.</summary>
+    public IReadOnlyList<PluginTool> Tools => DhcpTools.All;
+
+    /// <summary>The tools of this plugin are named <c>oadm_dhcp_*</c>.</summary>
+    public string? ToolArea => "dhcp";
 
     /// <summary>Changing the server is one right ("manage", the Admin methods); the page itself is "show".</summary>
     public IReadOnlyList<PermissionDefinition> Permissions { get; } =
@@ -65,13 +72,22 @@ public sealed class DhcpServerPlugin : ICorePlugin, IAsyncDisposable
     ];
 
     /// <summary>The DHCP server is server-wide: saving, static leases and release are for users with all devices.</summary>
-    public bool RequiresAllDevices(string method) => method != DhcpServerMethods.GetState;
+    public bool RequiresAllDevices(string method) => method != DhcpServerMethods.GetState && !DhcpTools.IsTool(method);
 
     /// <summary>A user's call: users with a device group read the state with the leases of their devices.</summary>
     public async Task<string?> InvokeAsync(ICallContext caller, string method, string? payloadJson, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(caller);
         var service = _service ?? throw new InvalidOperationException("The DHCP server plugin is not running.");
+        if (DhcpTools.IsTool(method))
+        {
+            // Read only, with the page's own rules: the leases of the caller's devices.
+            var state = caller.HasAllDevices
+                ? service.GetState(full: true)
+                : service.GetState(Serving.DhcpGroupView.From(await caller.Devices.ListAsync(ct).ConfigureAwait(false)));
+            return method == DhcpTools.Status.Method ? DhcpTools.StatusOf(state) : DhcpTools.LeasesOf(state, payloadJson);
+        }
+
         if (caller.HasAllDevices)
         {
             return await InvokeAsync(method, payloadJson, ct).ConfigureAwait(false);

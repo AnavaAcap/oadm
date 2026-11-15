@@ -21,6 +21,9 @@ public sealed partial class UsersTaskPlugin : ITaskPlugin, ITaskPluginQuery
 
     public string Id => PluginId;
 
+    /// <summary>The payload (SDK 0.13.0): its password is a secret, so the task is not offered to AI agents ("Set the password in OADM.").</summary>
+    public Type? PayloadType => typeof(UsersPayload);
+
     public string DisplayName => "Users";
 
     public string Group => TaskGroups.Users;

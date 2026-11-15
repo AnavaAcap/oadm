@@ -1,0 +1,82 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:ui="using:Oadm.Sdk.Client.Controls"
+             xmlns:c="using:Oadm.Client.Controls"
+             xmlns:net="using:Oadm.Sdk.Network"
+             xmlns:settings="using:Oadm.Client.Settings"
+             x:Class="Oadm.Client.Settings.AiAgentsCardView"
+             x:DataType="settings:AiAgentsViewModel">
+  <!-- Settings page, every user (docs/spec/mcp.md): the server AI agents connect to. Administrators turn it on and set the port
+       and interface (Save); the certificate is the one the PKI policy MCP server picks. The status sits left of the buttons it
+       reports on, like the EST server's. -->
+  <c:CollapsibleCard Title="AI agents">
+    <StackPanel Classes="form">
+      <TextBlock Classes="secondary" Text="{x:Static settings:AiAgentsViewModel.Intro}" TextWrapping="Wrap" />
+      <StackPanel Classes="form" IsVisible="{Binding IsAdmin}">
+        <ui:FormField Label="Port">
+          <TextBox x:Name="McpPort" Text="{Binding Port}" Width="120" HorizontalAlignment="Left" />
+        </ui:FormField>
+        <ui:FormField Label="Listen on" InputWidth="320">
+          <ComboBox HorizontalAlignment="Stretch" ItemsSource="{Binding Listen.Items}" SelectedItem="{Binding Listen.Selected}"
+                    ToolTip.Tip="The interface agents reach this server on">
+            <ComboBox.ItemTemplate>
+              <DataTemplate x:DataType="net:InterfaceOption">
+                <TextBlock Text="{Binding Label}" TextTrimming="CharacterEllipsis" />
+              </DataTemplate>
+            </ComboBox.ItemTemplate>
+          </ComboBox>
+        </ui:FormField>
+      </StackPanel>
+      <StackPanel Classes="form" IsVisible="{Binding !IsAdmin}">
+        <ui:FormField Label="Port">
+          <TextBlock Text="{Binding Port}" />
+        </ui:FormField>
+        <ui:FormField Label="Listen on">
+          <TextBlock Text="{Binding ListenText}" />
+        </ui:FormField>
+      </StackPanel>
+      <ui:FormField Label="Certificate" Hint="{Binding CertificateHint}">
+        <TextBlock Text="{Binding CertificateText}" TextWrapping="Wrap" />
+      </ui:FormField>
+      <!-- Connect an agent (docs/spec/mcp.md): the client configurations with this server's address, one Copy each. -->
+      <StackPanel x:Name="ConnectAgent" Classes="form" IsVisible="{Binding HasConnections}">
+        <TextBlock Classes="sectionTitle" Text="Connect an agent" />
+        <ItemsControl ItemsSource="{Binding Connections}">
+          <ItemsControl.ItemTemplate>
+            <DataTemplate x:DataType="settings:AgentConnection">
+              <ui:FormField Label="{Binding Title}" Hint="{Binding Hint}" Classes="wide">
+                <DockPanel>
+                  <Button DockPanel.Dock="Right" Classes="toolbar iconOnly" VerticalAlignment="Top" Margin="4,0,0,0" ToolTip.Tip="{Binding CopyTip}"
+                          Command="{Binding $parent[settings:AiAgentsCardView].((settings:AiAgentsViewModel)DataContext).CopyCommand}" CommandParameter="{Binding}">
+                    <ui:OadmIcon Data="{StaticResource Icon.copy}" />
+                  </Button>
+                  <ui:CodeView Language="Plain" Text="{Binding Text}" />
+                </DockPanel>
+              </ui:FormField>
+            </DataTemplate>
+          </ItemsControl.ItemTemplate>
+        </ItemsControl>
+        <TextBlock Classes="secondary" Text="{x:Static settings:AgentConnections.TrustCa}" TextWrapping="Wrap" />
+      </StackPanel>
+      <DockPanel>
+        <StackPanel DockPanel.Dock="Left" Orientation="Horizontal" Spacing="8">
+          <Button Classes="secondary" Command="{Binding DownloadCaCommand}" IsEnabled="{Binding CanDownloadCa}">
+            <ui:IconLabel Icon="{StaticResource Icon.download}" Text="Download CA certificate" />
+          </Button>
+          <Button x:Name="McpDownloadSkill" Classes="secondary" Command="{Binding DownloadSkillCommand}">
+            <ui:IconLabel Icon="{StaticResource Icon.download}" Text="Download skill" />
+          </Button>
+        </StackPanel>
+        <Button DockPanel.Dock="Right" x:Name="McpSave" Classes="primary" Content="Save" Command="{Binding SaveCommand}" IsVisible="{Binding IsAdmin}"
+                ToolTip.Tip="{Binding SaveTip}" ToolTip.ShowOnDisabled="True" Margin="8,0,0,0" />
+        <Button DockPanel.Dock="Right" x:Name="McpTurnOn" Classes="secondary" Content="Turn on" Command="{Binding TurnOnCommand}" IsVisible="{Binding ShowTurnOn}"
+                ToolTip.Tip="{Binding TurnOnTip}" ToolTip.ShowOnDisabled="True" Margin="8,0,0,0" />
+        <Button DockPanel.Dock="Right" x:Name="McpTurnOff" Classes="secondary" Content="Turn off" Command="{Binding TurnOffCommand}" IsVisible="{Binding ShowTurnOff}"
+                Margin="8,0,0,0" />
+        <ui:StatusChip HorizontalAlignment="Right" VerticalAlignment="Center" Text="{Binding StatusText}" IsOk="{Binding Running}" IsError="{Binding HasProblem}" MaxLines="2" />
+      </DockPanel>
+      <TextBlock Text="{Binding Message}" Classes.error="{Binding MessageIsError}" Classes.secondary="{Binding !MessageIsError}" TextWrapping="Wrap"
+                 HorizontalAlignment="Right" IsVisible="{Binding Message, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+    </StackPanel>
+  </c:CollapsibleCard>
+</UserControl>

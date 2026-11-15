@@ -1,0 +1,40 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:ui="using:Oadm.Sdk.Client.Controls"
+             xmlns:c="using:Oadm.Client.Controls"
+             xmlns:shell="using:Oadm.Client.Shell"
+             x:Class="Oadm.Client.Controls.AccessKeyGrid"
+             x:DataType="shell:IAccessKeyList">
+  <!-- The access keys of AI agents (docs/spec/mcp.md "Access keys"): the user's own in the account menu's Access keys, every
+       user's with the User column on the Permissions page. Delete ends a key at once. -->
+  <Panel>
+    <DataGrid x:Name="KeysGrid" ItemsSource="{Binding Keys}" IsReadOnly="True" CanUserSortColumns="True" CanUserReorderColumns="False"
+              SelectionMode="Single" IsVisible="{Binding HasKeys}">
+      <DataGrid.Columns>
+        <DataGridTemplateColumn Header="User" Width="160" SortMemberPath="UserName" x:DataType="shell:AccessKeyRow">
+          <DataGridTemplateColumn.CellTemplate>
+            <DataTemplate x:DataType="shell:AccessKeyRow">
+              <ui:IconLabel Icon="{StaticResource Icon.user}" Text="{Binding UserName}" Margin="10,0" />
+            </DataTemplate>
+          </DataGridTemplateColumn.CellTemplate>
+        </DataGridTemplateColumn>
+        <DataGridTextColumn Header="Name" Width="*" Binding="{Binding Name}" x:DataType="shell:AccessKeyRow" />
+        <DataGridTextColumn Header="Created" Width="100" Binding="{Binding Created}" SortMemberPath="CreatedSortKey" x:DataType="shell:AccessKeyRow" />
+        <DataGridTextColumn Header="Expires" Width="100" Binding="{Binding Expires}" x:DataType="shell:AccessKeyRow" />
+        <DataGridTextColumn Header="Last used" Width="130" Binding="{Binding LastUsed}" CellStyleClasses="dimmed" x:DataType="shell:AccessKeyRow" />
+        <DataGridTextColumn Header="Read only" Width="100" Binding="{Binding ReadOnlyText}" x:DataType="shell:AccessKeyRow" />
+        <DataGridTemplateColumn Width="48" CanUserSort="False" x:DataType="shell:AccessKeyRow">
+          <DataGridTemplateColumn.CellTemplate>
+            <DataTemplate x:DataType="shell:AccessKeyRow">
+              <Button Classes="toolbar iconOnly danger" ToolTip.Tip="Delete" Margin="6,0" HorizontalAlignment="Left"
+                      Command="{Binding $parent[c:AccessKeyGrid].((shell:IAccessKeyList)DataContext).DeleteKeyCommand}" CommandParameter="{Binding}">
+                <ui:OadmIcon Data="{StaticResource Icon.remove}" />
+              </Button>
+            </DataTemplate>
+          </DataGridTemplateColumn.CellTemplate>
+        </DataGridTemplateColumn>
+      </DataGrid.Columns>
+    </DataGrid>
+    <TextBlock Classes="secondary" Text="{Binding EmptyText}" IsVisible="{Binding !HasKeys}" />
+  </Panel>
+</UserControl>
