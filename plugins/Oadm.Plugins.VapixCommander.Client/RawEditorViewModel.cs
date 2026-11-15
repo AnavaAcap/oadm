@@ -132,30 +132,6 @@ public sealed partial class RawEditorViewModel : ValidatingViewModel
         nameof(ResponseKind), FieldsKey, nameof(SaveName), nameof(SaveCategory), nameof(RequiresApi), nameof(RequiresVersion),
     ];
 
-    private static readonly Dictionary<string, (string Api, string Version, string Kind)> KnownCgis = new(StringComparer.OrdinalIgnoreCase)
-    {
-        ["/axis-cgi/param.cgi"] = ("param-cgi", "1.0", ResponseKinds.ParamCgi),
-        ["/axis-cgi/basicdeviceinfo.cgi"] = ("basic-device-info", "1.0", ResponseKinds.JsonRpc),
-        ["/axis-cgi/apidiscovery.cgi"] = ("api-discovery", "1.0", ResponseKinds.JsonRpc),
-        ["/axis-cgi/network_settings.cgi"] = ("network-settings", "1.0", ResponseKinds.JsonRpc),
-        ["/axis-cgi/pwdgrp.cgi"] = ("user-management", "1.0", ResponseKinds.Text),
-        ["/axis-cgi/firmwaremanagement.cgi"] = ("fwmgr", "1.0", ResponseKinds.JsonRpc),
-        ["/axis-cgi/time.cgi"] = ("time-service", "1.0", ResponseKinds.JsonRpc),
-        ["/axis-cgi/ntp.cgi"] = ("ntp", "1.0", ResponseKinds.JsonRpc),
-        ["/axis-cgi/mqtt/client.cgi"] = ("mqtt-client", "1.0", ResponseKinds.JsonRpc),
-        ["/axis-cgi/lightcontrol.cgi"] = ("light-control", "1.0", ResponseKinds.JsonRpc),
-        ["/axis-cgi/io/portmanagement.cgi"] = ("io-port-management", "1.0", ResponseKinds.JsonRpc),
-        ["/axis-cgi/daynight.cgi"] = ("daynight", "1.0", ResponseKinds.JsonRpc),
-        ["/axis-cgi/systemready.cgi"] = ("systemready", "1.0", ResponseKinds.JsonRpc),
-        ["/axis-cgi/applications/list.cgi"] = ("application", "1.0", ResponseKinds.Xml),
-        ["/axis-cgi/applications/control.cgi"] = ("application", "1.0", ResponseKinds.Text),
-        ["/axis-cgi/restart.cgi"] = ("param-cgi", "1.0", ResponseKinds.Text),
-        ["/axis-cgi/siren_and_light.cgi"] = ("siren-and-light", "1.0", ResponseKinds.JsonRpc),
-    };
-
-    [GeneratedRegex("^/config/rest/([a-z0-9-]+)/v([0-9]+)", RegexOptions.CultureInvariant | RegexOptions.IgnoreCase)]
-    private static partial Regex RestPath();
-
     private bool _requiresEdited;
     private bool _kindEdited;
     private bool _writesEdited;
@@ -842,11 +818,7 @@ public sealed partial class RawEditorViewModel : ValidatingViewModel
     private void ApplyPathDefaults()
     {
         var path = (Path ?? string.Empty).Split('?')[0].Trim();
-        (string Api, string Version, string Kind)? known = KnownCgis.TryGetValue(path, out var hit) ? hit : null;
-        if (known is null && RestPath().Match(path) is { Success: true } rest)
-        {
-            known = (rest.Groups[1].Value.ToLowerInvariant(), rest.Groups[2].Value + ".0", ResponseKinds.Rest);
-        }
+        var known = RequestDefaults.Of(path);
 
         _suppressEdits = true;
         try
@@ -859,7 +831,7 @@ public sealed partial class RawEditorViewModel : ValidatingViewModel
 
             if (!_kindEdited)
             {
-                ResponseKind = known?.Kind ?? (path.StartsWith("/vapix/", StringComparison.OrdinalIgnoreCase) ? ResponseKinds.Xml : ResponseKinds.Text);
+                ResponseKind = RequestDefaults.KindOf(path);
             }
 
             // What the request does is the server's rule (RequestSafety): the boxes can only add to it.
