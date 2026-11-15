@@ -517,6 +517,8 @@ the selected node. Page header: the description, "Runs on" with Use GPU and the 
   vision model <name>", "Changed vision model <name>", "Deleted vision model <name>", "Turned Use GPU on for Vision
   Center" (and off), "Saved class list <name>", "Deleted class list <name>".
 - Running the actions is part of the event rules' own permissions.
+- MCP and the assistant ([mcp.md](mcp.md) "Plugins"): the read-only tool `oadm_vision_pipelines` (the page's list and the
+  load, never a picture or a model), "View vision pipelines".
 
 ## Parts and contract
 

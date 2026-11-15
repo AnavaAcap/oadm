@@ -5,6 +5,7 @@ using Microsoft.Extensions.Logging;
 
 using Oadm.Plugins.ActionRules.Device;
 using Oadm.Plugins.ActionRules.Rules;
+using Oadm.Plugins.ActionRules.Tools;
 using Oadm.Plugins.Shared;
 using Oadm.Sdk.Devices;
 using Oadm.Sdk.Plugins;
@@ -69,10 +70,17 @@ public sealed partial class ActionRulesPlugin : ICorePlugin, IAsyncDisposable
     /// <summary>The tables per device scope while the plugin runs (tests).</summary>
     internal DeviceSweeps<DeviceRulesRow>? Sweeps => _sweeps;
 
+    /// <summary>The read tool (docs/spec/mcp.md "Plugins"): the rules the editor read last, "show" like the page; it reads no device.</summary>
+    public IReadOnlyList<PluginTool> Tools => ActionRuleTools.All;
+
+    /// <summary>The tool is named <c>oadm_device_rules_list</c>: the rules on the devices, apart from OADM's own event rules (<c>oadm_rules_*</c>).</summary>
+    public string? ToolArea => "device_rules";
+
     public string? RequiredPermission(string method) => method switch
     {
         ActionRulesMethods.Read or ActionRulesMethods.GetState or ActionRulesMethods.GetProgress or ActionRulesMethods.Templates or ActionRulesMethods.UndoRuns
             or ActionRulesMethods.Events => PermissionKeys.Show,
+        _ when method == ActionRuleTools.Rules.Method => PermissionKeys.Show,
         ActionRulesMethods.Edit or ActionRulesMethods.Undo or ActionRulesMethods.Deploy or ActionRulesMethods.Build or ActionRulesMethods.RecipientEdit
             or ActionRulesMethods.RecipientDeploy or ActionRulesMethods.RecipientNew or ActionRulesMethods.ScheduleEdit or ActionRulesMethods.ScheduleDeploy => ActionRulesMethods.ManagePermission,
         ActionRulesMethods.Delete or ActionRulesMethods.RecipientDelete or ActionRulesMethods.ScheduleDelete => ActionRulesMethods.DeletePermission,
@@ -131,6 +139,8 @@ public sealed partial class ActionRulesPlugin : ICorePlugin, IAsyncDisposable
 
                 sweeps.For(caller)?.Start(readIds);
                 return ActionRulesJson.Serialize(await StateAsync(caller, ct).ConfigureAwait(false));
+            case var _ when method == ActionRuleTools.Rules.Method:
+                return ActionRuleTools.Answer(await StateAsync(caller, ct).ConfigureAwait(false), payloadJson);
             case ActionRulesMethods.GetState:
                 return ActionRulesJson.Serialize(await StateAsync(caller, ct).ConfigureAwait(false));
             case ActionRulesMethods.GetProgress:

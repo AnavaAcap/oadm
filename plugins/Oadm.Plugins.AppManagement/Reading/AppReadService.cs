@@ -933,6 +933,29 @@ internal sealed partial class AppReadService : IAsyncDisposable
             };
     }
 
+    /// <summary>
+    /// The rows the caller's session read last, only of devices the caller sees now, and the session's progress (the tool of the
+    /// page, <see cref="Tools.AppTools"/>). Reads no device and makes no session.
+    /// </summary>
+    public async Task<(IReadOnlyList<DeviceApps> Rows, ReadState State)> SnapshotAsync(ICallContext caller, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(caller);
+        if (Existing(caller) is not { } session)
+        {
+            return ([], new ReadState());
+        }
+
+        List<DeviceApps> rows;
+        lock (session.Gate)
+        {
+            rows = [.. session.Rows.Values];
+        }
+
+        var state = State(session, session.Job);
+        var visible = (await caller.Devices.ListAsync(ct).ConfigureAwait(false)).Select(d => d.Id).ToHashSet();
+        return ([.. rows.Where(r => visible.Contains(r.DeviceId))], state);
+    }
+
     private Session? Existing(ICallContext caller)
     {
         lock (_sync)

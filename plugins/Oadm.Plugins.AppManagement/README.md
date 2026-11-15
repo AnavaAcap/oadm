@@ -49,6 +49,14 @@ link is greyed out with "Turn on Web View on the Plugins page." (the row's ⋯ m
 its tooltip). Setting values go only to
 callers with `task:oadm.acap:settings`, travel only in the task payload and are never logged.
 
+## MCP
+
+The read-only tool `oadm_app_management_applications` (`Tools/AppTools.cs`, docs/spec/mcp.md "Plugins"): the rows the
+page read last in the caller's login session (`AppReadService.SnapshotAsync`: no device read, no new session), of the
+devices the caller sees now; a summary per application (at most 30), then one row per device and application, paged.
+An MCP access key has its own session, so it sees nothing until a page read; the assistant has the user's. Tests:
+`ToolTests`.
+
 ## Tests
 
 `tests/Oadm.Plugins.AppManagement.Tests`: server reads, group scope, refusals, the actions' payloads (FakeCoreContext's

@@ -175,6 +175,9 @@ public sealed partial class OcrPlugin : ICorePlugin, IDynamicEventSource, IActio
     public bool IsAudited(string method) => method is OcrMethods.SaveReader or OcrMethods.DeleteReader or OcrMethods.ReadNow or OcrMethods.SetUseGpu;
 
     /// <summary>The page reads only (Viewer on); changing readers is a right of its own.</summary>
+    /// <summary>The read tools (docs/spec/mcp.md "Plugins"): the readers and the recent texts of one, "show" like the page.</summary>
+    public IReadOnlyList<PluginTool> Tools => OcrTools.All;
+
     public IReadOnlyList<PermissionDefinition> Permissions { get; } =
     [
         new(PermissionKeys.Show, OcrInfo.ViewPermissionName, "See the text readers and what they read.") { ViewerDefault = true },

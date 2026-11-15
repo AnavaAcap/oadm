@@ -1,4 +1,5 @@
 using Oadm.Plugins.Est.Serving;
+using Oadm.Plugins.Est.Tools;
 using Oadm.Plugins.Pki.Policies;
 using Oadm.Plugins.Pki.Servers;
 using Oadm.Plugins.Shared;
@@ -145,7 +146,13 @@ public sealed class EstPlugin : ICorePlugin, IEventSource, IAsyncDisposable
 
     /// <summary>Reading is for everyone; Turn on, Turn off, Save and Delete all change the server (Admin, audited).</summary>
     public UserRole RequiredRole(string method) =>
-        method is ServerSwitchMethods.Get or EstMethods.GetState or EstMethods.GetEnrollments or EstMethods.GetNotRenewed or EstMethods.GetCertificate ? UserRole.Operator : UserRole.Admin;
+        method is ServerSwitchMethods.Get or EstMethods.GetState or EstMethods.GetEnrollments or EstMethods.GetNotRenewed or EstMethods.GetCertificate
+            || method == EstTools.Enrollments.Method
+            ? UserRole.Operator
+            : UserRole.Admin;
+
+    /// <summary>The enrollments tool (docs/spec/mcp.md "Plugins"): the state and the enrollments of the caller's devices, read only like the page.</summary>
+    public IReadOnlyList<PluginTool> Tools => EstTools.All;
 
     public IReadOnlyList<PermissionDefinition> Permissions { get; } =
     [
@@ -170,6 +177,11 @@ public sealed class EstPlugin : ICorePlugin, IEventSource, IAsyncDisposable
         if (ServerSwitchMethods.IsSwitchMethod(method))
         {
             return await InvokeSwitchAsync(method, ct).ConfigureAwait(false);
+        }
+
+        if (method == EstTools.Enrollments.Method && Service is null)
+        {
+            return EstTools.Off(_server?.State.StatusText ?? NotRunning); // the server is off: its state, no enrollments
         }
 
         var service = Service ?? throw new InvalidOperationException(NotRunning);
@@ -202,6 +214,7 @@ public sealed class EstPlugin : ICorePlugin, IEventSource, IAsyncDisposable
     private static async Task<string?> InvokeAsync(EstService service, ViewedSet? view, string method, string? payloadJson, CancellationToken ct) =>
         method switch
         {
+            _ when method == EstTools.Enrollments.Method => EstTools.Answer(service, view, payloadJson),
             EstMethods.GetState => EstJson.Serialize(service.GetState(view)),
             EstMethods.GetEnrollments => EstJson.Serialize(new EnrollmentList(service.Enrollments(view))),
             EstMethods.GetNotRenewed => EstJson.Serialize(service.Store.NotRenewed(EstPluginInfo.CertificatesPageSize, view is null ? null : view.Contains)),

@@ -263,6 +263,8 @@ server** of the PKI page, its own source-available `Est/LICENSE`. Off by default
 - Device groups: Turn on, Turn off, Save and Delete all only for users with all devices; a user with a group sees the
   enrollments, Not renewed, certificates and listeners (this server, sites) of the group's devices only, never refusals
   of cameras OADM does not manage. Host names never go into certificates of a device a user with a group added.
+- MCP ([mcp.md](mcp.md)): the read-only tool `oadm_est_enrollments` (the state and the enrollments of the caller's
+  devices; while the server is off its state only).
 
 ## 802.1X server (core plugin of PKI, OADM PRO)
 
@@ -286,6 +288,8 @@ certificate, TLS, trusted CAs, VLAN, Block) are PKI's policies (`docs/spec/pki.m
   "Change the 802.1X server", `oadm.radius:manage`), audited, and only for users with all devices; the policies need
   PKI's "Manage the certificate authority"; a user with a group sees the Sessions and Log rows of the group's devices
   (rows without a managed device never), no server-wide settings and only the switches of the group's routes.
+- MCP ([mcp.md](mcp.md)): the read-only tool `oadm_radius_log` (the state and the log of the caller's devices; never a
+  shared secret or a certificate).
 
 ## Metadata Monitor (core plugin)
 
@@ -337,6 +341,8 @@ Details: [Application management](app-management.md) and the plugin's README.
   key, list, log and settings parsing are the Applications plugin's linked source;
   setting values only for roles with "Change application settings", never logged; permission `oadm.app-management:view`.
 - Device groups: every read and run is the caller's; ids outside the group refuse the whole request (NOT_FOUND).
+- MCP ([mcp.md](mcp.md)): the read-only tool `oadm_app_management_applications` (what the page read last in the
+  caller's login session, of the devices the caller sees; it reads no device).
 
 ## Load test (core plugin)
 
@@ -394,6 +400,7 @@ event of the event rules, plus "<Trigger>: connection lost".
 - Device groups: every trigger belongs to the group of the user who made it (none = all devices) and watches only that
   group's devices ("All devices" and tags = the group's), so its events come only from them; group users see and change
   only their group's triggers; a deleted group's triggers watch nothing; the editor's reads are the user's jobs.
+- MCP ([mcp.md](mcp.md)): the read-only tools `oadm_device_triggers_list` and `oadm_device_triggers_devices`.
 
 ## Action Rule Editor (core plugin)
 
@@ -423,6 +430,8 @@ many devices. Every settings form uses the bundled action catalog (`Catalog/acti
   Operator yes); every change, copy, delete and undo is audited.
 - Device groups: one table per device scope; every device id of a request in the caller's devices or the whole request
   is refused (NOT_FOUND) before anything is read, saved or started; undo runs per group.
+- MCP ([mcp.md](mcp.md)): the read-only tool `oadm_device_rules_list` (the rules the editor read last for the caller's
+  device scope; it reads no device).
 
 ## System report (core plugin without a page)
 
@@ -597,6 +606,8 @@ only while Edge storage is on.
 - Device groups: one table per device scope; a group user reads and runs the tools only on the group's cameras (ids
   outside it refuse the whole request, NOT_FOUND); a user with all devices reads the chosen cameras that still exist
   (removed ones are skipped; runs stay refused as a whole).
+- MCP ([mcp.md](mcp.md)): the read-only tool `oadm_edge_storage_cards` (the table the page read last for the caller's
+  device scope, with its counts; it reads no camera).
 
 ## Date and time
 

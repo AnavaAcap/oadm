@@ -199,7 +199,9 @@ must never break.
   page MCP & Assistant, card MCP); access keys only by administrators there, each an identity of its own with a name, a role, its
   devices (all or one group) and an end, audit user and task owner "MCP <name>", stored only as SHA-256, never a session;
   every change is preview then run; never all devices in a result (pages with the total and a sort-key cursor, logs with
-  `more` instead of a total, answers at most 32 KB); no secrets over MCP; rights and settings GUI only.
+  `more` instead of a total, answers at most 32 KB); no secrets over MCP; rights and settings GUI only; the tools answer
+  from OADM's own data first (a device is asked only when OADM does not have the fact); a new page, column or plugin view
+  gets its read tool in the same change (a core plugin declares `ICorePlugin.Tools`, `McpPluginCoverageTests`).
 - **[Assistant](docs/spec/assistant.md)**: a chat with an AI model in the client's side panel (title bar button); the loop
   runs on the server with the tool registry as the signed-in user; the model only reads and previews, a person presses Run;
   nothing kept; pictures reach the provider only with an administrator's setting; off by default, set up on the page MCP & Assistant.

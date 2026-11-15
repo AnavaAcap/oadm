@@ -128,3 +128,8 @@ RT-DETR v2 R18 710 ms, D-FINE S 460 ms, RF-DETR small 645 ms, ResNet-50 76 ms, M
 in the spec, "Measured").
 
 Open: a real model test (DETR, RF-DETR) on the development cameras, a CUDA run on Linux, macOS and Linux.
+
+## MCP
+
+The read-only tool `oadm_vision_pipelines` (`Api/VisionTools.cs`, docs/spec/mcp.md "Plugins"): the page's pipeline list
+through its own method and the load of the caller's pipelines, paged; never a picture or a model. Tests: `Api/ToolTests`.

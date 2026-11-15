@@ -2,6 +2,7 @@ using Oadm.Plugins.Pki.Policies;
 using Oadm.Plugins.Pki.Servers;
 using Oadm.Plugins.Radius.Api;
 using Oadm.Plugins.Radius.Server;
+using Oadm.Plugins.Radius.Tools;
 using Oadm.Plugins.Shared;
 using Oadm.Sdk.Certificates;
 using Oadm.Sdk.Events;
@@ -151,8 +152,12 @@ public sealed class RadiusPlugin : ICorePlugin, IEventSource, IAsyncDisposable
     /// Reading is for everyone with the page; every change is Admin (permission "Change the 802.1X server"), audited. The
     /// policies are PKI's ("Manage the certificate authority").
     /// </summary>
+    /// <summary>The log tool (docs/spec/mcp.md "Plugins"): the state and the log of the caller's devices, read only like the Log tab.</summary>
+    public IReadOnlyList<PluginTool> Tools => RadiusTools.All;
+
     public UserRole RequiredRole(string method) => method is ServerSwitchMethods.Get or RadiusMethods.GetState or RadiusMethods.ListSwitches
         or RadiusMethods.ListSessions or RadiusMethods.ListLog or RadiusMethods.GetLogCertificate or RadiusMethods.ListSites
+        || method == RadiusTools.Log.Method
         ? UserRole.Operator
         : UserRole.Admin;
 
@@ -192,11 +197,18 @@ public sealed class RadiusPlugin : ICorePlugin, IEventSource, IAsyncDisposable
             });
         }
 
+        if (method == RadiusTools.Log.Method && Service is null)
+        {
+            return RadiusTools.Off(_server?.State.StatusText ?? RadiusTexts.NotRunning); // the server is off: its state, no log
+        }
+
         var service = Service ?? throw new InvalidOperationException(RadiusTexts.NotRunning);
 
         service.Viewers.Seen(caller);
         switch (method)
         {
+            case var _ when method == RadiusTools.Log.Method:
+                return RadiusTools.Answer(service, await ViewedSet.OfAsync(caller, ct).ConfigureAwait(false), caller.HasAllDevices, payloadJson);
             case RadiusMethods.GetState:
                 return RadiusJson.Serialize(service.GetState(caller.HasAllDevices));
             case RadiusMethods.SaveSettings:

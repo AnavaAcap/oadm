@@ -28,7 +28,7 @@ public sealed partial class McpToolTests
         "oadm_devices_summary", "oadm_files_delete_preview", "oadm_files_delete_run", "oadm_files_list",
         "oadm_files_upload_link", "oadm_logs_audit", "oadm_logs_search", "oadm_server_info", "oadm_settings_get",
         "oadm_task_preview", "oadm_task_run", "oadm_tasks_cancel_preview", "oadm_tasks_cancel_run", "oadm_tasks_catalog",
-        "oadm_tasks_get", "oadm_tasks_list", "oadm_selection", "oadm_docs_search",
+        "oadm_tasks_get", "oadm_tasks_list", "oadm_tasks_summary", "oadm_selection", "oadm_docs_search", "oadm_server_status",
     ];
 
     /// <summary>The tools of the areas stage 3 (tags, sites, compliance, event rules, the event log): <see cref="McpAreaToolTests"/>.</summary>
@@ -120,12 +120,13 @@ public sealed partial class McpToolTests
     /// <summary>The gRPC methods the tools call (the changes by their previews and runs). A new tool that calls another method extends this list on purpose.</summary>
     private static readonly string[] Stage1Methods =
     [
-        "/oadm.v1.AddDevicesService/Commit", "/oadm.v1.AuditService/List", "/oadm.v1.AuthService/Me",
+        "/oadm.v1.AddDevicesService/Commit", "/oadm.v1.AssistantService/GetSettings", "/oadm.v1.AuditService/List", "/oadm.v1.AuthService/Me",
         "/oadm.v1.DeviceService/Refresh", "/oadm.v1.DeviceService/Remove", "/oadm.v1.DeviceService/Resolve",
         "/oadm.v1.DeviceService/Search", "/oadm.v1.DeviceService/SetStoredCredentials",
         "/oadm.v1.DiscoveryService/ProbeAddress", "/oadm.v1.DiscoveryService/StartRangeScan",
         "/oadm.v1.DiscoveryService/End", "/oadm.v1.DiscoveryService/StopScan", "/oadm.v1.DiscoveryService/WatchDiscovered", "/oadm.v1.FileService/Delete",
-        "/oadm.v1.FileService/List", "/oadm.v1.FileService/Upload", "/oadm.v1.LiveViewService/GetSnapshot",
+        "/oadm.v1.FileService/List", "/oadm.v1.FileService/Upload", "/oadm.v1.LicenseService/GetLicense", "/oadm.v1.LiveViewService/GetSnapshot",
+        "/oadm.v1.McpService/Get", "/oadm.v1.PluginService/ListPackages", "/oadm.v1.VulnerabilityService/Get",
         "/oadm.v1.ServerLogService/List", "/oadm.v1.SettingsService/Get", "/oadm.v1.SettingsService/ListCredentials",
         "/oadm.v1.TaskService/Cancel", "/oadm.v1.TaskService/GetLog", "/oadm.v1.TaskService/List",
         "/oadm.v1.TaskService/ListTaskPlugins", "/oadm.v1.TaskService/Plan", "/oadm.v1.TaskService/Run",
@@ -151,7 +152,9 @@ public sealed partial class McpToolTests
             "UserService", "RoleService", "DeviceGroupService", "AccessKeyService", "LicenseService", "PluginService", "McpService",
             "BackupService", "UpdateService", "SupportService",
         ];
-        Assert.DoesNotContain(methods, m => guiOnly.Any(s => m.StartsWith("/oadm.v1." + s + "/", StringComparison.Ordinal)));
+        // License, plugins and MCP: only the reads of oadm_server_status (what every signed-in user sees), never a change.
+        string[] readsOfGuiServices = ["/oadm.v1.LicenseService/GetLicense", "/oadm.v1.PluginService/ListPackages", "/oadm.v1.McpService/Get"];
+        Assert.DoesNotContain(methods, m => !readsOfGuiServices.Contains(m) && guiOnly.Any(s => m.StartsWith("/oadm.v1." + s + "/", StringComparison.Ordinal)));
         Assert.DoesNotContain(methods, m => m is "/oadm.v1.SettingsService/Set" or "/oadm.v1.TaskService/DeleteAll" or "/oadm.v1.DeviceService/RemoveAll");
     }
 

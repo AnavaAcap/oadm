@@ -100,3 +100,9 @@ says the device's reason.
   schedule with its rule, and undo each step; build a rule from each camera's event list with a new schedule and undo it;
   create (turned off) and delete every action each camera offers with the catalog's defaults; add a recipient, then change
   a rule's event, schedule (new) and recipient (by name) in one edit and undo both.
+
+## MCP
+
+The read-only tool `oadm_device_rules_list` (`Tools/ActionRuleTools.cs`, docs/spec/mcp.md "Plugins"; area `device_rules`,
+apart from OADM's own event rules): the table the editor read last for the caller's device scope, a summary per rule
+name and one row per device and rule, paged. It reads no device. Tests: `ToolTests`.

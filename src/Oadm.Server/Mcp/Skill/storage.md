@@ -1,0 +1,11 @@
+# SD cards
+
+Use it for "which SD cards are full or failed?". It only reads.
+
+1. `oadm_edge_storage_cards`: the counts per state first, then the cards. `state` `problem` or `warning` for the cards
+   that need action; `used_above` for full cards.
+2. It answers what the Edge storage page read last. `read_utc` null: nothing was read. Tell the user to open Edge storage
+   in OADM and choose the cameras. Do not read the cameras yourself.
+3. Report: counts per state, then the cards with a problem (camera, the reason), the worn ones (wear percent), the full
+   ones, cameras without a card.
+4. Format, repair and encryption delete recordings: they stay on the Edge storage page. Point the user there.

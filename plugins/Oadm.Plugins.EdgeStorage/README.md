@@ -79,6 +79,12 @@ disk lists).
 
 One table per device scope (`DeviceSweeps<StorageRow>`): the users of a device group share the table of their group's cameras, `rows` and `state` reach only them (`PluginEventAudience.DeviceScope`). `read` with ids from a user limited to a device group and the runs (`change`, `format`) refuse the whole request when any camera is outside the caller's devices (NOT_FOUND "1 device is no longer available.", like an unknown id; nothing read, no task); a user with all devices gets the cameras that still exist (`CallDevices.KnownAsync`: removed ones are skipped); `read` without ids = the caller's cameras; runs start through the caller's task runner. After a task the camera is read again in every table that has its row. A deleted group has no table. `read` and `getState` answer only rows of cameras the caller sees now (`DeviceSweep.SnapshotAsync`): a camera that left the group (tag or site change, before the group's rows are pruned) drops out of the table at once and its removal goes out with the next batch; reading a camera again after a task removes the row of a camera no longer in the scope. When the caller's cameras cannot be listed the state comes without rows. See [Device groups](../../docs/spec/device-scope.md).
 
+## MCP
+
+The read-only tool `oadm_edge_storage_cards` (`Tools/StorageTools.cs`, docs/spec/mcp.md "Plugins"): the table the page
+read last for the caller's device scope, with the five counts, filtered by state or used share, paged by device id. It
+never reads a camera: Refresh stays in the page. Tests: `ToolTests`.
+
 ## Shared code
 
 - `Disks/EdgeDisks.cs` (`EdgeDisk`, `EdgeDisks.Parse`, `FirstProblem`): the disk list for every plugin; Edge Recording

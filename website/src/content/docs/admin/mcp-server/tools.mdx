@@ -14,6 +14,7 @@ and runs after the user agreed.
 | Tool | Kind | What it does |
 | --- | --- | --- |
 | `oadm_server_info` | Read | The OADM server, who you are, your role and what it allows, the limits of this server and how many devices you see. Call it first. |
+| `oadm_server_status` | Read | OADM's own state: OADM PRO, which plugins are on, MCP and the assistant, and the date of the list of Axis vulnerabilities. Read only. |
 | `oadm_settings_get` | Read | The server settings OADM shows every user, read only: how it scans, retries, runs tasks and checks clocks. Change them in OADM. |
 
 ## Devices
@@ -43,7 +44,8 @@ and runs after the user agreed.
 | `oadm_tasks_cancel_run` | Run (changes) | Cancels the tasks of a preview. A running task stops at its next safe point, so a device may be left half done. |
 | `oadm_tasks_catalog` | Read | The tasks you may run on the devices of a filter: per task how many can run it, why the others cannot, and its input schema. Call it before oadm_task_preview. |
 | `oadm_tasks_get` | Read | One task with its steps and its log (the newest 200 lines). Take the id from oadm_tasks_list. |
-| `oadm_tasks_list` | Read | Tasks of your devices, the newest first, with the counts per state first. Pass batch to follow the tasks of one run; next_cursor for the next page. |
+| `oadm_tasks_list` | Read | Tasks of your devices from OADM's task history, the newest first, with the counts per state first. Pass batch to follow the tasks of one run; next_cursor for the next page. |
+| `oadm_tasks_summary` | Read | OADM's task history of your devices summed up: counts per state and groups by result, task, plugin, owner, device or day, the largest first. Pass status Failed to group the failures by their error. |
 
 ## Files
 
@@ -111,6 +113,18 @@ and runs after the user agreed.
 | `oadm_pki_certificates` | Read | Lists the certificates PKI knows: device certificates, certificate authorities, servers and the ones created here. Never shows a private key. |
 | `oadm_pki_policies` | Read | Lists the issuing policies for HTTPS and IEEE 802.1X certificates, to pick the policy of a new certificate. |
 
+## EST server
+
+| Tool | Kind | What it does |
+| --- | --- | --- |
+| `oadm_est_enrollments` | Read | The EST server's state and the certificate enrollments of the cameras, the newest first: new or renewal, issued or refused and why, and how many cameras did not renew in time. |
+
+## 802.1X server
+
+| Tool | Kind | What it does |
+| --- | --- | --- |
+| `oadm_radius_log` | Read | The 802.1X server's state and its log of switch port logins, the newest first: which device passed or failed and why, the switch, port and VLAN. |
+
 ## NTP server
 
 | Tool | Kind | What it does |
@@ -129,6 +143,31 @@ and runs after the user agreed.
 | Tool | Kind | What it does |
 | --- | --- | --- |
 | `oadm_hardening_results` | Read | Lists the last hardening scan results per device as counts of passed, warning and failed checks, and the state of the running scan. |
+
+## Application management
+
+| Tool | Kind | What it does |
+| --- | --- | --- |
+| `oadm_app_management_applications` | Read | Lists the applications (ACAP) the Applications page read last: per application how many devices have it, run it and which versions, then one row per device and application. Reads no device. |
+
+## Edge storage
+
+| Tool | Kind | What it does |
+| --- | --- | --- |
+| `oadm_edge_storage_cards` | Read | Lists the SD cards of the cameras as Edge storage read them last: state, size, used, wear, encryption and retention, with the counts per state. Reads no camera. |
+
+## Action Rule Editor
+
+| Tool | Kind | What it does |
+| --- | --- | --- |
+| `oadm_device_rules_list` | Read | Lists the action rules on the devices as the Action Rule Editor read them last: per rule name the devices that have it and run it, then each device's rules with event and action. Reads no device. |
+
+## Device triggers
+
+| Tool | Kind | What it does |
+| --- | --- | --- |
+| `oadm_device_triggers_devices` | Read | One device trigger's devices: whether OADM receives the event from each, the problem when not, whether the state is on, and the last event. |
+| `oadm_device_triggers_list` | Read | Lists the device triggers: the device event each watches, on or off, how many devices are on, lost or waiting, and when the last event came. |
 
 ## VAPIX Commander
 

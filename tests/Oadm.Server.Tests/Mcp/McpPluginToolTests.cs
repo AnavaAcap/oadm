@@ -1,3 +1,7 @@
+extern alias actionrules;
+extern alias appmanagement;
+extern alias devicetriggers;
+
 using System.ComponentModel;
 using System.ComponentModel.DataAnnotations;
 using System.Text.Json;
@@ -281,6 +285,12 @@ public sealed class McpPluginToolTests
         registry.RegisterCorePlugin(new DhcpServerPlugin(), new PluginOrigin(DhcpServerPluginInfo.PluginId, "1.0.0", null) { DisplayName = "DHCP server" });
         registry.RegisterCorePlugin(new HardeningScanPlugin(), new PluginOrigin(HardeningScanPluginInfo.PluginId, "1.0.0", null) { DisplayName = "Hardening scan" });
         registry.RegisterCorePlugin(new Oadm.Plugins.VapixCommander.VapixCommanderPlugin(), new PluginOrigin(Oadm.Plugins.VapixCommander.VapixCommanderPlugin.PluginId, "1.0.0", null) { DisplayName = "VAPIX Commander" });
+        registry.RegisterCorePlugin(new Oadm.Plugins.Est.EstPlugin(), new PluginOrigin(Oadm.Plugins.Est.EstPluginInfo.PluginId, "1.0.0", null) { DisplayName = "EST server" });
+        registry.RegisterCorePlugin(new Oadm.Plugins.Radius.RadiusPlugin(), new PluginOrigin(Oadm.Plugins.Radius.RadiusPlugin.PluginId, "1.0.0", null) { DisplayName = "802.1X server" });
+        registry.RegisterCorePlugin(new Oadm.Plugins.EdgeStorage.EdgeStoragePlugin(), new PluginOrigin(Oadm.Plugins.EdgeStorage.EdgeStorageInfo.PluginId, "1.0.0", null) { DisplayName = "Edge storage" });
+        registry.RegisterCorePlugin(new appmanagement::Oadm.Plugins.AppManagement.AppManagementPlugin(), new PluginOrigin(appmanagement::Oadm.Plugins.AppManagement.AppManagementInfo.PluginId, "1.0.0", null) { DisplayName = "Application management" });
+        registry.RegisterCorePlugin(new actionrules::Oadm.Plugins.ActionRules.ActionRulesPlugin(), new PluginOrigin(actionrules::Oadm.Plugins.ActionRules.ActionRulesInfo.PluginId, "1.0.0", null) { DisplayName = "Action Rule Editor" });
+        registry.RegisterCorePlugin(new devicetriggers::Oadm.Plugins.DeviceTriggers.DeviceTriggersPlugin(), new PluginOrigin(devicetriggers::Oadm.Plugins.DeviceTriggers.DeviceTriggersPluginInfo.PluginId, "1.0.0", null) { DisplayName = "Device triggers" });
         await server.Host.Get<PluginActivation>().LoadAsync(CancellationToken.None);
         await server.Host.Get<RoleStore>().SyncCatalogAsync(PermissionCatalog.Build(registry), CancellationToken.None);
         await server.Host.Get<CorePluginHost>().StartAllAsync(CancellationToken.None);
@@ -356,6 +366,12 @@ public sealed class McpPluginToolTests
                 "rules" or "events" => "Event rules",
                 "logs" => "Logs",
                 "pki" => "PKI",
+                "est" => "EST server",
+                "radius" => "802.1X server",
+                "app" => "Application management",
+                "edge" => "Edge storage",
+                "device" when name.StartsWith("oadm_device_rules_", StringComparison.Ordinal) => "Action Rule Editor",
+                "device" when name.StartsWith("oadm_device_triggers_", StringComparison.Ordinal) => "Device triggers",
                 "ntp" => "NTP server",
                 "dhcp" => "DHCP server",
                 "hardening" => "Hardening scan",
@@ -369,7 +385,7 @@ public sealed class McpPluginToolTests
             : name.EndsWith("_run", StringComparison.Ordinal) ? "Run (changes)"
             : tool["annotations"]?["readOnlyHint"]?.GetValue<bool>() == true ? "Read" : "Change";
 
-        var order = new[] { "Server", "Devices", "Tasks", "Files", "Tags", "Sites", "Compliance", "Vulnerabilities", "Event rules", "Logs", "PKI", "NTP server", "DHCP server", "Hardening scan", "VAPIX Commander" };
+        var order = new[] { "Server", "Devices", "Tasks", "Files", "Tags", "Sites", "Compliance", "Vulnerabilities", "Event rules", "Logs", "PKI", "EST server", "802.1X server", "NTP server", "DHCP server", "Hardening scan", "Application management", "Edge storage", "Action Rule Editor", "Device triggers", "VAPIX Commander" };
         var text = new System.Text.StringBuilder();
         foreach (var line in Intro)
         {
@@ -402,6 +418,8 @@ public sealed class McpPluginToolTests
                      "oadm_pki_certificates", "oadm_pki_policies", "oadm_pki_certificate_create_preview", "oadm_pki_certificate_create_run",
                      "oadm_ntp_status", "oadm_dhcp_status", "oadm_dhcp_leases", "oadm_hardening_results",
                      "oadm_vapix_commands", "oadm_vapix_command_preview", "oadm_vapix_command_run",
+                     "oadm_edge_storage_cards", "oadm_app_management_applications", "oadm_est_enrollments", "oadm_radius_log",
+                     "oadm_device_rules_list", "oadm_device_triggers_list", "oadm_device_triggers_devices",
                  })
         {
             Assert.Contains(expected, names);
@@ -416,7 +434,7 @@ public sealed class McpPluginToolTests
         }
 
         // Lists are paged with the host's cursor and descriptions never carry a text of a device.
-        foreach (var paged in new[] { "oadm_pki_certificates", "oadm_dhcp_leases", "oadm_hardening_results", "oadm_vapix_commands" })
+        foreach (var paged in new[] { "oadm_pki_certificates", "oadm_dhcp_leases", "oadm_hardening_results", "oadm_vapix_commands", "oadm_edge_storage_cards", "oadm_app_management_applications", "oadm_est_enrollments", "oadm_radius_log" })
         {
             var properties = listed.Single(t => t["name"]!.GetValue<string>() == paged)["inputSchema"]!["properties"]!.AsObject();
             Assert.True(properties.ContainsKey("limit") && properties.ContainsKey("cursor") && !properties.ContainsKey("after"), paged);
@@ -442,6 +460,44 @@ public sealed class McpPluginToolTests
         var bad = await server.CallToolAsync(key, "oadm_dhcp_leases", new JsonObject { ["state"] = "sleeping" });
         Assert.True(bad["isError"]!.GetValue<bool>());
         Assert.Contains("state", ErrorText(bad), StringComparison.Ordinal);
+
+        // The pages' own data: nothing read yet answers empty tables, never a read of a device.
+        var cards = await server.ToolAsync(key, "oadm_edge_storage_cards");
+        Assert.Equal(0, cards["total"]!.GetValue<int>());
+        Assert.Null(cards["read_utc"]);
+        Assert.Equal(0, cards["counts"]!["problem"]!.GetValue<int>());
+        var apps = await server.ToolAsync(key, "oadm_app_management_applications");
+        Assert.Equal(0, apps["total"]!.GetValue<int>());
+        Assert.Empty(apps["applications"]!.AsArray());
+        var enrollments = await server.ToolAsync(key, "oadm_est_enrollments");
+        Assert.False(enrollments["running"]!.GetValue<bool>()); // no OADM PRO here
+        Assert.False(string.IsNullOrEmpty(enrollments["status"]!.GetValue<string>()));
+        var radius = await server.ToolAsync(key, "oadm_radius_log", new JsonObject { ["result"] = "failed" });
+        Assert.False(radius["running"]!.GetValue<bool>());
+        Assert.Empty(radius["entries"]!.AsArray());
+        var badCards = await server.CallToolAsync(key, "oadm_edge_storage_cards", new JsonObject { ["state"] = "melted" });
+        Assert.True(badCards["isError"]!.GetValue<bool>());
+    }
+
+    [Fact]
+    public async Task EveryToolTheSkillNamesIsOfferedByTheServerWithItsBundledPlugins()
+    {
+        await using var server = await StartBundledAsync();
+        var key = await server.CreateKeyAsync();
+        var names = (await server.ToolNamesAsync(key)).ToHashSet(StringComparer.Ordinal);
+        foreach (var (file, text) in Oadm.Server.Mcp.McpSkill.Files)
+        {
+            foreach (System.Text.RegularExpressions.Match token in System.Text.RegularExpressions.Regex.Matches(text, "oadm_[a-z0-9_]+"))
+            {
+                var name = token.Value.TrimEnd('_');
+                if (McpSkillTests.PlannedToolNames.Contains(name) || McpSkillTests.AddOnToolNames.Contains(name))
+                {
+                    continue; // TODO: the tools of another branch (McpSkillTests.PlannedToolNames)
+                }
+
+                Assert.True(names.Contains(name), $"{file} names {name}, which the server does not offer");
+            }
+        }
     }
 
     [Fact]

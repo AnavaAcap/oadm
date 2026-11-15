@@ -16,6 +16,12 @@ namespace Oadm.Server.Tests.Mcp;
 /// </summary>
 public sealed partial class McpSkillTests
 {
+    /// <summary>TODO: the Device configuration tools built on another branch (feat/config-tools); drop this list once they are merged.</summary>
+    internal static readonly string[] PlannedToolNames = ["oadm_config_parameters", "oadm_config_action_rules", "oadm_config_stream_profiles"];
+
+    /// <summary>The tools of the optional plugins (Text recognition, Vision Center): not in this test server, tested in their own projects.</summary>
+    internal static readonly string[] AddOnToolNames = ["oadm_ocr_readers", "oadm_ocr_reads", "oadm_vision_pipelines"];
+
     /// <summary>The fixed tool names of the MCP tool layer (every builder uses these).</summary>
     private static readonly string[] ToolNames =
     [
@@ -31,15 +37,24 @@ public sealed partial class McpSkillTests
         "oadm_pki_certificate_create_preview", "oadm_pki_certificate_create_run", "oadm_ntp_status", "oadm_dhcp_status",
         "oadm_dhcp_leases", "oadm_hardening_results", "oadm_vapix_commands", "oadm_vapix_command_preview", "oadm_vapix_command_run",
         "oadm_selection", "oadm_docs_search", "oadm_vulnerabilities_summary", "oadm_vulnerabilities",
+        "oadm_tasks_summary", "oadm_server_status", "oadm_pki_policies", "oadm_est_enrollments",
+        "oadm_radius_log", "oadm_app_management_applications", "oadm_edge_storage_cards", "oadm_rules_catalog",
+        .. PlannedToolNames,
+        .. AddOnToolNames,
+        "oadm_device_rules_list", "oadm_device_triggers_list", "oadm_device_triggers_devices",
     ];
 
-    private static readonly string[] Workflows = ["certificates.md", "health-check.md", "network-change.md", "rollout-axis-os.md"];
+    private static readonly string[] Workflows =
+    [
+        "applications.md", "certificates.md", "event-rules.md", "failed-tasks.md", "health-check.md", "network-change.md",
+        "rollout-axis-os.md", "sites.md", "storage.md", "troubleshoot-device.md", "vulnerabilities.md",
+    ];
 
     [GeneratedRegex("oadm_[a-z0-9_]+")]
     private static partial Regex ToolToken();
 
     [Fact]
-    public void TheSkillHasTheFrontmatterAndFourWorkflowsThatItLinks()
+    public void TheSkillHasTheFrontmatterAndTheWorkflowsThatItLinks()
     {
         Assert.Equal(["SKILL.md", .. Workflows], McpSkill.Files.Keys);
         var main = McpSkill.Files["SKILL.md"];
