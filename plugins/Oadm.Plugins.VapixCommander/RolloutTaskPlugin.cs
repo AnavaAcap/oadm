@@ -291,7 +291,7 @@ public sealed class RolloutTaskPlugin : ITaskPlugin
         }
 
         var status = outcome.StatusCode is { } code ? string.Create(CultureInfo.InvariantCulture, $"HTTP {code}") : "no answer";
-        var summary = maskSecrets ? SecretValues.Mask(outcome.Summary, outcome) : outcome.Summary;
+        var summary = maskSecrets ? SecretValues.Mask(outcome.Summary, outcome, item.Command) : outcome.Summary;
         if (outcome.Success)
         {
             step.Complete(summary);
@@ -338,26 +338,57 @@ public sealed class VapixCommandException : Exception
 }
 
 /// <summary>
-/// The values of an answer whose names point to a secret (an SNMP community, a password, a passphrase, a key, a token): masked
-/// as *** in the text an AI agent reads (a run of <see cref="CommanderTools"/>). A value may appear anywhere in the summary.
+/// The values of an answer that are secrets (an SNMP community, a password, a passphrase, a key, a token): masked as *** in the
+/// text an AI agent reads (a run of <see cref="CommanderTools"/>). A labelled value is masked when its label or the parameter or
+/// path it comes from names a secret; a summary of free text has the secret values of the answer's parameters replaced, never
+/// a short or yes/no value (that would hide every setting).
 /// </summary>
 internal static class SecretValues
 {
     private static readonly string[] Words = ["community", "password", "passwd", "passphrase", "secret", "psk", "token", "privatekey", "apikey", "credential"];
 
-    /// <summary>True when the name of a value points to a secret ("SNMP.V1ReadCommunity", "MQTT.Password").</summary>
-    public static bool IsSecretName(string name)
+    private static readonly HashSet<string> Plain = new(StringComparer.OrdinalIgnoreCase) { "yes", "no", "true", "false", "on", "off", "none", "enabled", "disabled" };
+
+    /// <summary>True when a name points to a secret ("SNMP.V1ReadCommunity", "MQTT.Password", "Read community").</summary>
+    public static bool IsSecretName(string? name)
     {
-        var lower = name.Replace("_", string.Empty, StringComparison.Ordinal).Replace("-", string.Empty, StringComparison.Ordinal).ToLowerInvariant();
+        if (string.IsNullOrEmpty(name))
+        {
+            return false;
+        }
+
+        var lower = name.Replace("_", string.Empty, StringComparison.Ordinal).Replace("-", string.Empty, StringComparison.Ordinal)
+            .Replace(" ", string.Empty, StringComparison.Ordinal).ToLowerInvariant();
         return Words.Any(w => lower.Contains(w, StringComparison.Ordinal)) || lower.EndsWith("key", StringComparison.Ordinal);
     }
 
-    /// <summary><paramref name="text"/> with every secret value of <paramref name="outcome"/> replaced by ***.</summary>
-    public static string Mask(string text, CommandOutcome outcome)
+    /// <summary>The summary an agent reads: the labelled values with the secret ones as ***, else the text with the secret values replaced.</summary>
+    public static string Mask(string text, CommandOutcome outcome, CommandDefinition? command = null)
     {
-        var secrets = outcome.Values.Concat(outcome.Parameters)
-            .Where(v => IsSecretName(v.Name) && v.Value.Length > 0)
+        ArgumentNullException.ThrowIfNull(outcome);
+        var secretLabels = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var rule in command?.Response.Extract ?? [])
+        {
+            if (IsSecretName(rule.Label) || IsSecretName(rule.Param) || IsSecretName(rule.Path))
+            {
+                secretLabels.Add(rule.Label);
+            }
+        }
+
+        if (outcome.Values.Count > 0)
+        {
+            var labelled = string.Join(" · ", outcome.Values.Select(v => $"{v.Name}: {v.Value}"));
+            if (string.Equals(text, labelled, StringComparison.Ordinal))
+            {
+                return string.Join(" · ", outcome.Values.Select(v =>
+                    $"{v.Name}: {(secretLabels.Contains(v.Name) || IsSecretName(v.Name) ? "***" : v.Value)}"));
+            }
+        }
+
+        var secrets = outcome.Values.Where(v => secretLabels.Contains(v.Name) || IsSecretName(v.Name))
+            .Concat(outcome.Parameters.Where(p => IsSecretName(p.Name)))
             .Select(v => v.Value)
+            .Where(v => v.Length >= 4 && !Plain.Contains(v))
             .Distinct(StringComparer.Ordinal)
             .OrderByDescending(v => v.Length); // a longer secret first, so a shorter one inside it never leaves a piece
         foreach (var secret in secrets)

@@ -262,13 +262,18 @@ public sealed class ToolTests
         Assert.True(payload.RootElement.GetProperty("maskSecrets").GetBoolean());
         Assert.Equal("network.snmp.get", payload.RootElement.GetProperty("commands")[0].GetProperty("command").GetProperty("id").GetString());
 
+        // The labelled values of the real answer (10.0.0.48): only the community is hidden; a "...Key" setting with "no" hides nothing else.
+        var snmp = plugin.Library.Find("network.snmp.get")!;
         var outcome = new CommandOutcome
         {
             Success = true,
-            Summary = "SNMP.V1ReadCommunity = s3cret, SNMP.Enabled = yes",
-            Values = [new NamedValue("SNMP.V1ReadCommunity", "s3cret"), new NamedValue("SNMP.Enabled", "yes")],
+            Summary = "Enabled: no · SNMP v1: no · Read community: public · Traps: no",
+            Values = [new NamedValue("Enabled", "no"), new NamedValue("SNMP v1", "no"), new NamedValue("Read community", "public"), new NamedValue("Traps", "no")],
+            Parameters = [new NamedValue("SNMP.V1ReadCommunity", "public"), new NamedValue("SNMP.V3.AuthKey", "no")],
         };
-        Assert.Equal("SNMP.V1ReadCommunity = ***, SNMP.Enabled = yes", SecretValues.Mask(outcome.Summary, outcome));
+        Assert.Equal("Enabled: no · SNMP v1: no · Read community: *** · Traps: no", SecretValues.Mask(outcome.Summary, outcome, snmp));
+        var text = new CommandOutcome { Success = true, Summary = "community s3cretvalue, enabled yes", Parameters = [new NamedValue("SNMP.V1ReadCommunity", "s3cretvalue"), new NamedValue("SNMP.V3.AuthKey", "yes")] };
+        Assert.Equal("community ***, enabled yes", SecretValues.Mask(text.Summary, text));
         Assert.True(SecretValues.IsSecretName("MQTT.Password"));
         Assert.False(SecretValues.IsSecretName("ImageSource.I0.Sensor.Brightness"));
     }
