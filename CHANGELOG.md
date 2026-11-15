@@ -20,7 +20,7 @@ Each entry is one short line in plain words (what the user gets, not how); no ne
 - AI agents: an agent lists and changes device tags, lists sites, reads compliance results and checks, works with event rules and reads the event log.
 - AI agents: an agent reads PKI certificates and policies, creates a certificate, and reads the NTP server, DHCP server and Hardening scan status.
 - AI agents: plugins bring their own tools, shown only while the plugin is on.
-- AI agents: the Settings card shows how to connect Claude Code, Claude Desktop and VS Code, each with Copy.
+- AI agents: the Settings card shows how to connect Claude Code and VS Code, each with Copy.
 - AI agents: a skill tells agents how to work with OADM, served to agents and as Download skill.
 - Tasks: a run with settings the task does not accept starts no task and says why.
 - Permissions: the role right Use AI agents, and every user's access keys with Delete.

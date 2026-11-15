@@ -223,7 +223,8 @@ The card's **Connect an agent** shows the config with this server's address, for
 claude mcp add --transport http oadm https://oadm.example:5082/mcp --header "Authorization: Bearer ${OADM_KEY}"
 ```
 
-and the `.mcp.json`, Claude Desktop and VS Code (`servers`, `inputs` with `password: true`) forms, plus the CA download.
+and the `.mcp.json` and VS Code (`servers`, `inputs` with `password: true`) forms, plus the CA download. Claude Desktop is not
+listed until a bridge is tested with this server (it needs one for a remote server with a header).
 The website gets a user page (Tools > AI agents, `tools/ai-agents`) and a developer page (`dev/plugin-tools`).
 
 ## Tests
@@ -404,7 +405,8 @@ The website gets a user page (Tools > AI agents, `tools/ai-agents`) and a develo
   (message text, code, multi-line text); any other change of such an action is refused with "Set this in OADM.". Rule answers
   show an address as scheme, host and port only (an address given back unchanged keeps the stored one), and a URL with a
   login in it is refused. The save preview names every outside destination ("Sends event data to ...") and warns again
-  of a new one that is not a saved recipient. Warnings and errors are fixed sentences; rule, recipient and device names
+  of a new one that is not a saved recipient; the destinations themselves are in `destinations` (kind, target as data,
+  saved recipient, new). Warnings and errors are fixed sentences; rule, recipient and device names
   appear only in their own fields, the server's problem text in `problem`. A rule naming more than 200 devices is
   changed in OADM.
 - **Plugin tools** (`Tools/PluginTools`, a tool source of the registry that follows the plugins that are on): core plugins
@@ -429,7 +431,7 @@ The website gets a user page (Tools > AI agents, `tools/ai-agents`) and a develo
   `health-check.md`, embedded): `Mcp/McpSkill` serves them as the resources `oadm://skill/<file>` to any valid key and
   declares the extension `io.modelcontextprotocol/skills` in the server capabilities; `McpService.GetSkill` answers them
   as `oadm-skill.zip` (every signed-in user) for **Download skill**.
-- **Card**: **Connect an agent** shows the Claude Code, `.mcp.json`, Claude Desktop and VS Code configurations with this
+- **Card**: **Connect an agent** shows the Claude Code, `.mcp.json` and VS Code configurations with this
   server's address (the certificate's first name, a DNS name before an address) and port, each with Copy, while the server
   runs; **Download skill** next to **Download CA certificate**.
 - **Website**: `tools/ai-agents` (turn it on, access keys, connect an agent, the skill, what agents can and cannot do) and

@@ -110,7 +110,8 @@ Texts that come from devices, such as names, locations and log lines, are data f
 
 ## Limits
 
-A key can make 20 calls a second and 10 changes a minute, and all keys of one user together the same. A list answers at
+A key can make 20 calls a second, 10 changes and 30 camera pictures a minute, and all keys of one user together the
+same. A list answers at
 most 200 rows at a time, with the total, and no answer is larger than 32 KB. An agent asks for a summary first and
 narrows with filters.
 
@@ -126,3 +127,4 @@ narrows with filters.
 | The agent has no tool for something | The key's user does not have the permission, or the plugin is off. Check the role on the Permissions page. |
 | **Too many calls with this access key** | The agent waits a second and tries again. |
 | **Too many changes with this access key. Wait a minute.** | The agent made 10 changes in a minute. It waits. |
+| **Too many pictures with this access key. Wait a minute.** | The agent took 30 camera pictures in a minute. It waits. |
