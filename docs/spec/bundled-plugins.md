@@ -140,7 +140,7 @@ command**. Command format: `Schema/command-format.md` + `command.schema.json` (t
   refuse a change without the user's confirmation and a dangerous request without the second one, both carried in the
   request ("... were not confirmed. Nothing was changed."); the page sends only the answers the user gave.
 - Saved commands: plugin setting `savedCommands`, at most 500, shared by all clients, export / import as library files.
-- AI agents (`docs/spec/mcp.md` "Plugins"): `oadm_vapix_commands` and `oadm_vapix_command_preview` / `_run`, only library
+- MCP (`docs/spec/mcp.md` "Plugins"): `oadm_vapix_commands` and `oadm_vapix_command_preview` / `_run`, only library
   and saved commands that are not dangerous, have no password or file field and change nothing OADM's own tasks change;
   every run goes preview then run and is the page's rollout.
 - Roles: methods are Operator; `tryRequest` and `rollout` are audited. Scale: target devices at the device limit, every list action
@@ -164,7 +164,7 @@ contributes the task **Use OADM as NTP server**.
   in plain words (`NtpStatusTexts`: port in use, permission, interface missing, upstream not answering); tests never use
   port 123 on a real interface.
 - Roles: `save` is Admin and audited. The Windows service opens UDP 123 in the firewall while enabled.
-- AI agents ([mcp.md](mcp.md)): the read-only tool `oadm_ntp_status`.
+- MCP ([mcp.md](mcp.md)): the read-only tool `oadm_ntp_status`.
 - Device groups: `save` only for users with all devices (the form is read-only for the others); users with a group see
   the requests and sites of their own devices, live through their group's scope. NTP and DHCP: a publish round never
   reads the device table (each group's view is kept, built again when the group's devices change or after 5 minutes); a
@@ -187,7 +187,7 @@ devices that get an address. Per-OS setup and the manual test plan: plugin `READ
   it is off; tests never send DHCP on a real interface.
 - Roles: `save`, `saveStatic`, `deleteStatic`, `makeStatic`, `release` are Admin and audited. The Windows service opens
   UDP 67 in the firewall while enabled.
-- AI agents ([mcp.md](mcp.md)): the read-only tools `oadm_dhcp_status` and `oadm_dhcp_leases`.
+- MCP ([mcp.md](mcp.md)): the read-only tools `oadm_dhcp_status` and `oadm_dhcp_leases`.
 - Device groups: every change only for users with all devices; users with a group see the leases of their own devices
   (by MAC address = serial only, never by address), live through their group's scope. A change and a removal of one batch
   go in one event (parts of one version only beyond 2,000 leases; the page applies every part of a version).
@@ -216,7 +216,7 @@ IEEE 802.1X, Renew certificates, View, Delete and Install certificates, Install 
   chosen issuing policy against the device's keystore before the first write and fails "Nothing was changed" otherwise;
   the dialogs of Enable HTTPS, Enable IEEE 802.1X, Renew certificates and Install certificates (IEEE 802.1X) pick an
   issuing policy and show its summary, the run uses the policy's stored values; the built-in policies (the first HTTPS
-  certificate, IEEE 802.1X certificate, 802.1X server, EST server, AI agents, Expiry warning and Enrollment policy) and an issuing
+  certificate, IEEE 802.1X certificate, 802.1X server, EST server, MCP server, Expiry warning and Enrollment policy) and an issuing
   policy an EST profile names are never deleted; the 802.1X tasks always install the policy's RADIUS server CA and never
   compare it with the 802.1X server's certificate; Enable HTTPS pins the new certificate through
   `UpdateDeviceTlsAsync`; the dialogs ask when a camera's clock is behind the certificate's start, a run without that
@@ -453,7 +453,7 @@ plugin `README.md`.
   Unreachable devices are not contacted; items that cannot be checked remotely are not shown; the latest AXIS OS is
   information only; every method is Operator and not audited; results kept per device and level (at most 100,000, the
   device limit `DeviceLimits.MaxDevices`).
-- AI agents ([mcp.md](mcp.md)): the read-only tool `oadm_hardening_results` (the results of the last scan, by page).
+- MCP ([mcp.md](mcp.md)): the read-only tool `oadm_hardening_results` (the results of the last scan, by page).
 - Device groups: one scan at a time per device scope, a job of its user that every user of the scope may stop, results
   and devices of the user's view only; the scans of all scopes share one limit (16 devices at once for the plugin, the
   setting `parallelism`). The same for the shared `DeviceSweep` of Image Health Dashboard, Edge storage and Action Rule

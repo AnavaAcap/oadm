@@ -18,6 +18,8 @@ export default defineConfig({
 	redirects: {
 		'/admin/sites': '/sites/overview/',
 		'/tools/vision-center/nodes': '/tools/vision-center/objects/',
+		'/tools/ai-agents': '/tools/mcp-server/',
+		'/tools/ai-agents/tools': '/tools/mcp-server/tools/',
 		...offlineRedirects,
 	},
 	// The developer tutorials show the sample plugins of samples/ (outside website/) as they are: allow reading them.
@@ -153,14 +155,6 @@ export default defineConfig({
 						{ label: 'Overview', slug: 'tools/overview' },
 						{ label: '802.1X server', slug: 'tools/radius-server' },
 						{ label: 'Action Rule Editor', slug: 'tools/action-rule-editor' },
-						{
-							label: 'AI agents',
-							collapsed: true,
-							items: [
-								{ label: 'Overview', slug: 'tools/ai-agents' },
-								{ label: 'Tools', slug: 'tools/ai-agents/tools' },
-							],
-						},
 						{ label: 'Applications', slug: 'tools/applications' },
 						{ label: 'Dashboards', slug: 'tools/dashboards' },
 						{ label: 'Device triggers', slug: 'tools/device-triggers' },
@@ -173,6 +167,14 @@ export default defineConfig({
 						{ label: 'Image Health Dashboard', slug: 'tools/image-health-dashboard' },
 						{ label: 'Live View', slug: 'tools/live-view' },
 						{ label: 'Load test', slug: 'tools/load-test' },
+						{
+							label: 'MCP server',
+							collapsed: true,
+							items: [
+								{ label: 'Overview', slug: 'tools/mcp-server' },
+								{ label: 'MCP tools', slug: 'tools/mcp-server/tools' },
+							],
+						},
 						{ label: 'Metadata Monitor', slug: 'tools/metadata-monitor' },
 						{ label: 'NTP server', slug: 'tools/ntp-server' },
 						{ label: 'PKI', slug: 'tools/pki' },

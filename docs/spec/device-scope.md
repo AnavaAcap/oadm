@@ -25,7 +25,8 @@ the Permissions page and the client's hiding rules are in `docs/spec/security.md
   site. Administrator always has all devices (a group on an administrator is ignored and the user form says so).
 - **Deleted tag or site:** drops out of the groups that use it; deleting asks first ("Used by device group Building B").
 - **Deleted group:** its users get **no devices** and the objects it owned are disabled in the same transaction (fail
-  closed) until an administrator gives them another; a test proves it.
+  closed) until an administrator gives them another; a test proves it. A group that an MCP access key uses is not deleted:
+  the refusal names the keys ([mcp.md](mcp.md) "Access keys"). A key has its own devices (all, or one group), like a user.
 - **Group changes** (rules, a user's group): the user's streams that carry devices end and reconnect with the new view,
   like a role change (`CallerStreams`). A new name or description alone ends nothing (no streams, no jobs, no prune).
 - Every change of a device's membership (tag, site, relocation, add, remove) is audited as "Entered device group" /

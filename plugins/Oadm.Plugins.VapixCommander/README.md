@@ -207,7 +207,7 @@ Page methods get the user's call (`InvokeAsync(caller, ...)`); see [device group
   task service that names another user's rollout id is refused before any step ("This rollout was started by another
   user. Nothing was changed."). Tasks the host starts without a user join as before.
 
-## AI agents
+## MCP
 
 `CommanderTools` (`ICorePlugin.Tools`, area `vapix`): `oadm_vapix_commands` lists the library and saved commands an agent may
 run (paged by id, with their fields); `oadm_vapix_command_preview` / `_run` runs one of them on device ids from

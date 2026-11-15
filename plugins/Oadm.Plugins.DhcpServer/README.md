@@ -108,7 +108,7 @@ leases, lease version), `save` (field errors per field; `otherServers` when a co
 (add/edit, field errors "Mac", "Address", "Name"), `makeStatic`, `deleteStatic`, `release` (forgets a dynamic lease).
 Events: `state` (status changed), `leases` (changed and removed leases with the lease version, batched every 500 ms; see
 "Device groups" for the parts; the page ignores versions it already has).
-AI agents (docs/spec/mcp.md): the read-only tools `oadm_dhcp_status` and `oadm_dhcp_leases`.
+MCP (docs/spec/mcp.md): the read-only tools `oadm_dhcp_status` and `oadm_dhcp_leases`.
 
 ## Code
 
