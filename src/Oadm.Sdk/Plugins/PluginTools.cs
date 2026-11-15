@@ -110,6 +110,17 @@ public sealed record PluginTool(string Name, string Title, string Description)
     /// </summary>
     public bool ReturnsFile { get; init; }
 
+    /// <summary>The largest file a tool with <see cref="TakesUpload"/> gets.</summary>
+    public const int MaxUploadBytes = 1024 * 1024;
+
+    /// <summary>
+    /// The tool takes one file the caller uploaded (SDK 0.13.0, docs/spec/mcp.md "Files"): its input has a text property
+    /// <c>file_id</c> (an upload of the caller, e.g. through an upload link, so the file never passes a model). The host reads
+    /// the upload (at most <see cref="MaxUploadBytes"/>) and hands the plugin <c>file_base64</c> and <c>file_name</c> as well,
+    /// in the preview, a check of an entered secret and the run. The input type has no property of these two names.
+    /// </summary>
+    public bool TakesUpload { get; init; }
+
     /// <summary>
     /// New serializer options in the style of the host's own tools: names in snake_case ("next_cursor"), enums by their snake_case
     /// name, nulls written, names read in any case. Keep them in a static field of the plugin (<see cref="PluginJson.CreateOptions"/>).

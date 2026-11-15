@@ -510,7 +510,7 @@ public sealed class DeleteCertificatesTask(Func<PkiService?> service) : PkiTaskB
 /// certificate, Switch web server to the new certificate, Verify HTTPS; 802.1X: Check device clock, Install CA certificates,
 /// Install certificate, Set 802.1X configuration, Verify 802.1X settings; CA only: Install CA certificates.
 /// </summary>
-public sealed class InstallCertificatesTask(Func<PkiService?> service) : PkiTaskBase(service), ITaskPluginQuery
+public sealed partial class InstallCertificatesTask(Func<PkiService?> service) : PkiTaskBase(service), ITaskPlugin, ITaskPluginQuery
 {
     public override string Id => PkiTaskIds.Install;
 
@@ -628,6 +628,12 @@ public sealed class InstallCertificatesTask(Func<PkiService?> service) : PkiTask
                 if (dot1x && CertificateFiles.Dot1xProblem(contents) is { } notClient)
                 {
                     throw new InvalidOperationException($"{file.FileName}: {notClient} Nothing was changed.");
+                }
+
+                // The dialog matched the file to this device; an agent only named it, so the task checks the names itself.
+                if (needsLeaf && !CertificateFiles.Matches(contents.Names, device.Serial, device.Address, device.HostName))
+                {
+                    throw new InvalidOperationException($"{file.FileName}: {NotThisDevice} Nothing was changed.");
                 }
 
                 result.Add((file, data, contents));

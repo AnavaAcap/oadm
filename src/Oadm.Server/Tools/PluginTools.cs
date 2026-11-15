@@ -38,7 +38,8 @@ internal sealed record PlannedPluginRun(string PluginId, string Method, string P
 /// <see cref="ToolAnswers.MaxBytes"/>, a change is a preview and a run with a handle. A tool without a usable schema is not
 /// offered (fail closed).
 /// </summary>
-internal sealed partial class PluginTools(PluginRegistry registry, CorePluginHost host, Oadm.Core.Auth.RoleStore roles, ToolHandles handles, ToolCursors cursors, ILogger<PluginTools> logger) : IToolSource
+internal sealed partial class PluginTools(PluginRegistry registry, CorePluginHost host, Oadm.Core.Auth.RoleStore roles, ToolHandles handles, ToolCursors cursors, ILogger<PluginTools> logger,
+    Oadm.Core.Tasks.TaskEngine? engine = null) : IToolSource
 {
     public static readonly string InvokePath = InProcessCalls.PathOf(Proto.PluginService.Descriptor, "Invoke");
 
@@ -46,6 +47,8 @@ internal sealed partial class PluginTools(PluginRegistry registry, CorePluginHos
     public const string PreviewEnded = "This preview has ended or already ran. Call the preview tool again.";
     public const string TooLarge = "The answer is too large. Narrow the request.";
     public const string PluginFailed = "The plugin could not answer. Try again.";
+    public const string UploadMissing = "This file is not among your uploads. Upload it again.";
+    public const string UploadTooLarge = "The file is larger than 1 MB.";
 
     private static readonly Regex NamePattern = NameRegex();
     private static readonly Regex AreaPattern = AreaRegex();
@@ -151,6 +154,11 @@ internal sealed partial class PluginTools(PluginRegistry registry, CorePluginHos
         {
             input = WithFilter(input);
             methods = [InvokePath, DeviceTools.SearchPath];
+        }
+
+        if (tool.TakesUpload && (input["properties"] is not JsonObject inputs || !inputs.ContainsKey("file_id") || inputs.ContainsKey("file_base64") || inputs.ContainsKey("file_name")))
+        {
+            throw new InvalidOperationException("a tool that takes an upload names file_id, and never file_base64 or file_name");
         }
 
         var idempotent = tool.Idempotent ?? !tool.Changes;
@@ -427,6 +435,11 @@ internal sealed partial class PluginTools(PluginRegistry registry, CorePluginHos
             payload = await WithDevicesAsync(call, payload).ConfigureAwait(false);
         }
 
+        if (tool.TakesUpload)
+        {
+            payload = await WithUploadAsync(call, payload).ConfigureAwait(false);
+        }
+
         var answer = await InvokeAsync(call, plugin.Id, tool.Method, payload).ConfigureAwait(false);
         if (tool.ReturnsFile)
         {
@@ -453,6 +466,11 @@ internal sealed partial class PluginTools(PluginRegistry registry, CorePluginHos
         if (tool.DeviceFilter)
         {
             payload = await WithDevicesAsync(call, payload).ConfigureAwait(false); // the run gets the devices the preview planned
+        }
+
+        if (tool.TakesUpload)
+        {
+            payload = await WithUploadAsync(call, payload).ConfigureAwait(false); // the run gets the file the preview read
         }
 
         var answer = await InvokeAsync(call, plugin.Id, tool.PreviewMethod, payload).ConfigureAwait(false);
@@ -510,6 +528,40 @@ internal sealed partial class PluginTools(PluginRegistry registry, CorePluginHos
         }
 
         return secrets.Count > MaxSecrets || secrets.Select(s => s.Name).Distinct(StringComparer.Ordinal).Count() != secrets.Count ? throw new ToolException(PluginFailed) : secrets;
+    }
+
+    /// <summary>
+    /// The payload of a tool that takes an upload (<see cref="PluginTool.TakesUpload"/>): <c>file_id</c>, the caller's own upload,
+    /// read here (at most <see cref="PluginTool.MaxUploadBytes"/>) and handed over as <c>file_base64</c> and <c>file_name</c>.
+    /// </summary>
+    private async Task<string> WithUploadAsync(ToolCall call, string payload)
+    {
+        var node = JsonNode.Parse(payload) as JsonObject ?? [];
+        node.Remove("file_base64");
+        node.Remove("file_name");
+        if (node["file_id"] is not JsonValue id || !id.TryGetValue<string>(out var fileId) || fileId.Length == 0)
+        {
+            return node.ToJsonString(); // the plugin refuses a missing file
+        }
+
+        var files = engine?.FilesOf(Oadm.Core.Tasks.TaskCaller.Of(call.Caller.User)) ?? throw new ToolException(UploadMissing, [new ToolFieldError("file_id", UploadMissing)]);
+        var found = await files.FindAsync(fileId, call.Ct).ConfigureAwait(false) ?? throw new ToolException(UploadMissing, [new ToolFieldError("file_id", UploadMissing)]);
+        if (found.Size > PluginTool.MaxUploadBytes)
+        {
+            throw new ToolException(UploadTooLarge, [new ToolFieldError("file_id", UploadTooLarge)]);
+        }
+
+        await using var stream = await files.OpenReadAsync(fileId, call.Ct).ConfigureAwait(false);
+        using var memory = new MemoryStream();
+        await stream.CopyToAsync(memory, call.Ct).ConfigureAwait(false);
+        if (memory.Length > PluginTool.MaxUploadBytes)
+        {
+            throw new ToolException(UploadTooLarge, [new ToolFieldError("file_id", UploadTooLarge)]);
+        }
+
+        node["file_base64"] = Convert.ToBase64String(memory.GetBuffer(), 0, (int)memory.Length);
+        node["file_name"] = found.Name;
+        return node.ToJsonString();
     }
 
     /// <summary>The payload without <see cref="PluginToolSecrets.ValuesProperty"/>: only the host puts secrets there, for a run or a check.</summary>

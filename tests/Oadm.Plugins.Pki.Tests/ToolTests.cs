@@ -14,7 +14,7 @@ public sealed class ToolTests
     public void The_reads_are_for_operators_and_Create_needs_the_rights_of_the_page_with_a_preview_that_leaves_no_audit_entry()
     {
         ICorePlugin plugin = new PkiPlugin();
-        Assert.Equal(["certificates", "policies", "certificate_create", "certificate_file", "ca_file"], plugin.Tools.Select(t => t.Name));
+        Assert.Equal(["certificates", "policies", "certificate_create", "certificate_file", "ca_file", "certificate_import", "certificate_sign"], plugin.Tools.Select(t => t.Name));
         Assert.Equal("pki", plugin.ToolArea ?? "pki");
         foreach (var read in new[] { PkiTools.Certificates.Method, PkiTools.Policies.Method })
         {

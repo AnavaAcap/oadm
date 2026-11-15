@@ -28,10 +28,51 @@ public sealed class InstallCaTask(Func<PkiService?> service) : PkiTaskBase(servi
     public override string? IconKey => "upload";
 
     /// <summary>
-    /// Not offered to AI agents (null, SDK 0.13.0): the certificates would become trust anchors on the devices, and an agent
-    /// could bring any one. The dialog shows each certificate to the person who installs it.
+    /// The input of AI agents (SDK 0.13.0): the certificates as PEM text. They become trust anchors on the devices, so the plan
+    /// lists each one as the dialog shows it (<see cref="Describe"/>) for the person to confirm before Run.
     /// </summary>
-    public override Type? PayloadType => null;
+    public override Type? PayloadType => typeof(InstallCaPayload);
+
+    /// <summary>The plan's warning: what trusting the CAs means.</summary>
+    public const string TrustWarning = "The devices will trust every certificate these CAs issue. Check each CA before you run it.";
+
+    /// <summary>
+    /// Every certificate checked as the task does (none read from a device), each listed with its name, subject, issuer, end
+    /// and SHA-256 fingerprint, and the trust warning.
+    /// </summary>
+    public override Task<TaskPlan> PlanAsync(string? payloadJson, IReadOnlyList<IDeviceInfo> devices, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(devices);
+        var payload = PkiJson.Deserialize<InstallCaPayload>(payloadJson);
+        var now = Time.GetUtcNow().UtcDateTime;
+        var (wanted, _) = Validate(payload, now);
+        var names = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var item in payload.Certificates)
+        {
+            try
+            {
+                names.TryAdd(CaCertificateFiles.ReadPem(item.Pem ?? string.Empty, now).Fingerprint, item.Name);
+            }
+            catch (InvalidOperationException)
+            {
+                // Validate refused it: no line
+            }
+        }
+
+        var lines = wanted.Select(c => Describe(names.GetValueOrDefault(c.Fingerprint) ?? c.Name, c)).ToList();
+
+        // The warning first; a preview shows 20 lines, so with 20 CAs it shares the first line.
+        List<string> warnings = lines.Count < 20 ? [TrustWarning, .. lines] : [TrustWarning + " " + lines[0], .. lines.Skip(1)];
+        return Task.FromResult(TaskPlan.ByCanRun(this, devices) with { Warnings = warnings });
+    }
+
+    /// <summary>"CA Acme Root: issued to Acme Root CA by Acme Root CA, valid until 2035-01-01, SHA-256 AB:CD:..." (the dialog's columns).</summary>
+    public static string Describe(string name, CaFileCertificate certificate)
+    {
+        ArgumentNullException.ThrowIfNull(certificate);
+        return string.Create(CultureInfo.InvariantCulture,
+            $"CA {name}: issued to {certificate.Name} by {certificate.IssuedBy}, valid until {certificate.NotAfterUtc:yyyy-MM-dd}, SHA-256 {Ca.CaCertificates.ColonFingerprint(certificate.Fingerprint)}.");
+    }
 
     /// <summary>Every certificate checked as before the first write (<see cref="Validate"/>): a CA certificate, valid now.</summary>
     public override IReadOnlyList<PayloadError> ValidatePayload(string? payloadJson, ICallContext caller)

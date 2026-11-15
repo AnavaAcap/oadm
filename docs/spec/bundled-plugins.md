@@ -37,7 +37,8 @@ change a password or role, or remove users on every selected device.
 - Rules that must hold: never removes, demotes or changes the password of the account OADM uses, never removes or demotes
   the last administrator, never removes `root` before AXIS OS 11.5, and changes nothing while the OADM account is not
   known ("Nothing was changed"); passwords only in memory and the POST body, never in a step, log, warning, error or URL;
-  every change is read back.
+  every change is read back; AI agents never send the password: the person enters it through the secret channel
+  (docs/spec/mcp.md "Secrets"), only for Add and a password change.
 
 ## Upgrade AXIS OS
 
@@ -227,7 +228,10 @@ IEEE 802.1X, Renew certificates, View, Delete and Install certificates, Install 
   stored or logged; nothing in tests touches a real trust store; View and Delete certificates read at most 5,000 devices
   per window (each device is read, 4 at a time; a larger selection gets "Choose at most 5,000 devices."), the other tasks
   take any number; AI agents run View certificates as a read task and Delete certificates by name per device (never an
-  Axis factory or an in-use certificate), never Install certificates or Install CA certificates; while it runs it offers its CAs to other plugins (`IDeviceCertificateAuthority`,
+  Axis factory or an in-use certificate), Install certificates with the PKCS#12 password entered by the person (never
+  sent by the agent; the task checks that each certificate names its device) and Install CA certificates with each CA
+  listed in the plan; Import certificate and Sign certificate request are tools (the PKCS#12 password through the secret
+  channel, the file through an upload link); while it runs it offers its CAs to other plugins (`IDeviceCertificateAuthority`,
   `docs/spec/plugins.md` "Plugin services"), which signs the same way; every certificate a CA of PKI issues for a device
   (tasks and the service) goes into the list of issued certificates with its DER; a certificate deleted while valid,
   replaced or unused goes on the internal list of certificates no longer accepted (written before the call returns, never
