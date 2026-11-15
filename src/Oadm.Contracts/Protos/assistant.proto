@@ -77,6 +77,11 @@ message AssistantPreviewCard {
   repeated string warnings = 5;
   repeated string first_devices = 6;       // the first 20 names
   string expires_utc = 7;                  // ISO 8601; the handle ends then
+  // What Run does, from the preview itself, never from the model's text: one line per key field ("Sends to:
+  // http://10.0.0.5/hook", "Tags: Lobby, Yard", "File: AXIS_OS_12.6.97.bin", "Deletes: 3 rules"). Shown above the devices.
+  repeated string details = 8;
+  string count_text = 9;                   // "3 devices", "2 tasks", "1 rule"; the card shows it instead of device_count
+  bool destructive = 10;                   // Run deletes or removes: the card's Run is red (Button.danger)
 }
 
 message AssistantPicture {
