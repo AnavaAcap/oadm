@@ -71,7 +71,7 @@ public static class AssistantTexts
     public const string LookUpMessage = "Yes, look it up in the Axis docs online.";
 
     /// <summary>The card after the click, and after Not now.</summary>
-    public const string LookingOnline = "Looking in the Axis docs.";
+    public const string LookedUpOnline = "Looked up online.";
     public const string NotLookedUp = "Not looked up.";
 
     /// <summary>Chat with an offer that is unknown, used, ended or another chat's.</summary>

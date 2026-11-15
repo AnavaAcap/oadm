@@ -333,6 +333,53 @@ public sealed partial class AssistantFileItem(AssistantFile file) : AssistantIte
 }
 
 /// <summary>
+/// The model found no OADM function and offers to look in the Axis docs online (docs/spec/assistant.md "Looking in the Axis
+/// docs"): the question with Not now and Look up online. Only Look up online sends the offer's id with the next message; Not
+/// now, another message or the offer's end leave it unused (the server forgets it).
+/// </summary>
+public sealed partial class AssistantDocsOfferItem(AssistantDocsOffer offer) : AssistantItem
+{
+    public string OfferId { get; } = offer?.OfferId ?? string.Empty;
+
+    /// <summary>What the model would look up (data from the model, shown as written).</summary>
+    public string Topic { get; } = offer?.Topic ?? string.Empty;
+
+    /// <summary>The card waits for the user's answer: its two buttons show.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasStatus))]
+    public partial bool IsReady { get; private set; } = true;
+
+    /// <summary>The newest card that waits: its Look up online is the panel's main button (one accent per view).</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(LookUpIsPrimary), nameof(LookUpIsSecondary))]
+    public partial bool IsNewestReady { get; internal set; }
+
+    public bool LookUpIsPrimary => IsNewestReady;
+
+    public bool LookUpIsSecondary => !IsNewestReady;
+
+    /// <summary>The user said yes: the panel sends the lookup.</summary>
+    [ObservableProperty] public partial bool IsAccepted { get; private set; }
+
+    [ObservableProperty] public partial string StatusText { get; private set; } = string.Empty;
+
+    public bool HasStatus => !IsReady;
+
+    internal void MarkAccepted()
+    {
+        IsAccepted = true;
+        StatusText = AssistantTexts.LookedUpOnline;
+        IsReady = false;
+    }
+
+    internal void MarkDeclined()
+    {
+        StatusText = AssistantTexts.NotLookedUp;
+        IsReady = false;
+    }
+}
+
+/// <summary>
 /// A change the model prepared (docs/spec/assistant.md rule 2): title, device count, the first devices, the skipped ones and
 /// the warnings; only the user's Run runs it. After Run the card follows its tasks in the client's task mirror
 /// (<see cref="TaskStore"/>) and links to the tasks pane.

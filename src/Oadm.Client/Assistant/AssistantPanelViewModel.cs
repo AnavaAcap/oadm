@@ -131,23 +131,34 @@ public sealed partial class AssistantPanelViewModel : ObservableObject
     public bool HasAttachments => Attachments.Count > 0;
 
     /// <summary>A preview card waits for Run: its Run is the panel's main button, Send turns secondary.</summary>
-    public bool HasReadyPreview => Items.OfType<AssistantPreviewItem>().Any(p => p.IsReady);
+    public bool HasReadyPreview => Items.Any(i => i is AssistantPreviewItem { IsReady: true } or AssistantDocsOfferItem { IsReady: true });
 
-    /// <summary>Only the newest card that waits for Run has the accent Run; Send turns secondary while one waits.</summary>
+    /// <summary>
+    /// Only the newest card that waits (Run of a preview, Look up online of an offer) has the accent button; Send turns
+    /// secondary while one waits.
+    /// </summary>
     private void OnPreviewsChanged()
     {
-        AssistantPreviewItem? newest = null;
+        AssistantItem? newest = null;
         for (int i = Items.Count - 1; i >= 0 && newest is null; i--)
         {
-            if (Items[i] is AssistantPreviewItem { IsReady: true } ready)
+            if (Items[i] is AssistantPreviewItem { IsReady: true } or AssistantDocsOfferItem { IsReady: true })
             {
-                newest = ready;
+                newest = Items[i];
             }
         }
 
-        foreach (var preview in Items.OfType<AssistantPreviewItem>())
+        foreach (var item in Items)
         {
-            preview.IsNewestReady = ReferenceEquals(preview, newest);
+            switch (item)
+            {
+                case AssistantPreviewItem preview:
+                    preview.IsNewestReady = ReferenceEquals(preview, newest);
+                    break;
+                case AssistantDocsOfferItem offer:
+                    offer.IsNewestReady = ReferenceEquals(offer, newest);
+                    break;
+            }
         }
 
         OnPropertyChanged(nameof(HasReadyPreview));
@@ -529,11 +540,33 @@ public sealed partial class AssistantPanelViewModel : ObservableObject
     [RelayCommand(CanExecute = nameof(CanSendSuggestion))]
     private Task SendSuggestionAsync(string? text) => string.IsNullOrWhiteSpace(text) ? Task.CompletedTask : SendTextAsync(text, [], null, Mentioned);
 
+    private bool CanLookUp(AssistantDocsOfferItem? offer) => offer is { IsReady: true } && CanSendSuggestion(AssistantTexts.LookUpMessage);
+
+    /// <summary>
+    /// Look up online: the user's yes to the offer (docs/spec/assistant.md "Looking in the Axis docs"). Only this click sends
+    /// the offer's id, so only the next answer may read the Axis docs online.
+    /// </summary>
+    [RelayCommand(CanExecute = nameof(CanLookUp))]
+    private Task LookUpAsync(AssistantDocsOfferItem? offer) =>
+        offer is { IsReady: true } ? SendTextAsync(AssistantTexts.LookUpMessage, [], null, [], offer) : Task.CompletedTask;
+
+    /// <summary>Not now: nothing is sent; the offer ends with the next message on the server.</summary>
+    [RelayCommand]
+    private void DeclineLookUp(AssistantDocsOfferItem? offer)
+    {
+        if (offer is { IsReady: true })
+        {
+            offer.MarkDeclined();
+            OnPreviewsChanged();
+        }
+    }
+
     /// <summary>
     /// Sends a message with its files. <paramref name="replace"/> (Try again, Edit): that message and everything after it
     /// leave the list in one step, and the server drops them too when it had them (<c>replace_last</c>).
     /// </summary>
-    private async Task SendTextAsync(string text, IReadOnlyList<AssistantAttachmentItem> files, AssistantUserItem? replace, IReadOnlyList<string> mentioned)
+    private async Task SendTextAsync(string text, IReadOnlyList<AssistantAttachmentItem> files, AssistantUserItem? replace, IReadOnlyList<string> mentioned,
+        AssistantDocsOfferItem? lookUp = null)
     {
         var conversation = ConversationId;
         text = text.Trim();
@@ -553,7 +586,16 @@ public sealed partial class AssistantPanelViewModel : ObservableObject
             return;
         }
 
-        var message = new AssistantMessage { ConversationId = conversation, Text = text, Model = Model.Trim() };
+        var message = new AssistantMessage { ConversationId = conversation, Text = text, Model = Model.Trim(), DocsOfferId = lookUp?.OfferId ?? string.Empty };
+
+        // Any message ends the offers that still wait (the server forgets them); Look up online takes its own.
+        lookUp?.MarkAccepted();
+        foreach (var waiting in Items.OfType<AssistantDocsOfferItem>().Where(o => o.IsReady).ToList())
+        {
+            waiting.MarkDeclined();
+        }
+
+        OnPreviewsChanged();
         if (_devices is not null && SelectionError is null)
         {
             message.SelectedDeviceIds.AddRange(_devices.SelectedDevices.Select(d => d.Id));
@@ -779,6 +821,9 @@ public sealed partial class AssistantPanelViewModel : ObservableObject
                 return;
             case AssistantEvent.KindOneofCase.File:
                 Add(new AssistantFileItem(e.File));
+                return;
+            case AssistantEvent.KindOneofCase.DocsOffer:
+                Add(new AssistantDocsOfferItem(e.DocsOffer));
                 return;
             case AssistantEvent.KindOneofCase.Picture:
                 Add(new AssistantPictureItem(e.Picture.DeviceId, e.Picture.DeviceName, e.Picture.Jpeg.ToByteArray()));
@@ -1282,6 +1327,7 @@ public sealed partial class AssistantPanelViewModel : ObservableObject
         OnPropertyChanged(nameof(SendTip));
         SendCommand.NotifyCanExecuteChanged();
         SendSuggestionCommand.NotifyCanExecuteChanged();
+        LookUpCommand.NotifyCanExecuteChanged();
         RetryCommand.NotifyCanExecuteChanged();
         UpdateStart();
     }

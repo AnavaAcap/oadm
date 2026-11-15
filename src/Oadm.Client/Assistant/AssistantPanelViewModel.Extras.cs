@@ -350,6 +350,10 @@ public sealed partial class AssistantPanelViewModel : IMarkdownActions
                 case AssistantFileItem file:
                     md.Append("(A file: ").Append(file.Name).AppendLine(")");
                     break;
+                case AssistantDocsOfferItem offer:
+                    md.Append(AssistantTexts.DocsOfferQuestion);
+                    md.AppendLine(offer.StatusText.Length > 0 ? " " + offer.StatusText : string.Empty);
+                    break;
                 case AssistantPictureItem picture:
                     md.Append("(A picture of ").Append(picture.DeviceName).AppendLine(")");
                     break;

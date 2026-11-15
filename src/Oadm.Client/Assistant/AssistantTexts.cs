@@ -26,6 +26,15 @@ public static class AssistantTexts
     public const string FileSaved = "Saved.";
     public const string Saving = "Saving the file";
     public const string Cancel = "Cancel";
+
+    /// <summary>The card of an offer to look in the Axis docs online (docs/spec/assistant.md "Looking in the Axis docs").</summary>
+    public const string DocsOfferTitle = "Axis docs";
+    public const string DocsOfferQuestion = Shared.DocsOfferQuestion;
+    public const string LookUpOnline = Shared.LookUpOnline;
+    public const string NotNow = Shared.NotNow;
+    public const string LookedUpOnline = Shared.LookedUpOnline;
+    public const string NotLookedUp = Shared.NotLookedUp;
+    public const string LookUpMessage = Shared.LookUpMessage;
     public const string ShowTasks = "Show tasks";
     public const string SelectAllInGrid = "Select all in the grid";
     public const string Placeholder = "Ask about your devices";

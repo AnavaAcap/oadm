@@ -351,6 +351,23 @@
                              IsOk="{Binding IsSaved}" IsError="{Binding HasFailed}" MaxLines="2" />
             </c:ResultCard>
           </DataTemplate>
+          <!-- OADM has no function for the request: the model asks to look in the Axis docs online. Only Look up online sends
+               the lookup (docs/spec/assistant.md "Looking in the Axis docs"). -->
+          <DataTemplate x:DataType="a:AssistantDocsOfferItem">
+            <c:ResultCard x:Name="DocsOfferCard" Icon="{StaticResource Icon.globe}" Title="{x:Static a:AssistantTexts.DocsOfferTitle}" Subtitle="{Binding Topic}">
+              <StackPanel Spacing="8">
+                <TextBlock Text="{x:Static a:AssistantTexts.DocsOfferQuestion}" TextWrapping="Wrap" />
+                <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right" IsVisible="{Binding IsReady}">
+                  <Button x:Name="NotNow" Classes="secondary" Content="{x:Static a:AssistantTexts.NotNow}"
+                          Command="{Binding $parent[a:AssistantPanelView].((a:AssistantPanelViewModel)DataContext).DeclineLookUpCommand}" CommandParameter="{Binding}" />
+                  <Button x:Name="LookUpOnline" Classes.primary="{Binding LookUpIsPrimary}" Classes.secondary="{Binding LookUpIsSecondary}"
+                          Content="{x:Static a:AssistantTexts.LookUpOnline}"
+                          Command="{Binding $parent[a:AssistantPanelView].((a:AssistantPanelViewModel)DataContext).LookUpCommand}" CommandParameter="{Binding}" />
+                </StackPanel>
+                <ui:StatusChip HorizontalAlignment="Left" Text="{Binding StatusText}" IsVisible="{Binding HasStatus}" />
+              </StackPanel>
+            </c:ResultCard>
+          </DataTemplate>
           <!-- A plan the model prepared: a result card with its title and count, what Run does, the devices, the skipped ones and
                the warnings; Cancel and Run, then the state of its tasks. -->
           <DataTemplate x:DataType="a:AssistantPreviewItem">
