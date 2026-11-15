@@ -15,7 +15,9 @@ and runs after the user agreed.
 | --- | --- | --- |
 | `oadm_server_info` | Read | The OADM server, who you are, your role and what it allows, the limits of this server and how many devices you see. Call it first. |
 | `oadm_server_status` | Read | OADM's own state: OADM PRO, which plugins are on, MCP and the assistant, and the date of the list of Axis vulnerabilities. Read only. |
-| `oadm_settings_get` | Read | The server settings OADM shows every user, read only: how it scans, retries, runs tasks and checks clocks. Change them in OADM. |
+| `oadm_settings_get` | Read | The server settings OADM shows every user: how it scans, retries, runs tasks and checks clocks. Administrators change them with oadm_settings_set_preview. |
+| `oadm_settings_set_preview` | Preview | Shows the old and new value of each server setting you name, checked as the Settings page checks them; nothing is changed. Then call oadm_settings_set_run with the handle. |
+| `oadm_settings_set_run` | Run (changes) | Saves the settings of a preview, checked again, as Save on the Settings page does; audited as server settings. |
 
 ## Devices
 
@@ -23,6 +25,8 @@ and runs after the user agreed.
 | --- | --- | --- |
 | `oadm_devices_add_preview` | Preview | Looks for Axis devices with Discovery, in a network range or at IP addresses of the server's own networks or of connected sites. It sends no login and stores nothing. Then call oadm_devices_add_run with the handle: it logs in with the credential list and adds. |
 | `oadm_devices_add_run` | Run (changes) | Logs in to the devices of a preview with the credential list and adds those that log in, keeps the waiting addresses, or tries the waiting list. Devices that do not log in are not added. |
+| `oadm_devices_certificate_trust_preview` | Preview | Reads the certificate each device presents now and shows the trusted and the new fingerprint side by side for the user to compare; nothing is changed. Then call oadm_devices_certificate_trust_run with the handle. |
+| `oadm_devices_certificate_trust_run` | Run (changes) | Trusts the certificates of a preview; a device that now presents another one is refused and keeps Certificate changed. |
 | `oadm_devices_credentials_preview` | Preview | Shows which devices would get the login of a stored credential, chosen by its name. Without a name it lists the names; no password is ever sent or shown. |
 | `oadm_devices_credentials_run` | Run (changes) | Stores the chosen credential as the login of the devices of a preview and queues their refresh. The devices themselves are not changed. |
 | `oadm_devices_export` | Read | The devices of a filter as a CSV file (the columns of Export devices). Answers the count and a file reference; fetch it with oadm_files_download_link. |
@@ -35,6 +39,8 @@ and runs after the user agreed.
 | `oadm_devices_ptz_run` | Run (changes) | Moves the camera as the preview said. |
 | `oadm_devices_refresh_preview` | Preview | Shows which devices OADM would read again. Nothing is changed; then call oadm_devices_refresh_run with the handle. |
 | `oadm_devices_refresh_run` | Run (changes) | Queues a full refresh of the devices of a preview. The results show in oadm_devices_search as they arrive. |
+| `oadm_devices_remove_all_preview` | Preview | Counts every device OADM manages and what leaves with them; nothing is changed. Then call oadm_devices_remove_all_run with the handle. |
+| `oadm_devices_remove_all_run` | Run (changes) | Removes every device of a preview from OADM, with their stored logins. The devices themselves are not changed. |
 | `oadm_devices_remove_preview` | Preview | Shows which devices OADM would stop managing. Nothing is changed; then call oadm_devices_remove_run with the handle. |
 | `oadm_devices_remove_run` | Run (changes) | Removes the devices of a preview from OADM, with their stored logins and tags. The devices themselves are not changed. |
 | `oadm_devices_rtsp_port_preview` | Preview | Shows the RTSP port OADM uses for the devices of a filter now and after the change; the devices are not changed. Then call oadm_devices_rtsp_port_run with the handle. |
@@ -87,9 +93,18 @@ and runs after the user agreed.
 
 | Tool | Kind | What it does |
 | --- | --- | --- |
+| `oadm_sites_accept_preview` | Preview | Shows what turning Accept site nodes on or off does; nothing is changed. Then call oadm_sites_accept_run with the handle. |
+| `oadm_sites_accept_run` | Run (changes) | Turns Accept site nodes on or off as the Sites page does; off closes every node connection. |
+| `oadm_sites_bind_preview` | Preview | Checks the site's name and shows the waiting node to bind; nothing is changed. The user enters the pairing code of the node app through the secret channel. Then call oadm_sites_bind_run with the handle. |
+| `oadm_sites_bind_run` | Run (changes) | Binds the node of a preview with the pairing code the user entered; the node becomes a site. |
 | `oadm_sites_list` | Read | The remote sites you see with their status and device counts, a page at a time. A site is a network OADM reaches through a site node. |
+| `oadm_sites_remove_preview` | Preview | Shows what removing a site does to its devices and the device groups that use it; nothing is changed. Then call oadm_sites_remove_run with the handle. |
+| `oadm_sites_remove_run` | Run (changes) | Removes the site of a preview; its node is told to forget this server. |
 | `oadm_sites_rename_preview` | Preview | Shows a site's new name; nothing is changed. Then call oadm_sites_rename_run with the handle. |
 | `oadm_sites_rename_run` | Run (changes) | Renames the site of a preview; its site node learns the name when it connects. |
+| `oadm_sites_replace_preview` | Preview | Shows how many devices move from one site to another online site; nothing is changed. Then call oadm_sites_replace_run with the handle. |
+| `oadm_sites_replace_run` | Run (changes) | Moves the devices of a preview to the new site after checking each one there; answers how many moved and stayed. |
+| `oadm_sites_waiting` | Read | The site nodes that connected and wait to be bound, with the fingerprint to compare with the node app. Bind one with oadm_sites_bind_preview. |
 
 ## Compliance
 
@@ -161,34 +176,68 @@ and runs after the user agreed.
 
 | Tool | Kind | What it does |
 | --- | --- | --- |
+| `oadm_pki_all_policies` | Read | Every PKI policy with its id, kind, values and summary: issuing, expiry warning, 802.1X and EST. Pass an id to oadm_pki_policy_save_preview to change one. |
+| `oadm_pki_ca_create_preview` | Preview | Makes a new root CA, or an intermediate CA signed by a CA with its key. Its key stays in OADM. Nothing is changed. Call oadm_pki_ca_create_run with the handle to apply it. |
+| `oadm_pki_ca_create_run` | Run (changes) | Applies the plan of oadm_pki_ca_create_preview, which checks everything again. |
+| `oadm_pki_ca_delete_preview` | Preview | Deletes a CA from PKI's list. Refused while a policy or a server uses it, or while a CA it signed is listed. Its certificates stay. Nothing is changed. Call oadm_pki_ca_delete_run with the handle to apply it. |
+| `oadm_pki_ca_delete_run` | Run (changes) | Applies the plan of oadm_pki_ca_delete_preview, which checks everything again. |
 | `oadm_pki_ca_file` | Read | The certificate of the first-start root CA, or of a previous CA by its id, with its chain, as a file (PEM or DER). Never a key. |
+| `oadm_pki_ca_import_preview` | Preview | Adds a CA with its key from a file you uploaded: PKCS#12 (.pfx, .p12) or PEM with the key, or a PEM certificate with a separate key file. It never replaces another CA. Nothing is changed. Call oadm_pki_ca_import_run with the handle to apply it. |
+| `oadm_pki_ca_import_run` | Run (changes) | Applies the plan of oadm_pki_ca_import_preview, which checks everything again. |
+| `oadm_pki_ca_key_backup_preview` | Preview | Makes a PKCS#12 file of a CA with its key and chain, protected with a password you enter. The run hands the file out once. Nothing is changed. Call oadm_pki_ca_key_backup_run with the handle to apply it. |
+| `oadm_pki_ca_key_backup_run` | Run (changes) | Applies the plan of oadm_pki_ca_key_backup_preview, which checks everything again. |
 | `oadm_pki_certificate_create_preview` | Preview | Makes a key and a certificate for HTTPS or IEEE 802.1X with an issuing policy. The key stays in OADM. Nothing is changed. Call oadm_pki_certificate_create_run with the handle to apply it. |
 | `oadm_pki_certificate_create_run` | Run (changes) | Applies the plan of oadm_pki_certificate_create_preview, which checks everything again. |
 | `oadm_pki_certificate_file` | Read | One certificate of oadm_pki_certificates as a file, PEM or DER. Only the certificate: never its private key. |
 | `oadm_pki_certificates` | Read | Lists the certificates PKI knows: device certificates, certificate authorities, servers and the ones created here. Never shows a private key. |
 | `oadm_pki_policies` | Read | Lists the issuing policies for HTTPS and IEEE 802.1X certificates, to pick the policy of a new certificate. |
+| `oadm_pki_policy_delete_preview` | Preview | Deletes a PKI policy. A system policy is never deleted. Nothing is changed. Call oadm_pki_policy_delete_run with the handle to apply it. |
+| `oadm_pki_policy_delete_run` | Run (changes) | Applies the plan of oadm_pki_policy_delete_preview, which checks everything again. |
+| `oadm_pki_policy_save_preview` | Preview | Adds a PKI policy or changes one: issuing, expiry warning, 802.1X server, 802.1X trusted CA, VLAN, Block, EST server, enrollment, EST sign-in CA or MCP server. Fields left out keep their value. Nothing is changed. Call oadm_pki_policy_save_run with the handle to apply it. |
+| `oadm_pki_policy_save_run` | Run (changes) | Applies the plan of oadm_pki_policy_save_preview, which checks everything again. |
+| `oadm_pki_server_trust_install_preview` | Preview | Installs a root CA in the trusted root store of the OADM server's computer. Nothing is changed. Call oadm_pki_server_trust_install_run with the handle to apply it. |
+| `oadm_pki_server_trust_install_run` | Run (changes) | Applies the plan of oadm_pki_server_trust_install_preview, which checks everything again. |
 
 ## EST server
 
 | Tool | Kind | What it does |
 | --- | --- | --- |
+| `oadm_est_enable_preview` | Preview | Turns the EST server on (needs OADM PRO) or off. Off closes its port: cameras cannot get or renew certificates over EST. Nothing is changed. Call oadm_est_enable_run with the handle to apply it. |
+| `oadm_est_enable_run` | Run (changes) | Applies the plan of oadm_est_enable_preview, which checks everything again. |
 | `oadm_est_enrollments` | Read | The EST server's state and the certificate enrollments of the cameras, the newest first: new or renewal, issued or refused and why, and how many cameras did not renew in time. |
 | `oadm_est_enrollments_clear_preview` | Preview | Deletes every entry of the EST server's enrollments list. Issued certificates stay valid. Nothing is changed. Call oadm_est_enrollments_clear_run with the handle to apply it. |
 | `oadm_est_enrollments_clear_run` | Run (changes) | Applies the plan of oadm_est_enrollments_clear_preview, which checks everything again. |
+| `oadm_est_profile_delete_preview` | Preview | Deletes an EST profile. Cameras set up with it can no longer enroll or renew there. Nothing is changed. Call oadm_est_profile_delete_run with the handle to apply it. |
+| `oadm_est_profile_delete_run` | Run (changes) | Applies the plan of oadm_est_profile_delete_preview, which checks everything again. |
+| `oadm_est_profile_save_preview` | Preview | Adds an EST profile or changes the one with this name: its use, its issuing policy and whether cameras may use it. Nothing is changed. Call oadm_est_profile_save_run with the handle to apply it. |
+| `oadm_est_profile_save_run` | Run (changes) | Applies the plan of oadm_est_profile_save_preview, which checks everything again. |
+| `oadm_est_settings_save_preview` | Preview | Changes the EST server's port, the interface it listens on and how many enrollments it keeps. Fields left out keep their value. Nothing is changed. Call oadm_est_settings_save_run with the handle to apply it. |
+| `oadm_est_settings_save_run` | Run (changes) | Applies the plan of oadm_est_settings_save_preview, which checks everything again. |
 
 ## 802.1X server
 
 | Tool | Kind | What it does |
 | --- | --- | --- |
+| `oadm_radius_enable_preview` | Preview | Turns the 802.1X server on (needs OADM PRO) or off. Off closes its port: switches get no answer and their ports fall back to what the switch does without RADIUS. Nothing is changed. Call oadm_radius_enable_run with the handle to apply it. |
+| `oadm_radius_enable_run` | Run (changes) | Applies the plan of oadm_radius_enable_preview, which checks everything again. |
 | `oadm_radius_log` | Read | The 802.1X server's state and its log of switch port logins, the newest first: which device passed or failed and why, the switch, port and VLAN. |
 | `oadm_radius_log_delete_preview` | Preview | Deletes every entry of the 802.1X server's log. Nothing is changed. Call oadm_radius_log_delete_run with the handle to apply it. |
 | `oadm_radius_log_delete_run` | Run (changes) | Applies the plan of oadm_radius_log_delete_preview, which checks everything again. |
 | `oadm_radius_sessions` | Read | The switch port logins of the 802.1X server in progress and just ended, the newest first: switch, port, device, state and VLAN. |
+| `oadm_radius_settings_save_preview` | Preview | Changes the interface the 802.1X server listens on, its UDP port and how many log lines it keeps. Fields left out keep their value. Nothing is changed. Call oadm_radius_settings_save_run with the handle to apply it. |
+| `oadm_radius_settings_save_run` | Run (changes) | Applies the plan of oadm_radius_settings_save_preview, which checks everything again. |
+| `oadm_radius_switch_delete_preview` | Preview | Deletes a switch: its open sessions end and the 802.1X server no longer answers it. Nothing is changed. Call oadm_radius_switch_delete_run with the handle to apply it. |
+| `oadm_radius_switch_delete_run` | Run (changes) | Applies the plan of oadm_radius_switch_delete_preview, which checks everything again. |
+| `oadm_radius_switch_save_preview` | Preview | Adds a switch the 802.1X server answers, or changes one: name, address, site and shared secret. The secret is entered by you, kept, or generated and handed out once as a file. Nothing is changed. Call oadm_radius_switch_save_run with the handle to apply it. |
+| `oadm_radius_switch_save_run` | Run (changes) | Applies the plan of oadm_radius_switch_save_preview, which checks everything again. |
+| `oadm_radius_switches` | Read | The switches the 802.1X server answers: id, name, address, site and state. Never a shared secret. |
 
 ## NTP server
 
 | Tool | Kind | What it does |
 | --- | --- | --- |
+| `oadm_ntp_settings_save_preview` | Preview | Turns the NTP server on or off and sets its interface, its time source and Serve at sites. Fields left out keep their value. Nothing is changed. Call oadm_ntp_settings_save_run with the handle to apply it. |
+| `oadm_ntp_settings_save_run` | Run (changes) | Applies the plan of oadm_ntp_settings_save_preview, which checks everything again. |
 | `oadm_ntp_status` | Read | Shows whether the NTP server is on, where it listens, its time source and how its latest requests went. |
 
 ## DHCP server
@@ -200,6 +249,8 @@ and runs after the user agreed.
 | `oadm_dhcp_lease_release_preview` | Preview | Releases a dynamic lease: the address is free and the device asks again at its next renewal. Nothing is changed. Call oadm_dhcp_lease_release_run with the handle to apply it. |
 | `oadm_dhcp_lease_release_run` | Run (changes) | Applies the plan of oadm_dhcp_lease_release_preview, which checks everything again. |
 | `oadm_dhcp_leases` | Read | Lists the leases of the DHCP server by MAC address, with their state and the end of an active lease. |
+| `oadm_dhcp_settings_save_preview` | Preview | Turns the DHCP server on or off and sets its interface, address range and the automatic add of Axis devices. Fields left out keep their value. Nothing is changed. Call oadm_dhcp_settings_save_run with the handle to apply it. |
+| `oadm_dhcp_settings_save_run` | Run (changes) | Applies the plan of oadm_dhcp_settings_save_preview, which checks everything again. |
 | `oadm_dhcp_static_lease_delete_preview` | Preview | Deletes a static lease. The device gets an address from the range at its next renewal. Nothing is changed. Call oadm_dhcp_static_lease_delete_run with the handle to apply it. |
 | `oadm_dhcp_static_lease_delete_run` | Run (changes) | Applies the plan of oadm_dhcp_static_lease_delete_preview, which checks everything again. |
 | `oadm_dhcp_static_lease_save_preview` | Preview | Adds a static lease, or changes one with original_mac: the device with this MAC address always gets this IP address. Nothing is changed. Call oadm_dhcp_static_lease_save_run with the handle to apply it. |
@@ -381,6 +432,14 @@ and runs after the user agreed.
 | `oadm_access_keys_delete_run` | Run (changes) | Deletes the access key of a preview; it ends at once. It cannot be undone. |
 | `oadm_access_keys_list` | Read | The access keys of AI agents with their role, devices and end, a page at a time; never a key. Administrators only. |
 
+## Assistant
+
+| Tool | Kind | What it does |
+| --- | --- | --- |
+| `oadm_assistant_settings_preview` | Preview | Shows the Assistant settings before and after, checked as the card Assistant checks them; nothing is changed. A new API key is entered by the user through the secret channel, never in the chat. Then call oadm_assistant_settings_run with the handle. |
+| `oadm_assistant_settings_run` | Run (changes) | Saves the Assistant settings of a preview, checked again; audited like the card Assistant. The API key is never shown. |
+| `oadm_assistant_test` | Change | Asks the saved provider for its model list with the saved address and API key, as Test on the card Assistant does. Changes nothing. |
+
 ## Backups
 
 | Tool | Kind | What it does |
@@ -429,6 +488,13 @@ and runs after the user agreed.
 | `oadm_license_remove_run` | Run (changes) | Removes the imported license key. A running trial stays. |
 | `oadm_license_trial_preview` | Preview | Says whether the 30-day trial of OADM PRO can start on this server (once per server); nothing is changed. Then call oadm_license_trial_run with the handle. |
 | `oadm_license_trial_run` | Run (changes) | Starts the 30-day trial of OADM PRO. It runs once per server. |
+
+## Mcp
+
+| Tool | Kind | What it does |
+| --- | --- | --- |
+| `oadm_mcp_set_preview` | Preview | Shows the MCP server's settings before and after (Turn on, Port, Listen on), checked as the card MCP checks them; nothing is changed. Then call oadm_mcp_set_run with the handle. |
+| `oadm_mcp_set_run` | Run (changes) | Saves the MCP server's settings of a preview and opens or closes its port; audited like the card MCP. |
 
 ## Plugins
 
