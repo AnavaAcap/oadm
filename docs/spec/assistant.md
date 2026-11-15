@@ -84,13 +84,13 @@ Administrators only; changes audited ("Changed assistant").
 - **Provider**: Anthropic, OpenAI, Ollama, or OpenAI-compatible (an address and a key: LM Studio, vLLM, Azure OpenAI).
 - **API key** (not for Ollama): stored encrypted, shown as "Saved" afterwards, never sent back; **Address** for Ollama and
   OpenAI-compatible (`http://10.0.0.5:11434`).
-- **Model**: the model name (Anthropic suggests `claude-opus-5-5`), with the provider's list when it offers one.
 - **Send pictures to the model**: off by default.
 - **Daily limit**: tokens a day for the whole server (default 2,000,000) and, optionally, per user; **Used today** shows
   the count. At the limit the panel says "The assistant reached today's limit. It works again tomorrow." (reset at
   midnight server time).
-- **Test**: one short call to the provider that also asks for a tool call; the answer, "This model cannot use tools.
-  Choose another one." or the provider's error in plain words.
+- No model here (decision 2026-11-15): each user picks it in the panel.
+- **Test**: checks the address and key by reading the provider's model list (Ollama, OpenAI-compatible without a list:
+  one short call); "The provider answered." or the provider's error in plain words.
 - A note under the provider for the cloud ones: device names, addresses and other data of your devices go to that
   provider. Ollama keeps everything in your network.
 - Who may use it: permission **Use the assistant** (on for Administrator, off for the other built-in roles).
@@ -101,6 +101,11 @@ Administrators only; changes audited ("Changed assistant").
   while the user moves between pages. Hidden when the assistant is off or the role lacks the permission.
 - Bottom: the message box (Enter sends, Shift+Enter a new line), **Attach file**, the selection count ("12 devices
   selected", nothing without a selection), **Send** / **Stop**.
+- **Model** (decision 2026-11-15: chosen only in the panel, by each user): a picker next to Send with the provider's
+  models (`ListModels`; editable when the provider offers no list, e.g. some OpenAI-compatible servers). The choice is
+  kept per user on that client (client settings); first time: the provider's first model, for Anthropic
+  `claude-opus-5-5` when listed. Every message carries the model; changing it keeps the conversation. A model that
+  cannot call tools answers once "This model cannot use tools. Choose another one."
 
 ## Limits
 
@@ -125,4 +130,4 @@ context.
 
 ## Open points
 
-- Choosing the model per user, voice: not planned.
+- Voice: not planned.
