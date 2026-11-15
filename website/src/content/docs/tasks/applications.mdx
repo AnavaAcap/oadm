@@ -120,6 +120,8 @@ Before anything is uploaded, OADM reads the package and the device and refuses (
 - the package is built for another processor type,
 - the device's AXIS OS is outside the versions the package names, or below what its manifest needs when it names none,
 - the package runs as root and the device has AXIS OS 12 or later,
+- the package needs a newer ACAP version than the device has (upgrade AXIS OS first),
+- the device does not support ACAP 3 or ACAP 4 applications,
 - the package is older than the installed version and **Allow downgrade** is off,
 - the application is part of AXIS OS (bundled), for **Remove**.
 
@@ -129,7 +131,7 @@ The device checks the signature itself.
 
 ## Steps
 
-- Install: Check compatibility, Read package, Read device info, Read SDK version, Read unsigned application setting,
+- Install: Check compatibility, Read package, Read SDK version, Read device info, Read unsigned application setting,
   Read installed applications, Check package, Upload package, Verify installation, and with **Start after install**
   Start application and Verify application state. With license keys: Check license key, Install license key and Verify
   license, before the start.

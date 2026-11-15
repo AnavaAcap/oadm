@@ -423,13 +423,17 @@ public sealed partial class InstallAppsViewModel : ObservableObject, IDisposable
                     FirmwareVersion = device.Firmware,
                     AllowUnsigned = device.AllowUnsigned,
                     EmbeddedDevelopmentVersion = device.EmbeddedDevelopmentVersion,
+                    SupportedSdks = device.SupportedSdks,
                     Model = device.Model,
                     Soc = device.Soc,
                 };
                 var group = AcapDeviceGroup.Of(facts);
-                if (!choices.TryGetValue(group.Key, out var choice))
+
+                // The SDK facts take part in the choice: devices of one group that report other ones get their own.
+                var key = string.Join('|', group.Key, facts.EmbeddedDevelopmentVersion, facts.SupportedSdks is { } sdks ? string.Join(',', sdks) : "?");
+                if (!choices.TryGetValue(key, out var choice))
                 {
-                    choices[group.Key] = choice = AcapBuildChooser.Choose(builds, group, rules);
+                    choices[key] = choice = AcapBuildChooser.Choose(builds, group, rules, device: facts);
                 }
 
                 preview = AcapCompatibility.Preview(builds, choice, facts, device.Applications, allowDowngrade);

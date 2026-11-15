@@ -54,13 +54,15 @@ public sealed class ServerTests : IAsyncLifetime
         Assert.Equal(["lpv", "vmd"], row.Applications.Select(a => a.Name).Order());
         Assert.True(row.Applications.Single(a => a.Name == "vmd").Bundled);
         var camera = _ctx.Cameras[device.Id];
-        // list.cgi first, then AllowUnsigned and the embedded development version (in either order, they run at the same
-        // time) for the install dialog's checks: reads only.
-        Assert.Equal(3, camera.Requests.Count);
+        // list.cgi first, then AllowUnsigned, the embedded development version and the supported SDKs (in any order, they
+        // run at the same time) for the install dialog's checks: reads only.
+        Assert.Equal(4, camera.Requests.Count);
         Assert.Equal("POST " + ApplicationApiClient.ListPath, camera.Requests[0]);
         var optional = camera.Requests.Skip(1).Order(StringComparer.Ordinal).ToList();
-        Assert.StartsWith("GET /axis-cgi/param.cgi?action=list&", optional[0], StringComparison.Ordinal);
-        Assert.StartsWith("POST /axis-cgi/applications/config.cgi?action=get&name=AllowUnsigned", optional[1], StringComparison.Ordinal);
+        Assert.Equal("GET " + ApplicationApiClient.InfoPath, optional[0]);
+        Assert.StartsWith("GET /axis-cgi/param.cgi?action=list&", optional[1], StringComparison.Ordinal);
+        Assert.StartsWith("POST /axis-cgi/applications/config.cgi?action=get&name=AllowUnsigned", optional[2], StringComparison.Ordinal);
+        Assert.Equal(["acap3", "acap4-cv", "acap4-native"], row.SupportedSdks);
         Assert.Equal(0, camera.Writes);
     }
 

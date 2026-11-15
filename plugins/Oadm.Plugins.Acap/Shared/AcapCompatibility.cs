@@ -96,6 +96,10 @@ public static class AcapCompatibility
         CheckArchitecture(package, device, problems);
         CheckFirmware(package, device, problems, warnings);
         CheckRoot(package, device, problems, warnings);
+        if (CheckSdk(package, device, warnings) is { } sdk)
+        {
+            problems.Add(sdk.Sentence);
+        }
 
         // AXIS OS 13 removed the AllowUnsigned setting (null then): it installs signed applications only.
         var fwPrefix = NumericPrefix(device.FirmwareVersion);
@@ -139,7 +143,7 @@ public static class AcapCompatibility
         ArgumentNullException.ThrowIfNull(packages);
         ArgumentNullException.ThrowIfNull(device);
         var builds = Builds(packages, names);
-        return Preview(builds, AcapBuildChooser.Choose(builds, AcapDeviceGroup.Of(device), rules, mapping), device, applications, allowDowngrade);
+        return Preview(builds, AcapBuildChooser.Choose(builds, AcapDeviceGroup.Of(device), rules, mapping, device), device, applications, allowDowngrade);
     }
 
     /// <summary>The builds of packages before an upload: key and name are the file name, or "aarch64 build" without names.</summary>
@@ -383,18 +387,59 @@ public static class AcapCompatibility
         {
             warnings.Add($"Manifest schema {package.SchemaVersion} is newer than this plugin knows.");
         }
+    }
 
-        if (package.Source == "package.conf" && package.RequiredEmbeddedDevelopmentVersion is { Length: > 0 } req)
+    /// <summary>The kinds of applications built with the ACAP 3 SDK or the ACAP Native SDK (both write a manifest.json).</summary>
+    public static readonly IReadOnlyList<string> ManifestSdks = ["acap3", "acap4-native"];
+
+    /// <summary>The refusal of a package with a manifest.json on a device that lists neither ACAP 3 nor ACAP 4 native.</summary>
+    public const string ManifestSdkMissing = "This device does not support ACAP 3 or ACAP 4 applications.";
+
+    /// <summary>
+    /// The SDK rules (plugin README "SDK"), null when the package fits or the data to decide is missing. 1) The required SDK
+    /// version (manifest <c>embeddedSdkVersion</c>, else package.conf <c>REQEMBDEVVERSION</c>) below 3 is compared with
+    /// <c>Properties.EmbeddedDevelopment.Version</c> by its numbers: lower refuses, not reported warns. 3 and later is not on
+    /// that scale (AXIS OS 12.11 reports 2.18 and runs packages that say 3.0): compared only when the device reports 3 or later
+    /// too, and then only a warning. 2) A package with a manifest.json (ACAP 3 SDK or ACAP Native SDK; the package does not
+    /// say which) needs "acap3" or "acap4-native" in the device's info.cgi list; no list, no check. Nothing in a package says
+    /// it needs "acap4-cv", so that is never checked. Used by <see cref="Check"/> and by <see cref="AcapBuildChooser"/> per build.
+    /// </summary>
+    /// <returns>The refusal as a sentence and as a fragment for "x.eap does not fit: ...".</returns>
+    public static (string Sentence, string Fragment)? CheckSdk(EapManifest package, AcapDeviceFacts device, List<string>? warnings = null)
+    {
+        ArgumentNullException.ThrowIfNull(package);
+        ArgumentNullException.ThrowIfNull(device);
+        var required = (package.Source == "manifest.json" ? package.EmbeddedSdkVersion : package.RequiredEmbeddedDevelopmentVersion)?.Trim();
+        var needs = NumericPrefix(required);
+        if (needs.Count > 0)
         {
-            if (string.IsNullOrWhiteSpace(device.EmbeddedDevelopmentVersion))
+            var reported = device.EmbeddedDevelopmentVersion?.Trim();
+            var has = NumericPrefix(reported);
+            if (needs[0] < 3)
             {
-                warnings.Add($"The package needs embedded development version {req}; the device does not report its version.");
+                if (has.Count == 0)
+                {
+                    warnings?.Add($"The application needs ACAP version {required}; the device does not report its version.");
+                }
+                else if (CompareVersions(reported, required) < 0)
+                {
+                    return ($"The application needs a newer ACAP version ({required}) than this device has ({reported}). Upgrade AXIS OS first.",
+                        $"it needs a newer ACAP version ({required}) than the device has ({reported})");
+                }
             }
-            else if (CompareVersions(device.EmbeddedDevelopmentVersion, req) < 0)
+            else if (has.Count > 0 && has[0] >= 3 && CompareVersions(reported, required) < 0)
             {
-                problems.Add($"The package needs embedded development version {req}, the device has {device.EmbeddedDevelopmentVersion}.");
+                warnings?.Add($"The application needs ACAP version {required} and the device reports {reported}. The device decides on install.");
             }
         }
+
+        if (package.Source == "manifest.json" && device.SupportedSdks is { Count: > 0 } sdks
+            && !sdks.Any(s => ManifestSdks.Contains(s.Trim(), StringComparer.OrdinalIgnoreCase)))
+        {
+            return (ManifestSdkMissing, "the device does not support ACAP 3 or ACAP 4 applications");
+        }
+
+        return null;
     }
 
     private static void CheckRoot(EapManifest package, AcapDeviceFacts device, List<string> problems, List<string> warnings)
