@@ -730,13 +730,14 @@ their own, matched by the MAC address in the key), and changes the settings an a
 version and a valid license; the choices are read from one device.
 
 - Rules that must hold: before uploading it reads the package manifest and refuses ("Nothing was changed") a wrong
-  architecture, an AXIS OS outside the package's range (without a range: below its schema minimum), root apps on AXIS OS 12+ and a
-  downgrade without the explicit option; a license key is sent only to the device whose MAC address it names, for the
+  architecture, an AXIS OS outside the package's range (without a range: below its schema minimum), root apps on AXIS OS 12+, a
+  required SDK version below 3 above the device's, a manifest package on a device whose `info.cgi` lists neither `acap3`
+  nor `acap4-native` (missing data: no check) and a downgrade without the explicit option; a license key is sent only to the device whose MAC address it names, for the
   installed application's id and not expired (a device without a key: Done with warnings, nothing sent); activation with
   a license code is not offered (the device has no API for it, its web page asks Axis online). Several builds: one
   application, at most 16 files; one pure function (`AcapBuildChooser`) picks the build per device group in the dialog,
   the plan and the task (a person's or agent's choice, then the mapping file's rows, then automatic: architecture and
-  AXIS OS range fit, the newest version, the narrower range); a choice never overrides the architecture and AXIS OS
+  AXIS OS range fit, the newest version, the narrower range); a choice never overrides the architecture, AXIS OS and SDK
   checks; a group two builds fit equally is never decided by OADM (the dialog's table, `mapping` for agents; Install
   disabled until chosen); the task picks again from a fresh basicdeviceinfo, a device without a build is Done with
   warnings "No package for armv7hf.", nothing changed. A ZIP follows the shared rules of `EapZip` (only `.eap` and

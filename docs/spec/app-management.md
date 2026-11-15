@@ -38,8 +38,8 @@ always-on `oadm.acap` stays as it is). The context menu dialog **Applications (A
 
 - Per device: the cached API list must offer `application` 1.x (else the row "Applications cannot be managed on this
   device", no request), then `applications/list.cgi`, then best effort (null when not offered) `config.cgi` AllowUnsigned
-  and the embedded development version parameter for the install dialog's checks, these two at the same time (three
-  read requests in one slot and one timeout per device). Parsing and error texts are the Applications
+  the embedded development version parameter and `applications/info.cgi` (the supported SDKs) for the install dialog's
+  checks, these three at the same time (four read requests in one slot and one timeout per device). Parsing and error texts are the Applications
   plugin's (`ApplicationApiClient`, list parser), linked as source (`plugins/Shared`), not copied.
 - Devices that are not Ok: not read, "Not checked: <status>" like Compliance.
 - A failed read keeps the device in the list with the error in its status cell.
@@ -93,7 +93,8 @@ always-on `oadm.acap` stays as it is). The context menu dialog **Applications (A
     builds fit equally is not installed here: its row says "Several packages fit: a.eap, b.eap.", the Applications
     dialog has the table to choose), architecture, AXIS OS range and manifest schema, root apps, signed-only on
     AXIS OS 13+, another app with the same name, vendor change, install kind and downgrade. The facts are what the page
-    read (architecture, AXIS OS, installed applications, AllowUnsigned, the embedded development version); the task
+    read (architecture, AXIS OS, installed applications, AllowUnsigned, the embedded development version, the supported
+    SDKs); the task
     checks them again with fresh values before it uploads. Devices that were not read show their row's error.
     Devices that do not fit are skipped; the footer says "4 of 5 devices can install." **Start after install** (on),
     **Allow downgrade** (always shown to roles with `task:oadm.acap:downgrade`, never to others).
