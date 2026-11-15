@@ -234,9 +234,7 @@ public sealed class ConfigMatchCheck : IComplianceCheckType
     private static HashSet<string> Pairs(string parameters) =>
         [.. parameters.Split('&', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)];
 
-    private static bool IsSecretName(string name) =>
-        name.Contains("pass", StringComparison.OrdinalIgnoreCase) || name.Contains("secret", StringComparison.OrdinalIgnoreCase)
-        || name.Contains("community", StringComparison.OrdinalIgnoreCase);
+    private static bool IsSecretName(string name) => SecretNames.IsSecret(name);
 
     private static string Show(string value) => value.Length == 0 ? "empty" : value.Length > 60 ? value[..60] + "…" : value;
 

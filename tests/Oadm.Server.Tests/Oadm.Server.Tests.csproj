@@ -46,6 +46,7 @@
     <ProjectReference Include="..\..\plugins\Oadm.Plugins.AppManagement\Oadm.Plugins.AppManagement.csproj" Aliases="appmanagement" />
     <ProjectReference Include="..\..\plugins\Oadm.Plugins.ActionRules\Oadm.Plugins.ActionRules.csproj" Aliases="actionrules" />
     <ProjectReference Include="..\..\plugins\Oadm.Plugins.DeviceTriggers\Oadm.Plugins.DeviceTriggers.csproj" Aliases="devicetriggers" />
+    <ProjectReference Include="..\..\plugins\Oadm.Plugins.DeviceConfig\Oadm.Plugins.DeviceConfig.csproj" />
     <!-- The real OADM Site Node in the same process (sites tests). -->
     <ProjectReference Include="..\..\src\Oadm.SiteNode\Oadm.SiteNode.csproj" />
   </ItemGroup>

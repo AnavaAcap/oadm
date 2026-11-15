@@ -210,3 +210,24 @@ public static class DangerousParameters
             : string.Equals(name, entry, StringComparison.OrdinalIgnoreCase)
               || (entry == "Network.eth" && name.StartsWith(entry, StringComparison.OrdinalIgnoreCase)));
 }
+
+/// <summary>
+/// Values that are secret by their name: passwords, secrets and SNMP community strings (plain text parameters on the device).
+/// They never reach a log, an error or a tool answer; a password parameter (<see cref="ParamKind.Password"/>) is secret too.
+/// </summary>
+public static class SecretNames
+{
+    public static bool IsSecret(string name)
+    {
+        ArgumentNullException.ThrowIfNull(name);
+        return name.Contains("pass", StringComparison.OrdinalIgnoreCase) || name.Contains("secret", StringComparison.OrdinalIgnoreCase)
+            || name.Contains("community", StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>A parameter whose value is never shown: a password or a secret name.</summary>
+    public static bool IsSecret(ParamDefinition parameter)
+    {
+        ArgumentNullException.ThrowIfNull(parameter);
+        return parameter.Kind == ParamKind.Password || IsSecret(parameter.Name);
+    }
+}

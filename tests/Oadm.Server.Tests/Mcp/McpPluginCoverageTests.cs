@@ -20,7 +20,6 @@ public sealed partial class McpPluginCoverageTests
     {
         ["oadm.live-view"] = "live video stays in the client (docs/spec/mcp.md \"Not over MCP\"); one picture is oadm_devices_snapshot",
         ["oadm.web-view"] = "the device's own web interface in the client; OADM keeps nothing of it",
-        ["oadm.device-config"] = "covered on branch feat/config-tools",
         ["oadm.dashboards"] = OtherBranch,
         ["oadm.edge-recording-export"] = OtherBranch,
         ["oadm.image-health"] = OtherBranch,

@@ -255,16 +255,7 @@ public sealed partial class RuleRow(ConfigActionRule rule, Action changed) : Obs
     partial void OnIsCheckedChanged(bool value) => changed();
 
     /// <summary>"tns1:UserAlarm/tnsaxis:Recurring/Pulse" -> "Recurring pulse".</summary>
-    public static string TopicName(string topic)
-    {
-        var parts = topic.Split('/').Select(p => p.Contains(':', StringComparison.Ordinal) ? p[(p.IndexOf(':', StringComparison.Ordinal) + 1)..] : p).ToList();
-        var tail = parts.Skip(Math.Max(0, parts.Count - 2)).ToList();
-        var text = string.Join(' ', tail.Select(Words));
-        return text.Length == 0 ? topic : char.ToUpperInvariant(text[0]) + text[1..].ToLowerInvariant();
-    }
-
-    private static string Words(string part) =>
-        string.Concat(part.Select((c, i) => i > 0 && char.IsUpper(c) && !char.IsUpper(part[i - 1]) ? " " + c : c.ToString()));
+    public static string TopicName(string topic) => EventNames.Of(topic);
 }
 
 /// <summary>A stream profile of the source: check box, name, description and parameters.</summary>

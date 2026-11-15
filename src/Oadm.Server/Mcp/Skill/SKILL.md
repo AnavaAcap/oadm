@@ -28,7 +28,7 @@ have the fact, and say why.
 | Devices, status, models, AXIS OS | `oadm_devices_summary`, `oadm_devices_search` |
 | Clock and NTP | `oadm_devices_search` with field `clock_offset_ms`; `oadm_ntp_status` |
 | Certificates | `oadm_devices_search` with `certificate_expires`, `certificate_trust`; `oadm_pki_certificates` |
-| Vulnerabilities | `oadm_devices_search` rows (TODO: the vulnerability tools of the device tools branch) |
+| Vulnerabilities | `oadm_vulnerabilities_summary`, `oadm_vulnerabilities`; the device filter `vulnerabilities` |
 | Compliance | `oadm_compliance_summary`, `oadm_compliance_checks` |
 | Tasks and failures | `oadm_tasks_summary`, `oadm_tasks_list`, `oadm_tasks_get` |
 | Logs and who did what | `oadm_logs_search`, `oadm_logs_audit` |
@@ -42,7 +42,7 @@ have the fact, and say why.
 | Text recognition, Vision Center | `oadm_ocr_readers`, `oadm_ocr_reads`, `oadm_vision_pipelines` |
 | DHCP | `oadm_dhcp_status`, `oadm_dhcp_leases` |
 | Hardening | `oadm_hardening_results` |
-| Device configuration: settings, its action rules, stream profiles | `oadm_config_parameters`, `oadm_config_action_rules`, `oadm_config_stream_profiles` (TODO: planned, verify the names) |
+| Device configuration: settings, its action rules, stream profiles | `oadm_config_parameters`, `oadm_config_action_rules`, `oadm_config_stream_profiles` |
 | Server, license, plugins | `oadm_server_info`, `oadm_server_status`, `oadm_settings_get` |
 | How OADM works | `oadm_docs_search` |
 
@@ -85,6 +85,10 @@ new request.
 
 Tasks: `oadm_tasks_catalog` lists the tasks you may run and how many of the filtered devices can run each. A task that
 is not in the catalog cannot be run over MCP. Tell the user to run it in OADM.
+
+Questions about the settings of devices ("which cameras have capture frequency 50 Hz", their action rules, their stream
+profiles): read them with `oadm_config_parameters`, `oadm_config_action_rules` or `oadm_config_stream_profiles` first,
+before any VAPIX command. They group the devices by value and say which could not be read.
 
 Settings a task does not cover (image, video, I/O, PTZ, storage, siren and light, MQTT, SNMP and more): take a command from
 `oadm_vapix_commands` and run it with `oadm_vapix_command_preview`, on device ids from `oadm_devices_search`. Reads go
