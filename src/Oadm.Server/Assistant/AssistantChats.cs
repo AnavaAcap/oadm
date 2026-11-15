@@ -155,6 +155,17 @@ public sealed partial class AssistantChats
                 throw GrpcGuard.FailedPrecondition(AssistantTexts.Busy);
             }
 
+            // Try again and Edit: the last user message and its answer go, this message takes their place.
+            if (message.ReplaceLast)
+            {
+                if (conversation.Turns.Count == 0)
+                {
+                    throw GrpcGuard.FailedPrecondition(AssistantTexts.NothingToRetry);
+                }
+
+                conversation.Turns.RemoveAt(conversation.Turns.Count - 1);
+            }
+
             streaming = CancellationTokenSource.CreateLinkedTokenSource(ct);
             conversation.Streaming = streaming;
             if (conversation.StopRequested && _time.GetUtcNow() - conversation.StopAt <= PendingStop)

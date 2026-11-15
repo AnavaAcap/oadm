@@ -395,6 +395,34 @@ public sealed class AssistantChatTests
     }
 
     [Fact]
+    public async Task ReplaceLastDropsTheLastExchangeAndNeedsOne()
+    {
+        await using var server = await AssistantTestServer.StartAsync();
+        var refused = await Assert.ThrowsAsync<RpcException>(() => server.ChatAsync("Hi", replaceLast: true));
+        Assert.Equal(StatusCode.FailedPrecondition, refused.StatusCode);
+        Assert.Equal(AssistantTexts.NothingToRetry, refused.Status.Detail);
+
+        server.Model.Say("About the lobby.").Say("About the yard.").Say("Yard again.").Say("Gate.");
+        await server.ChatAsync("Remember lobby");
+        await server.ChatAsync("Remember yard");
+
+        // Try again: the same text, the old answer gone from what the model sees.
+        await server.ChatAsync("Remember yard", replaceLast: true);
+        var retried = server.Model.Requests[^1].AllText();
+        Assert.Contains("Remember lobby", retried, StringComparison.Ordinal);
+        Assert.DoesNotContain("About the yard.", retried, StringComparison.Ordinal);
+        Assert.Single(server.Model.Requests[^1].Messages, m => m.Role == ChatRole.User && m.Text.Contains("Remember yard", StringComparison.Ordinal));
+
+        // Edit: another text takes the place of the last message.
+        await server.ChatAsync("Remember gate", replaceLast: true);
+        var edited = server.Model.Requests[^1].AllText();
+        Assert.Contains("Remember lobby", edited, StringComparison.Ordinal);
+        Assert.Contains("About the lobby.", edited, StringComparison.Ordinal);
+        Assert.DoesNotContain("Remember yard", edited, StringComparison.Ordinal);
+        Assert.DoesNotContain("Yard again.", edited, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task AModelThatRefusesToolsSaysSoOnceAsTheAnswersError()
     {
         await using var server = await AssistantTestServer.StartAsync(provider: AssistantTexts.Ollama);
