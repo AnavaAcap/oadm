@@ -492,6 +492,10 @@
     <Setter Property="Background" Value="{StaticResource Oadm.OverlayBrush}" />
     <Setter Property="Padding" Value="48" />
   </Style>
+  <!-- An entry made of blocks (an answer and its Copy, a table and its "+N more"): the same 12 px between them -->
+  <Style Selector="StackPanel.chatItem">
+    <Setter Property="Spacing" Value="12" />
+  </Style>
   <Style Selector="Border.chatComposer">
     <Setter Property="BorderBrush" Value="{StaticResource Oadm.BorderBrush}" />
     <Setter Property="BorderThickness" Value="0,1,0,0" />
@@ -499,10 +503,10 @@
   </Style>
   <!-- c:MarkdownText (the Assistant's answers): blocks 8 px apart, headings like section titles, list markers secondary,
        table cells with a line below. -->
-  <Style Selector="StackPanel.markdown">
+  <Style Selector=":is(StackPanel).markdown">
     <Setter Property="Spacing" Value="8" />
   </Style>
-  <Style Selector="StackPanel.markdown SelectableTextBlock">
+  <Style Selector=":is(StackPanel).markdown SelectableTextBlock">
     <Setter Property="LineHeight" Value="18" />
   </Style>
   <Style Selector="SelectableTextBlock.mdHeading">
@@ -876,6 +880,11 @@
   </Style>
   <Style Selector="Button.iconOnly">
     <Setter Property="Padding" Value="7" />
+  </Style>
+  <!-- An icon-only button inside running content (Copy below an Assistant answer): the icon lines up with the text's left
+       edge and the gaps around it are the content's own; the hover area reaches into them. -->
+  <Style Selector="Button.iconOnly.flush">
+    <Setter Property="Margin" Value="-7,-8,0,-8" />
   </Style>
 
   <!-- Primary (accent) button -->
@@ -1343,6 +1352,10 @@
   <Style Selector="ui|FormField > CheckBox">
     <Setter Property="MinHeight" Value="{StaticResource Oadm.ControlHeight}" />
   </Style>
+  <!-- A hint or error below a check box sits 6 px below the box like below any input (the box is 16 px in a 32 px row, which stays for the label) -->
+  <Style Selector="ui|FormField:message > CheckBox">
+    <Setter Property="Margin" Value="0,0,0,-14" />
+  </Style>
   <Style Selector="TextBlock.fieldLabel">
     <Setter Property="Foreground" Value="{StaticResource Oadm.TextSecondaryBrush}" />
     <Setter Property="VerticalAlignment" Value="Center" />
@@ -1805,6 +1818,13 @@
   </Style>
   <Style Selector="ListBox.readOnlyList ListBoxItem:pointerover /template/ ContentPresenter#PART_ContentPresenter, ListBox.readOnlyList ListBoxItem:selected /template/ ContentPresenter#PART_ContentPresenter">
     <Setter Property="Background" Value="Transparent" />
+  </Style>
+  <!-- The Assistant's conversation (after readOnlyList, which it refines): one 12 px gap between entries, and room on the right so nothing sits under the scroll bar -->
+  <Style Selector="ListBox.chatList">
+    <Setter Property="Padding" Value="0,0,16,0" />
+  </Style>
+  <Style Selector="ListBox.readOnlyList.chatList ListBoxItem">
+    <Setter Property="Padding" Value="0,0,0,12" />
   </Style>
 
   <!-- The device tree (ui:DeviceTree: tag groups and devices, one list) and the page tabs (ui:PageTab) of Web View and Live View -->

@@ -715,7 +715,7 @@ public sealed class AssistantTests
                     Save(window, outDir, "client-page-settings-ai-assistant-errors.png");
                     card.Assistant.Provider = AssistantProvider.Anthropic;
                     card.Assistant.Address = "";
-                    card.Assistant.DailyLimit = "2000000";
+                    card.Assistant.DailyLimit = "2,000,000";
                     Pump();
                 }
 

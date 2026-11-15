@@ -111,13 +111,19 @@ public sealed class AssistantTableItem : AssistantItem
 
     public IReadOnlyList<AssistantTableRow> Rows { get; }
 
+    /// <summary>The most rows the table shows in the chat (no scroll inside an answer); the rest is "+N more".</summary>
+    public const int MaxShownRows = 8;
+
+    /// <summary>The rows the table shows: the first <see cref="MaxShownRows"/>.</summary>
+    public IReadOnlyList<AssistantTableRow> ShownRows => Rows.Count <= MaxShownRows ? Rows : [.. Rows.Take(MaxShownRows)];
+
     public int Total { get; }
 
     public IReadOnlyList<string> AllDeviceIds { get; }
 
-    public bool HasMore => Total > Rows.Count;
+    public bool HasMore => Total > ShownRows.Count;
 
-    public string MoreText => AssistantTexts.More(Total - Rows.Count);
+    public string MoreText => AssistantTexts.More(Total - ShownRows.Count);
 
     /// <summary>The panel's action for a clicked row (the device selected in the grid).</summary>
     internal Action<AssistantTableRow>? RowChosen { get; set; }

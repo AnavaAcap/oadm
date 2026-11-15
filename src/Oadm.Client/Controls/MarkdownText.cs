@@ -78,9 +78,18 @@ public sealed class MarkdownText : StackPanel
                 run.FontStyle = FontStyle.Italic;
             }
 
-            if (span.Code && this.TryFindResource("Oadm.FontFamilyMono", out var mono) && mono is FontFamily family)
+            if (span.Code)
             {
-                run.FontFamily = family;
+                // Inline code: monospace on a subtle background, same size; the theme's line height keeps the line as tall.
+                if (this.TryFindResource("Oadm.FontFamilyMono", out var mono) && mono is FontFamily family)
+                {
+                    run.FontFamily = family;
+                }
+
+                if (this.TryFindResource("Oadm.SurfaceRaisedBrush", out var shade) && shade is IBrush brush)
+                {
+                    run.Background = brush;
+                }
             }
 
             text.Inlines.Add(run);

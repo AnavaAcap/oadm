@@ -366,5 +366,7 @@ public sealed class FormField : Grid
             _message.Text = Hint;
             _message.IsVisible = !inputError && !string.IsNullOrEmpty(Hint);
         }
+
+        PseudoClasses.Set(":message", _message.IsVisible || inputError);
     }
 }

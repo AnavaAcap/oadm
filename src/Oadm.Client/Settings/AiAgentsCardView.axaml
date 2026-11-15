@@ -136,9 +136,10 @@
 
       <!-- Section Assistant (docs/spec/assistant.md "Settings"): administrators edit, every other user reads it. The status sits
            left of the buttons it reports on, like the section MCP. -->
+      <Border Classes="separator" IsVisible="{Binding Assistant.IsAvailable}" />
       <StackPanel x:Name="AssistantSection" Classes="form" DataContext="{Binding Assistant}" x:DataType="a:AssistantSettingsViewModel"
                   IsVisible="{Binding IsAvailable}">
-        <TextBlock Classes="sectionTitle subsection" Text="{x:Static a:AssistantTexts.Title}" />
+        <TextBlock Classes="sectionTitle" Text="{x:Static a:AssistantTexts.Title}" />
         <TextBlock Classes="secondary" Text="{x:Static a:AssistantTexts.SectionIntro}" TextWrapping="Wrap" />
         <StackPanel Classes="form" IsVisible="{Binding IsAdmin}">
           <ui:FormField Label="Provider" InputWidth="320" Hint="{Binding PrivacyNote}">

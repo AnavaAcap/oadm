@@ -88,7 +88,7 @@
         </ItemsControl>
       </StackPanel>
 
-      <ListBox x:Name="Conversation" Classes="readOnlyList" ItemsSource="{Binding Items}" IsVisible="{Binding !IsEmpty}"
+      <ListBox x:Name="Conversation" Classes="readOnlyList chatList" ItemsSource="{Binding Items}" IsVisible="{Binding !IsEmpty}"
                ScrollViewer.HorizontalScrollBarVisibility="Disabled">
         <ListBox.ItemsPanel>
           <ItemsPanelTemplate>
@@ -97,7 +97,7 @@
         </ListBox.ItemsPanel>
         <ListBox.DataTemplates>
           <DataTemplate x:DataType="a:AssistantUserItem">
-            <Border Classes="chatUser" Margin="0,4,0,8">
+            <Border Classes="chatUser">
               <StackPanel Spacing="4">
                 <SelectableTextBlock Text="{Binding Text}" TextWrapping="Wrap" />
                 <ui:IconLabel Icon="{StaticResource Icon.paperclip}" Text="{Binding FilesText}" IsVisible="{Binding HasFiles}" />
@@ -105,26 +105,26 @@
             </Border>
           </DataTemplate>
           <DataTemplate x:DataType="a:AssistantAnswerItem">
-            <StackPanel Spacing="2" Margin="0,0,0,8">
+            <StackPanel Classes="chatItem">
               <c:MarkdownText Markdown="{Binding Text}" />
-              <Button Classes="toolbar iconOnly" HorizontalAlignment="Left" ToolTip.Tip="{x:Static a:AssistantTexts.Copy}"
+              <Button Classes="toolbar iconOnly flush" HorizontalAlignment="Left" ToolTip.Tip="{x:Static a:AssistantTexts.Copy}"
                       Command="{Binding $parent[a:AssistantPanelView].((a:AssistantPanelViewModel)DataContext).CopyCommand}" CommandParameter="{Binding}">
                 <ui:OadmIcon Data="{StaticResource Icon.copy}" />
               </Button>
             </StackPanel>
           </DataTemplate>
           <DataTemplate x:DataType="a:AssistantToolItem">
-            <StackPanel Orientation="Horizontal" Spacing="6" Margin="0,0,0,8">
+            <StackPanel Orientation="Horizontal" Spacing="6">
               <ui:OadmIcon Data="{StaticResource Icon.wrench}" />
               <TextBlock Text="{Binding Text}" Classes.secondary="{Binding !Failed}" Classes.error="{Binding Failed}" VerticalAlignment="Center"
                          TextWrapping="Wrap" />
             </StackPanel>
           </DataTemplate>
           <DataTemplate x:DataType="a:AssistantNoticeItem">
-            <TextBlock Text="{Binding Text}" Classes.secondary="{Binding !IsError}" Classes.error="{Binding IsError}" TextWrapping="Wrap" Margin="0,0,0,8" />
+            <TextBlock Text="{Binding Text}" Classes.secondary="{Binding !IsError}" Classes.error="{Binding IsError}" TextWrapping="Wrap" />
           </DataTemplate>
           <DataTemplate x:DataType="a:AssistantPictureItem">
-            <StackPanel Spacing="4" Margin="0,0,0,8">
+            <StackPanel Spacing="4">
               <Button Classes="picture" HorizontalAlignment="Left" ToolTip.Tip="{x:Static a:AssistantTexts.Enlarge}"
                       Command="{Binding $parent[a:AssistantPanelView].((a:AssistantPanelViewModel)DataContext).EnlargeCommand}" CommandParameter="{Binding}">
                 <Border Classes="chatPicture">
@@ -135,9 +135,9 @@
             </StackPanel>
           </DataTemplate>
           <DataTemplate x:DataType="a:AssistantTableItem">
-            <StackPanel Spacing="4" Margin="0,0,0,8">
-              <DataGrid ItemsSource="{Binding Rows}" SelectedItem="{Binding SelectedRow, Mode=TwoWay}" IsReadOnly="True" SelectionMode="Single"
-                        CanUserReorderColumns="False" CanUserSortColumns="True" MaxHeight="300" HorizontalScrollBarVisibility="Disabled">
+            <StackPanel Classes="chatItem">
+              <DataGrid ItemsSource="{Binding ShownRows}" SelectedItem="{Binding SelectedRow, Mode=TwoWay}" IsReadOnly="True" SelectionMode="Single"
+                        CanUserReorderColumns="False" CanUserSortColumns="True" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Disabled">
                 <DataGrid.Columns>
                   <DataGridTextColumn Header="Name" Width="*" Binding="{Binding Name}" x:DataType="a:AssistantTableRow" />
                   <DataGridTextColumn Header="Address" Width="110" Binding="{Binding Address}" x:DataType="a:AssistantTableRow" />
@@ -153,7 +153,7 @@
             </StackPanel>
           </DataTemplate>
           <DataTemplate x:DataType="a:AssistantPreviewItem">
-            <Border Classes="chatCard" Margin="0,0,0,8">
+            <Border Classes="chatCard">
               <StackPanel Spacing="8">
                 <StackPanel Spacing="2">
                   <TextBlock Classes="sectionTitle" Text="{Binding Title}" TextWrapping="Wrap" />
