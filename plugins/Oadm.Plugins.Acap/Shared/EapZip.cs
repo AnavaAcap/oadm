@@ -9,7 +9,7 @@ namespace Oadm.Plugins.Acap;
 /// The rules of a vendor's ZIP of packages, the same in the client (<see cref="EapPackageFiles"/>, unpacked to a private temp
 /// folder) and on the server (<see cref="ReadAsync"/> for agents and the Assistant, read as streams, never written to disk):
 /// only the .eap entries (also in subfolders, never the resource copies of macOS) and one <c>oadm-packages.json</c> at the top
-/// level or next to the .eap files; at most <see cref="MaxEntries"/> entries, <see cref="AcapPayload.MaxFiles"/> packages,
+/// level or next to the .eap files (elsewhere refused); at most <see cref="MaxEntries"/> entries, <see cref="AcapPayload.MaxFiles"/> packages,
 /// <see cref="MaxBytes"/> unpacked (declared sizes first, then counted while reading), an entry that unpacks to more than
 /// <see cref="MaxRatio"/> times its packed size refused (an .eap is compressed already); no entry name with an absolute path
 /// or "..", no two packages of the same name, no password. A refusal is an <see cref="InvalidEapException"/> with one plain
@@ -128,20 +128,26 @@ public static class EapZip
             throw new InvalidEapException(AcapCompatibility.TooManyFiles);
         }
 
-        // The mapping file counts at the top level or in a folder that holds packages; elsewhere it is ignored.
+        // The mapping file counts at the top level or in a folder that holds packages. Anywhere else it is refused: ignoring it
+        // would give every device the automatic pick the vendor's rows may exclude.
         var folders = packages.Select(FolderOf).ToHashSet(StringComparer.OrdinalIgnoreCase);
-        var used = rules.Where(r => FolderOf(r).Length == 0 || folders.Contains(FolderOf(r))).ToList();
-        if (used.Count > 1)
+        if (rules.FirstOrDefault(r => FolderOf(r).Length > 0 && !folders.Contains(FolderOf(r))) is { } unused)
+        {
+            throw new InvalidEapException(
+                $"{zipName} has {AcapPackageRules.FileName} in the folder {FolderOf(unused)}, which holds no .eap file. Put it at the top level or next to the .eap files.");
+        }
+
+        if (rules.Count > 1)
         {
             throw new InvalidEapException($"{zipName} has more than one {AcapPackageRules.FileName}.");
         }
 
-        if (used.Count == 1 && (used[0].IsEncrypted || used[0].Length > AcapPackageRules.MaxBytes))
+        if (rules.Count == 1 && (rules[0].IsEncrypted || rules[0].Length > AcapPackageRules.MaxBytes))
         {
-            throw new InvalidEapException(used[0].IsEncrypted ? $"{zipName} is password protected." : $"{AcapPackageRules.FileName} is larger than 64 KB.");
+            throw new InvalidEapException(rules[0].IsEncrypted ? $"{zipName} is password protected." : $"{AcapPackageRules.FileName} is larger than 64 KB.");
         }
 
-        return new Selection(packages, used.Count == 1 ? used[0] : null, declared - already);
+        return new Selection(packages, rules.Count == 1 ? rules[0] : null, declared - already);
     }
 
     /// <summary>"app.zip is too large to unpack."</summary>
@@ -178,8 +184,8 @@ public static class EapZip
     /// <summary>One build of a ZIP the server read: its name, its entry, its size, its SHA-256 (upper hex) and its manifest.</summary>
     public sealed record ZipBuild(string Name, string EntryName, long Size, string Sha256, EapManifest Package);
 
-    /// <summary>What the server read from a ZIP: the builds and the rows of its mapping file.</summary>
-    public sealed record ZipContents(IReadOnlyList<ZipBuild> Builds, IReadOnlyList<AcapPackageRule> Rules, bool HasRules);
+    /// <summary>What the server read from a ZIP: the builds, the rows of its mapping file and what a device no row matches gets.</summary>
+    public sealed record ZipContents(IReadOnlyList<ZipBuild> Builds, IReadOnlyList<AcapPackageRule> Rules, bool HasRules, AcapUnmatched Unmatched = AcapUnmatched.Automatic);
 
     /// <summary>
     /// Reads an uploaded ZIP on the server (agents, the Assistant): every .eap entry through the limits above, its manifest and
@@ -224,13 +230,13 @@ public static class EapZip
                     }
                 }
 
-                IReadOnlyList<AcapPackageRule> rules = [];
+                var map = AcapPackageMap.None;
                 if (selection.Rules is { } rulesEntry)
                 {
-                    rules = AcapPackageRules.Parse(await ReadRulesAsync(rulesEntry, zipName, ct).ConfigureAwait(false), [.. builds.Select(b => b.Name)]);
+                    map = AcapPackageRules.Parse(await ReadRulesAsync(rulesEntry, zipName, ct).ConfigureAwait(false), [.. builds.Select(b => b.Name)]);
                 }
 
-                return new ZipContents(builds, rules, selection.Rules is not null);
+                return new ZipContents(builds, map.Rows, selection.Rules is not null, map.Unmatched);
             }
         }
         catch (Exception ex) when (ex is InvalidDataException or NotSupportedException or EndOfStreamException)

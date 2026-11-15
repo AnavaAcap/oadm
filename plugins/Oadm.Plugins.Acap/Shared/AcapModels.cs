@@ -79,7 +79,8 @@ public sealed record AcapMcpPayload(
     [property: Description("Settings: the password settings to set, by name; the user enters each value (at most 8)."), MaxLength(AcapPayload.MaxPasswords)] IReadOnlyList<AcapPasswordSetting>? Passwords = null,
     [property: Description("Install: the file id of one uploaded ZIP of a vendor with the .eap builds (also in subfolders) and an optional oadm-packages.json. Leave files out then."), MaxLength(64)] string? ZipFileId = null,
     [property: Description("Install with files: optional mapping rows like oadm-packages.json, each naming a file id of files. With zipFileId the ZIP's own oadm-packages.json applies."), MaxLength(AcapPackageRules.MaxRows)] IReadOnlyList<AcapPackageRule>? Rules = null,
-    [property: Description("Install: the package of each device group the preview says OADM cannot choose (it names the groups and the candidates)."), MaxLength(AcapPayload.MaxMapping)] IReadOnlyList<AcapPackageMapping>? Mapping = null,
+    [property: Description("Install with files and rules: skip gives a device that no row matches no package; automatic (the default) picks by architecture and AXIS OS. Leave it out with zipFileId.")] AcapUnmatched? Unmatched = null,
+    [property: Description("Install: the package of each device group the preview says OADM cannot choose (it names the groups and the candidates); it decides no other group."), MaxLength(AcapPayload.MaxMapping)] IReadOnlyList<AcapPackageMapping>? Mapping = null,
     [property: Oadm.Sdk.Tasks.Secret(Label = "license key")] string? LicenseKey = null);
 
 /// <summary>A password setting of an agent's Settings change: its name; the value is the person's (<see cref="AcapTaskPlugin.SecretsOf"/>).</summary>
@@ -141,7 +142,16 @@ public sealed record AcapPayload
     /// <summary>Install with <see cref="Files"/>: the mapping rows (the dialog's from the ZIP's mapping file), each naming a file id.</summary>
     public IReadOnlyList<AcapPackageRule>? Rules { get; init; }
 
-    /// <summary>Install: the build a person or an agent chose for a group OADM cannot decide (a file id, or an .eap name in the ZIP).</summary>
+    /// <summary>
+    /// Install with <see cref="Files"/>: what a device that no row of <see cref="Rules"/> matches gets (the mapping file's
+    /// <c>"unmatched"</c>); null is <see cref="AcapUnmatched.Automatic"/>. With <see cref="ZipFileId"/> the ZIP's file applies.
+    /// </summary>
+    public AcapUnmatched? Unmatched { get; init; }
+
+    /// <summary>
+    /// Install: the build a person or an agent chose for a group OADM cannot decide (a file id, or an .eap name in the ZIP); it
+    /// never decides a group the rows or the automatic pick decided or left without a package.
+    /// </summary>
     public IReadOnlyList<AcapPackageMapping>? Mapping { get; init; }
 
     /// <summary>At most this many entries in <see cref="Mapping"/>.</summary>
@@ -438,10 +448,36 @@ public sealed record AcapPayload
                 throw new AcapPayloadException("rules", "Leave rules out with zipFileId: the mapping file in the ZIP applies. Nothing was changed.");
             }
 
-            if (rules.Count > AcapPackageRules.MaxRows || rules.Any(r => r is null || !ids.Contains(r.File ?? string.Empty)
-                || r.Models?.Count > AcapPackageRules.MaxValues || r.Soc?.Count > AcapPackageRules.MaxValues))
+            if (rules.Count > AcapPackageRules.MaxRows)
             {
                 throw new AcapPayloadException("rules", "Each mapping row names a file id of files. Nothing was changed.");
+            }
+
+            // The rules of the mapping file (oadm-packages.json) for each row, then its file among the files.
+            for (var i = 0; i < rules.Count; i++)
+            {
+                if (AcapPackageRules.RowProblem(rules[i], string.Create(CultureInfo.InvariantCulture, $"Mapping row {i + 1}")) is { } problem)
+                {
+                    throw new AcapPayloadException("rules", problem + ". Nothing was changed.");
+                }
+
+                if (!ids.Contains(rules[i].File))
+                {
+                    throw new AcapPayloadException("rules", "Each mapping row names a file id of files. Nothing was changed.");
+                }
+            }
+        }
+
+        if (payload.Unmatched is { } unmatched)
+        {
+            if (zip)
+            {
+                throw new AcapPayloadException("unmatched", "Leave unmatched out with zipFileId: the mapping file in the ZIP applies. Nothing was changed.");
+            }
+
+            if (!Enum.IsDefined(unmatched))
+            {
+                throw new AcapPayloadException("unmatched", "Unmatched is automatic or skip. Nothing was changed.");
             }
         }
 

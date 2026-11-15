@@ -134,12 +134,13 @@ public static class AcapCompatibility
     /// builds are called "aarch64 build".
     /// </summary>
     public static AcapInstallPreview Preview(IReadOnlyList<EapManifest> packages, AcapDeviceFacts device, IReadOnlyList<InstalledApplication> applications, bool allowDowngrade,
-        IReadOnlyList<string>? names = null, IReadOnlyList<AcapPackageRule>? rules = null, IReadOnlyList<AcapPackageMapping>? mapping = null)
+        IReadOnlyList<string>? names = null, IReadOnlyList<AcapPackageRule>? rules = null, IReadOnlyList<AcapPackageMapping>? mapping = null,
+        AcapUnmatched unmatched = AcapUnmatched.Automatic)
     {
         ArgumentNullException.ThrowIfNull(packages);
         ArgumentNullException.ThrowIfNull(device);
         var builds = Builds(packages, names);
-        return Preview(builds, AcapBuildChooser.Choose(builds, AcapDeviceGroup.Of(device), rules, mapping), device, applications, allowDowngrade);
+        return Preview(builds, AcapBuildChooser.Choose(builds, AcapDeviceGroup.Of(device), rules, mapping, unmatched), device, applications, allowDowngrade);
     }
 
     /// <summary>The builds of packages before an upload: key and name are the file name, or "aarch64 build" without names.</summary>
@@ -306,6 +307,31 @@ public static class AcapCompatibility
         }
 
         return range.Max is not { } max || CompareTruncated(fw, NumericPrefix(max)) <= 0;
+    }
+
+    /// <summary>
+    /// No version lies in the range: its min is above its max at the precision both bounds have ("13" to "12", "12.10" to
+    /// "12.9"; "12.5" to "12" is fine, max "12" is any 12.x).
+    /// </summary>
+    public static bool IsInverted(OsVersionRange range)
+    {
+        ArgumentNullException.ThrowIfNull(range);
+        if (range.Min is not { } min || range.Max is not { } max)
+        {
+            return false;
+        }
+
+        var low = NumericPrefix(min);
+        var high = NumericPrefix(max);
+        for (var i = 0; i < Math.Min(low.Count, high.Count); i++)
+        {
+            if (low[i] != high[i])
+            {
+                return low[i] > high[i];
+            }
+        }
+
+        return false;
     }
 
     /// <summary>Minimum AXIS OS for a manifest schema version, null when the schema is unknown or missing.</summary>

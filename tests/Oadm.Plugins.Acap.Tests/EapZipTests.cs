@@ -48,8 +48,8 @@ public sealed class EapZipTests : IDisposable
     public async Task The_server_reads_every_build_with_its_hash_and_the_mapping_file_next_to_them()
     {
         var aarch64 = Eap();
-        var zip = EapBuilder.Zip(("lpr/a.eap", aarch64), ("lpr/b.eap", Eap("armv7hf")), ("lpr/oadm-packages.json", Encoding.UTF8.GetBytes("""{"packages":[{"file":"b.eap","soc":["A8"]}]}""")),
-            ("docs/oadm-packages.json", Encoding.UTF8.GetBytes("ignored")), ("__MACOSX/lpr/._a.eap", [1]));
+        var zip = EapBuilder.Zip(("lpr/a.eap", aarch64), ("lpr/b.eap", Eap("armv7hf")), ("lpr/oadm-packages.json", Encoding.UTF8.GetBytes("""{"unmatched":"skip","packages":[{"file":"b.eap","soc":["A8"]}]}""")),
+            ("__MACOSX/lpr/._a.eap", [1]), ("__MACOSX/lpr/oadm-packages.json", [1]));
         using var stream = new MemoryStream(zip, writable: false);
 
         var contents = await EapZip.ReadAsync(stream, "vendor.zip", CancellationToken.None);
@@ -58,6 +58,19 @@ public sealed class EapZipTests : IDisposable
         Assert.Equal(Convert.ToHexString(SHA256.HashData(aarch64)), contents.Builds[0].Sha256);
         Assert.Equal(aarch64.Length, contents.Builds[0].Size);
         Assert.Equal("b.eap", Assert.Single(contents.Rules).File);
+        Assert.Equal(AcapUnmatched.Skip, contents.Unmatched);
+    }
+
+    [Theory]
+    [InlineData("anava/oadm-packages.json", "anava/builds/", "vendor.zip has oadm-packages.json in the folder anava, which holds no .eap file. Put it at the top level or next to the .eap files.")]
+    [InlineData("docs/oadm-packages.json", "", "vendor.zip has oadm-packages.json in the folder docs, which holds no .eap file. Put it at the top level or next to the .eap files.")]
+    public async Task A_mapping_file_where_it_does_not_count_is_refused_not_ignored(string mapping, string folder, string expected)
+    {
+        // Ignoring it would give every device the automatic pick that the vendor's rows may keep out.
+        var zip = EapBuilder.Zip((folder + "a.eap", Eap()), (folder + "b.eap", Eap("armv7hf")), (mapping, """{"unmatched":"skip","packages":[]}"""u8.ToArray()));
+
+        Assert.Equal(expected, await RefusedOnServer(zip));
+        Assert.Equal(expected, await RefusedInClient(zip));
     }
 
     [Theory]
