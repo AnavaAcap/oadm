@@ -15,12 +15,18 @@ namespace Oadm.Plugins.ActionRules.Tools;
 /// devices and Delete as a preview and a run. Each tool has the rights of the page method it wraps; the preview runs the
 /// page's checks on the rows the editor read and starts nothing, the run checks again and starts the page's run (one task per
 /// device, saved for undo). Recipients and schedules are chosen like the page's groups: by name (and kind) on the chosen
-/// devices. Passwords are never taken or shown: a password setting is set in OADM. Rule changes, copies and deletes are the
-/// editor's task, not these tools.
+/// devices. Passwords are never taken as settings or shown: a password setting to set is named in <c>set_passwords</c> and
+/// the person enters it (the secret channel, SDK 0.13.0); a login inside an address is refused. Rule changes, copies and
+/// deletes are the editor's task, not these tools.
 /// </summary>
 internal static class ActionRulePageTools
 {
     public const string SetInOadm = "Set this in OADM.";
+
+    /// <summary>A password among the settings: name it in set_passwords, the person enters it.</summary>
+    public const string PasswordsApart = "Leave passwords out of settings. Name them in set_passwords; the user enters them.";
+
+    public const string NotAPassword = "This is not a password setting of this kind.";
     public const string ChooseDevices = "Choose devices, or set all_devices.";
     public const string NotRead = "Its rules were not read. Read the devices first.";
     public const string NoRecipient = "Has no recipient of this name and kind.";
@@ -65,7 +71,7 @@ internal static class ActionRulePageTools
             ActionRulesMethods.Templates,
             KindsAsync)
         .Change<CreateRecipientArgs, RecipientPlan, RunAnswer>(
-            new("recipient_create", "Create recipient", "Adds a new recipient with its settings to the chosen devices. Passwords are set in OADM.") { DeviceFilter = true },
+            new("recipient_create", "Create recipient", "Adds a new recipient with its settings to the chosen devices. Name password settings in set_passwords: the user enters them.") { DeviceFilter = true },
             ActionRulesMethods.RecipientNew,
             CheckCreateRecipientAsync,
             StartAsync)
@@ -229,6 +235,7 @@ internal static class ActionRulePageTools
             values[name] = value;
         }
 
+        var passwords = Passwords(args.SetPasswords, parameters!, input.Secrets, values, out var slots, out var missing);
         foreach (var name in parameters!.Where(n => !RuleText.IsSecret(n) && !values.ContainsKey(n)))
         {
             if (ActionCatalog.RecipientField(args.Kind, name) is { Required: true } field)
@@ -239,10 +246,12 @@ internal static class ActionRulePageTools
 
         var devices = targets.Select(t => t.DeviceId).ToList();
         var (payload, checkedDevices) = await plugin.PrepareNewRecipientAsync(caller, new NewRecipientRequest(devices, args.Kind, args.Name, values), ct).ConfigureAwait(false);
-        return new RecipientPlan(args.Name.Trim(), args.Kind, ActionCatalog.RecipientLabel(args.Kind), null, [.. settings.Keys], null, skipped.Rows, First(targets), checkedDevices.Count)
+        return new RecipientPlan(args.Name.Trim(), args.Kind, ActionCatalog.RecipientLabel(args.Kind), null, [.. settings.Keys, .. passwords], null, skipped.Rows, First(targets), checkedDevices.Count)
         {
             Payload = payload,
             Devices = checkedDevices,
+            SecretsNeeded = slots,
+            PasswordsMissing = missing,
         };
     }
 
@@ -251,12 +260,17 @@ internal static class ActionRulePageTools
         var args = input.Args;
         var (targets, rows, skipped) = await RecipientTargetsAsync(plugin, caller, input.Devices, args.Name, args.Kind, ct).ConfigureAwait(false);
         var settings = Settings(args.Settings);
+        var known = rows.SelectMany(r => r.Recipients.Where(x => x.Name == args.Name && x.Template == args.Kind)).SelectMany(x => x.Parameters.Select(v => v.Name))
+            .Concat(rows.SelectMany(r => r.Recipients.Where(x => x.Name == args.Name && x.Template == args.Kind)).SelectMany(x => x.StoredSecrets)).Distinct(StringComparer.Ordinal).ToList();
+        var passwords = Passwords(args.SetPasswords, known, input.Secrets, settings, out var slots, out var missing);
         var patch = new RecipientPatch(args.NewName, settings.Count == 0 ? null : settings, args.UpdateRules);
         var (payload, devices) = await plugin.PrepareRecipientsAsync(caller, ActionRulesMethods.RecipientEdit, new RecipientRunRequest(targets, patch), ct).ConfigureAwait(false);
-        return new RecipientPlan(args.Name, args.Kind, ActionCatalog.RecipientLabel(args.Kind), args.NewName, [.. settings.Keys], args.UpdateRules, skipped.Rows, First(rows), devices.Count)
+        return new RecipientPlan(args.Name, args.Kind, ActionCatalog.RecipientLabel(args.Kind), args.NewName, [.. settings.Keys.Where(k => !passwords.Contains(k)), .. passwords], args.UpdateRules, skipped.Rows, First(rows), devices.Count)
         {
             Payload = payload,
             Devices = devices,
+            SecretsNeeded = slots,
+            PasswordsMissing = missing,
         };
     }
 
@@ -395,7 +409,9 @@ internal static class ActionRulePageTools
 
     private static async Task<RunAnswer> StartAsync<TArgs, TPlan>(ActionRulesPlugin plugin, ICallContext caller, PluginToolInput<TArgs> input, TPlan plan, CancellationToken ct)
         where TPlan : PreparedPlan =>
-        Answer(await plugin.StartPreparedAsync(caller, plan.Payload!, plan.Devices!, ct).ConfigureAwait(false));
+        plan.PasswordsMissing
+            ? throw new InvalidOperationException(RuleAgentCheck.EnterSecretText) // the host hands every value; never the stand-in
+            : Answer(await plugin.StartPreparedAsync(caller, plan.Payload!, plan.Devices!, ct).ConfigureAwait(false));
 
     private static RunAnswer Answer(RunStarted started) => new(started.RunId.ToString(), started.TaskIds.Count);
 
@@ -493,14 +509,18 @@ internal static class ActionRulePageTools
         return [.. state.Rows.Where(r => wanted.Contains(r.DeviceId) && r.State == RowStates.Ok)];
     }
 
-    /// <summary>The given settings; a password, or a password inside an address, is refused (set in OADM).</summary>
+    /// <summary>The given settings; a password is refused (<see cref="PasswordsApart"/>), a login inside an address too (set in OADM).</summary>
     private static Dictionary<string, string> Settings(IReadOnlyList<Setting>? settings)
     {
         var values = new Dictionary<string, string>(StringComparer.Ordinal);
         foreach (var setting in settings ?? [])
         {
-            // TODO(feat/agent-transfer): secret channel for recipient passwords; until then they are set in OADM.
-            if (RuleText.IsSecret(setting.Name) || (RuleText.HasLogin(setting.Value) && RuleText.HideLogin(setting.Value) != setting.Value))
+            if (RuleText.IsSecret(setting.Name))
+            {
+                throw new PluginToolInputException("settings", PasswordsApart);
+            }
+
+            if (RuleText.HasLogin(setting.Value) && RuleText.HideLogin(setting.Value) != setting.Value)
             {
                 throw new PluginToolInputException("settings", SetInOadm);
             }
@@ -509,6 +529,46 @@ internal static class ActionRulePageTools
         }
 
         return values;
+    }
+
+    /// <summary>
+    /// The password settings named in <c>set_passwords</c> (each a password setting of the kind, at most 8) as slots of the
+    /// secret channel (<paramref name="slots"/>; null without one); every value the person entered is checked here (a field
+    /// error at <c>secrets.&lt;name&gt;</c>) and put into <paramref name="values"/>, so the run's payload has it. Answers the names.
+    /// </summary>
+    private static List<string> Passwords(IReadOnlyList<string>? wanted, IReadOnlyCollection<string> parameters, IReadOnlyDictionary<string, string> entered,
+        Dictionary<string, string> values, out IReadOnlyList<PluginToolSecret>? slots, out bool missing)
+    {
+        missing = false;
+        var names = (wanted ?? []).Select(n => n.Trim()).Distinct(StringComparer.Ordinal).ToList();
+        var list = new List<PluginToolSecret>();
+        foreach (var name in names)
+        {
+            if (!parameters.Contains(name) || RuleAgentCheck.SlotOf(name, name) is not { } secret)
+            {
+                throw new PluginToolInputException("set_passwords", NotAPassword);
+            }
+
+            var slot = new PluginToolSecret(list.Any(s => s.Name == secret.Name) ? "secret_" + (list.Count + 1).ToString(CultureInfo.InvariantCulture) : secret.Name, secret.Label);
+            list.Add(slot);
+            if (entered.TryGetValue(slot.Name, out var value))
+            {
+                if (value.Length > RulePatchApply.MaxValueLength || value.Contains('\0', StringComparison.Ordinal))
+                {
+                    throw new PluginToolInputException(PluginToolSecrets.ValuesProperty + "." + slot.Name, "A setting of the action is too long.");
+                }
+
+                values[name] = value;
+            }
+            else
+            {
+                values[name] = string.Empty; // a stand-in so the page's checks see the setting; such a plan never runs
+                missing = true;
+            }
+        }
+
+        slots = list.Count == 0 ? null : list.Count > 8 ? throw new PluginToolInputException("set_passwords", "Set at most 8 passwords at once.") : list;
+        return names;
     }
 
     private static Guid DeviceIdOf(string text, string field) =>
@@ -582,7 +642,7 @@ internal static class ActionRulePageTools
     internal sealed record KindSetting(
         string Name,
         string? Label,
-        [property: Description("text, multiline, number, bool, choice or password (set in OADM).")] string Kind,
+        [property: Description("text, multiline, number, bool, choice or password (name it in set_passwords: the user enters it).")] string Kind,
         bool Required,
         string? Default,
         IReadOnlyList<string>? Choices);
@@ -590,14 +650,16 @@ internal static class ActionRulePageTools
     internal sealed record CreateRecipientArgs(
         [property: Description("The kind, from oadm_device_rules_recipient_kinds (com.axis.recipient.tcp)."), MaxLength(256), MinLength(1)] string Kind,
         [property: Description("The recipient's name."), MaxLength(RulePatchApply.MaxNameLength), MinLength(1)] string Name,
-        [property: Description("Settings; the others get their defaults. No passwords."), MaxLength(50)] IReadOnlyList<Setting>? Settings = null);
+        [property: Description("Settings; the others get their defaults. No passwords."), MaxLength(50)] IReadOnlyList<Setting>? Settings = null,
+        [property: Description("Password settings to set (password, http_headers); the user enters each."), MaxLength(8)] IReadOnlyList<string>? SetPasswords = null);
 
     internal sealed record ChangeRecipientArgs(
         [property: Description("The recipients' name."), MaxLength(RulePatchApply.MaxNameLength), MinLength(1)] string Name,
         [property: Description("Their kind (com.axis.recipient.ftp)."), MaxLength(256), MinLength(1)] string Kind,
         [property: Description("A new name; leave out to keep it."), MaxLength(RulePatchApply.MaxNameLength)] string? NewName = null,
         [property: Description("Settings to change; the others stay. No passwords."), MaxLength(50)] IReadOnlyList<Setting>? Settings = null,
-        [property: Description("Also change the rules that send to these recipients (default true).")] bool UpdateRules = true);
+        [property: Description("Also change the rules that send to these recipients (default true).")] bool UpdateRules = true,
+        [property: Description("Password settings to set anew (password, http_headers); the user enters each. The others stay."), MaxLength(8)] IReadOnlyList<string>? SetPasswords = null);
 
     internal sealed record CopyRecipientArgs(
         [property: Description("The device that has the recipient."), MaxLength(36), MinLength(1)] string SourceDeviceId,
@@ -636,6 +698,9 @@ internal static class ActionRulePageTools
         internal RuleTaskPayload? Payload { get; init; }
 
         internal IReadOnlyList<Guid>? Devices { get; init; }
+
+        /// <summary>A password to set was not entered (a preview): its payload holds an empty stand-in and never runs.</summary>
+        internal bool PasswordsMissing { get; init; }
     }
 
     internal sealed record RecipientPlan(

@@ -31,7 +31,8 @@ public enum RuleAgentAction
 /// The input of the Action Rule Editor's task for AI agents (docs/spec/mcp.md "Tasks"): the editor's operations on rules
 /// (change, turn on or off, delete, copy, create, undo). The task turns it into the editor's own run (<see cref="RuleTaskPayload"/>)
 /// with the page's code: rules by name at the version the editor read last, a copy read from its device with its passwords
-/// on the server, the run saved for undo. Passwords are never accepted here (<see cref="RuleAgentCheck.SecretText"/>).
+/// on the server, the run saved for undo. A password setting is sent empty: the person enters it through the secret channel
+/// (<see cref="RuleAgentCheck.SecretsOf"/>).
 /// </summary>
 [Description("Change, turn on or off, delete, copy or create action rules on the devices, or undo a change of the Action Rule Editor. Rules are matched as the editor read them last (oadm_device_rules_list).")]
 public sealed record RuleAgentPayload(
@@ -76,7 +77,7 @@ public sealed record RuleAgentChange(
     [property: Description("A new name."), MaxLength(RulePatchApply.MaxNameLength)] string? Name = null,
     [property: Description("True turns the rules on, false off.")] bool? Enabled = null,
     [property: Description("Seconds the rule waits before it can run again; 0 = no wait."), Range(0, RulePatchApply.MaxTimeoutSeconds)] int? TimeoutSeconds = null,
-    [property: Description("Settings of the action by name (as the device names them). No passwords: set those in the Action Rule Editor.")] IReadOnlyDictionary<string, string>? Parameters = null,
+    [property: Description("Settings of the action by name (as the device names them). Send a password setting empty: the user enters it.")] IReadOnlyDictionary<string, string>? Parameters = null,
     [property: Description("The recipient the action sends to, by name; each device uses its own recipient of this name."), MaxLength(256)] string? RecipientName = null)
 {
     /// <summary>The editor's patch of this change.</summary>
@@ -117,7 +118,7 @@ public sealed record RuleAgentNewRule(
     [property: Description("The rule's name."), MaxLength(RulePatchApply.MaxNameLength)] string Name,
     [property: Description("The event that starts the rule, or while whileActive the event it runs during.")] RuleAgentEvent Event,
     [property: Description("The action as the device names it (\"com.axis.action.fixed.notification.tcp\")."), MaxLength(256)] string Template,
-    [property: Description("Every setting of the action by name. No passwords: set those in the Action Rule Editor.")] IReadOnlyDictionary<string, string>? Parameters = null,
+    [property: Description("Every setting of the action by name. Send a password setting empty: the user enters it.")] IReadOnlyDictionary<string, string>? Parameters = null,
     [property: Description("The rule is on.")] bool Enabled = true,
     [property: Description("The rule is active while the event is (for actions that run while the rule is active).")] bool WhileActive = false,
     [property: Description("Further events that must be active."), MaxLength(ActionRulesPlugin.MaxConditions)] IReadOnlyList<RuleAgentCondition>? Conditions = null,

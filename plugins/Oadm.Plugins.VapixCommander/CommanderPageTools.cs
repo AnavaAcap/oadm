@@ -10,9 +10,10 @@ namespace Oadm.Plugins.VapixCommander;
 /// <summary>
 /// The page's saved commands as tools (docs/spec/mcp.md "Plugins", decision 2026-11-15): Save, Delete and Import as a preview and
 /// a run with the page's checks (<see cref="CommandValidator"/>, the store's limit) and rights ("saved", users with all devices,
-/// as the page), and Export as a read of the page's export file. No password passes a tool: a command or file with a password
-/// value is refused (a stored password stays when its field is left empty), and the export leaves out every password value
-/// and masks values whose name points to a secret (<see cref="SecretValues.IsSecretName"/>).
+/// as the page), and Export as a read of the page's export file. No password passes a tool as an argument: a command or file
+/// with a password value is refused (a stored password stays when its field is left empty); a password to store is named in
+/// <c>set_passwords</c> and entered by the person (the secret channel, SDK 0.13.0), then stored encrypted like the page's. The
+/// export leaves out every password value and masks values whose name points to a secret (<see cref="SecretValues.IsSecretName"/>).
 /// </summary>
 internal static class CommanderPageTools
 {
@@ -22,8 +23,11 @@ internal static class CommanderPageTools
     /// <summary>Most characters of an export a tool answers (the answer stays within 32 KB).</summary>
     public const int MaxExportLength = 24 * 1024;
 
-    // TODO(feat/agent-transfer): a password value through the secret channel instead of this refusal.
-    public const string NoPasswords = "Set passwords in OADM.";
+    /// <summary>A password value in a command or file: name the field in set_passwords, the person enters it.</summary>
+    public const string NoPasswords = "Leave password values out. Name the field in set_passwords; the user enters it.";
+
+    public const string NotAPassword = "This is not a password field of the command.";
+    public const string CannotStore = "OADM cannot store passwords for saved commands here.";
     public const string Gone = "The saved command no longer exists.";
     public const string ExportTooLarge = "The export is too large. Choose fewer commands.";
     public const string NotACommand = "This is not a VAPIX Commander command.";
@@ -78,6 +82,8 @@ internal static class CommanderPageTools
         }
 
         RefusePasswords(command, "command");
+        var slots = PasswordSlots(plugin, [.. (input.Args.SetPasswords ?? []).Select(f => (command, f, "set_passwords"))]);
+        Fill(slots, input.Secrets, check: true);
         var problems = CommandValidator.Validate(command);
         if (problems.Count > 0)
         {
@@ -90,13 +96,17 @@ internal static class CommanderPageTools
             throw new InvalidOperationException($"At most {SavedCommandStore.MaxCommands} saved commands are allowed.");
         }
 
-        return new SavePlan(command.Id, command.Name, command.Category, replaces ? "replace" : "create", command.Writes, command.Dangerous);
+        return new SavePlan(command.Id, command.Name, command.Category, replaces ? "replace" : "create", command.Writes, command.Dangerous, [.. slots.Select(s => s.Field.Name)])
+        {
+            SecretsNeeded = slots.Count == 0 ? null : [.. slots.Select(s => s.Slot)],
+        };
     }
 
     private static async Task<SaveAnswer> RunSaveAsync(VapixCommanderPlugin plugin, ICallContext caller, PluginToolInput<SaveArgs> input, SavePlan plan, CancellationToken ct)
     {
         var command = ParseCommand(input.Args.Command);
         command.Id = plan.Id; // the id the preview showed
+        Fill(PasswordSlots(plugin, [.. (input.Args.SetPasswords ?? []).Select(f => (command, f, "set_passwords"))]), input.Secrets, check: false); // stored encrypted by the store
         var reply = await plugin.SaveAsync(new SaveCommandRequest { Command = command, PreviousId = input.Args.PreviousId, Owner = caller.UserName }, ct).ConfigureAwait(false);
         return reply.Saved is { } saved ? new SaveAnswer(saved.Command.Id, saved.Command.Name) : throw new InvalidOperationException(reply.Error ?? PluginJson.UnreadableRequest);
     }
@@ -135,13 +145,14 @@ internal static class CommanderPageTools
             throw new PluginToolInputException("file", $"formatVersion {file.FormatVersion} is not supported (expected 1).");
         }
 
+        var slots = ImportSlots(plugin, file, input.Args.SetPasswords);
+        Fill(slots, input.Secrets, check: true);
         var saved = (await plugin.SavedStore.ListAsync(ct).ConfigureAwait(false)).Select(c => c.Command.Id).ToHashSet(StringComparer.Ordinal);
         var names = new List<string>();
         var problems = new List<string>();
         var replaces = 0;
         foreach (var command in file.Commands ?? [])
         {
-            RefusePasswords(command, "file");
             var copy = command.Clone();
             copy.Name = copy.Name?.Trim() ?? string.Empty;
             if (string.IsNullOrWhiteSpace(copy.Category))
@@ -165,12 +176,24 @@ internal static class CommanderPageTools
             throw new PluginToolInputException(problems.Count == 0 ? [new("file", NothingToImport)] : problems.Take(20).Select(p => new KeyValuePair<string, string>("file", p)));
         }
 
-        return new ImportPlan(names.Count, replaces, [.. names.Take(30)], [.. problems.Take(20)]);
+        return new ImportPlan(names.Count, replaces, [.. names.Take(30)], [.. problems.Take(20)], [.. slots.Select(s => s.Command.Id + "." + s.Field.Name)])
+        {
+            SecretsNeeded = slots.Count == 0 ? null : [.. slots.Select(s => s.Slot)],
+        };
     }
 
     private static async Task<ImportAnswer> RunImportAsync(VapixCommanderPlugin plugin, ICallContext caller, PluginToolInput<ImportArgs> input, ImportPlan plan, CancellationToken ct)
     {
-        var reply = await plugin.ImportAsync(new ImportRequest { Json = input.Args.File ?? string.Empty, Owner = caller.UserName }, ct).ConfigureAwait(false);
+        var json = input.Args.File ?? string.Empty;
+        if (input.Args.SetPasswords is { Count: > 0 })
+        {
+            // The entered passwords go into their fields here, in memory; the store encrypts them like the page's import.
+            var file = CommandJson.ParseLibraryFile(json);
+            Fill(ImportSlots(plugin, file, input.Args.SetPasswords), input.Secrets, check: false);
+            json = JsonSerializer.Serialize(file, CommandJson.Strict);
+        }
+
+        var reply = await plugin.ImportAsync(new ImportRequest { Json = json, Owner = caller.UserName }, ct).ConfigureAwait(false);
         return new ImportAnswer(reply.Imported, [.. reply.Problems.Take(20)]);
     }
 
@@ -264,7 +287,95 @@ internal static class CommanderPageTools
         }
     }
 
-    /// <summary>A password value never passes a tool: a password field with a value refuses the command.</summary>
+    /// <summary>A password field to set and its slot of the secret channel.</summary>
+    private sealed record PasswordSlot(CommandDefinition Command, CommandField Field, PluginToolSecret Slot);
+
+    /// <summary>
+    /// The password fields named to set (<c>set_passwords</c>): each a password field of its command, once, at most
+    /// <see cref="CommanderTools.MaxSecretFields"/>; a slot each (the field's name, else password_&lt;n&gt;; the field's label).
+    /// </summary>
+    private static List<PasswordSlot> PasswordSlots(VapixCommanderPlugin plugin, List<(CommandDefinition Command, string Field, string Argument)> wanted)
+    {
+        var slots = new List<PasswordSlot>();
+        foreach (var (command, name, argument) in wanted)
+        {
+            var field = command.Fields.FirstOrDefault(f => f.IsSecret && string.Equals(f.Name, name, StringComparison.Ordinal))
+                ?? throw new PluginToolInputException(argument, NotAPassword);
+            if (slots.Any(s => s.Command == command && s.Field == field))
+            {
+                continue;
+            }
+
+            var slot = CommanderTools.SecretSlots(command).First(s => s.Field == field).Slot;
+            if (wanted.Select(w => w.Command).Distinct().Count() > 1 || slots.Any(s => s.Slot.Name == slot.Name))
+            {
+                slot = new PluginToolSecret("password_" + (slots.Count + 1).ToString(System.Globalization.CultureInfo.InvariantCulture), Short(slot.Label + " of " + command.Name));
+            }
+
+            slots.Add(new PasswordSlot(command, field, slot));
+        }
+
+        if (slots.Count > CommanderTools.MaxSecretFields)
+        {
+            throw new PluginToolInputException(wanted[0].Argument, $"Set at most {CommanderTools.MaxSecretFields} passwords at once.");
+        }
+
+        return slots.Count > 0 && !plugin.SavedStore.CanStoreSecrets ? throw new InvalidOperationException(CannotStore) : slots;
+    }
+
+    private static string Short(string label) => (label.Length > 64 ? label[..64].TrimEnd() : label).ToLowerInvariant();
+
+    private static List<PasswordSlot> ImportSlots(VapixCommanderPlugin plugin, LibraryFile file, IReadOnlyList<ImportPassword>? wanted)
+    {
+        var commands = file.Commands ?? [];
+        var list = new List<(CommandDefinition, string, string)>();
+        foreach (var entry in wanted ?? [])
+        {
+            var command = commands.FirstOrDefault(c => string.Equals(c.Id, entry.CommandId, StringComparison.Ordinal))
+                ?? throw new PluginToolInputException("set_passwords", "The file has no command with this id.");
+            list.Add((command, entry.Field, "set_passwords"));
+        }
+
+        foreach (var command in commands)
+        {
+            RefusePasswords(command, "file");
+        }
+
+        return PasswordSlots(plugin, list);
+    }
+
+    /// <summary>
+    /// Puts the entered passwords into their fields' values (the store encrypts them). A check (the preview) checks an entered
+    /// value against its field (a field error at <c>secrets.&lt;name&gt;</c>) and leaves the command as it is; a run needs all.
+    /// </summary>
+    private static void Fill(List<PasswordSlot> slots, IReadOnlyDictionary<string, string> entered, bool check)
+    {
+        foreach (var slot in slots)
+        {
+            if (!entered.TryGetValue(slot.Slot.Name, out var value))
+            {
+                if (!check)
+                {
+                    throw new InvalidOperationException("Enter the " + slot.Slot.Label + "."); // the host hands every value
+                }
+
+                continue;
+            }
+
+            var element = JsonSerializer.SerializeToElement(value);
+            if (FieldValues.Convert(slot.Field, element, out _) is { } problem)
+            {
+                throw new PluginToolInputException(PluginToolSecrets.ValuesProperty + "." + slot.Slot.Name, (slot.Field.Label ?? slot.Field.Name) + ": " + problem);
+            }
+
+            if (!check)
+            {
+                slot.Field.Default = element;
+            }
+        }
+    }
+
+    /// <summary>A password value never passes a tool as an argument: a password field with a value refuses the command.</summary>
     private static void RefusePasswords(CommandDefinition command, string field)
     {
         if (command.Fields.Any(f => f.IsSecret && f.Default is { ValueKind: JsonValueKind.String } d && !string.IsNullOrEmpty(d.GetString())))
@@ -275,7 +386,8 @@ internal static class CommanderPageTools
 
     internal sealed record SaveArgs(
         [property: Description("The command as JSON, in the format of a command of the command files (id, name, category, fields, request, response). Leave id out for a new one."), MaxLength(MaxJsonLength), MinLength(2)] string Command,
-        [property: Description("The id of the saved command it replaces; leave out for a new one."), MaxLength(100)] string? PreviousId = null);
+        [property: Description("The id of the saved command it replaces; leave out for a new one."), MaxLength(100)] string? PreviousId = null,
+        [property: Description("Password fields of the command to store a value for; the user enters each (never in command). Fields left out keep their stored value."), MaxLength(8)] IReadOnlyList<string>? SetPasswords = null);
 
     internal sealed record SavePlan(
         string Id,
@@ -283,7 +395,8 @@ internal static class CommanderPageTools
         string Category,
         [property: Description("create or replace.")] string Change,
         [property: Description("The command changes settings on a device.")] bool Writes,
-        [property: Description("The command can restart or reset a device or cut it off the network.")] bool Dangerous) : PluginToolPlan(1, "saved command");
+        [property: Description("The command can restart or reset a device or cut it off the network.")] bool Dangerous,
+        [property: Description("The password fields that get a value the user enters.")] IReadOnlyList<string> PasswordsSet) : PluginToolPlan(1, "saved command");
 
     internal sealed record SaveAnswer(string Id, string Name);
 
@@ -294,13 +407,19 @@ internal static class CommanderPageTools
     internal sealed record DoneAnswer(string Id);
 
     internal sealed record ImportArgs(
-        [property: Description("The command file as JSON (formatVersion 1, as the page exports it)."), MaxLength(MaxJsonLength), MinLength(2)] string File);
+        [property: Description("The command file as JSON (formatVersion 1, as the page exports it), without password values."), MaxLength(MaxJsonLength), MinLength(2)] string File,
+        [property: Description("Password fields to store a value for; the user enters each."), MaxLength(8)] IReadOnlyList<ImportPassword>? SetPasswords = null);
+
+    internal sealed record ImportPassword(
+        [property: Description("The command's id in the file."), MaxLength(100), MinLength(1)] string CommandId,
+        [property: Description("Its password field."), MaxLength(64), MinLength(1)] string Field);
 
     internal sealed record ImportPlan(
         int Commands,
         [property: Description("Commands that replace a saved command with the same id.")] int Replaces,
         [property: Description("The names of the commands that are imported (at most 30).")] IReadOnlyList<string> Names,
-        [property: Description("Commands of the file that are left out and why.")] IReadOnlyList<string> Problems) : PluginToolPlan(Commands, "saved command");
+        [property: Description("Commands of the file that are left out and why.")] IReadOnlyList<string> Problems,
+        [property: Description("The password fields (command id and field) that get a value the user enters.")] IReadOnlyList<string> PasswordsSet) : PluginToolPlan(Commands, "saved command");
 
     internal sealed record ImportAnswer(int Imported, IReadOnlyList<string> Problems);
 

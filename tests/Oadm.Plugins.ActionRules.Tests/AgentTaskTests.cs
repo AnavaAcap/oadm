@@ -138,7 +138,8 @@ public sealed class AgentTaskTests : IAsyncLifetime
         Assert.Equal("Enter a name of 1 to 128 characters.", Errors(new(RuleAgentAction.Change, "Door", new(Name: " ")))["change.name"]);
         Assert.Equal("Enter 0 to 86,400 seconds.", Errors(new(RuleAgentAction.Change, "Door", new(TimeoutSeconds: 90_000)))["change.timeoutSeconds"]);
         Assert.Equal("No device has the setting \"colour\".", Errors(new(RuleAgentAction.Change, "Door", new(Parameters: new Dictionary<string, string> { ["colour"] = "red" })))["change.parameters"]);
-        Assert.Equal(RuleAgentCheck.SecretText, Errors(new(RuleAgentAction.Change, "Door", new(Parameters: new Dictionary<string, string> { ["password"] = "pw" })))["change.parameters.password"]);
+        Assert.Equal(RuleAgentCheck.EnterSecretText, Errors(new(RuleAgentAction.Change, "Door", new(Parameters: new Dictionary<string, string> { ["password"] = string.Empty })))["change.parameters.password"]);
+        Assert.Equal(RuleAgentCheck.SecretText, Errors(new(RuleAgentAction.Change, "Door", new(Parameters: new Dictionary<string, string> { ["my.password"] = string.Empty })))["change.parameters.my.password"]);
         Assert.Equal(RuleAgentCheck.UnusedText, Errors(new(RuleAgentAction.Delete, "Door", new(Enabled: false)))["change"]);
 
         var copy = Errors(new(RuleAgentAction.Copy));
@@ -149,7 +150,7 @@ public sealed class AgentTaskTests : IAsyncLifetime
         Assert.Equal("Describe the rule.", Errors(new(RuleAgentAction.Create))["rule"]);
         Assert.Equal("Choose the event.", Errors(new(RuleAgentAction.Create, Rule: new("New", new RuleAgentEvent("bad topic"), Tcp)))["rule.event"]);
         Assert.Equal("No device offers this action.", Errors(new(RuleAgentAction.Create, Rule: new("New", new RuleAgentEvent(VirtualInput.Topic), "com.axis.action.none")))["rule.template"]);
-        Assert.Equal(RuleAgentCheck.SecretText, Errors(new(RuleAgentAction.Create, Rule: new("New", new RuleAgentEvent(VirtualInput.Topic), Ftp, new Dictionary<string, string> { ["password"] = "pw" })))["rule.parameters.password"]);
+        Assert.Equal(RuleAgentCheck.EnterSecretText, Errors(new(RuleAgentAction.Create, Rule: new("New", new RuleAgentEvent(VirtualInput.Topic), Ftp, new Dictionary<string, string> { ["password"] = string.Empty })))["rule.parameters.password"]);
 
         Assert.Equal("Choose the change to undo.", Errors(new(RuleAgentAction.Undo))["undoOf"]);
         Assert.Equal(RuleTexts.NothingToUndo, Errors(new(RuleAgentAction.Undo, UndoOf: Guid.NewGuid()))["undoOf"]);
@@ -188,8 +189,8 @@ public sealed class AgentTaskTests : IAsyncLifetime
 
         var empty = await Assert.ThrowsAsync<ArgumentException>(() => RunAsync(_a, Json(new(RuleAgentAction.Change, "Door", new()))));
         Assert.Equal("Choose at least one thing to change. Nothing was changed.", empty.Message);
-        var secret = await Assert.ThrowsAsync<ArgumentException>(() => RunAsync(_a, Json(new(RuleAgentAction.Change, "Door", new(Parameters: new Dictionary<string, string> { ["password"] = "pw" })))));
-        Assert.Equal(RuleAgentCheck.SecretText + " Nothing was changed.", secret.Message);
+        var secret = await Assert.ThrowsAsync<ArgumentException>(() => RunAsync(_a, Json(new(RuleAgentAction.Change, "Door", new(Parameters: new Dictionary<string, string> { ["password"] = string.Empty })))));
+        Assert.Equal(RuleAgentCheck.EnterSecretText + " Nothing was changed.", secret.Message); // the person's value never came
         Assert.Equal(before, Camera(_a).Requests.Count); // not even read
 
         _devices.Items.Add(_unread);
@@ -262,5 +263,42 @@ public sealed class AgentTaskTests : IAsyncLifetime
 
         Assert.Equal(1, source.Requests.Skip(reads).Count(r => r == "SOAP GetActionRules")); // one read of the source for the run
         Assert.Equal("Copy action rule Upload copy", Assert.Single(await _plugin.Undo.ListAsync(CancellationToken.None)).Description);
+    }
+
+    [Fact]
+    public async Task A_password_setting_is_a_slot_and_the_run_sets_the_entered_value_never_in_clear_elsewhere()
+    {
+        const string Canary = "canary-action-pass-3Hd";
+        var source = Camera(_a);
+        source.Add("Upload", Ftp,
+            [("stream_options", "x"), ("pre_duration", "0"), ("post_duration", "0"), ("max_images", "1"), ("create_folder", string.Empty), ("filename", "a.jpg"), ("max_sequence_number", "0"),
+             ("host", "192.0.2.11"), ("upload_path", "x"), ("port", "21"), ("login", "u"), ("password", "old-pw"), ("passive", "1"), ("temporary", "0"), ("qos", "0")],
+            start: VirtualInput);
+        await _plugin.InvokeAsync(ActionRulesMethods.Read, null, CancellationToken.None);
+        await _plugin.Sweep!.Current;
+
+        // The agent sends the password empty: the preview's slot, its label and a warning without the value.
+        var json = Json(new(RuleAgentAction.Change, "Upload", new(Parameters: new Dictionary<string, string> { ["password"] = string.Empty })));
+        var slot = Assert.Single(((ITaskPlugin)Task).SecretsOf(json));
+        Assert.Equal(new Oadm.Sdk.Tasks.TaskSecret("password", "password", "change.parameters.password"), slot);
+        Assert.Equal("proxy password", RuleAgentCheck.LabelOf("proxy_password"));
+        Assert.Equal("HTTP headers", RuleAgentCheck.LabelOf("http_headers"));
+        var plan = await Task.PlanAsync(json, [_a], CancellationToken.None);
+        Assert.Contains("The action gets a new password. The user enters it.", plan.Warnings);
+        Assert.Empty(((ITaskPlugin)Task).SecretsOf(Json(new(RuleAgentAction.Delete, "Upload"))));
+
+        // The host puts the entered value in its field for the run.
+        var filled = Json(new(RuleAgentAction.Change, "Upload", new(Parameters: new Dictionary<string, string> { ["password"] = Canary })));
+        Assert.Empty(Task.ValidatePayload(filled, Caller));
+        var ctx = await RunAsync(_a, filled);
+        var rule = source.Rules.Single(r => r.Value.Name == "Upload");
+        Assert.Equal(Canary, source.Param(rule.Key, "password"));
+
+        var texts = string.Join('\n', ctx.Logs.Select(l => l.Message)) + string.Join('\n', ctx.Steps.Snapshot().Select(s => s.Name + " " + s.Detail));
+        Assert.DoesNotContain(Canary, texts, StringComparison.Ordinal);
+        foreach (var file in Directory.EnumerateFiles(_data, "*", SearchOption.AllDirectories))
+        {
+            Assert.DoesNotContain(Canary, await File.ReadAllTextAsync(file), StringComparison.Ordinal); // the undo store keeps it encrypted
+        }
     }
 }

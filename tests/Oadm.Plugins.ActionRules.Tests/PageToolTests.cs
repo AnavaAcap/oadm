@@ -150,7 +150,9 @@ public sealed class PageToolTests : IAsyncLifetime
     {
         await ReadAsync();
         var secret = await CallAsync("tool.recipient_change.preview", "{" + Devices(_a) + ""","name":"Upload","kind":"com.axis.recipient.ftp","settings":[{"name":"password","value":"x"}]}""");
-        Assert.Equal(ActionRulePageTools.SetInOadm, FirstError(secret));
+        Assert.Equal(ActionRulePageTools.PasswordsApart, FirstError(secret));
+        var notAPassword = await CallAsync("tool.recipient_change.preview", "{" + Devices(_a) + ""","name":"Upload","kind":"com.axis.recipient.ftp","set_passwords":["host"]}""");
+        Assert.Equal(ActionRulePageTools.NotAPassword, FirstError(notAPassword));
         var login = await CallAsync("tool.recipient_create.preview", "{" + Devices(_a) + ""","name":"Up","kind":"com.axis.recipient.http","settings":[{"name":"upload_url","value":"http://user:pw@host/x"}]}""");
         Assert.Equal(ActionRulePageTools.SetInOadm, FirstError(login));
         var none = await CallAsync("tool.recipient_delete.preview", "{" + Devices(_a) + ""","name":"Nobody","kind":"com.axis.recipient.ftp"}""");
@@ -238,5 +240,37 @@ public sealed class PageToolTests : IAsyncLifetime
             .WithoutDevices("tool.recipients", "the table of the caller's own group")
             .WithoutDevices("tool.schedules", "the table of the caller's own group")
             .RunAsync();
+    }
+
+    [Fact]
+    public async Task A_recipient_password_named_in_set_passwords_is_a_slot_and_only_the_run_takes_it()
+    {
+        const string Canary = "canary-recipient-pass-2Kq";
+        await ReadAsync();
+        var payload = "{" + Devices(_a, _b) + ""","name":"Upload","kind":"com.axis.recipient.ftp","set_passwords":["password"]}""";
+
+        var plan = await CallAsync("tool.recipient_change.preview", payload);
+        var slot = Assert.Single(plan["secrets_needed"]!.AsArray())!;
+        Assert.Equal(("password", "password"), (slot["name"]!.GetValue<string>(), slot["label"]!.GetValue<string>()));
+        Assert.Equal(["password"], plan["settings"]!.AsArray().Select(s => s!.GetValue<string>()));
+        Assert.Empty(_runner.Runs);
+
+        // The host's check of an entered value: a value too long answers at secrets.password.
+        var check = JsonNode.Parse(payload)!.AsObject();
+        check["secrets"] = new JsonObject { ["password"] = new string('p', RulePatchApply.MaxValueLength + 1) };
+        Assert.Equal("secrets.password", (await CallAsync("tool.recipient_change.preview", check.ToJsonString()))["errors"]![0]!["field"]!.GetValue<string>());
+
+        var run = JsonNode.Parse(payload)!.AsObject();
+        run["secrets"] = new JsonObject { ["password"] = Canary };
+        var answer = await CallAsync("tool.recipient_change", run.ToJsonString());
+        Assert.DoesNotContain(Canary, answer.ToJsonString(), StringComparison.Ordinal);
+        var task = ActionRulesJson.Deserialize<RuleTaskPayload>(Assert.Single(_runner.Runs).Payload);
+        Assert.Equal(Canary, task.RecipientPatch!.Parameters!["password"]); // in the run's payload (memory) only
+
+        // A new recipient whose kind has a password setting.
+        var create = "{" + Devices(_a) + ""","name":"Up2","kind":"com.axis.recipient.ftp","settings":[{"name":"host","value":"ftp3.example"}],"set_passwords":["password"]}""";
+        var created = await CallAsync("tool.recipient_create.preview", create);
+        Assert.Equal("password", created["secrets_needed"]![0]!["name"]!.GetValue<string>());
+        Assert.DoesNotContain(Canary, Directory.Exists(_data) ? string.Join('\n', Directory.EnumerateFiles(_data, "*", SearchOption.AllDirectories).Select(File.ReadAllText)) : string.Empty, StringComparison.Ordinal);
     }
 }
