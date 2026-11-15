@@ -980,6 +980,11 @@ public sealed partial class AssistantPanelViewModel : ObservableObject
                     Add(card);
                 }
             }
+
+            if (reply.Secret is { FileRef.Length: > 0 } secret)
+            {
+                Add(new AssistantSecretItem(secret)); // a new access key: Copy fetches it once, it never enters the chat
+            }
         }
         catch (RpcException ex) when (preview.HasSecrets && ex.StatusCode is StatusCode.FailedPrecondition or StatusCode.InvalidArgument
             && ex.Trailers.GetValue(Contracts.Assistant.AssistantTexts.FieldTrailer) is { Length: > 0 } field)
@@ -1048,6 +1053,49 @@ public sealed partial class AssistantPanelViewModel : ObservableObject
             {
                 await delete().ConfigureAwait(true); // never a cut file
             }
+        }
+    }
+
+    /// <summary>A secret card's Copy: the secret fetched now, once, straight to the clipboard (never shown, kept or in the chat).</summary>
+    [RelayCommand]
+    private async Task CopySecretAsync(AssistantSecretItem? secret)
+    {
+        if (secret is not { CanCopy: true } || ConversationId is not { } conversation || _clipboard is null)
+        {
+            return;
+        }
+
+        secret.IsCopying = true;
+        secret.HasFailed = false;
+        try
+        {
+            var download = await _api.AssistantDownloadAsync(conversation, secret.FileRef, CancellationToken.None).ConfigureAwait(true);
+            string text;
+            await using (download.ConfigureAwait(true))
+            {
+                using var reader = new StreamReader(download.Content, System.Text.Encoding.UTF8);
+                text = await reader.ReadToEndAsync().ConfigureAwait(true);
+            }
+
+            if (await _clipboard.SetTextAsync(text).ConfigureAwait(true))
+            {
+                secret.IsCopied = true;
+                secret.StatusText = AssistantTexts.Copied;
+            }
+        }
+        catch (RpcException ex)
+        {
+            secret.HasFailed = true;
+            secret.StatusText = ex.Status.Detail;
+        }
+        catch (IOException ex)
+        {
+            secret.HasFailed = true;
+            secret.StatusText = ex.Message;
+        }
+        finally
+        {
+            secret.IsCopying = false;
         }
     }
 

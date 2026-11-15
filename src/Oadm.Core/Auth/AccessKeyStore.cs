@@ -130,8 +130,10 @@ public sealed class AccessKeyStore(IDbContextFactory<OadmDbContext> dbFactory, T
     /// A new access key; returns the key (only now in clear text: OADM keeps its SHA-256 only) and what the list shows.
     /// <see cref="AccessKeyFieldException"/> with the field and its text (name, role, devices, days), or
     /// <see cref="InvalidOperationException"/> at <see cref="MaxKeys"/> keys. An Administrator key always has all devices.
+    /// <paramref name="notAfterUtc"/>: the latest end (a key an agent makes never outlives the agent's own key).
     /// </summary>
-    public async Task<(string Key, AccessKeyInfo Info)> CreateAsync(string? name, Guid roleId, DeviceScope devices, int days, string createdBy, CancellationToken ct)
+    public async Task<(string Key, AccessKeyInfo Info)> CreateAsync(string? name, Guid roleId, DeviceScope devices, int days, string createdBy, CancellationToken ct,
+        DateTime? notAfterUtc = null)
     {
         ArgumentNullException.ThrowIfNull(createdBy);
         var clean = NameError(name) is { } nameError ? throw new AccessKeyFieldException(AccessKeyField.Name, nameError) : name!.Trim();
@@ -186,7 +188,7 @@ public sealed class AccessKeyStore(IDbContextFactory<OadmDbContext> dbFactory, T
                 DeviceGroupId = devices.AllDevices ? null : devices.GroupId,
                 CreatedBy = createdBy.Length > UserStore.MaxUserNameLength ? createdBy[..UserStore.MaxUserNameLength] : createdBy,
                 CreatedUtc = now,
-                ExpiresUtc = now.AddDays(days),
+                ExpiresUtc = notAfterUtc is { } latest && latest < now.AddDays(days) ? latest : now.AddDays(days),
             };
             db.AccessKeys.Add(entity);
             await db.SaveChangesAsync(ct).ConfigureAwait(false);
@@ -351,6 +353,9 @@ public static class AccessKeyTexts
     public const string UnknownRole = "The role does not exist (any more).";
     public const string TooMany = "Use at most 100 access keys. Delete one first.";
     public const string NotFound = "The access key no longer exists.";
+
+    /// <summary>An agent's own key: it never deletes it (an administrator does in OADM, like a user's own account).</summary>
+    public const string OwnKey = "An agent cannot delete its own access key. Delete it in OADM.";
 
     /// <summary>The refusal to delete a role keys have: "The access key Lobby-bot has the role Agents. Delete the key first."</summary>
     public static string RoleInUse(string roleName, IReadOnlyList<string> keyNames) =>

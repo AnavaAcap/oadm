@@ -139,6 +139,15 @@ rules `oadm_recipients_list`.
 The plugin pages' own actions are tools too: a read or a check runs at once, every other change (save, delete, press a
 dashboard button, start a load test) is a preview and a run like any change. They have the rights of the page.
 
+Users, roles, device groups and access keys (only with an Administrator key): read `oadm_users_list`, `oadm_roles_list`,
+`oadm_roles_permissions`, `oadm_device_groups_list` and `oadm_access_keys_list` first; change them with
+`oadm_users_add_preview`, `oadm_users_update_preview`, `oadm_users_password_preview`, `oadm_users_delete_preview`,
+`oadm_roles_save_preview`, `oadm_roles_delete_preview`, `oadm_device_groups_save_preview`,
+`oadm_device_groups_delete_preview`, `oadm_access_keys_create_preview` and `oadm_access_keys_delete_preview`. Read the plan's
+warnings out to the user word for word when someone gains rights ("anna becomes Administrator ..."). A password never goes
+through the chat: give the user the `secret_links` command. A new access key never comes back to you: give the user the
+`command` of `key_link`, which saves it to `oadm-key.txt` in their shell, once; never read or show that file.
+
 Files: a tool that makes a file (`oadm_devices_export`, `oadm_compliance_export`, a task's `result_file` in
 `oadm_tasks_get`, a plugin's export or report) answers a `file_ref`, never the bytes. Call `oadm_files_download_link` with
 it (or with the `task_id`) and run its `command` in your shell; the file never passes through you.
@@ -160,8 +169,8 @@ it (or with the `task_id`) and run its `command` in your shell; the file never p
 - **Look-only keys.** A key with a look-only role (such as Viewer) lists no tool that changes something.
 - **Limits.** Answers are cut at 32 KB. When an answer says there is more, narrow the filter. A key has call limits per
   second and per minute. On "too many calls", wait.
-- **Not over MCP.** Users, roles, device groups, access keys, the MCP and assistant settings, server settings,
-  live video and Delete all devices are done in OADM only.
+- **Not over MCP.** The MCP and assistant settings, server settings, live video and Delete all devices are done in
+  OADM only.
 
 ## Workflows
 

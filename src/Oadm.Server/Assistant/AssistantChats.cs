@@ -1105,6 +1105,12 @@ public sealed partial class AssistantChats
         };
         reply.TaskIds.AddRange((result.TaskIds ?? []).Take(AssistantTexts.MaxSelectedDevices));
         reply.Files.AddRange(FileOffers(answer).Take(MaxFileCards).Select(FileOf)); // a file the run made (Back up now): a file card with Save
+        if (result.SecretFile is { } secret)
+        {
+            // A secret the run made (a new access key): a card with Copy, fetched once through Download; never in the conversation.
+            reply.Secret = new Proto.AssistantSecretCard { Title = secret.Title, FileRef = secret.FileRef, ExpiresUtc = secret.Expires };
+        }
+
         lock (conversation.Gate)
         {
             conversation.Notes.Add("The user pressed Run on a preview of " + runTool + ". The run answered: " + answer.ToJsonString(ToolAnswers.Json));

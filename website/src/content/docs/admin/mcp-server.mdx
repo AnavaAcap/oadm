@@ -145,6 +145,11 @@ Every tool with what it does: [MCP tools](./tools/).
   file from its shell; the file never passes through the agent. A backup stays encrypted with its password.
 - Set a password a change needs without the agent seeing it: the agent gives you a command, you run it in your own
   terminal and type the password there. It goes straight to OADM and is used once.
+- With an Administrator key: add, change, disable and delete users and set their passwords, create, change and delete
+  roles and device groups, and create and delete access keys, as an administrator can on the Permissions page. The plan
+  says it in words when someone gets more rights, such as "anna becomes Administrator". The last administrator and the
+  agent's own key stay. A new key is never shown to the agent: it gives you a command that saves the key to
+  `oadm-key.txt`, once. A key an agent creates ends no later than the agent's own key.
 
 Every change has two steps. The agent asks OADM for a **preview** that checks everything and writes nothing. It answers
 what would run, on which devices, what is skipped and why, and any warning. Only after you agree does the agent run it,
@@ -158,8 +163,9 @@ it. The audit log names the key: "MCP Lobby-bot".
 - Read passwords, private keys, license keys or tokens, or get one through the chat. A password you type into the
   agent's command goes to OADM only. A task whose password has no such command yet is not offered: set the password in
   OADM.
-- Change users, roles, device groups, access keys, the MCP and assistant settings or the server settings, or delete all
-  devices.
+- Change the MCP and assistant settings or the server settings, or delete all devices.
+- Change users, roles, device groups or access keys with a key of any role other than Administrator, or delete its own
+  key.
 - Show live video, pan and tilt a camera continuously, upload or delete Vision Center models, or set a password of a
   recipient or a saved command.
 - Do more than the role and devices of their key.

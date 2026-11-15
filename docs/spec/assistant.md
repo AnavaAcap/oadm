@@ -12,7 +12,8 @@ shows the chat.
 
 1. **The user's rights, nothing more.** Every tool call runs as the signed-in user (role, device group, audit log), through
    the tool registry (`ToolRegistry`, `ToolCaller` with the user's `AuthenticatedCaller`): the same checks as the client.
-   The assistant has no rights of its own.
+   The assistant has no rights of its own. An Administrator's assistant also prepares users, roles, device groups and access
+   keys, exactly as the Administrator could on the Permissions page (decision 2026-11-15); never for another role.
 2. **A person presses Run.** A change is always a preview the model asks for; the panel shows the plan as a card (what,
    how many devices, the skipped ones with their reasons, the warnings) with a **Run** button. Only the user's click runs
    it (the run tool with the preview's handle). The model never calls a run tool: run tools are never offered to it.
@@ -148,6 +149,15 @@ shows the chat.
   `AssistantService.Download` (the user's rights of then, audited "Downloaded file"; "Saving the file", then "Saved." or
   the refusal in the card); a cancelled or failed save leaves no cut file. The model gets the answer and a note that the
   panel shows the file; it never gets the bytes. At most 5 cards per tool answer. Copy chat names the file.
+- **Users, roles, device groups and access keys** (decision 2026-11-15, `docs/spec/mcp.md` "Access"): an Administrator's
+  assistant prepares them like any change (the plan says in words when someone gains rights: "anna becomes Administrator
+  and can change everything in OADM, also users and access keys."); a user's password is a secret field of the card; Run of
+  a delete is red. Users of any other role do not get these tools.
+- **Key card** (`AssistantRunReply.secret`, `AssistantSecretItem`): the run of a new access key answers a card with the key
+  icon, "Access key <name>", "Copy it now. OADM cannot show it again." and **Copy** (command button). Copy fetches the key
+  once through `AssistantService.Download` straight to the clipboard ("Copied.", then Copy stays disabled); the key is never
+  shown in the panel, never in the conversation, the notes or a request to the provider; a second fetch is refused. Copy
+  chat names the card, never the key.
 - **Pictures**: a camera picture (`oadm_devices_snapshot`) shows in the answer, click to enlarge; never stored.
 - **Tables**: a device list the model got from a tool (`oadm_devices_search`, `oadm_selection`, `oadm_vulnerabilities`)
   shows as a result card "7 devices" with a small table (name, address, model, status) where a click on a row selects
@@ -291,7 +301,8 @@ context.
   refused with the field named and the card stays; with it the run gets the value once; no request to the fake model, no
   event, log line or audit entry holds it; a file card's `Download` from the own chat only (another user's session or
   chat: NOT_FOUND). Client (`AssistantTransferUiTests`, headless screenshots): the field empty (Run disabled with its
-  reason), its error below it, filled, the values sent with Run and cleared, a file card before and after Save.
+  reason), its error below it, filled, the values sent with Run and cleared, a file card before and after Save; a new
+  access key's card, Copy once to the clipboard, the key never in the panel, the model's requests, the logs or the audit log.
 - The daily limit with a `FakeTimeProvider` (reset at midnight), per server and per user.
 - `oadm_docs_search` finds a known page.
 - Headless panel tests with screenshots (empty with suggestions, an answer with a table and a picture, a preview card

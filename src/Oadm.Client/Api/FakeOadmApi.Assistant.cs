@@ -196,6 +196,14 @@ public sealed partial class FakeOadmApi
         }
 
         reply.TaskIds.AddRange(ids);
+        lock (_gate)
+        {
+            if (_assistantRunSecrets.Remove(handle, out var secret))
+            {
+                reply.Secret = secret;
+            }
+        }
+
         return reply;
     }
 
@@ -217,6 +225,23 @@ public sealed partial class FakeOadmApi
         lock (_gate)
         {
             _assistantSecrets[handle] = secrets;
+        }
+
+        return handle;
+    }
+
+    private readonly Dictionary<string, AssistantSecretCard> _assistantRunSecrets = new(StringComparer.Ordinal);
+    private readonly HashSet<string> _oneTimeFiles = new(StringComparer.Ordinal);
+
+    /// <summary>A preview whose Run makes a secret (a new access key): the reply's card, whose Copy fetches it once; its handle.</summary>
+    public string AddAssistantSecretPreview(IEnumerable<string> deviceIds, string title, string secret)
+    {
+        var handle = AddAssistantPreview(deviceIds);
+        var reference = AddAssistantFile("oadm-key.txt", System.Text.Encoding.UTF8.GetBytes(secret));
+        lock (_gate)
+        {
+            _oneTimeFiles.Add(reference);
+            _assistantRunSecrets[handle] = new AssistantSecretCard { Title = title, FileRef = reference };
         }
 
         return handle;
@@ -265,6 +290,11 @@ public sealed partial class FakeOadmApi
             if (!_assistantFiles.TryGetValue(fileRef, out var file))
             {
                 throw new RpcException(new Status(StatusCode.NotFound, Contracts.Assistant.AssistantTexts.FileEnded));
+            }
+
+            if (_oneTimeFiles.Remove(fileRef))
+            {
+                _assistantFiles.Remove(fileRef); // a secret: fetched once
             }
 
             return Task.FromResult(new Oadm.Sdk.Plugins.PluginDownload(new MemoryStream(file.Content), file.Name, file.Content.Length));

@@ -323,6 +323,73 @@ internal static class AssistantCards
                 (count, unit) = (1, "server");
                 card.Destructive = true;
                 break;
+            case "oadm_users_add_preview":
+                Add(details, "Adds the user", Text(answer["user_name"]));
+                Add(details, "Role", Text(answer["role"]));
+                Add(details, "Devices", Text(answer["devices"]));
+                (count, unit) = (1, "user");
+                break;
+            case "oadm_users_update_preview":
+                Add(details, "Changes the user", Text(answer["user_name"]));
+                foreach (var change in (answer["changes"] as JsonArray ?? []).Select(Text).OfType<string>())
+                {
+                    details.Add(Cut(change));
+                }
+
+                (count, unit) = (1, "user");
+                break;
+            case "oadm_users_delete_preview":
+                Add(details, "Deletes the user", Text(answer["user_name"]));
+                Add(details, "Role", Text(answer["role"]));
+                Add(details, "Devices", Text(answer["devices"]));
+                (count, unit) = (1, "user");
+                card.Destructive = true;
+                break;
+            case "oadm_users_password_preview":
+                Add(details, "Sets a new password for", Text(answer["user_name"]));
+                (count, unit) = (1, "user");
+                break;
+            case "oadm_roles_save_preview":
+                Add(details, Text(answer["change"]) == "create" ? "Creates the role" : "Changes the role", Text(answer["name"]));
+                Add(details, "Gains", Joined(answer["gains"]));
+                Add(details, "Loses", Joined(answer["loses"]));
+                Add(details, "Users with this role", Number(answer["users"]) is > 0 and var roleUsers ? roleUsers.ToString("N0", CultureInfo.InvariantCulture) : null);
+                Add(details, "Access keys with this role", Number(answer["access_keys"]) is > 0 and var roleKeys ? roleKeys.ToString("N0", CultureInfo.InvariantCulture) : null);
+                (count, unit) = (1, "role");
+                break;
+            case "oadm_roles_delete_preview":
+                Add(details, "Deletes the role", Text(answer["name"]));
+                (count, unit) = (1, "role");
+                card.Destructive = true;
+                break;
+            case "oadm_device_groups_save_preview":
+                Add(details, Text(answer["change"]) == "create" ? "Creates the device group" : "Changes the device group", Text(answer["name"]));
+                Add(details, "Rules", Text(answer["rules"]));
+                Add(details, "Devices", (Number(answer["devices_before"]) is { } before ? before.ToString("N0", CultureInfo.InvariantCulture) + " to " : string.Empty)
+                    + (Number(answer["devices"]) ?? 0).ToString("N0", CultureInfo.InvariantCulture));
+                Add(details, "Users whose devices change", Joined(answer["users"]));
+                (count, unit) = (1, "device group");
+                break;
+            case "oadm_device_groups_delete_preview":
+                Add(details, "Deletes the device group", Text(answer["name"]));
+                Add(details, "Users with no devices afterwards", Joined(answer["users"]));
+                (count, unit) = (1, "device group");
+                card.Destructive = true;
+                break;
+            case "oadm_access_keys_create_preview":
+                Add(details, "Creates the access key", Text(answer["name"]));
+                Add(details, "Role", Text(answer["role"]));
+                Add(details, "Devices", Text(answer["devices"]));
+                Add(details, "Ends", Text(answer["expires"]));
+                (count, unit) = (1, "access key");
+                break;
+            case "oadm_access_keys_delete_preview":
+                Add(details, "Deletes the access key", Text(answer["name"]));
+                Add(details, "Role", Text(answer["role"]));
+                Add(details, "Devices", Text(answer["devices"]));
+                (count, unit) = (1, "access key");
+                card.Destructive = true;
+                break;
             default:
                 // A plugin's preview: its plain fields, one level deep (the PKI certificate, a VAPIX Commander command).
                 foreach (var (name, value) in answer)

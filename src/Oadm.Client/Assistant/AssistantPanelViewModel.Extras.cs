@@ -354,6 +354,9 @@ public sealed partial class AssistantPanelViewModel : IMarkdownActions
                     md.Append(AssistantTexts.DocsOfferQuestion);
                     md.AppendLine(offer.StatusText.Length > 0 ? " " + offer.StatusText : string.Empty);
                     break;
+                case AssistantSecretItem secret:
+                    md.Append('(').Append(secret.Title).AppendLine(")"); // never the secret
+                    break;
                 case AssistantPictureItem picture:
                     md.Append("(A picture of ").Append(picture.DeviceName).AppendLine(")");
                     break;

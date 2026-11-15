@@ -379,7 +379,9 @@ used again.
   a device group; INVALID_ARGUMENT with the field's text and the trailer `oadm-field` = `name`, `role`, `devices` or `days`;
   RESOURCE_EXHAUSTED at 100 keys; an Administrator key gets all devices; the reply holds the key once; audited "Created
   access key"), `Delete` (ends the key at once, audited "Deleted access key"; NOT_FOUND "The access key no longer exists.";
-  answers every key). No answer holds a key or its hash; the id is the key's identity.
+  answers every key). No answer holds a key or its hash; the id is the key's identity. Called by an access key (an
+  Administrator's agent): `Delete` of its own key is FAILED_PRECONDITION "An agent cannot delete its own access key. Delete
+  it in OADM.", and `Create` ends the new key at the latest with the caller's own key.
 - **`AssistantService`** (`assistant.proto`, `docs/spec/assistant.md`): `Chat`, `Stop`, `Run`, `End` and `ListModels`
   need "Use the assistant" (`assistant.use`); FAILED_PRECONDITION "The assistant is off." while it is off.
   `Chat` (server-streaming; the model the user chose, 1 to 200 characters, else INVALID_ARGUMENT "Choose a model." with
@@ -403,8 +405,9 @@ used again.
   `Stop` ends the answer that streams (`done.stopped`), `End` forgets the chat, both always succeed. `Run` (the chat's
   preview handle, once): the run tool of the preview as the caller; NOT_FOUND "This preview has ended. Ask again." for a
   handle of another chat, session or user, one that ran or ended; FAILED_PRECONDITION with the run's refusal; the reply
-  names the batch and the first 10,000 task ids, and `files`: the files the run offers (Back up now, decision 2026-11-15),
-  saved with `Download` like a tool answer's. `GetSettings` (signed in: the settings without the key and without a
+  names the batch and the first 10,000 task ids, `files`: the files the run offers (Back up now, decision 2026-11-15),
+  saved with `Download` like a tool answer's, and `secret` when the run made one (a new access key: its card's title and
+  the `file_ref` that `Download` serves once; NOT_FOUND "This access key was fetched already. ..." afterwards). `GetSettings` (signed in: the settings without the key and without a
   model, `has_api_key`, the tokens of today, the status On or Off). `SetSettings` and `Test` (Admin,
   all devices; INVALID_ARGUMENT with the trailer `oadm-field` = `provider`, `address`, `api_key`, `daily_limit` or
   `user_daily_limit`; an empty `api_key` keeps the saved one only for the same provider and address, else `api_key` "Enter the API key."). `SetSettings` is audited "Changed

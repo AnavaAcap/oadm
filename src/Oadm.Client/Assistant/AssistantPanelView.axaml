@@ -368,6 +368,18 @@
               </StackPanel>
             </c:ResultCard>
           </DataTemplate>
+          <!-- A secret a run made (a new access key): a result card with Copy, which fetches it once to the clipboard; it is
+               never shown in the panel or sent into the chat. -->
+          <DataTemplate x:DataType="a:AssistantSecretItem">
+            <c:ResultCard x:Name="SecretCard" Icon="{StaticResource Icon.key}" Title="{Binding Title}" Subtitle="{x:Static a:AssistantTexts.CopyOnce}">
+              <c:ResultCard.Actions>
+                <ui:ToolbarButton x:Name="CopySecret" Text="{x:Static a:AssistantTexts.Copy}" IconKey="copy" IsEnabled="{Binding CanCopy}"
+                                  Command="{Binding $parent[a:AssistantPanelView].((a:AssistantPanelViewModel)DataContext).CopySecretCommand}" CommandParameter="{Binding}" />
+              </c:ResultCard.Actions>
+              <ui:StatusChip HorizontalAlignment="Left" Text="{Binding StatusText}" IsVisible="{Binding HasStatus}" IsAccent="{Binding IsCopying}"
+                             IsOk="{Binding IsCopied}" IsError="{Binding HasFailed}" MaxLines="2" />
+            </c:ResultCard>
+          </DataTemplate>
           <!-- A plan the model prepared: a result card with its title and count, what Run does, the devices, the skipped ones and
                the warnings; Cancel and Run, then the state of its tasks. -->
           <DataTemplate x:DataType="a:AssistantPreviewItem">

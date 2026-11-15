@@ -61,6 +61,10 @@ internal static class AssistantTools
             "oadm_backups_download" => "Preparing the backup file",
             "oadm_support_report" => "Preparing the support report",
             "oadm_plugins_optional" => "Looking at optional plugins",
+            "oadm_users_list" => "Looking at users",
+            "oadm_roles_list" or "oadm_roles_permissions" => "Looking at roles",
+            "oadm_device_groups_list" => "Looking at device groups",
+            "oadm_access_keys_list" => "Looking at access keys",
             _ when IsPreview(tool.Name) => "Preparing the plan",
             _ => tool.Title,
         };

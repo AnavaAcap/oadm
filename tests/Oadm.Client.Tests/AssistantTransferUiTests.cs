@@ -170,4 +170,58 @@ public sealed class AssistantTransferUiTests
         }, CancellationToken.None);
         Assert.True(done);
     }
+
+    [Fact]
+    public async Task ANewAccessKeyIsACardWhoseCopyFetchesItOnceToTheClipboardAndNeverShowsIt()
+    {
+        const string Key = "oadm_canary-new-key-5b2e";
+        var outDir = Environment.GetEnvironmentVariable("OADM_SCREENSHOT_DIR");
+        var clipboard = Substitute.For<IClipboardService>();
+        clipboard.SetTextAsync(Arg.Any<string>()).Returns(true);
+        var done = await HeadlessSession.Shared.Dispatch(async () =>
+        {
+            var api = new FakeOadmApi(TimeSpan.FromMilliseconds(5), seedSampleData: false);
+            using var f = new DevicesFixture(api);
+            var devices = AssistantTests.Devices(1);
+            f.SeedDevices(devices);
+            var panel = await PanelAsync(api, f, clipboard: clipboard);
+            var window = PanelWindow(panel);
+            window.Show();
+            Pump();
+            var view = window.GetVisualDescendants().OfType<AssistantPanelView>().Single();
+
+            var card = new AssistantPreviewCard
+            {
+                Handle = api.AddAssistantSecretPreview(devices.Select(d => d.Id), "Access key Desk", Key), Title = "Create an access key", CountText = "1 access key",
+                Details = { "Creates the access key: Desk", "Role: Administrator", "Devices: All devices" },
+                Warnings = { "The new key has the role Administrator and all devices: an agent with it can change everything in OADM, also users and access keys." },
+            };
+            api.AssistantScript = (_, ct) => Script([new AssistantEvent { Preview = card }, new AssistantEvent { Text = "Press **Run** to create the key." }], ct);
+            panel.Draft = "Make an access key for the desk agent";
+            await panel.SendCommand.ExecuteAsync(null);
+            Pump();
+            await panel.RunPreviewCommand.ExecuteAsync(panel.Items.OfType<AssistantPreviewItem>().Single());
+            Pump();
+
+            var secret = panel.Items.OfType<AssistantSecretItem>().Single();
+            Assert.Contains("Access key Desk", VisibleTexts(window));
+            Assert.Contains(AssistantTexts.CopyOnce, VisibleTexts(window));
+            Assert.DoesNotContain(VisibleTexts(window), t => t?.Contains(Key, StringComparison.Ordinal) == true);
+            Save(window, outDir, "assistant-key-card.png");
+
+            await panel.CopySecretCommand.ExecuteAsync(secret);
+            Pump();
+            await clipboard.Received(1).SetTextAsync(Key);
+            Assert.True(secret.IsCopied);
+            var copy = view.GetVisualDescendants().OfType<Button>().Single(b => b.Name == "CopySecret");
+            Assert.False(copy.IsEffectivelyEnabled); // once: OADM cannot hand it out again
+            Assert.DoesNotContain(VisibleTexts(window), t => t?.Contains(Key, StringComparison.Ordinal) == true);
+            Save(window, outDir, "assistant-key-card-copied.png");
+
+            Assert.DoesNotContain(api.AssistantMessages, m => m.ToString().Contains(Key, StringComparison.Ordinal));
+            window.Close();
+            return true;
+        }, CancellationToken.None);
+        Assert.True(done);
+    }
 }

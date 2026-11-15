@@ -25,6 +25,9 @@ public static class AssistantTexts
     public const string SaveFileTitle = "Save file";
     public const string FileSaved = "Saved.";
     public const string Saving = "Saving the file";
+
+    /// <summary>The secret card of a new access key: the same words as the dialog Create access key.</summary>
+    public const string CopyOnce = Oadm.Client.Settings.AccessKeyWords.CopyNow;
     public const string Cancel = "Cancel";
 
     /// <summary>The card of an offer to look in the Axis docs online (docs/spec/assistant.md "Looking in the Axis docs").</summary>
