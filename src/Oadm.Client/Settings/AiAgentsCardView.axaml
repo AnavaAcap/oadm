@@ -38,7 +38,7 @@
           <TextBlock Text="{Binding ListenText}" />
         </ui:FormField>
       </StackPanel>
-      <ui:FormField Label="Certificate" Hint="{Binding CertificateHint}">
+      <ui:FormField Label="Certificate">
         <TextBlock Text="{Binding CertificateText}" TextWrapping="Wrap" />
       </ui:FormField>
       <DockPanel>

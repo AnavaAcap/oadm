@@ -57,7 +57,6 @@ public sealed class AiAgentsTests
 
         await card.TurnOnCommand.ExecuteAsync(null);
         Assert.Equal("MCP Server Certificate (OADM Root CA FAKE), until 2036-11-14", card.CertificateText);
-        Assert.Equal("Names: oadm-server.local, 10.0.0.17", card.CertificateHint);
         Assert.True(card.Running);
         Assert.Equal("Running on port 5082", card.StatusText);
         Assert.True(card.ShowTurnOff);

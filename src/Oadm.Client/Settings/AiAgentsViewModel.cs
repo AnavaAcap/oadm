@@ -121,9 +121,6 @@ public sealed partial class AiAgentsViewModel : ValidatingViewModel
         : _state.Settings.Enabled ? NoCertificate
         : ChooseCertificate;
 
-    /// <summary>The names the certificate holds (agents connect with one of them).</summary>
-    public string? CertificateHint => _state is { CertificateNames.Count: > 0 } state ? "Names: " + string.Join(", ", state.CertificateNames) : null;
-
     /// <summary>Listen on as plain text (users who read the card).</summary>
     public string ListenText => Listen.Selected?.Label ?? InterfaceOptions.AllLabel;
 
@@ -316,7 +313,6 @@ public sealed partial class AiAgentsViewModel : ValidatingViewModel
         OnPropertyChanged(nameof(StatusText));
         OnPropertyChanged(nameof(HasProblem));
         OnPropertyChanged(nameof(CertificateText));
-        OnPropertyChanged(nameof(CertificateHint));
         OnPropertyChanged(nameof(ListenText));
         OnPropertyChanged(nameof(CanDownloadCa));
         OnPropertyChanged(nameof(Connections));
