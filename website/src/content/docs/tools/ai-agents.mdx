@@ -4,12 +4,18 @@ description: Let an AI agent look at your devices and roll out changes in OADM, 
 ---
 
 import { Steps, Aside } from '@astrojs/starlight/components';
+import { Image } from 'astro:assets';
+import settings from '../../../assets/screens/ai-agents-settings.png';
+import accessKeys from '../../../assets/screens/ai-agents-access-keys.png';
+import permissionsKeys from '../../../assets/screens/ai-agents-permissions-keys.png';
 
 An AI agent such as Claude Code or VS Code can work in OADM like you do: look at your devices, check
 their health, and run tasks on many devices. It signs in with an **access key** and has the rights of the user who made
 the key. The agent never sees a password.
 
 AI agents are part of the OADM server. They are off until an administrator turns them on.
+
+<Image src={settings} alt="The AI agents card in Settings: port, Listen on, the certificate, Connect an agent and the status Running on port 5082" class="screen" />
 
 ## Turn it on
 
@@ -23,8 +29,8 @@ AI agents are part of the OADM server. They are off until an administrator turns
 
 Agents connect over HTTPS. The certificate comes from the **AI agents** policy of the [PKI](../pki/) page, and the first
 **Turn on** makes its own certificate, **MCP Server Certificate**. You can choose another one in that policy. When PKI is
-not running, the card says "PKI is not running. The server log says why." On Windows the installed server opens the port in the firewall while AI agents are on. On Linux and macOS
-open it yourself if a firewall runs.
+not running, the card says "PKI is not running. The server log says why." On Windows the installed server opens the port
+in the firewall while AI agents are on. On Linux and macOS open it yourself if a firewall runs.
 
 **Turn off** closes the port. Agents can no longer connect.
 
@@ -42,12 +48,16 @@ Permissions page.
 
 </Steps>
 
+<Image src={accessKeys} alt="The Access keys dialog: a new key Laptop, shown once with its copy button, and the list of your keys" class="screen" />
+
 No password is asked: you are signed in. OADM shows the key once and cannot show it again. Lost it? Delete it and create a new one. Each user can have 20 keys.
 
 **Read only** gives the agent a key that looks but changes nothing. Use it for reports and health checks.
 
 A key ends when you delete it, when its user is disabled or gets a new password, or on its expiry date. Administrators
 see and delete the keys of every user on the Permissions page.
+
+<Image src={permissionsKeys} alt="The Permissions page with the Access keys card: every user's keys with created, expires, last used and Read only" class="screen" />
 
 ## Connect an agent
 
@@ -76,6 +86,8 @@ The server hands the skill to agents that support it. For an agent that does not
 and put the folder `oadm` from the ZIP file where your agent reads its skills.
 
 ## What agents can do
+
+Every tool with what it does: [Tools of AI agents](./tools/).
 
 - Look at devices: counts by status, model, AXIS OS version, site or tag, lists with filters, the details of one
   device, one picture of a camera.

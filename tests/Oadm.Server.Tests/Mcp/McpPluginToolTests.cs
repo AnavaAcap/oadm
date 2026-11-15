@@ -311,6 +311,102 @@ public sealed class McpPluginToolTests
         return server;
     }
 
+    /// <summary>The page of the user docs that lists every tool an agent can be offered (website/src/content/docs/tools/ai-agents/tools.mdx).</summary>
+    private static readonly string ToolsPage = Oadm.Tests.Shared.TestRepository.Path("website", "src", "content", "docs", "tools", "ai-agents", "tools.mdx");
+
+    [Fact]
+    public async Task TheToolsPageOfTheDocsListsEveryToolAsTheServerOffersIt()
+    {
+        await using var server = await StartBundledAsync();
+        var key = await server.CreateKeyAsync();
+        var reply = await server.PostAsync(key, McpTestServer.Request("tools/list"));
+        var tools = reply.Body!["result"]!["tools"]!.AsArray().Select(t => t!.AsObject())
+            .Where(t => !t["name"]!.GetValue<string>().StartsWith("oadm_notes_", StringComparison.Ordinal)) // the test plugin of this class
+            .ToList();
+        var page = ToolsPageOf(tools);
+
+        // OADM_WRITE_DOCS=1 writes the page again after a tool changed; without it the page must be what the server lists.
+        if (Environment.GetEnvironmentVariable("OADM_WRITE_DOCS") == "1")
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(ToolsPage)!);
+            await File.WriteAllTextAsync(ToolsPage, page);
+        }
+
+        Assert.True(File.Exists(ToolsPage), "The tools page is missing. Run this test with OADM_WRITE_DOCS=1.");
+        Assert.True(
+            string.Equals(page, (await File.ReadAllTextAsync(ToolsPage)).ReplaceLineEndings(NewLine.ToString()), StringComparison.Ordinal),
+            "The tools page is not what the server lists. Run this test with OADM_WRITE_DOCS=1 and check the change.");
+    }
+
+    private const char NewLine = '\n';
+
+    private static readonly string[] Intro =
+    [
+        "---",
+        "title: Tools of AI agents",
+        "description: Every tool an AI agent can call in OADM, what it does, and whether it changes something.",
+        "---",
+        "",
+        "{/* Written by McpPluginToolTests.TheToolsPageOfTheDocsListsEveryToolAsTheServerOffersIt (OADM_WRITE_DOCS=1): do not edit by hand. */}",
+        "",
+        "These are the tools an agent can be offered. It sees only the ones its user's role allows, of the plugins that are on.",
+        "A Read only key sees no tool that changes something. A change is always two tools: the preview checks everything and",
+        "changes nothing, the run takes only the preview's handle and runs after the user agreed.",
+    ];
+
+    /// <summary>The tools grouped by their area (the word after <c>oadm_</c>), each with its kind and description, as Markdown.</summary>
+    private static string ToolsPageOf(IReadOnlyList<JsonObject> tools)
+    {
+        static string Area(string name)
+        {
+            var word = name.Split('_')[1];
+            return word switch
+            {
+                "server" or "settings" => "Server",
+                "devices" => "Devices",
+                "task" or "tasks" => "Tasks",
+                "files" => "Files",
+                "tags" => "Tags",
+                "sites" => "Sites",
+                "compliance" => "Compliance",
+                "rules" or "events" => "Event rules",
+                "logs" => "Logs",
+                "pki" => "PKI",
+                "ntp" => "NTP server",
+                "dhcp" => "DHCP server",
+                "hardening" => "Hardening scan",
+                "vapix" => "VAPIX Commander",
+                _ => char.ToUpperInvariant(word[0]) + word[1..],
+            };
+        }
+
+        static string Kind(string name, JsonObject tool) =>
+            name.EndsWith("_preview", StringComparison.Ordinal) ? "Preview"
+            : name.EndsWith("_run", StringComparison.Ordinal) ? "Run (changes)"
+            : tool["annotations"]?["readOnlyHint"]?.GetValue<bool>() == true ? "Read" : "Change";
+
+        var order = new[] { "Server", "Devices", "Tasks", "Files", "Tags", "Sites", "Compliance", "Event rules", "Logs", "PKI", "NTP server", "DHCP server", "Hardening scan", "VAPIX Commander" };
+        var text = new System.Text.StringBuilder();
+        foreach (var line in Intro)
+        {
+            text.Append(line).Append(NewLine);
+        }
+
+        foreach (var group in tools.GroupBy(t => Area(t["name"]!.GetValue<string>())).OrderBy(g => Array.IndexOf(order, g.Key) is var i && i < 0 ? int.MaxValue : i).ThenBy(g => g.Key, StringComparer.Ordinal))
+        {
+            text.Append(NewLine).Append("## ").Append(group.Key).Append(NewLine).Append(NewLine);
+            text.Append("| Tool | Kind | What it does |").Append(NewLine).Append("| --- | --- | --- |").Append(NewLine);
+            foreach (var tool in group.OrderBy(t => t["name"]!.GetValue<string>(), StringComparer.Ordinal))
+            {
+                var name = tool["name"]!.GetValue<string>();
+                var description = (tool["description"]?.GetValue<string>() ?? string.Empty).ReplaceLineEndings(" ").Replace("|", "\\|", StringComparison.Ordinal);
+                text.Append("| `").Append(name).Append("` | ").Append(Kind(name, tool)).Append(" | ").Append(description).Append(" |").Append(NewLine);
+            }
+        }
+
+        return text.ToString();
+    }
+
     [Fact]
     public async Task TheBundledPluginsOfferTheirToolsWithStrictSchemasAndTheReadsAnswer()
     {
