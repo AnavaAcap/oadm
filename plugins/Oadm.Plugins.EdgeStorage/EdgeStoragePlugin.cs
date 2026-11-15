@@ -2,6 +2,7 @@ using Microsoft.Extensions.Logging;
 
 using Oadm.Plugins.EdgeStorage.Device;
 using Oadm.Plugins.EdgeStorage.Disks;
+using Oadm.Plugins.EdgeStorage.Tools;
 using Oadm.Plugins.Shared;
 using Oadm.Sdk.Devices;
 using Oadm.Sdk.Plugins;
@@ -64,10 +65,14 @@ public sealed partial class EdgeStoragePlugin : ICorePlugin, IAsyncDisposable
     public string? RequiredPermission(string method) => method switch
     {
         EdgeStorageMethods.Read or EdgeStorageMethods.GetState => PermissionKeys.Show,
+        _ when EdgeStorageTools.Cards.Calls(method) => PermissionKeys.Show,
         EdgeStorageMethods.Change => EdgeStorageMethods.ManagePermission,
         EdgeStorageMethods.Format => EdgeStorageMethods.FormatPermission,
         _ => null,
     };
+
+    /// <summary>The read-only tool <c>oadm_edge_storage_cards</c> (docs/spec/mcp.md "Plugins"): "show", like the page's state.</summary>
+    public IReadOnlyList<PluginTool> Tools => EdgeStorageTools.All;
 
     /// <summary>Every run is in the audit log (the method: change or format).</summary>
     public bool IsAudited(string method) => method is EdgeStorageMethods.Change or EdgeStorageMethods.Format;
@@ -122,6 +127,9 @@ public sealed partial class EdgeStoragePlugin : ICorePlugin, IAsyncDisposable
                 return EdgeStorageJson.Serialize(await StateAsync(caller, ct).ConfigureAwait(false));
             case EdgeStorageMethods.GetState:
                 return EdgeStorageJson.Serialize(await StateAsync(caller, ct).ConfigureAwait(false));
+            case var _ when method == EdgeStorageTools.Cards.Method:
+                // The caller's table as it is: no camera is read.
+                return EdgeStorageTools.Answer(await StateAsync(caller, ct).ConfigureAwait(false), payloadJson);
             case EdgeStorageMethods.Change or EdgeStorageMethods.Format:
                 return EdgeStorageJson.Serialize(await RunAsync(caller, method, EdgeStorageJson.Deserialize<RunRequest>(payloadJson), ct).ConfigureAwait(false));
             default:
