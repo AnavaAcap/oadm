@@ -287,8 +287,11 @@ Live View offers its saved views; its video stays in the client.
 
 **VAPIX Commander** (`oadm_vapix_commands`, `oadm_vapix_command_preview` / `_run`, `CommanderTools`): only library and saved
 commands by id (`library:<id>`, `saved:<id>`), never a request of the agent's own. Not offered: a dangerous command
-(`RequestSafety`, of the definition and again of the filled-in request), one with a password or a file field, and one that
-changes what OADM's own tasks change (date and time, NTP, applications, AXIS OS, restart, users, network; their reads stay).
+(`RequestSafety`, of the definition and again of the filled-in request), one with a file field or more than 8 password
+fields, and one that changes what OADM's own tasks change (date and time, NTP, applications, AXIS OS, restart, users,
+network; their reads stay). A password field is never a value of the agent ("Leave the password out. The user enters
+it."): the preview names a slot per password field (the field's name, its label in lower case), the run takes the
+entered values, never a stored password of a saved command.
 Every command, a read too, goes preview then run. The preview checks the values (the page's renderer) and plans the chosen
 devices from cached data (an id outside the caller's view refuses the call; Certificate changed, Site offline and a missing
 API skip a device); the run is the page's rollout, one task per device, with the user's OK of the preview as the
@@ -329,9 +332,10 @@ changes (`will_change`, `unit`) for the Assistant's card. Bundled:
   settings, never a secret value); settings writes and installs stay tasks.
 - Action Rule Editor: `read` (Refresh), `recipients`, `schedules`, `recipient_kinds`, and `recipient_create`,
   `recipient_change`, `recipient_copy`, `recipient_delete`, `schedule_create`, `schedule_change`, `schedule_copy`,
-  `schedule_delete` (the page's runs: one editor task per device, kept for undo). A recipient password or a login in an
-  address is refused with "Set this in OADM." (a secret channel comes later); a copy takes the source's password on the
-  server. Rule deploy, delete and undo are the editor's task.
+  `schedule_delete` (the page's runs: one editor task per device, kept for undo). A recipient password is named in
+  `set_passwords` of `recipient_create` / `recipient_change` and entered by the user (a slot per setting, labels such as
+  "password", "HTTP headers"); a password in `settings` is refused, a login in an address is set in OADM ("Set this in
+  OADM."); a copy takes the source's password on the server. Rule deploy, delete and undo are the editor's task.
 - Device triggers: `events_read` and `events` (the editor's read of the device events, then its result), `save`,
   `set_enabled`, `copy`, `delete`. Dashboards: `get`, `events`, `save`, `delete`, `press` (a change: its event goes to
   the event rules, and the preview says whether a rule uses it).
@@ -343,8 +347,9 @@ changes (`will_change`, `unit`) for the Assistant's card. Bundled:
   `check_delete`. DHCP server: `static_lease_save`, `static_lease_delete`, `lease_make_static`, `lease_release`.
 - EST server: `enrollments_clear`. 802.1X server: `sessions`, `log_delete`.
 - VAPIX Commander: `saved_save`, `saved_delete`, `saved_import`, `saved_export` (the page's command file, at most 24 KB,
-  secret values as `***`, password values left out; a command with a password value is refused with "Set passwords in
-  OADM.").
+  secret values as `***`, password values left out; a password value in a command is refused, a password to store is named
+  in `set_passwords` (save: field names; import: command id and field), entered by the user and stored encrypted like the
+  page's; without the master key's protector the preview refuses "OADM cannot store passwords for saved commands here.").
 - Live View: `views`, `view_save`, `view_delete` (saved views; no tool opens video).
 
 ### Not over MCP
@@ -664,8 +669,10 @@ The website gets a user page (Administration > MCP server, `admin/mcp-server`, n
     and stays on the page.
   - Action Rule Editor (page task `oadm.action-rules.task`): change (on/off, name, wait time, action settings, recipient),
     delete, copy, create, undo; rules by name as the editor read them last (a device not read is skipped, "Not read in the
-    Action Rule Editor."); the editor's rights "Change action rules" and "Delete action rules"; a password in an action
-    is refused. `oadm_device_rules_list` answers the event topics and the undoable changes.
+    Action Rule Editor."); the editor's rights "Change action rules" and "Delete action rules"; a password setting of an
+    action is sent empty and entered by the user (`RuleAgentCheck.SecretsOf`: a slot per setting at
+    `change.parameters.<name>` / `rule.parameters.<name>`; the plan warns "The action gets a new password. The user enters
+    it."; the undo store keeps it encrypted). `oadm_device_rules_list` answers the event topics and the undoable changes.
   - PKI: **View certificates** (a read-only task: one log line per certificate, the name Delete takes), **Delete
     certificates** (per device the certificates by name; the plan says how many and that they cannot be restored; one in
     use by HTTPS or 802.1X is still refused on the device), **EST set up and remove** (OADM PRO; no clock question: a late
