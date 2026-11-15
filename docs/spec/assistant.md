@@ -49,6 +49,12 @@ shows the chat.
   10,000; more: "Select at most 10,000 devices for the assistant."). The model sees the count and can call
   `oadm_selection` (ids, paged like `oadm_devices_search`) and use `selection` as a filter of the device tools ("these
   cameras"). Devices outside the caller's group are dropped as usual.
+- **Devices chosen with @.** Typing @ in the message box (the character stays out of the text) or the **Choose devices**
+  button (devices icon) opens the shared device picker (`DevicePickerWindow`, search and filters as everywhere); OK makes
+  the choice one chip in the box ("3 devices", or the device's address for one; a click opens the picker with that
+  choice, x removes it), Cancel changes nothing. The ids go with the message in `mentioned_device_ids` (at most
+  10,000), cut to the caller's view like the selection; the model gets their count and the first 100 ids as data
+  (`devices_the_user_chose`). Try again and Edit keep them.
 - **Files.** **Attach file** in the panel uploads through `FileService.Upload` (the same upload as the task dialogs, its
   limits and audit); the message carries the file's id, name and size, never its content. The model uses the id in a task
   preview (firmware, ACAP). The file is deleted with the other uploads as usual, not when the chat ends. Files dropped on
@@ -73,6 +79,10 @@ shows the chat.
 - **Tool lines**: one short line per tool call ("Looking at devices", "Checking 812 devices for the upgrade").
 - **Preview cards** with **Run** and **Cancel**; several previews in one answer show one card each. After Run the card
   follows its tasks live (running, done, failed, from the task stream the client already has) and links to the tasks pane.
+  When every task ended with failures its line says so with the reasons ("11 done, 1 failed: Wrong password"; the most
+  frequent first, at most 3 and "+N more"), and **Try the failed devices again** asks the server (`RetryFailed`) for the
+  same preview tool with the same input restricted to the failed devices: a new card that needs Run like any other.
+  The server keeps each card's preview tool and input (the selection written out as ids) for that.
   The card says what Run does from the preview itself, never from the model's text (`AssistantCards`): the count with
   its unit ("3 devices", "2 tasks", "1 rule"), one line per key field (a task's name, its input without secrets and its
   files; a rule's name, what it watches and does, where it sends, its problem; the tags added and removed; the files,
@@ -83,8 +93,24 @@ shows the chat.
   on a row selects the device in the device grid; the panel shows the first 8 rows, the message carries up to 50, then
   "+N more" with **Select all in the grid** (every matching id up to 10,000 comes with the table).
 - **Stop** ends the answer that is streaming; the conversation stays.
-- **New chat** clears it. An empty panel shows four start suggestions ("Which devices are offline?", "Which devices have
-  vulnerabilities?", "Which cameras run old AXIS OS?", "Show me a picture of a camera"), clicked they are sent.
+- **New chat** clears it. **Copy chat** (icon in the header) copies the conversation as Markdown: questions, answers, tool
+  lines, notices, tables, pictures by device name and card summaries (title, count, what Run does, the state); only what
+  the panel shows, so never a secret.
+- **The empty panel**: the OADM mark, "What can I do for your devices?", chips with live counts of the client's devices
+  ("1,284 devices", "12 offline", "3 with vulnerabilities"; only those above zero; a click asks about them), and at most
+  four suggestion cards (icon and one line, a click sends it): with a grid selection first ("Restart the 3 selected
+  devices" only for a role that may run Restart, "Show a picture of the selected camera" for one), then a short list for
+  the page the user is on (Devices, PKI, Event rules, Compliance, Sites, Logs), then the general ones ("Which devices are
+  offline?", "Which devices have vulnerabilities?", "Which cameras run old AXIS OS?", "Show me a picture of a camera").
+  The counts come from `AssistantDeviceIndex`: kept per change of the device store (O(changed devices)), counted once
+  when the panel opens or a snapshot or a new vulnerability list arrives, nothing while the panel is closed.
+- **Device links**: an address, host name or serial number in an answer that names exactly one device of the client's
+  store is a link (teal): a click selects it in the device grid; the right button shows Select, Open live view and Open
+  web interface as the role allows (the grid's checks). Found per word of the answer (O(text), independent of the device
+  count).
+- **Tables**: device tables and Markdown tables have **Copy as CSV** and **Save as CSV** (icons below them). A device
+  table exports every device of the table the client knows (up to 10,000) in the columns of Export devices, only for a
+  role with Export devices; a Markdown table its cells.
 - A user's first message after the panel opened shows once: "Your messages and the data the assistant reads go to
   <provider>." (not for Ollama).
 
@@ -121,14 +147,15 @@ Administrators only; changes audited ("Changed assistant").
 - A title bar button (next to Help, icon chat) opens the panel **Assistant** on the right, over every page; it stays open
   while the user moves between pages. Hidden when the assistant is off or the role lacks the permission.
 - Bottom: the message box like the chat apps, one rounded box (`Border.composer`, the input colours, the accent border
-  while it has the focus): the attached files as chips on top, the text (one line at first, grows to 200 px, then
-  scrolls), and a row with **Attach file** (paperclip icon), the model picker and the round send arrow (`Button.send`,
+  while it has the focus): the chosen devices and the attached files as chips on top, the text (one line at first, grows to 200 px, then
+  scrolls), and a row with **Attach file** (paperclip icon), **Choose devices** (devices icon), the model picker and the round send arrow (`Button.send`,
   tooltip Send, dimmed while empty) that turns into a round **Stop** while an answer streams. While a preview card waits
   for Run, the send arrow is not the accent (`Button.send.quiet`): Run is the panel's one accent button. Below the box:
   its problem in red (the selection limit, "Choose a model.", the server's refusal of the model), a message ("Copied.",
   an upload's problem) and the selection count ("12 devices selected", nothing without a selection).
 - Files dragged over the panel show "Drop files to attach" over it.
-- Keys: Enter sends, Shift+Enter a new line, Escape stops an answer that streams (focus in the panel), Up arrow in the
+- Keys: Ctrl+J opens the panel with the focus in the message box and closes it while the focus is in it (the title bar
+  button's tooltip says so), Enter sends, Shift+Enter a new line, @ chooses devices, Escape stops an answer that streams (focus in the panel), Up arrow in the
   empty box edits the last message.
 - **Model** (decision 2026-11-15: chosen only in the panel, by each user): a picker in the box's row with the provider's
   models (`ListModels`; editable when the provider offers no list, e.g. some OpenAI-compatible servers). The choice is
@@ -162,6 +189,10 @@ context.
 - `oadm_docs_search` finds a known page.
 - Headless panel tests with screenshots (empty with suggestions, an answer with a table and a picture, a preview card
   before and after Run); the settings card's validation below the fields.
+- The panel's second part (`AssistantPanelExtrasTests`): the counts follow single changes, cards per selection, page and
+  role (at most 4), a Perf test at 100,000 devices (open, changes, links), @ and the chip, device links and their menu
+  per role, Try the failed devices again, the run result line, CSV of both tables, Copy chat, Ctrl+J. Server:
+  `RetryFailed` (only a card that ran, own chat, cut to the view) and `mentioned_device_ids` cut to the group.
 - The chat-app panel (`AssistantChatUxTests`): Thinking until the first event, following only at the end and Go to the
   latest, Try again and Edit with `replace_last` and the old entries gone in one step, dropped and pasted files with the
   limit, Escape and Up arrow, and screenshots of the message box (empty, thinking, answer, streaming, scrolled up, drop,

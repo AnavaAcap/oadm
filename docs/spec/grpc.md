@@ -368,6 +368,10 @@ used again.
   model cannot use tools. Choose another one." when the chosen model refuses the tools). The model may change between
   messages; the chat stays. `replace_last` (Try again, Edit): the server drops the conversation's last user message and
   everything after it before it adds this one; FAILED_PRECONDITION "There is nothing to try again." when it has none.
+  `mentioned_device_ids` (devices chosen with @, at most 10,000, cut to the caller's view). `RetryFailed` (handle of a card
+  the caller ran in this chat, the failed device ids, 1 to 10,000): the same preview tool with the same input for those
+  devices as a new card; NOT_FOUND "This preview has ended. Ask again." for a card of another chat or one that never ran,
+  FAILED_PRECONDITION with the preview's own warning or "These devices cannot be tried again. Ask again.".
   `ListModels`: the provider's models (cached 10 minutes, waits at most 2 s), `editable` when it
   offers none, `suggested` (`claude-opus-5-5` for Anthropic when listed, else the first).
   `Stop` ends the answer that streams (`done.stopped`), `End` forgets the chat, both always succeed. `Run` (the chat's

@@ -351,6 +351,8 @@ The Assistant panel ([assistant.md](assistant.md)) uses the theme's `Border.side
 file), `Border.chatPicture`, `Border.composer` with `TextBox.composer` and `ComboBox.composerModel` (the message box
 like the chat apps), `Button.send` (the round send arrow and Stop), `Button.jumpToLatest` (Go to the latest),
 `Border.dropHint` (files dragged over the panel), `StackPanel.chatActions` (Copy and Try again below an answer),
-`Panel.chatUserRow` with `Button.hoverAction` (Edit on hover), `ui:ProgressRing.thinking` and `Border.pictureOverlay` (a
+`Panel.chatUserRow` with `Button.hoverAction` (Edit on hover), `ui:ProgressRing.thinking`, `StackPanel.chatStart` with
+`Button.startChip` (a live count, pill) and `Button.startCard` (a suggestion: icon and one line, two per row) for the empty
+panel and `Border.pictureOverlay` (a
 picture shown larger over the window). Its list is a virtualized `ListBox.readOnlyList`; a ready preview card's Run is the
 panel's one accent button and the send arrow turns `quiet` meanwhile.
