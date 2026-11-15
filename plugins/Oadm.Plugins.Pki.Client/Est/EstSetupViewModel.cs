@@ -279,18 +279,9 @@ public sealed partial class EstSetupViewModel : ObservableObject
         var profile = SelectedProfile!;
         _pendingRemove = profile;
         var where = Devices.Count == 1 ? Devices[0].Label : string.Create(CultureInfo.InvariantCulture, $"all {Devices.Count:N0} selected cameras");
-        ConfirmRemoveText = profile.IsOadm
-            ? $"Remove {profile.Id} from {where}? The cameras keep their certificates until they expire, but no longer renew them."
-            : $"Remove {profile.Id} from {where}? OADM did not set it up: the cameras stop renewing the certificates of that EST server.";
-        if (profile.IsNetworkAccess)
-        {
-            ConfirmRemoveText += " Cameras with IEEE 802.1X on drop off the network when that certificate expires.";
-        }
-        else if (Devices.Count > 1 && !profile.IsOadm)
-        {
-            // Another server's profile of the same name may serve IEEE 802.1X on the other cameras.
-            ConfirmRemoveText += " Cameras where it serves IEEE 802.1X drop off the network when that certificate expires.";
-        }
+        // Another server's profile of the same name may serve IEEE 802.1X on the other cameras (null: it may).
+        bool? networkAccess = profile.IsNetworkAccess ? true : Devices.Count > 1 && !profile.IsOadm ? null : false;
+        ConfirmRemoveText = $"Remove {profile.Id} from {where}? " + EstTaskIds.RemoveEffect(profile.Id, networkAccess);
 
         ConfirmRemoveVisible = true;
     }

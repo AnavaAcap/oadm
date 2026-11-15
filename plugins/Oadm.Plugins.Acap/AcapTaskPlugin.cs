@@ -111,19 +111,29 @@ public sealed class AcapTaskPlugin : ITaskPlugin, ITaskPluginQuery
     }
 
     /// <summary>
-    /// The input for AI agents (SDK 0.13.0): install, remove, start and stop. License keys and settings can hold secrets, so
-    /// they are done in OADM.
+    /// The input for AI agents (SDK 0.13.0): install, remove, start, stop and settings without passwords. License keys can
+    /// hold secrets, so they are done in OADM.
     /// </summary>
     public Type? PayloadType => typeof(AcapMcpPayload);
 
     /// <summary>The names and enum texts the task reads.</summary>
     public System.Text.Json.JsonSerializerOptions? PayloadJsonOptions => AcapPlugin.Json;
 
-    /// <summary>The dialog's payload rules before any task starts: the action, the package or the application name.</summary>
+    /// <summary>
+    /// The dialog's payload rules before any task starts: the action, the package or the application name, and the settings
+    /// that need no device (<see cref="AppSettings.OfflineProblems"/>, at <c>values</c> or <c>values.&lt;name&gt;</c>).
+    /// </summary>
     public IReadOnlyList<PayloadError> ValidatePayload(string? payloadJson, ICallContext caller)
     {
         try
         {
+            // The settings first, each at its own field (the parser below names only the first problem of the list).
+            if (TryRead(payloadJson) is { Action: AcapAction.Settings } settings
+                && AppSettings.OfflineProblems(settings.Values, settings.PasswordsAllowed) is { Count: > 0 } problems)
+            {
+                return [.. problems.Select(p => new PayloadError(p.Name is null ? "values" : "values." + p.Name, p.Message))];
+            }
+
             AcapPayload.Parse(payloadJson);
             return [];
         }
@@ -136,9 +146,35 @@ public sealed class AcapTaskPlugin : ITaskPlugin, ITaskPluginQuery
         }
     }
 
+    /// <summary>The payload as written, before the parser's rules; null when it is no payload at all.</summary>
+    private static AcapPayload? TryRead(string? payloadJson)
+    {
+        if (string.IsNullOrWhiteSpace(payloadJson))
+        {
+            return null;
+        }
+
+        try
+        {
+            return System.Text.Json.JsonSerializer.Deserialize<AcapPayload>(payloadJson, AcapPlugin.Json);
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// The warning of a settings change: the installed applications and their settings are not in the cached data, so each
+    /// device checks the values before its write.
+    /// </summary>
+    public const string SettingsCheckedOnDeviceWarning =
+        "Each device checks the values first. A device without the application, or where a value does not fit, is not changed.";
+
     /// <summary>
     /// The devices the task can run on; what a package or an application needs is checked per device when its task runs (the
-    /// package and the installed applications are not in the cached data). Removing says that the settings are lost.
+    /// package and the installed applications are not in the cached data). Removing says that the settings are lost, a settings
+    /// change that each device checks the values first (<see cref="SettingsCheckedOnDeviceWarning"/>).
     /// </summary>
     public Task<TaskPlan> PlanAsync(string? payloadJson, IReadOnlyList<IDeviceInfo> devices, CancellationToken ct) =>
         PlanCoreAsync(payloadJson, devices, null, ct);
@@ -166,6 +202,11 @@ public sealed class AcapTaskPlugin : ITaskPlugin, ITaskPluginQuery
         if (payload.Action == AcapAction.Remove)
         {
             return plan with { Warnings = ["The application's settings are lost with it."] };
+        }
+
+        if (payload.Action == AcapAction.Settings)
+        {
+            return plan with { Warnings = [SettingsCheckedOnDeviceWarning] };
         }
 
         if (payload.Action != AcapAction.Install)
@@ -605,7 +646,7 @@ public sealed class AcapTaskPlugin : ITaskPlugin, ITaskPluginQuery
                 throw new InvalidOperationException($"{app.DisplayName} has no settings here. Nothing was changed.");
             }
 
-            var problems = AppSettings.Check(definitions, values, app.DisplayName, out var normalized);
+            var problems = AppSettings.Check(definitions, values, app.DisplayName, out var normalized, payload.PasswordsAllowed);
             if (problems.Count > 0)
             {
                 foreach (var problem in problems)

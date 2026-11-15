@@ -33,6 +33,38 @@ public static class PkiTaskIds
     public const string Dot1xWarning = "Devices on ports that enforce 802.1X become unreachable if authentication fails.";
 }
 
+/// <summary>The texts of "Delete certificates", shared by its dialog, its payload check, its plan and its task.</summary>
+public static class DeleteTexts
+{
+    /// <summary>The end of the dialog's confirmation and of the plan's sentence.</summary>
+    public const string CannotRestore = "A deleted certificate and its key cannot be restored.";
+
+    /// <summary>The payload chooses no certificate.</summary>
+    public const string NoneChosen = "Choose at least one certificate.";
+
+    /// <summary>A certificate of the payload without a name.</summary>
+    public const string NameMissing = "Enter the certificate's name as View certificates lists it.";
+
+    /// <summary>More certificates for one device than a payload takes.</summary>
+    public static readonly string TooMany = string.Create(System.Globalization.CultureInfo.InvariantCulture, $"Choose at most {DeletePayload.MaxPerDevice} certificates per device.");
+
+    /// <summary>A device of the run without a certificate in the payload (its task skips, the plan leaves it out).</summary>
+    public const string NotChosen = "No certificate of this device was chosen";
+
+    /// <summary>The plan's note: what the task refuses on the device (in use, factory, what uses it cannot be read).</summary>
+    public const string InUseNote = "A certificate in use by HTTPS or 802.1X is never deleted: the task of that device fails and changes nothing.";
+
+    /// <summary>An Axis factory device ID certificate (802.1AR): never deleted.</summary>
+    public static string Factory(string alias) => $"\"{alias}\" is an Axis factory certificate and cannot be deleted.";
+
+    /// <summary>A name the Axis factory device ID certificates have ("Axis device ID RSA-2048 (802.1AR)").</summary>
+    public static bool IsFactoryName(string alias) => alias.Contains("(802.1AR)", StringComparison.Ordinal);
+
+    /// <summary>"Deletes 3 certificates from 2 devices. A deleted certificate and its key cannot be restored."</summary>
+    public static string Plan(int certificates, int devices) => string.Create(System.Globalization.CultureInfo.InvariantCulture,
+        $"Deletes {certificates:N0} {(certificates == 1 ? "certificate" : "certificates")} from {devices:N0} {(devices == 1 ? "device" : "devices")}. {CannotRestore}");
+}
+
 /// <summary>Query methods (<c>ITaskPluginQuery</c>) of the certificate dialogs; read-only.</summary>
 public static class PkiQueries
 {
@@ -154,11 +186,25 @@ public sealed record CertificateListReply
 }
 
 /// <summary>One certificate to delete.</summary>
-public sealed record CertificateRef(string Alias, bool Ca);
+public sealed record CertificateRef(
+    [property: Description("The certificate's name on the device, as View certificates lists it."), MaxLength(CertificateRef.MaxAliasLength)] string Alias,
+    [property: Description("True for a CA certificate, false for a client or server certificate.")] bool Ca)
+{
+    /// <summary>The longest name a payload takes (the devices' names are far shorter).</summary>
+    public const int MaxAliasLength = 256;
+}
 
-/// <summary>Payload of "Delete certificates": the aliases per device id (the server re-checks "in use").</summary>
+/// <summary>
+/// Payload of "Delete certificates": the aliases per device id (the server re-checks "in use"). Also the input for AI agents
+/// (SDK 0.13.0), who read the names with View certificates first.
+/// </summary>
+[Description("Delete certificates and their keys from devices. Read their names with View certificates first. A certificate in use by HTTPS or 802.1X, or an Axis factory certificate, is never deleted.")]
 public sealed record DeletePayload
 {
+    /// <summary>The most certificates of one device a payload takes.</summary>
+    public const int MaxPerDevice = 100;
+
+    [Description("The certificates to delete, by device id.")]
     public IReadOnlyDictionary<Guid, IReadOnlyList<CertificateRef>> Devices { get; init; } = new Dictionary<Guid, IReadOnlyList<CertificateRef>>();
 }
 
@@ -237,6 +283,10 @@ public sealed record InstallCaPayload
 /// <summary>The input of a Security task without settings (Disable HTTPS, Disable IEEE 802.1X) for AI agents.</summary>
 [Description("This task takes no settings.")]
 public sealed record PkiNoSettingsPayload;
+
+/// <summary>The input of View certificates for AI agents: no settings; the task's log lists the certificates.</summary>
+[Description("Read the certificates of the devices: one line per certificate in the task's log (name, kind, issued to and by, valid until, in use by, SHA-256). Nothing is changed.")]
+public sealed record PkiViewMcpPayload;
 
 /// <summary>
 /// The input of Enable HTTPS and Enable IEEE 802.1X for AI agents: the issuing policy. The clock question of the dialog is not

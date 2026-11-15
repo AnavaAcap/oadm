@@ -224,7 +224,8 @@ IEEE 802.1X, Renew certificates, View, Delete and Install certificates, Install 
   answer refuses; only OADM's own certificates that nothing uses are removed; passwords of imports and backups are never
   stored or logged; nothing in tests touches a real trust store; View and Delete certificates read at most 5,000 devices
   per window (each device is read, 4 at a time; a larger selection gets "Choose at most 5,000 devices."), the other tasks
-  take any number; while it runs it offers its CAs to other plugins (`IDeviceCertificateAuthority`,
+  take any number; AI agents run View certificates as a read task and Delete certificates by name per device (never an
+  Axis factory or an in-use certificate), never Install certificates or Install CA certificates; while it runs it offers its CAs to other plugins (`IDeviceCertificateAuthority`,
   `docs/spec/plugins.md` "Plugin services"), which signs the same way; every certificate a CA of PKI issues for a device
   (tasks and the service) goes into the list of issued certificates with its DER; a certificate deleted while valid,
   replaced or unused goes on the internal list of certificates no longer accepted (written before the call returns, never
@@ -265,7 +266,10 @@ server** of the PKI page, its own source-available `Est/LICENSE`. Off by default
   enrollments, Not renewed, certificates and listeners (this server, sites) of the group's devices only, never refusals
   of cameras OADM does not manage. Host names never go into certificates of a device a user with a group added.
 - MCP ([mcp.md](mcp.md)): the read-only tool `oadm_est_enrollments` (the state and the enrollments of the caller's
-  devices; while the server is off its state only).
+  devices; while the server is off its state only). The task EST - Certificate Enrollment is offered through the task
+  tools (Set up or Remove, the permission `enroll`; no clock answer: a camera whose clock is behind refuses); its plan
+  skips every camera while the EST server, OADM PRO or the CA is missing and says what cameras with IEEE 802.1X on and a
+  removed profile lose.
 
 ## 802.1X server (core plugin of PKI, OADM PRO)
 
@@ -436,7 +440,9 @@ many devices. Every settings form uses the bundled action catalog (`Catalog/acti
 - Device groups: one table per device scope; every device id of a request in the caller's devices or the whole request
   is refused (NOT_FOUND) before anything is read, saved or started; undo runs per group.
 - MCP ([mcp.md](mcp.md)): the read-only tool `oadm_device_rules_list` (the rules the editor read last for the caller's
-  device scope; it reads no device).
+  device scope and its recent changes; it reads no device); the task takes the agents' input `RuleAgentPayload` (change,
+  on / off, delete, copy, create, undo; rules by name as the editor read them last; no password; the page's rights through
+  `PagePermissions`), run like the page's own runs (saved for undo, the copy read on the server).
 
 ## System report (core plugin without a page)
 
@@ -616,6 +622,10 @@ only while Edge storage is on.
   (removed ones are skipped; runs stay refused as a whole).
 - MCP ([mcp.md](mcp.md)): the read-only tool `oadm_edge_storage_cards` (the table the page read last for the caller's
   device scope, with its counts; it reads no camera).
+- AI agents: the hidden task is offered to the task tools with `StorageMcpPayload` (check, repair, retention, format,
+  encryption off; never Encrypt, which needs a passphrase), the page method's rules in `ValidatePayload`, the page's rights
+  through `PagePermissions` (check and retention `manage`, the others `format`) and a plan that says format and encryption
+  off delete every recording.
 
 ## Date and time
 
@@ -646,8 +656,8 @@ import, `/config/rest/$export`, `$import`, like its web interface), **Configure 
   imported, never accounts (no lock-out); only the seven areas OADM knows are imported, any other
   area of a file and the left-out part of the password policy area are shown as not imported and never sent; the same model only
   ("Nothing was changed" otherwise); no backup by OADM (export first); the device validates and OADM shows its answer per
-  area, one failed area does not stop the others; a ZIP entry must carry the device's MAC address; Export is a dialog,
-  never a task.
+  area, one failed area does not stop the others; a ZIP entry must carry the device's MAC address; Export is a dialog
+  in the client (an agent's run is a read-only task whose result is the export in its log).
 - **Configure devices** rules that must hold: values come from the source (a device or an ADM `.cfg` file), definitions
   are read once per model and AXIS OS (one `listdefinitions` request while it stays below the 1 MB XML limit, else per
   group); internal, hidden, read-only, constant, write-only and write-level-7 parameters are never offered; each device
@@ -660,13 +670,17 @@ import, `/config/rest/$export`, `$import`, like its web interface), **Configure 
   same name is replaced, a schedule with the same name and recurrence used again (applying twice changes nothing more);
   ADM files are read and written byte for byte (format 3, known from files only, ADM is never decompiled), passwords in
   them like ADM; password values never reach a log or an error text. **Create configuration file** is a dialog for one
-  device, never a task.
+  device in the client (an agent's run is a read-only task, the file in its log, without passwords).
 - MCP and Assistant ([mcp.md](mcp.md)): the read-only tools `oadm_config_parameters`, `oadm_config_action_rules` and
   `oadm_config_stream_profiles` of the package's core plugin without a page (`Tools/DeviceConfigToolsPlugin`). Rules that
   must hold: read only, with the dialog's read code (`DeviceSettingsReader`), never a second VAPIX implementation; only
   devices of the caller's view; Configure devices' permissions (`configure` or `dangerous`); passwords, secrets,
   community strings and tokens are never answered; bounded (8 devices at a time, 40 s, then the rest counts as not read;
-  at most 20 rows, about 30 KB).
+  at most 20 rows, about 30 KB). The four tasks have agent inputs (`AgentPayloads.cs`, decision 2026-11-15), offered by
+  the host's task tools: an agent never sends a password or a secret value ("Set the password in OADM."; a password
+  parameter is skipped on the device whatever its name) and never a device address; Configure devices' `dangerous` and
+  Import's `connection` rights hold as in the dialogs; Import takes one uploaded `.json` for every device of its model
+  (no ZIP); the plans come from the cached devices and the uploaded file only and carry the dialogs' warnings.
 - Device groups: the source device of Configure devices and Create configuration file is read with the user's query
   (only devices of the user's view); configuration files stay on the client (an import uploads its file for its own
   run), so the server keeps no shared file with saved passwords that a group user could use.
@@ -693,7 +707,9 @@ version and a valid license; the choices are read from one device.
   (16 files, 2 GB, counted while writing), entry names are never paths, then the checks and the upload of loose files run
   unchanged (`docs/spec/app-management.md` "A ZIP of packages"). Change settings: every name must be a setting of the installed application and every value fit its type and
   range before the one write, read back afterwards (passwords never read back); setting values never appear in a log,
-  step text, task name or the audit log.
+  step text, task name or the audit log. AI agents change settings through the task tools without passwords: a setting
+  the application declares as a password, or whose name points to a secret, is refused before any write; only the
+  Applications page may send one (`passwordsAllowed`).
 
 ## Outputs, Notifications, Modbus, MQTT and OPC UA (event rule actions)
 

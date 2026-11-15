@@ -112,6 +112,9 @@ public sealed class ImportDialogTests(ITestOutputHelper output) : IDisposable
         Assert.Equal(["Import the configuration into 2 devices? The settings in the file replace the current ones."], questions);
         Assert.Equal([path], uploads);
         var payload = ImportPayload.Parse(closed);
+        Assert.Empty(new ImportConfigTask().ValidatePayload(closed, Oadm.Sdk.Testing.FakeCallContext.AllDevices(new Oadm.Sdk.Testing.FakeCoreContext()))); // the server's check before the run
+        Assert.False(payload.ForEveryDevice);
+        Assert.Null(payload.EntryFor(devices[2].Id)); // left out: the other model
         Assert.Equal(("up1", "lobby.json", false), (payload.FileId, payload.FileName, payload.IsZip));
         Assert.Equal(["time.v2"], payload.Sections);
         Assert.Equal(new[] { devices[0].Id, devices[1].Id }.Order(), payload.Files.Keys.Order());

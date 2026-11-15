@@ -673,6 +673,100 @@ public sealed class TaskTests : IAsyncLifetime
         Assert.Empty(camera.CaCertificates);
     }
 
+    // ---- The input of AI agents (SDK 0.13.0) ----
+
+    [Fact]
+    public void The_agent_input_is_set_up_or_remove_and_every_payload_the_dialog_sends_passes()
+    {
+        ITaskPlugin task = new EstSetupTask(() => _est);
+        var caller = FakeCallContext.AllDevices(new FakeCoreContext());
+        Assert.Equal(typeof(EstMcpPayload), task.PayloadType);
+        Assert.Same(EstJson.Options, task.PayloadJsonOptions);
+        Assert.Equal([EstTaskIds.EnrollPermission], task.RequiredPermissions(EstJson.Serialize(new SetupPayload { Action = SetupAction.Remove, Profiles = ["oadm_https"] })));
+        Assert.False(Assert.Single(task.Permissions).OperatorDefault);
+
+        // What EstSetupViewModel sends: Set up with and without the replacement and the clock answer, Remove of one profile.
+        foreach (var payload in new[]
+        {
+            new SetupPayload(), new SetupPayload(ReplaceDot1x: true), new SetupPayload { ClockConfirmed = true },
+            new SetupPayload { Action = SetupAction.Remove, Profiles = ["oadm_https"] }, new SetupPayload { Action = SetupAction.Remove, Profiles = ["other server"] },
+        })
+        {
+            Assert.Empty(task.ValidatePayload(EstJson.Serialize(payload), caller));
+        }
+
+        Assert.Empty(task.ValidatePayload("{}", caller));
+        Assert.Empty(task.ValidatePayload(null, caller));
+        Assert.Empty(task.ValidatePayload(EstJson.Serialize(new EstMcpPayload(SetupAction.Remove, Profiles: ["oadm_dot1x"])), caller));
+
+        Assert.Equal([new Sdk.Tasks.PayloadError("profiles", EstTaskIds.ChooseProfile)], task.ValidatePayload(EstJson.Serialize(new EstMcpPayload(SetupAction.Remove)), caller));
+        Assert.Equal([new Sdk.Tasks.PayloadError("profiles", EstTaskIds.ProfilesOnlyForRemove)], task.ValidatePayload(EstJson.Serialize(new EstMcpPayload(Profiles: ["oadm_https"])), caller));
+        Assert.Equal([new Sdk.Tasks.PayloadError("replaceDot1x", EstTaskIds.ReplaceOnlyForSetup)], task.ValidatePayload(EstJson.Serialize(new EstMcpPayload(SetupAction.Remove, true, ["oadm_https"])), caller));
+        Assert.Equal([new Sdk.Tasks.PayloadError("profiles", EstTaskIds.ProfileIdInvalid)], task.ValidatePayload(EstJson.Serialize(new EstMcpPayload(SetupAction.Remove, Profiles: [new string('x', 65)])), caller));
+        Assert.Equal([new Sdk.Tasks.PayloadError("profiles", EstTaskIds.TooManyProfiles)], task.ValidatePayload(EstJson.Serialize(new EstMcpPayload(SetupAction.Remove, Profiles: [.. Enumerable.Range(0, 11).Select(i => "p" + i)])), caller));
+        Assert.Equal("", Assert.Single(task.ValidatePayload("{\"action\":\"Format\"}", caller)).Field);
+    }
+
+    [Fact]
+    public async Task An_invalid_remove_or_one_on_a_camera_without_certificate_enrollment_changes_nothing()
+    {
+        var task = new EstSetupTask(() => _est);
+        _camera.Profiles["oadm_https"] = new JsonObject { ["id"] = "oadm_https", ["services"] = new JsonArray("WEBSERVER"), ["status"] = "ENROLLED" };
+
+        var error = await Assert.ThrowsAsync<ArgumentException>(() => task.ExecuteAsync(Context(), _device, EstJson.Serialize(new EstMcpPayload(SetupAction.Remove)), CancellationToken.None));
+        Assert.StartsWith(EstTaskIds.ChooseProfile + " Nothing was changed.", error.Message, StringComparison.Ordinal);
+        Assert.Empty(_camera.RequestLog);
+
+        _camera.HasEstApi = false;
+        var refused = await Assert.ThrowsAsync<DeviceNotCompatibleException>(() =>
+            task.ExecuteAsync(Context(), _device, EstJson.Serialize(new EstMcpPayload(SetupAction.Remove, Profiles: ["oadm_https"])), CancellationToken.None));
+        Assert.Equal(EstTaskIds.NeedsApis, refused.Message);
+        Assert.Equal(0, _camera.Writes);
+        Assert.Contains("oadm_https", _camera.Profiles.Keys);
+    }
+
+    [Fact]
+    public async Task The_set_up_plan_skips_old_cameras_and_warns_about_ieee_8021x_and_the_clock()
+    {
+        ITaskPlugin task = new EstSetupTask(() => _est);
+        var off = _device with { Id = Guid.NewGuid(), Dot1xEnabled = false };
+        var on = _device with { Id = Guid.NewGuid(), Dot1xEnabled = true };
+        var old = _device with { Id = Guid.NewGuid(), FirmwareVersion = "12.9.60", Dot1xEnabled = true };
+
+        var plan = await task.PlanAsync("{}", [off, on, old], CancellationToken.None);
+        Assert.Equal([null, null, "Needs AXIS OS 12.10 or later (this device has 12.9.60)"], plan.Devices.Select(d => d.SkipReason));
+        Assert.Equal([EstTaskIds.Dot1xKept, EstTaskIds.ClockNote], plan.Warnings);
+
+        var replace = await task.PlanAsync(EstJson.Serialize(new EstMcpPayload(ReplaceDot1x: true)), [off, on], CancellationToken.None);
+        Assert.Equal([EstTaskIds.ReplaceDot1xWarning, EstTaskIds.ClockNote], replace.Warnings);
+
+        // Only cameras with IEEE 802.1X off (the old one does not run): no IEEE 802.1X warning.
+        Assert.Equal([EstTaskIds.ClockNote], (await task.PlanAsync("{}", [off, old], CancellationToken.None)).Warnings);
+
+        // The EST server off: every camera is skipped with the task's refusal, without "Nothing was changed".
+        var stopped = await ((ITaskPlugin)new EstSetupTask(() => null)).PlanAsync("{}", [off, on], CancellationToken.None);
+        Assert.All(stopped.Devices, d => Assert.Equal("The EST server is off. Turn it on on the EST server page.", d.SkipReason));
+        Assert.Empty(stopped.Warnings);
+    }
+
+    [Fact]
+    public async Task The_remove_plan_says_what_the_cameras_lose_with_each_profile_like_the_dialog()
+    {
+        ITaskPlugin task = new EstSetupTask(() => _est);
+        var payload = EstJson.Serialize(new EstMcpPayload(SetupAction.Remove, Profiles: ["oadm_https", "oadm_dot1x", "other"]));
+
+        var plan = await task.PlanAsync(payload, [_device], CancellationToken.None);
+
+        Assert.Null(Assert.Single(plan.Devices).SkipReason);
+        Assert.Equal(
+        [
+            "oadm_https: " + EstTaskIds.RemoveOadmEffect,
+            "oadm_dot1x: " + EstTaskIds.RemoveOadmEffect + " " + EstTaskIds.RemoveNetworkAccessEffect,
+            "other: " + EstTaskIds.RemoveOtherEffect + " " + EstTaskIds.RemoveMaybeNetworkAccessEffect,
+        ], plan.Warnings);
+        Assert.Equal("Remove 3 enrollment profiles", task.GetTaskName(payload));
+    }
+
     private FakeTaskContext Context() => new(_camera) { Network = new FakeDeviceNetwork { LocalAddress = IPAddress.Parse("10.0.0.17") } };
 
     /// <summary>The query's context: the camera, read only.</summary>

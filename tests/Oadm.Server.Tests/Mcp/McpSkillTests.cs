@@ -46,8 +46,8 @@ public sealed partial class McpSkillTests
 
     private static readonly string[] Workflows =
     [
-        "applications.md", "certificates.md", "event-rules.md", "failed-tasks.md", "health-check.md", "network-change.md",
-        "rollout-axis-os.md", "sites.md", "storage.md", "troubleshoot-device.md", "vulnerabilities.md",
+        "applications.md", "certificates.md", "configure-devices.md", "event-rules.md", "failed-tasks.md", "health-check.md",
+        "network-change.md", "rollout-axis-os.md", "sites.md", "storage.md", "troubleshoot-device.md", "vulnerabilities.md",
     ];
 
     [GeneratedRegex("oadm_[a-z0-9_]+")]

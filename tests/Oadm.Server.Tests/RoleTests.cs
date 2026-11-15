@@ -143,6 +143,46 @@ public sealed class RoleTests
         Assert.Empty((await host.Tasks.ListAsync(new Proto.ListTasksRequest())).Tasks);
     }
 
+    /// <summary>
+    /// A page task that names the page permissions one run needs (<see cref="ITaskPlugin.PagePermissions"/>) runs through
+    /// TaskService.Plan and Run, the door of the agents' task tools: the role needs exactly those page rights. It is listed
+    /// only for the task tools (with a schema), never in the client's menus.
+    /// </summary>
+    [Fact]
+    public async Task APageTaskThatNamesItsPagePermissionsRunsOutsideThePageWithThoseRights()
+    {
+        await using var host = await TestServerHost.StartAsync();
+        await AddToolsAsync(host);
+        var device = (await DeviceServiceTests.AddDeviceAsync(host, "10.9.0.1", 1)).Id.ToString();
+        var op = new Proto.TaskService.TaskServiceClient(await host.InvokerForUserAsync("tech1", UserRole.Operator));
+        static string Part(string part) => "{\"part\":\"" + part + "\"}";
+        Proto.RunTaskRequest Run(string payload) => new() { PluginId = AgentToolsTask.PluginId, PayloadJson = payload, DeviceIds = { device } };
+
+        Assert.Equal(StatusCode.OK, await CodeOf(async () => await op.RunAsync(Run(Part("format")))));
+        var wipe = await Assert.ThrowsAsync<RpcException>(async () => await op.RunAsync(Run(Part("wipe"))));
+        Assert.Equal((StatusCode.PermissionDenied, "Your role does not allow: Tools page: Wipe."), (wipe.StatusCode, wipe.Status.Detail));
+        Assert.Equal(StatusCode.OK, await CodeOf(async () => await host.Tasks.RunAsync(Run(Part("wipe")))));
+
+        // A payload the task cannot read needs every right of the page (fail closed). Plan (in process only) has the same
+        // check: McpTaskPartTests.
+        Assert.Equal(StatusCode.PermissionDenied, await CodeOf(async () => await op.RunAsync(Run("?"))));
+
+        // Listed for the task tools only: the client's menus never show it, and a page task without page permissions stays
+        // on its page.
+        var menus = await op.ListTaskPluginsAsync(new Proto.ListTaskPluginsRequest());
+        Assert.DoesNotContain(menus.Plugins, p => p.Id == AgentToolsTask.PluginId);
+        var tools = await op.ListTaskPluginsAsync(new Proto.ListTaskPluginsRequest { WithPayloadSchema = true });
+        Assert.Contains(tools.Plugins, p => p.Id == AgentToolsTask.PluginId && p.PayloadSchemaJson.Length > 0);
+        Assert.DoesNotContain(tools.Plugins, p => p.Id == ToolsTask.PluginId);
+
+        // A role without a right of the page does not see it.
+        var viewerInvoker = await host.InvokerForUserAsync("look1", UserRole.Operator);
+        var look = (await host.Users.ListAsync(new Proto.Empty())).Users.Single(u => u.UserName == "look1").Id;
+        await host.Users.UpdateAsync(new Proto.UpdateUserRequest { Id = look, RoleId = BuiltInRoles.ViewerId.ToString() });
+        var viewer = new Proto.TaskService.TaskServiceClient(viewerInvoker);
+        Assert.DoesNotContain((await viewer.ListTaskPluginsAsync(new Proto.ListTaskPluginsRequest { WithPayloadSchema = true })).Plugins, p => p.Id == AgentToolsTask.PluginId);
+    }
+
     [Fact]
     public async Task TasksAndPagesARoleCannotUseAreNotListed()
     {
@@ -518,6 +558,39 @@ public sealed class RoleTests
         public Task ExecuteAsync(ITaskExecutionContext ctx, IDeviceInfo device, string? payloadJson, CancellationToken ct) => Task.CompletedTask;
     }
 
+    /// <summary>The input of <see cref="AgentToolsTask"/>: the page right one run needs.</summary>
+    public sealed record AgentToolsPayload(string Part);
+
+    /// <summary>A page task the agents may start: the payload's part names the page right it needs.</summary>
+    private sealed class AgentToolsTask : ITaskPlugin
+    {
+        public const string PluginId = "tests.tools.agent-task";
+
+        public string Id => PluginId;
+        public string DisplayName => "Agent tools";
+        public string? IconKey => null;
+        public bool ShowInToolbar => false;
+        public bool ShowInMenus => false;
+        public bool RequiresDialog => false;
+        public Type? PayloadType => typeof(AgentToolsPayload);
+
+        public IReadOnlyList<string>? PagePermissions(string? payloadJson)
+        {
+            try
+            {
+                return System.Text.Json.JsonSerializer.Deserialize<AgentToolsPayload>(payloadJson ?? "null", PluginJson.CreateOptions())?.Part is "format" ? ["format"] : ["format", "wipe"];
+            }
+            catch (System.Text.Json.JsonException)
+            {
+                return ["format", "wipe"];
+            }
+        }
+
+        public bool CanRun(IDeviceInfo device) => true;
+
+        public Task ExecuteAsync(ITaskExecutionContext ctx, IDeviceInfo device, string? payloadJson, CancellationToken ct) => Task.CompletedTask;
+    }
+
     /// <summary>
     /// A page with the rights "format" (Operator) and "wipe" (not); both methods start the task the payload names
     /// ("task id|device id") through the user's call.
@@ -529,7 +602,7 @@ public sealed class RoleTests
         public string Id => PluginId;
         public string DisplayName => "Tools page";
         public string? IconKey => null;
-        public IReadOnlyList<ITaskPlugin> TaskPlugins { get; } = [new ToolsTask(ToolsTask.PluginId)];
+        public IReadOnlyList<ITaskPlugin> TaskPlugins { get; } = [new ToolsTask(ToolsTask.PluginId), new AgentToolsTask()];
 
         public IReadOnlyList<PermissionDefinition> Permissions { get; } =
         [

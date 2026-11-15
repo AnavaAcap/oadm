@@ -86,12 +86,142 @@ public sealed class ImportConfigTask : ITaskPlugin
         }
     }
 
+    /// <summary>The input for AI agents (SDK 0.13.0): one uploaded <c>.json</c> for every device of its model, and the areas.</summary>
+    public Type? PayloadType => typeof(ImportMcpPayload);
+
+    /// <summary>The names and area keys the task reads.</summary>
+    public JsonSerializerOptions? PayloadJsonOptions => ImportPayload.JsonOptions;
+
+    /// <summary>The payload's rules (<see cref="ImportPayload.Check"/>) before any task starts, each at its JSON field.</summary>
+    public IReadOnlyList<Oadm.Sdk.Tasks.PayloadError> ValidatePayload(string? payloadJson, ICallContext caller) =>
+        ImportPayload.Check(payloadJson).Errors;
+
+    /// <summary>The plan without the uploads (the dialog's own check): the devices the task can run on and the dialog's left-out ones.</summary>
+    public Task<Oadm.Sdk.Tasks.TaskPlan> PlanAsync(string? payloadJson, IReadOnlyList<IDeviceInfo> devices, CancellationToken ct) =>
+        PlanCoreAsync(payloadJson, devices, null, ct);
+
+    /// <summary>
+    /// The plan of a run, from the cached devices and the uploaded file (never a device request): a device of another model than
+    /// the file's, one the dialog left out and one the task cannot run on are skipped with the reason; the warnings are the
+    /// dialog's notes and confirmation (the settings are replaced, connection settings can make the devices unreachable).
+    /// </summary>
+    public Task<Oadm.Sdk.Tasks.TaskPlan> PlanAsync(string? payloadJson, IReadOnlyList<IDeviceInfo> devices, IUploadedFiles files, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(files);
+        return PlanCoreAsync(payloadJson, devices, files, ct);
+    }
+
+    private async Task<Oadm.Sdk.Tasks.TaskPlan> PlanCoreAsync(string? payloadJson, IReadOnlyList<IDeviceInfo> devices, IUploadedFiles? files, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(devices);
+        var payload = ImportPayload.Parse(payloadJson);
+        var connection = payload.Sections.Contains(ConfigSections.Connection);
+        var warnings = new List<string> { ImportTexts.ReplaceNote };
+        if (connection)
+        {
+            warnings.Add(ImportTexts.ConnectionNote);
+        }
+
+        if (payload.Sections.Contains(ConfigSections.Param))
+        {
+            warnings.Add(ImportTexts.IdentityNote);
+        }
+
+        ConfigFile? file = null;
+        string? fileProblem = null;
+        var named = new List<Oadm.Sdk.Tasks.TaskPlanFile>();
+        if (files is not null)
+        {
+            if (await files.FindAsync(payload.FileId, ct).ConfigureAwait(false) is not { } upload)
+            {
+                fileProblem = ImportTexts.FileGone;
+            }
+            else
+            {
+                named.Add(new(upload.Name, upload.Sha256));
+                if (!payload.IsZip)
+                {
+                    (file, fileProblem) = await ReadPlannedFileAsync(files, upload, ct).ConfigureAwait(false);
+                }
+            }
+        }
+
+        if (file is not null)
+        {
+            if (file.HasRecipients && payload.Sections.Contains(ConfigSections.ActionRules))
+            {
+                warnings.Add(ImportTexts.PasswordNote);
+            }
+
+            if (ConfigSections.UnknownNote(file.NotImported) is { } unknown)
+            {
+                warnings.Add(unknown);
+            }
+        }
+
+        var plan = new List<Oadm.Sdk.Tasks.TaskPlanDevice>(devices.Count);
+        foreach (var device in devices)
+        {
+            string? reason;
+            if (!CanRun(device))
+            {
+                reason = NotSupportedReason(device) ?? TaskSupportReasons.Default;
+            }
+            else if (fileProblem is not null)
+            {
+                reason = fileProblem;
+            }
+            else if (payload.EntryFor(device.Id) is null)
+            {
+                reason = payload.LeftOut.GetValueOrDefault(device.Id) ?? DeviceConfigIds.NoFile;
+            }
+            else if (payload.ForEveryDevice && file is not null && !ModelNames.Same(file.Model, device.Model))
+            {
+                reason = DeviceConfigIds.OtherModel(file.Model);
+            }
+            else
+            {
+                reason = null;
+            }
+
+            plan.Add(new(device.Id, reason));
+        }
+
+        return new Oadm.Sdk.Tasks.TaskPlan(plan) { Warnings = warnings, Files = named };
+    }
+
+    /// <summary>The planned file read like the task reads it; its problem in the dialog's words instead of an exception.</summary>
+    private static async Task<(ConfigFile? File, string? Problem)> ReadPlannedFileAsync(IUploadedFiles files, UploadedFile upload, CancellationToken ct)
+    {
+        if (upload.Size > DeviceConfigIds.MaxFileBytes)
+        {
+            return (null, DeviceConfigIds.NotAConfigFile + ": larger than 2 MB");
+        }
+
+        try
+        {
+            var stream = await files.OpenReadAsync(upload.Id, ct).ConfigureAwait(false);
+            await using (stream.ConfigureAwait(false))
+            {
+                return (await ConfigFile.ReadAsync(stream, ct).ConfigureAwait(false), null);
+            }
+        }
+        catch (ConfigFileException ex)
+        {
+            return (null, ex.Message);
+        }
+        catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
+        {
+            return (null, ImportTexts.FileGone);
+        }
+    }
+
     public async Task ExecuteAsync(ITaskExecutionContext ctx, IDeviceInfo device, string? payloadJson, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(ctx);
         ArgumentNullException.ThrowIfNull(device);
         var payload = ImportPayload.ParseShared(payloadJson); // one entry per device: parsed once per run, not per device
-        if (!payload.Files.TryGetValue(device.Id, out var entry))
+        if (payload.EntryFor(device.Id) is not { } entry)
         {
             using var leftOut = ctx.BeginStep(Steps.CheckCompatibility);
             leftOut.Warn((payload.LeftOut.GetValueOrDefault(device.Id) ?? DeviceConfigIds.NoFile) + ". Nothing was changed.");
