@@ -133,3 +133,15 @@ Open: a real model test (DETR, RF-DETR) on the development cameras, a CUDA run o
 
 The read-only tool `oadm_vision_pipelines` (`Api/VisionTools.cs`, docs/spec/mcp.md "Plugins"): the page's pipeline list
 through its own method and the load of the caller's pipelines, paged; never a picture or a model. Tests: `Api/ToolTests`.
+
+The page's actions (`Api/VisionPageTools.cs`, `PluginPageTools`, decision 2026-11-15) with the rights of their page methods:
+the reads `oadm_vision_pipeline` (one pipeline as the editor opens it; node settings as JSON text; at most 28 KB, else "open
+it on the page"), `oadm_vision_models` (classes, input size, Missing, the caller's pipelines that use each; never the file) and
+`oadm_vision_class_lists`; the changes, each a preview and a run, `oadm_vision_pipeline_save` (a new pipeline or a change with
+`pipeline_id`; left-out fields keep their value, `nodes` and `links` replace all; the preview runs the page's checks with
+the graph check, `VisionPlugin.CheckSaveAsync` and `PipelineStore.CheckSaveAsync`, storing nothing; a node's error is on
+`nodes.<index>` with the node's name in front, a graph error on `links`), `oadm_vision_pipeline_copy` (the host's device
+filter; the pipeline's own camera and cameras outside the caller's devices are skipped), `oadm_vision_pipeline_delete` and
+`oadm_vision_class_list_save` (right "models", users with all devices, `ModelLibrary.CheckClassListAsync`). Runs go through
+the page's methods with the caller; a run's audit entry is the page's text without names. Model upload and delete and Use GPU
+stay on the page. Tests: `Api/PageToolTests`.

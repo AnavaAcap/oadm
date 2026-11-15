@@ -221,6 +221,9 @@ public interface IModelLibrary
     /// <summary>Creates (empty id) or changes a user's class list; its models take the new names. Field errors: <see cref="Models.ClassListFieldException"/>.</summary>
     Task<ClassList> SaveClassListAsync(ClassList incoming, CancellationToken ct) => throw new NotSupportedException();
 
+    /// <summary>Every check of <see cref="SaveClassListAsync"/> without storing (a tool's preview).</summary>
+    Task<ClassList> CheckClassListAsync(ClassList incoming, CancellationToken ct) => throw new NotSupportedException();
+
     /// <summary>Deletes a user's class list; refused for a built-in one and while a model uses it.</summary>
     Task DeleteClassListAsync(string id, CancellationToken ct) => throw new NotSupportedException();
 }

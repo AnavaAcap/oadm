@@ -255,7 +255,12 @@ public sealed partial class ModelLibrary : IModelLibrary, IDisposable
     /// </summary>
     /// <exception cref="ClassListFieldException">A field is not allowed (the field and its text).</exception>
     /// <exception cref="ArgumentException">A built-in or unknown list, or too many lists.</exception>
-    public async Task<ClassList> SaveClassListAsync(ClassList incoming, CancellationToken ct)
+    public Task<ClassList> SaveClassListAsync(ClassList incoming, CancellationToken ct) => SaveClassListAsync(incoming, onlyCheck: false, ct);
+
+    /// <summary>Every check of <see cref="SaveClassListAsync(ClassList, CancellationToken)"/> without storing (a tool's preview): the list as it would be stored (a new one without its id).</summary>
+    public Task<ClassList> CheckClassListAsync(ClassList incoming, CancellationToken ct) => SaveClassListAsync(incoming, onlyCheck: true, ct);
+
+    private async Task<ClassList> SaveClassListAsync(ClassList incoming, bool onlyCheck, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(incoming);
         if (Models.ClassLists.BuiltInOf(incoming.Id) is not null)
@@ -322,6 +327,11 @@ public sealed partial class ModelLibrary : IModelLibrary, IDisposable
                 {
                     throw new ArgumentException(ModelTexts.TooManyClassLists);
                 }
+            }
+
+            if (onlyCheck)
+            {
+                return new ClassList { Id = isNew ? string.Empty : incoming.Id, Name = name, Names = names };
             }
 
             var saved = new ClassList { Id = isNew ? Guid.NewGuid().ToString("N") : incoming.Id, Name = name, Names = names };
