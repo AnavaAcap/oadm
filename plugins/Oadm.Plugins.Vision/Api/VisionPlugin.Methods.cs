@@ -40,6 +40,13 @@ public sealed partial class VisionPlugin
         var runtime = _runtime ?? throw new InvalidOperationException(PipelineRules.NotRunning);
         var models = _models ?? throw new InvalidOperationException(PipelineRules.NotRunning);
         var owner = OwnerScope.Of(caller.DeviceScopeKey);
+        if (method == VisionTools.Pipelines.Method)
+        {
+            // The page's list with its rules (a pipeline of a camera the caller cannot see shows nothing live) and its load.
+            var list = VisionJson.Deserialize<PipelineList>(await InvokeAsync(caller, VisionMethods.ListPipelines, null, ct).ConfigureAwait(false));
+            return VisionTools.Answer(list, runtime.GetStats(owner), payloadJson);
+        }
+
         switch (method)
         {
             case VisionMethods.ListPipelines:

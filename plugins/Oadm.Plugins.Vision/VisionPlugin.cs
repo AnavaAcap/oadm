@@ -256,6 +256,9 @@ public sealed partial class VisionPlugin : ICorePlugin, IDynamicEventSource, IAc
             "following a device group's change");
     }
 
+    /// <summary>The read tool (docs/spec/mcp.md "Plugins"): the pipelines and the load, "show" like the page.</summary>
+    public IReadOnlyList<PluginTool> Tools => VisionTools.All;
+
     public IReadOnlyList<PermissionDefinition> Permissions { get; } =
     [
         new(PermissionKeys.Show, VisionInfo.ViewPermissionName, "See the vision pipelines and what they find.") { ViewerDefault = true },
