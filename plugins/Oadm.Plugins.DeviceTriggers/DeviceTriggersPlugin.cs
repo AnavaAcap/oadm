@@ -2,6 +2,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 
 using Oadm.Plugins.DeviceTriggers.Runtime;
+using Oadm.Plugins.DeviceTriggers.Tools;
 using Oadm.Plugins.Shared;
 using Oadm.Sdk.Devices;
 using Oadm.Sdk.Events;
@@ -103,6 +104,9 @@ public sealed partial class DeviceTriggersPlugin : ICorePlugin, IDynamicEventSou
         ? "counts the devices all triggers watch together (a limit of the server), shows no device data"
         : null;
 
+    /// <summary>The read tools (docs/spec/mcp.md "Plugins"): the page's list and one trigger's devices, "show" like the page.</summary>
+    public IReadOnlyList<PluginTool> Tools => TriggerTools.All;
+
     /// <summary>Changing triggers is one right ("manage", the Admin methods); seeing them is "show".</summary>
     public IReadOnlyList<PermissionDefinition> Permissions { get; } =
     [
@@ -197,6 +201,25 @@ public sealed partial class DeviceTriggersPlugin : ICorePlugin, IDynamicEventSou
     {
         ArgumentNullException.ThrowIfNull(caller);
         var ctx = _ctx ?? throw new InvalidOperationException(NotRunning);
+        if (method == TriggerTools.Triggers.Method)
+        {
+            // The page's list: the triggers of the caller's scope, nothing read from a device.
+            return TriggerTools.TriggersAnswerOf([.. Visible(caller).Select(Summary)], payloadJson);
+        }
+
+        if (method == TriggerTools.Devices.Method)
+        {
+            if (TriggerTools.TriggerIdOf(payloadJson, out var errors) is not { } triggerId)
+            {
+                return errors;
+            }
+
+            // The page's detail with its device group rule (the Get method), then the addresses of the caller's devices.
+            var detail = TriggerJson.Deserialize<GetReply>(await InvokeAsync(caller, DeviceTriggersMethods.Get, TriggerJson.Serialize(new IdRequest(triggerId)), ct).ConfigureAwait(false));
+            var addresses = (await caller.Devices.ListAsync(ct).ConfigureAwait(false)).ToDictionary(d => d.Id, d => d.Address);
+            return TriggerTools.DevicesAnswerOf(detail, addresses, payloadJson);
+        }
+
         switch (method)
         {
             case DeviceTriggersMethods.List:
