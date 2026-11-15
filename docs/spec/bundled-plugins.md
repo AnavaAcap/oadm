@@ -151,7 +151,7 @@ command**. Command format: `Schema/command-format.md` + `command.schema.json` (t
   all devices (`RequiresAllDevices`; the page hides New command, Import, Edit, Delete and Save with values); a saved
   command's stored passwords only for users with all devices (others get `CommanderTexts.SavedPasswordsRefused` and
   enter the passwords); the task owner is the caller.
-- Page actions as tools (decision 2026-11-15, [mcp.md](mcp.md) "Page actions"), with the page's rights: saved commands `oadm_vapix_saved_save`, `_delete`, `_import` (changes) and `oadm_vapix_saved_export` (the command file, secret values masked, no password value).
+- Page actions as tools (decision 2026-11-15, [mcp.md](mcp.md) "Page actions"), with the page's rights: saved commands `oadm_vapix_saved_save`, `_delete`, `_import` (changes; a password to store is named in `set_passwords` and entered by the user through the secret channel, stored encrypted) and `oadm_vapix_saved_export` (the command file, secret values masked, no password value). A command with password fields runs over `oadm_vapix_command_preview` / `_run` with each password entered by the user (never a stored one).
 
 ## NTP server (core plugin)
 
@@ -451,7 +451,7 @@ many devices. Every settings form uses the bundled action catalog (`Catalog/acti
   device scope and its recent changes; it reads no device); the task takes the agents' input `RuleAgentPayload` (change,
   on / off, delete, copy, create, undo; rules by name as the editor read them last; no password; the page's rights through
   `PagePermissions`), run like the page's own runs (saved for undo, the copy read on the server).
-- Page actions as tools (decision 2026-11-15, [mcp.md](mcp.md) "Page actions"), with the page's rights: `oadm_device_rules_read` (Refresh), `_recipients`, `_schedules`, `_recipient_kinds`, and the recipient and schedule changes (create, change, copy, delete; no password over a tool); rule deploy, delete and undo stay the editor's task.
+- Page actions as tools (decision 2026-11-15, [mcp.md](mcp.md) "Page actions"), with the page's rights: `oadm_device_rules_read` (Refresh), `_recipients`, `_schedules`, `_recipient_kinds`, and the recipient and schedule changes (create, change, copy, delete; a recipient password is named in `set_passwords` and entered by the user through the secret channel, never an argument); rule deploy, delete and undo stay the editor's task, an action password of its task is sent empty and entered by the user the same way.
 
 ## System report (core plugin without a page)
 

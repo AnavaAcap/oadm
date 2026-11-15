@@ -11,9 +11,10 @@ namespace Oadm.Plugins.VapixCommander;
 /// <summary>
 /// The tools of the VAPIX Commander (docs/spec/mcp.md "Plugins", <see cref="ICorePlugin.Tools"/>): the commands an AI agent may
 /// run and a run on devices as a preview and a run. Only library and saved commands, never a request of the agent's own; never a
-/// dangerous command, one with a password or a file field, or one that changes what OADM's own tasks change (date and time, NTP,
+/// dangerous command, one with a file field, or one that changes what OADM's own tasks change (date and time, NTP,
 /// network, applications, AXIS OS, restart, users). Every command, a read too, goes preview then run; the run is the page's
-/// rollout (one task per device) with the user's OK of the preview as the confirmation.
+/// rollout (one task per device) with the user's OK of the preview as the confirmation. A password field is entered by the user
+/// (the secret channel), never sent by the agent.
 /// </summary>
 internal static partial class CommanderTools
 {

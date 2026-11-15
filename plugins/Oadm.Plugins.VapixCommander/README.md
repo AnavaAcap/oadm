@@ -211,13 +211,16 @@ Page methods get the user's call (`InvokeAsync(caller, ...)`); see [device group
 
 `CommanderTools` (`ICorePlugin.Tools`, area `vapix`): `oadm_vapix_commands` lists the library and saved commands an agent may
 run (paged by id, with their fields); `oadm_vapix_command_preview` / `_run` runs one of them on device ids from
-`oadm_devices_search`. Left out: dangerous commands, commands with a password or a file field, and changes OADM's own tasks
+`oadm_devices_search`. Left out: dangerous commands, commands with a file field (or more than 8 password fields), and changes OADM's own tasks
 make (`CommanderTools.OwnTaskPaths`: time, NTP, applications, AXIS OS, restart, users, network). Values come as
 `{field, value}` text pairs, converted by the field's type and checked by `CommandRenderer`. The run calls `RolloutAsync`
 with `Confirmed` (the user's OK of the preview), never `ConfirmedDangerous`, and `MaskSecrets`: the steps, the log and
 the answer show `***` for a value whose label, parameter or path names a secret (`SecretValues`, never a yes/no value);
-it needs `rollout` and is audited. Tests:
-`ToolTests`.
+it needs `rollout` and is audited. A password field is never a value of the agent ("Leave the password out. The user
+enters it."): the preview renders without it and names a slot per password field (`secrets_needed`, the field's name and
+its label in lower case); the host's check of an entered value runs the field's own rules (`FieldValues.Convert`, at
+`secrets.<name>`); the run takes the entered values, never a stored password of a saved command and never a stand-in
+(`CommanderTools.SecretSlots`). Tests: `ToolTests`.
 
 The saved commands (`CommanderPageTools`, `PluginPageTools`, decision 2026-11-15), each with the rights of its page method:
 `oadm_vapix_saved_save_preview` / `_run` (a command as JSON in the command file format; the store's preparation and
@@ -225,8 +228,12 @@ The saved commands (`CommanderPageTools`, `PluginPageTools`, decision 2026-11-15
 `oadm_vapix_saved_import_preview` / `_run` (a command file; the preview names the commands, the ones replaced and the ones
 left out) need "saved" and all devices like the page; `oadm_vapix_saved_export` ("show") answers the export file (at most
 24 KB, else "Choose fewer commands"), without password values and with every value whose name points to a secret as `***`
-(`SecretValues.IsSecretName`: field defaults, query, headers, body). No password passes a tool: a password field with a
-value refuses the command ("Set passwords in OADM."; a stored password stays when its field is empty). Tests: `PageToolTests`.
+(`SecretValues.IsSecretName`: field defaults, query, headers, body). No password passes a tool as an argument: a password
+field with a value refuses the command (`CommanderPageTools.NoPasswords`; a stored password stays when its field is empty).
+`set_passwords` (save: field names; import: command id and field) names the password fields to store: the plan has a slot
+each, the person enters the value, the run puts it into the field and the store encrypts it like the page's
+(`SavedCommandStore`); without a master key protector: "OADM cannot store passwords for saved commands here.". Tests:
+`PageToolTests`, host `McpPluginSecretTests`.
 
 ## Tests
 
