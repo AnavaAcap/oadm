@@ -79,7 +79,7 @@ public sealed class McpSecretTests
         };
         var areaKey = await server.CreateKeyAsync(name: "canary-areas"); // a key allows 20 calls a second: the areas' tools use their own
         var areaCalls = McpAreaToolTests.SecretScanCalls();
-        foreach (var (tool, arguments) in McpHostActionTests.SecretScanCalls(device.Id.ToString()))
+        foreach (var (tool, arguments) in McpHostActionTests.SecretScanCalls(device.Id.ToString()).Concat(McpServerChangeTests.SecretScanCalls(device.Id.ToString())))
         {
             areaCalls[tool] = arguments;
         }

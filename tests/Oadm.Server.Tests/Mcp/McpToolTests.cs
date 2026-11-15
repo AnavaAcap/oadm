@@ -33,25 +33,25 @@ public sealed partial class McpToolTests
     ];
 
     /// <summary>The tools of the areas stage 3 (tags, sites, compliance, event rules, the event log): <see cref="McpAreaToolTests"/>.</summary>
-    private static readonly string[] AreaTools = [.. McpAreaToolTests.ToolNames, .. McpHostActionTests.ToolNames];
+    private static readonly string[] AreaTools = [.. McpAreaToolTests.ToolNames, .. McpHostActionTests.ToolNames, .. McpServerChangeTests.ToolNames];
 
     /// <summary>The tools that change something (rule 2: each with its preview).</summary>
     private static readonly string[] WriteTools =
     [
         "oadm_devices_add_run", "oadm_devices_credentials_run", "oadm_devices_refresh_run", "oadm_devices_remove_run", "oadm_files_delete_run",
         "oadm_files_upload_link", "oadm_task_run", "oadm_tasks_cancel_run",
-        .. McpAreaToolTests.RunTools, .. McpHostActionTests.RunTools,
+        .. McpAreaToolTests.RunTools, .. McpHostActionTests.RunTools, .. McpServerChangeTests.RunTools,
     ];
 
     /// <summary>The runs that replace, stop or remove something (<c>destructiveHint</c>): a task run, a cancel, a file delete, credentials, a removal, tag removal, a replaced or deleted rule. Add only adds, Refresh only reads again.</summary>
     private static readonly string[] DestructiveTools =
     [
         "oadm_devices_credentials_run", "oadm_devices_remove_run", "oadm_files_delete_run", "oadm_task_run", "oadm_tasks_cancel_run",
-        .. McpAreaToolTests.RunTools, .. McpHostActionTests.RunTools.Except(McpHostActionTests.AddingRuns),
+        .. McpAreaToolTests.RunTools, .. McpHostActionTests.RunTools.Except(McpHostActionTests.AddingRuns), .. McpServerChangeTests.RunTools.Except(McpServerChangeTests.AddingRuns),
     ];
 
     /// <summary>Previews that act outside OADM (the add scan): no plain read, so not announced as one.</summary>
-    private static readonly string[] ActsOutsideTools = ["oadm_devices_add_preview", .. McpHostActionTests.ActsOutside];
+    private static readonly string[] ActsOutsideTools = ["oadm_devices_add_preview", .. McpHostActionTests.ActsOutside, .. McpServerChangeTests.ActsOutside];
 
     [GeneratedRegex("^oadm_[a-z0-9_]+$")]
     private static partial Regex ToolName();
@@ -137,12 +137,13 @@ public sealed partial class McpToolTests
     ];
 
     /// <summary>The gRPC methods the tools of the areas call (<see cref="McpAreaToolTests.Methods"/>).</summary>
-    private static readonly string[] AreaMethods = [.. McpAreaToolTests.Methods, .. McpHostActionTests.Methods];
+    private static readonly string[] AreaMethods = [.. McpAreaToolTests.Methods, .. McpHostActionTests.Methods, .. McpServerChangeTests.Methods];
 
     [Fact]
-    public async Task NoToolReachesUsersRolesDeviceGroupsAccessKeysLicensePluginsSettingsChangesBackupsOrResets()
+    public async Task NoToolReachesUsersRolesDeviceGroupsAccessKeysLicenseKeysPluginsBackupsOrResets()
     {
-        // Rule 5: an agent can never raise rights; these stay GUI only (docs/spec/mcp.md "Not over MCP").
+        // Rule 5: an agent can never raise rights; these stay GUI only (docs/spec/mcp.md "Not over MCP"). Server settings,
+        // the MCP server, the Assistant and the trial are previews and runs for administrators (decision 2026-11-15).
         await using var server = await McpTestServer.StartAsync(turnOn: false);
         var tools = server.Host.Get<ToolRegistry>().All;
         Assert.Equal(Stage1Tools.Length + AreaTools.Length, tools.Count);
@@ -157,10 +158,14 @@ public sealed partial class McpToolTests
         ];
         // License, plugins and MCP: only the reads of oadm_server_status (what every signed-in user sees), never a change.
         // The version check reads what the new version dialog shows (decision 2026-11-15); Install now stays in OADM.
-        string[] readsOfGuiServices = ["/oadm.v1.LicenseService/GetLicense", "/oadm.v1.PluginService/ListPackages", "/oadm.v1.McpService/Get", "/oadm.v1.UpdateService/Get"];
-        Assert.DoesNotContain(methods, m => !readsOfGuiServices.Contains(m) && guiOnly.Any(s => m.StartsWith("/oadm.v1." + s + "/", StringComparison.Ordinal)));
-        // Delete all tasks is a preview and a run since the decision of 2026-11-15; Delete all devices stays in OADM.
-        Assert.DoesNotContain(methods, m => m is "/oadm.v1.SettingsService/Set" or "/oadm.v1.DeviceService/RemoveAll");
+        string[] allowed =
+        [
+            "/oadm.v1.LicenseService/GetLicense", "/oadm.v1.PluginService/ListPackages", "/oadm.v1.McpService/Get", "/oadm.v1.UpdateService/Get",
+            "/oadm.v1.McpService/Set", "/oadm.v1.LicenseService/StartTrial",
+        ];
+        Assert.DoesNotContain(methods, m => !allowed.Contains(m) && guiOnly.Any(s => m.StartsWith("/oadm.v1." + s + "/", StringComparison.Ordinal)));
+        // Never the stored credential list's passwords, a license key, a backup or a restore.
+        Assert.DoesNotContain(methods, m => m is "/oadm.v1.SettingsService/RevealCredential" or "/oadm.v1.SettingsService/AddCredential" or "/oadm.v1.LicenseService/ImportLicense");
     }
 
     [Fact]

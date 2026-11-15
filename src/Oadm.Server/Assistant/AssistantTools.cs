@@ -57,6 +57,11 @@ internal static class AssistantTools
             "oadm_task_query" => "Reading the device",
             "oadm_devices_optics" or "oadm_devices_ptz" => "Reading the camera",
             "oadm_update_check" => "Checking for a new version",
+            "oadm_settings_get" => "Reading the server settings",
+            "oadm_server_status" => "Looking at the server",
+            "oadm_sites_list" or "oadm_sites_waiting" => "Looking at sites",
+            "oadm_assistant_test" => "Testing the provider",
+            "oadm_devices_certificate_trust_preview" => "Reading the device certificates",
             _ when IsPreview(tool.Name) => "Preparing the plan",
             _ => tool.Title,
         };

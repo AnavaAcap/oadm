@@ -228,6 +228,13 @@ public static partial class OadmServerHost
                     .. Tools.HostActionTools.Create(sp.GetRequiredService<Tools.ToolHandles>()),
                     .. Tools.DeviceChangeTools.Create(sp.GetRequiredService<Tools.ToolHandles>(), sp.GetRequiredService<TimeProvider>()),
                     .. Tools.SettingsTools.Create(),
+                    .. Tools.ServerChangeTools.Create(sp.GetRequiredService<Tools.ToolHandles>(), new Tools.AgentServerCalls(
+                        call => call.CallAsync<Mcp.McpGrpcService, Oadm.Contracts.V1.Empty, Oadm.Contracts.V1.McpState>(
+                            Tools.ServerChangeTools.McpGetPath, new Oadm.Contracts.V1.Empty(), (s, r, c) => s.Get(r, c)),
+                        (call, settings) => call.CallAsync<Mcp.McpGrpcService, Oadm.Contracts.V1.McpSettings, Oadm.Contracts.V1.McpState>(
+                            Tools.ServerChangeTools.McpSetPath, settings, (s, r, c) => s.Set(r, c)))),
+                    .. Tools.SiteChangeTools.Create(sp.GetRequiredService<Tools.ToolHandles>()),
+                    .. Tools.DeviceTrustTools.Create(sp.GetRequiredService<Tools.ToolHandles>()),
                     Tools.ServerStatusTool.Create(call => call.CallAsync<Mcp.McpGrpcService, Oadm.Contracts.V1.Empty, Oadm.Contracts.V1.McpState>(
                         Tools.ServerStatusTool.McpPath, new Oadm.Contracts.V1.Empty(), (s, r, c) => s.Get(r, c))),
                     .. Tools.FileTools.Create(cursors, sp.GetRequiredService<Tools.ToolHandles>()),
