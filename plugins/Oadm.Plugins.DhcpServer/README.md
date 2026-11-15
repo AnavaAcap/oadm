@@ -108,7 +108,14 @@ leases, lease version), `save` (field errors per field; `otherServers` when a co
 (add/edit, field errors "Mac", "Address", "Name"), `makeStatic`, `deleteStatic`, `release` (forgets a dynamic lease).
 Events: `state` (status changed), `leases` (changed and removed leases with the lease version, batched every 500 ms; see
 "Device groups" for the parts; the page ignores versions it already has).
-MCP (docs/spec/mcp.md): the read-only tools `oadm_dhcp_status` and `oadm_dhcp_leases`.
+MCP (docs/spec/mcp.md): the read-only tools `oadm_dhcp_status` and `oadm_dhcp_leases`, and the page's lease actions
+(`Tools/DhcpPageTools`, `PluginPageTools`, decision 2026-11-15) as a preview and a run each, with the rights of their page
+methods (Administrator, "manage", users with all devices; only the runs are audited): `oadm_dhcp_static_lease_save`
+(`saveStatic`, add or edit with `original_mac`), `oadm_dhcp_static_lease_delete` (`deleteStatic`, destructive),
+`oadm_dhcp_lease_make_static` (`makeStatic`) and `oadm_dhcp_lease_release` (`release`, destructive). The preview checks
+like the page and changes nothing: `DhcpServerService.CheckStatic` (the page's field texts and the store's conflicts through
+`LeaseStore.CheckStatic`, shared with `SetStatic`), `FindLease` for the others ("The static lease no longer exists.",
+"The dynamic lease no longer exists.", "The lease no longer exists."). Tests: `PageToolTests`.
 
 ## Code
 

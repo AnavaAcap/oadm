@@ -19,8 +19,8 @@ public sealed class ToolTests
         await plugin.StartAsync(ctx, CancellationToken.None);
         ICorePlugin core = plugin;
         Assert.Equal("dhcp", core.ToolArea);
-        Assert.Equal(["status", "leases"], core.Tools.Select(t => t.Name));
-        Assert.All(core.Tools, t =>
+        Assert.Equal(["status", "leases", "static_lease_save", "static_lease_delete", "lease_make_static", "lease_release"], core.Tools.Select(t => t.Name));
+        Assert.All(Tools.DhcpTools.All, t =>
         {
             Assert.Equal(UserRole.Operator, core.RequiredRole(t.Method));
             Assert.False(core.IsAudited(t.Method));
@@ -99,8 +99,8 @@ public sealed class ToolTests
         Assert.Contains("gate 1", before, StringComparison.Ordinal); // there is something to compare
 
         ICorePlugin core = plugin;
-        Assert.All(core.Tools, t => Assert.False(t.Changes)); // no change tool here: every tool is a read
-        foreach (var tool in core.Tools)
+        Assert.All(Tools.DhcpTools.All, t => Assert.False(t.Changes)); // the reads; the lease actions: PageToolTests
+        foreach (var tool in core.Tools.Where(t => !t.Changes))
         {
             Assert.NotNull(await ctx.InvokeAsync(plugin, admin, tool.Method, null));
             Assert.NotNull(await ctx.InvokeAsync(plugin, admin, tool.Method, """{"state":"reserved","limit":1}"""));
