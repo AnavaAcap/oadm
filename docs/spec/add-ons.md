@@ -234,6 +234,15 @@ computer. A client loads the client part its server hands it: the user must trus
   it comes back when the state changes, so an OADM update with nothing new for the add-on shows nothing.
 - The plugin list shows an installed add-on like every other plugin, without a mark (decision 2026-11-03: the list stays as it was).
 
+## AI agents
+
+Decision 2026-11-15 (`docs/spec/mcp.md` "Administration as built"): an administrator's agent installs, takes back, removes
+and restarts for an optional plugin as previews and runs. The agent sends the ZIP with an upload link
+(`oadm_files_upload_link`, the name of the release file); the run calls `UploadAddOn` with a header whose `file_id` names
+that upload (no data chunks), so the server reads the caller's upload and checks its bytes against the built-in SHA-256
+exactly as for the client (rule 2 unchanged; a changed ZIP is refused and audited, nothing is installed); the upload is
+deleted once the plugin is installed. The preview shows the file's SHA-256; the server never downloads a ZIP for an agent.
+
 ## Tests
 
 - Server: install, swap, load, remove; every refusal (no hash, wrong hash, a name of another plugin, version or system, another

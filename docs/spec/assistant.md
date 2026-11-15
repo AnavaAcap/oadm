@@ -127,7 +127,12 @@ shows the chat.
   characters, at most 12 lines with "+N more". Run is red for a delete or removal (`destructive`). The previews of the host
   actions (decision 2026-11-15, docs/spec/mcp.md "Host actions as built") each have their card: tags, the waiting list, tasks
   deleted, a rule turned on or off, copied or tested, the event log cleared, recipients, compliance and its checks, a site
-  renamed, zoom, focus, PTZ, the RTSP port and the vulnerability list ("2 addresses", "1 rule", "3 devices").
+  renamed, zoom, focus, PTZ, the RTSP port and the vulnerability list ("2 addresses", "1 rule", "3 devices"). So do the
+  administration's previews (decision 2026-11-15, docs/spec/mcp.md "Administration as built"): the license ("1 license",
+  the key in the card's field), a plugin on or off and its license, an optional plugin installed or removed, the restart
+  for one, the automatic backups, Back up now (the password twice in the card's fields; the run's file is a file card), a
+  backup deleted or restored, and Install now ("1 server"); Run is red for a removal, a delete, a restore, a restart and
+  Install now. A device request (`oadm_device_request_preview`) is a plugin preview: its plain fields and "3 devices".
 - **Secret fields** (decision 2026-11-15, `docs/spec/mcp.md` "Secrets"): a preview whose run needs a secret
   (`AssistantPreviewCard.secrets`) shows one `ui:PasswordBox` per secret in a `ui:FormField` ("Password") above Cancel and
   Run; "Enter the password." below the field once it was edited or left empty, Run disabled with that reason as its tooltip

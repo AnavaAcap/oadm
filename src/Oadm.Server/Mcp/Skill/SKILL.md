@@ -100,6 +100,10 @@ Setting a parameter, action rules or stream profiles on many devices is Configur
 preview then run too; read each device's answer with `oadm_tasks_get`. Prefer a task from the catalog when one does the
 job.
 
+No tool and no command fits: ask the user first whether you may look in the Axis docs, then read the request in
+developer.axis.com with your own web access and send it with `oadm_device_request_preview` (a change: one device first,
+check its answer, then more devices; never a password in a request).
+
 Vulnerabilities: `oadm_vulnerabilities_summary` first, then `oadm_vulnerabilities` for the devices and their CVEs.
 "Possible" CVEs are not counted: report them apart and point to the Axis advisory.
 
@@ -119,6 +123,12 @@ More changes, each a preview and a run like the others:
 - Sites: `oadm_sites_rename_preview`. Vulnerability list: `oadm_vulnerabilities_update_preview`.
 - Camera: read `oadm_devices_optics` or `oadm_devices_ptz` first, then `oadm_devices_optics_preview` (zoom, focus) or
   `oadm_devices_ptz_preview` (home, preset, zoom, center). The camera moves: say so. RTSP port: `oadm_devices_rtsp_port_preview`.
+- Administration (an Administrator key): license `oadm_license_import_preview`, `oadm_license_trial_preview`; plugins
+  `oadm_plugins_enable_preview`, `oadm_plugins_license_preview`; optional plugins `oadm_plugins_optional` and
+  `oadm_plugins_optional_install_preview` with the ZIP of an upload link; backups `oadm_backups`,
+  `oadm_backups_schedule_preview`, `oadm_backups_create_preview`, `oadm_backups_restore_preview`; `oadm_support_report`;
+  a new version `oadm_update_check`, then `oadm_update_install_preview`. A restore, a restart or an update disconnects you:
+  show the plan's warnings to the user first.
 
 What the pages show (read only, while their plugin is on): SD cards `oadm_edge_storage_cards`, recordings of a camera
 `oadm_recordings_search`, image health `oadm_image_health_results`, inputs and outputs `oadm_io_ports`, open event
@@ -131,7 +141,7 @@ dashboard button, start a load test) is a preview and a run like any change. The
 
 Files: a tool that makes a file (`oadm_devices_export`, `oadm_compliance_export`, a task's `result_file` in
 `oadm_tasks_get`, a plugin's export or report) answers a `file_ref`, never the bytes. Call `oadm_files_download_link` with
-it (or with the `task_id`) and run its `command` in your shell; the file never passes through you. Never a backup.
+it (or with the `task_id`) and run its `command` in your shell; the file never passes through you.
 
 ## Rules
 
@@ -150,8 +160,8 @@ it (or with the `task_id`) and run its `command` in your shell; the file never p
 - **Look-only keys.** A key with a look-only role (such as Viewer) lists no tool that changes something.
 - **Limits.** Answers are cut at 32 KB. When an answer says there is more, narrow the filter. A key has call limits per
   second and per minute. On "too many calls", wait.
-- **Not over MCP.** Users, roles, device groups, access keys, changing the license, plugins on or off, server settings, backup
-  restore, live video, Delete all devices and Install now of a new version are done in OADM only.
+- **Not over MCP.** Users, roles, device groups, access keys, the MCP and assistant settings, server settings,
+  live video and Delete all devices are done in OADM only.
 
 ## Workflows
 

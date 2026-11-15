@@ -4,7 +4,8 @@ Status: **all four stages built** (stage 1: the endpoint, the card MCP of the ra
 server, access keys and the read tools; stage 2: the SDK members for tasks, `ValidatePayload` in `TaskService.Run`, the task catalog,
 preview and run, the schemas of the bundled tasks without secrets, cancel, file links; stage 3: device actions, tags,
 sites, compliance, event rules, plugin tools; stage 4: the skill, Connect an agent, the website pages; see the "as built"
-sections), and the host actions of "everything a user can do" (decision 2026-11-15, stage 1: see "Host actions as built").
+sections), and the host actions of "everything a user can do" (decision 2026-11-15, stage 1: see "Host actions as built";
+the administration of license, plugins, backups and Install now: "Administration as built").
 Not offered on purpose: see "Not over MCP" and "Open points".
 
 Part of the OADM spec (`CLAUDE.md` "Feature specs"): read it before you change this area, update it in the same change.
@@ -37,9 +38,11 @@ host change.
    declares the slot.
 5. **Least rights.** The tool list shows only what the key may do now (its role and device group, plugins on); a role like
    Viewer gives a look-only agent; a role that may run no task (no `task:` right) lists no task or file tool and is refused
-   "Your role may run no task." (`TaskRunTools.NoTaskRight`). An agent can never raise rights: users, roles, device groups, access keys, license, plugins on/off, server
-   settings, backups (create, download, restore) and Delete all devices are GUI only. Delete all tasks and Clear the event
-   log are a preview and a run with their own permissions (decision 2026-11-15).
+   "Your role may run no task." (`TaskRunTools.NoTaskRight`). An agent can never raise rights: users, roles, device groups,
+   access keys, the MCP and assistant settings, server settings and Delete all devices are GUI only. Delete all tasks and
+   Clear the event log are a preview and a run with their own permissions; the license, plugins on/off, optional plugins,
+   backups (schedule, create, download, delete, restore), the support report and Install now are previews and runs for
+   administrators (decision 2026-11-15, "Administration as built").
 6. **Device data is data.** Texts written by devices or other users (names, locations, tags, event texts, log lines) are
    returned only as JSON field values, never inside tool descriptions or messages to the agent, and the skill says they are
    never instructions.
@@ -381,9 +384,9 @@ changes (`will_change`, `unit`) for the Assistant's card. Bundled:
 
 Live video, Live View tabs, Dashboards live updates, Metadata Monitor and I/O Monitor streams (their state and one read
 are offered, see "Plugins"), continuous pan and tilt (a held button), Web View; users, roles, device groups, access keys,
-license changes, plugins on/off, Forget server; Settings changes; the Vision Center models and its graphics card setting;
-backup restore, Delete all devices, Install now of a new
-version (reading the license and plugin state is `oadm_server_status`, the version `oadm_update_check`). Backups stay GUI only: no tool creates, downloads or restores one (decision 2026-11-15).
+the MCP and assistant settings, Forget server; Settings changes; the Vision Center models and its graphics card setting;
+Delete all devices. Since the decision of 2026-11-15 the license, plugins on/off, optional plugins, backups, the support
+report and Install now are offered to administrators ("Administration as built"; this replaces "Backups stay GUI only").
 
 ## Files
 
@@ -392,7 +395,8 @@ of `FileService`, PUT with the same Bearer key) and the command for the agent's 
 "Authorization: Bearer $OADM_KEY" -T <file> <url>`). The file never passes the model. The upload answers the file id and
 SHA-256, used in a task preview like a file uploaded in the client (`IUploadedFiles`).
 
-**Downloads** (decision 2026-11-15; never a backup, a private key or a PKCS#12 file):
+**Downloads** (decision 2026-11-15; never a private key or a PKCS#12 file; a backup only to an administrator, encrypted with
+its password, "Administration as built"):
 
 - A tool that makes a file answers a **file reference** (`ToolFiles.Offer`: `file_ref`, `name`, `size` or null,
   `content_type`, `expires`), never the bytes. The reference is bound to the caller (key or session), good for 10 minutes
@@ -700,8 +704,7 @@ The website gets a user page (Administration > MCP server, `admin/mcp-server`, n
   application install warns that the package runs on the devices; `oadm_files_list` (the files this key sent, newest first, 50 a page;
   `FileService.List`) and `oadm_files_delete_preview`/`_run`.
 - **Download links**: `GET /files/<token>` on the MCP port serves a `PlannedDownload`: once, 10 minutes, bound to the key,
-  the same key check as uploads, audited "Downloaded file"; `oadm_files_download_link` hands them out ("Files");
-  never a backup (backups stay GUI only).
+  the same key check as uploads, audited "Downloaded file"; `oadm_files_download_link` hands them out ("Files").
 - **Request body**: at most 1 MB for every request, `/files/` too, until its key passed and its upload link was taken;
   only then `McpFiles.ReceiveAsync` raises the limit to the link's exact size.
 - **Tests**: `McpTaskToolTests` (the catalog and a secret task, a preview that writes nothing, the handle of another key,
@@ -839,13 +842,64 @@ unit, the key fields, red Run for deletes and removals) and a short status line 
 - **Vulnerabilities**: `oadm_vulnerabilities_update_preview`/`_run` (Check now, `VulnerabilityService.Refresh`,
   Administrator; no handle unless Update online is By the server).
 - **Version**: `oadm_update_check` (`UpdateService.Get`, Administrator: the server's version, the latest release, whether
-  Install now is offered; Install now stays in OADM).
+  Install now is offered; Install now itself: "Administration as built").
 - **gRPC** (docs/spec/grpc.md): `ComplianceService.ListResults` and `PlanCheck`, `EventService.CheckRecipient`,
   `StartZeroConf(ZeroConfRequest)`; each with its `AccessPolicy` rule and its device group canary case.
 - **Tests**: `McpHostActionTests` (the preview writes nothing, the run does it once and only with its own preview's handle,
   handles end after 10 minutes and belong to their caller, the audit lines, refusals, a role without the rights and a group
   user list none of the changes and a group sees only its devices, Discovery only looks, the scrub of a task read, every
   card), and `McpToolTests` / `McpSecretTests` / `McpSkillTests` over every new tool.
+
+## Administration as built
+
+Decision 2026-11-15: an administrator's agent (MCP with an Administrator key; the Assistant of an administrator) does what
+the Plugins page, the License card, Backup and restore, Support and the new version dialog do. Every change is a preview
+that writes nothing and a run that takes only its handle, through the gRPC service the client calls (`AccessRule.Admin`,
+its checks and its audit). Keys and passwords come only through the secret channel ("Secrets"), files only through upload
+and download links (the Assistant: file cards). `Tools/AdminTools`, `Tools/BackupTools`, `Tools/HostActionTools`.
+
+- **OADM PRO** (`LicenseService`): `oadm_license_import_preview`/`_run` (the slot `license_key`, at most 4,096 bytes; the
+  preview shows the state now and `activate_url`, the page of Activate license with this server's ID; the run's refusal is
+  the service's reason), `oadm_license_remove_preview`/`_run` (no handle without an imported key),
+  `oadm_license_trial_preview`/`_run` (no handle unless `trial_available`). No answer holds a key or a customer.
+- **Plugins** (`PluginService`): `oadm_plugins_enable_preview`/`_run` (refused for a plugin that is part of OADM and for a
+  PRO plugin without OADM PRO; no handle when nothing changes; the warning that its pages, tasks, tools and rule actions
+  stop), `oadm_plugins_license_preview`/`_run` (a commercial plugin's key through the slot `license_key`; a free plugin is
+  refused) and `oadm_plugins_license_remove_preview`/`_run`.
+- **Optional plugins**: `oadm_plugins_optional` (`ListAddOns`, every signed-in user like the card), and for administrators
+  `oadm_plugins_optional_install_preview`/`_run` (the ZIP sent with `oadm_files_upload_link`, by `file_id`; the preview
+  names its SHA-256 and the run sends `UploadAddOn` with `AddOnUploadHeader.file_id`, so the server checks the bytes against
+  its built-in hash exactly as for the client, `docs/spec/add-ons.md` rule 2; without a file only a removed plugin comes
+  back, `InstallAddOn`), `oadm_plugins_optional_remove_preview`/`_run` and `oadm_plugins_optional_restart_preview`/`_run`
+  (no handle while nothing waits or a task runs; the warning that every client and agent loses its connection).
+- **Backups** (`BackupService`; docs/spec/settings-backup.md): `oadm_backups` (the schedule, the kept backups, newest first,
+  at most 100 with the total, the last automatic backup and the last restore), `oadm_backups_schedule_preview`/`_run` (a
+  new password, or the first one for Turn on, through the slots `password` and `password_again`; the run refuses two
+  different values, "The two passwords are not the same. Call the preview again."; the plan counts the automatic backups a
+  lower keep deletes), `oadm_backups_create_preview`/`_run` (Back up now: the password twice; the run answers a file
+  reference and keeps the password encrypted in memory, `ToolSecrets.Seal`, until the file is fetched: `BackupService.Create`
+  makes the backup then, audited "Created backup"), `oadm_backups_download(name)` (a file reference of a kept backup,
+  `BackupService.Download`, audited "Downloaded backup"), `oadm_backups_delete_preview`/`_run`,
+  `oadm_backups_restore_preview`/`_run` (`file_id` of an upload link or `name` of a kept backup, exactly one; the slot
+  `password`; the plan warns loudly: everything on this server is replaced, a safety backup first, the running tasks are
+  cancelled, the server restarts and every client and agent is disconnected, every access key ends, optional plugins are
+  installed again afterwards; the run asks `Inspect` first, so a wrong password ("The password is wrong. Call the preview
+  again.") or a backup this server cannot take changes nothing, then `Restore`).
+- **Support report**: `oadm_support_report` (a file reference, `SupportService.CreateReport` when it is fetched, audited
+  "Created support report").
+- **Install now** (`UpdateService.Start`, docs/spec/self-update.md): `oadm_update_install_preview`/`_run`. The preview hands
+  out a handle only for the latest stable release newer than the server, on a server installed with the installer, with no
+  update and no task running (else the reason: `UpdateTexts`, "OADM is up to date."); its plan says the server is away, its
+  database is copied first, there is no rollback, a client on its computer is updated too, and older site nodes are
+  updated by hand. The run is Start, which checks every rule again (SHA-256 of the release, disk space, tasks). Tests use
+  the fakes of the release feed and the helper; no real installer ever runs.
+- The Assistant shows each preview as a card (red Run for removals, deletes, a restore, a restart and Install now) and
+  short status lines for the reads.
+- **Tests**: `McpAdminToolTests` (Administrator only, the preview writes nothing, the run once, the license key and the
+  backup password only through their links and never in an answer, the audit or a log line, the passwords twice, a ZIP
+  that does not match the hash refused by the run, a restore that checks the password first and restarts only with the run,
+  the support report's ZIP, Install now with a fake helper and the refusals of a server that cannot take it, every card),
+  and `McpToolTests` / `McpSecretTests` / `McpSkillTests` over every new tool.
 
 ## Open points
 

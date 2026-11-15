@@ -114,7 +114,10 @@ Every tool with what it does: [MCP tools](./tools/).
 - Read which devices fail a compliance check, turn Compliance on or off, create, change, turn off and delete checks, and
   check now.
 - Zoom, focus and move a PTZ camera to home, a preset or a point, and set the RTSP port OADM uses.
-- Fetch the vulnerability list now and check for a new OADM version.
+- Fetch the vulnerability list now, check for a new OADM version and install it (an Administrator key).
+- With an Administrator key: import or remove the OADM PRO license, start the trial, set plugin licenses, turn plugins on
+  or off, install and remove optional plugins from their ZIP, set the automatic backups, back up now, download, delete and
+  restore backups, and create the support report. A license key or backup password is typed into your own terminal.
 - Read a setting, the action rules or the stream profiles of many devices, such as which cameras have capture frequency
   50 Hz.
 - Read PKI certificates and create one, and read the EST and 802.1X servers, the NTP server, DHCP server and Hardening
@@ -132,10 +135,14 @@ Every tool with what it does: [MCP tools](./tools/).
 - Run commands of the [VAPIX Commander](../../tools/vapix-commander/) library and saved commands on many devices, for settings
   no task covers (siren and light, PTZ and more). Not offered: dangerous commands, commands with a password or
   a file, and changes OADM's own tasks make. A value that looks like a password in an answer shows as `***`.
+- Send a VAPIX request of their own to the devices of a filter, with the VAPIX Commander permission Send to one device.
+  A change runs on one device first and on more only after it worked there. A request that can lock OADM out or break a
+  device (accounts, network, HTTPS, 802.1X, AXIS OS, factory default) also needs Send dangerous requests; a restart does
+  not. No password goes into a request.
 - Upload files, such as a firmware file, without the file passing through the agent.
 - Fetch files OADM makes: the device list and compliance results as CSV, a task's result, a recording, the snapshot
   report, a certificate (never its key) and the hardening results. The agent gets a one-time download link and saves the
-  file from its shell; the file never passes through the agent. Never a backup.
+  file from its shell; the file never passes through the agent. A backup stays encrypted with its password.
 - Set a password a change needs without the agent seeing it: the agent gives you a command, you run it in your own
   terminal and type the password there. It goes straight to OADM and is used once.
 
@@ -151,8 +158,8 @@ it. The audit log names the key: "MCP Lobby-bot".
 - Read passwords, private keys, license keys or tokens, or get one through the chat. A password you type into the
   agent's command goes to OADM only. A task whose password has no such command yet is not offered: set the password in
   OADM.
-- Change users, roles, device groups, access keys, the license, plugins or the server settings, restore a backup,
-  delete all devices or install a new version.
+- Change users, roles, device groups, access keys, the MCP and assistant settings or the server settings, or delete all
+  devices.
 - Show live video, pan and tilt a camera continuously, upload or delete Vision Center models, or set a password of a
   recipient or a saved command.
 - Do more than the role and devices of their key.

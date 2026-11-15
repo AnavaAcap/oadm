@@ -253,7 +253,7 @@ used again.
     4.10.0; `AddOnList` of `AddOnInfo` {id, display_name, description, state, percent, message, version, can_install,
     client_digest = 10, download_url = 11, update_available = 12, update_waits = 13; field 4 reserved}, every add-on of the server's version from `AddOnCatalog`;
     `client_digest` while installed; `download_url` the ZIP of this version and system, empty in a build without the
-    hash), `UploadAddOn(stream AddOnUploadChunk)` (Admin; bidirectional; first message `AddOnUploadHeader` {id, file_name, size},
+    hash), `UploadAddOn(stream AddOnUploadChunk)` (Admin; bidirectional; first message `AddOnUploadHeader` {id, file_name, size, file_id: instead of data chunks the caller's upload of `FileService.Upload`, an agent's upload link, NOT_FOUND when it is gone, deleted once installed; decision 2026-11-15},
     then data chunks of 256 KB; answers a stream of `AddOnProgress` {step Upload, Check or Install, percent, done, error},
     the last message has done or error set, error also for a refused file; the server may answer before it has read
     the whole file; INVALID_ARGUMENT no header or a second one; NOT_FOUND unknown add-on; FAILED_PRECONDITION already installed,
