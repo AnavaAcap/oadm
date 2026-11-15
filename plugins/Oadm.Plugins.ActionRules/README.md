@@ -105,4 +105,34 @@ says the device's reason.
 
 The read-only tool `oadm_device_rules_list` (`Tools/ActionRuleTools.cs`, docs/spec/mcp.md "Plugins"; area `device_rules`,
 apart from OADM's own event rules): the table the editor read last for the caller's device scope, a summary per rule
-name and one row per device and rule, paged. It reads no device. Tests: `ToolTests`.
+name and one row per device and rule (with the start event's `event_topic`), paged, and the editor's recent changes of the
+caller's devices (`changes`, the newest 20, their ids for undo). It reads no device. Tests: `ToolTests`.
+
+### Agents run the editor's task (SDK 0.13.0)
+
+The task `oadm.action-rules.task` takes `RuleAgentPayload` (`Agent/`) as its `PayloadType`, so the host's task tools
+(`oadm_tasks_catalog`, `oadm_task_preview`, `oadm_task_run`) offer the editor's rule operations. No tool of its own.
+
+- `action`: `change` (`ruleName` + `change`: `name`, `enabled`, `timeoutSeconds`, `parameters`, `recipientName`; on and
+  off is `enabled` only), `delete` (`ruleName`), `copy` (`sourceDeviceId`, `sourceRuleId`, optional `change` for the
+  copies), `create` (`rule`: the rule builder's `NewRule`: name, event topic and values, `whileActive`, conditions, a
+  built-in `scheduleId`, timeout, template, parameters, recipient), `undo` (`undoOf`: an id of `changes`). Events, schedules
+  of a change, recipients and schedules themselves stay in the editor.
+- Rules are matched by name on each device as the editor read them last (every table, the newest row), at that version;
+  a device the editor has not read is skipped ("Not read in the Action Rule Editor. Read the rules there first.").
+- `ValidatePayload` runs the page methods' checks that read no device, at the input's fields with the page's texts
+  (`RulePatch.Problem`, `BuildProblem`, `UnknownSetting`, the copy's source rule in the last read, the undo's saved
+  devices); a field not used by the action is refused. Passwords: a setting `RuleText.IsSecret` names is refused ("Set
+  passwords in the Action Rule Editor."); `TODO(secret-handle)` in `ActionRulesPlugin.Agent.cs` marks where a secret handle
+  of the agents' secret channel goes later.
+- `PlanAsync` from the last read only: skipped "No rule with this name.", "Already on." / "Already off.", "The rule is
+  copied from this device.", "Not changed by this change."; warnings: a delete counts the rules and devices, a copy takes
+  the rule's stored passwords along, an undo names devices of the change outside the choice.
+- `PagePermissions`: `delete` for delete, `manage` for the others (as the page's methods); a payload of the page (it has
+  `runId`) answers null and starts only from the page.
+- The run: the first task of a run does the page method's part once for the whole run (the run saved for undo with the
+  caller's device scope, the copy's source read with its passwords on the server, the undo checked and marked; by the
+  payload string, which the engine hands every task of a run), then each task gets the editor's own payload for its
+  device and runs unchanged (fresh read, version check, undo saves). A failure of that part fails every task with "Nothing
+  was changed."; a task of an agent's run counts as running while it runs, and one that starts after its run was undone
+  refuses. Tests: `AgentTaskTests`.
