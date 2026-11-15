@@ -98,7 +98,15 @@ AuthTokens, AuditEntries) and `Roles`; client `Shell/AppShell`, `LoginViewModel`
   "Created access key" (the name; role, devices and the end in the detail) and "Deleted access key" by the administrator;
   "Access key refused" ("MCP <key name>" when its row is still there, else "Unknown access key" or "No access key"; one
   entry per address and key a minute with the count). `AccessKeyService` (`mcp.proto`): Administrator only (the page MCP & Assistant,
-  card MCP).
+  card MCP, or an Administrator's agent). A key never deletes itself (`AccessKeyTexts.OwnKey`), and a key a key makes ends at
+  the latest with the maker's own key; a new key leaves the server once, as a one-time link or the Assistant's Copy card,
+  never in a tool answer, a log line or the audit log ([mcp.md](mcp.md) "Access keys").
+  **AI agents and access** (decision 2026-11-15): users, roles, device groups and access keys can be managed by AI agents (MCP
+  and the Assistant) with the caller's rights, through the same Administrator-only services, checks and audit as the
+  Permissions page: an Administrator's agent may create another administrator, as the Administrator could; a caller of any
+  other role never sees these tools. The guards of the page hold (never the last enabled administrator, never the caller's
+  own role, state or account); a user's password reaches OADM only through the secret channel ([mcp.md](mcp.md) "Secrets",
+  "Access as built").
   `AuthMaintenanceHostedService` removes expired sessions and old audit entries hourly. A new password or a disabled user
   ends the sessions; a new role applies to the next call (`AuthTokenStore.SetRole`). An expired session ends like a
   logout (`SessionsEnded` for its token, when its next use finds it expired or in the hourly cleanup): its streams, plugin

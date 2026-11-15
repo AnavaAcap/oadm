@@ -193,6 +193,10 @@ The host side is in `docs/spec/plugins.md` "Host side of the call context".
   devices") that counts like the server (an excepted device is out, also when it is a single device; ticking it takes it
   back). An except stays stored while no chosen site or tag covers the device. The Owner field of compliance checks:
   [compliance.md](compliance.md).
+- **AI agents** (decision 2026-11-15, [mcp.md](mcp.md) "Access as built"): an Administrator's agent lists, creates, changes
+  and deletes groups with the tools `oadm_device_groups_*` (sites and tags by name, single devices by serial, except),
+  counted like the editor and saved on the revision read; the plan names the users whose devices change or who have none
+  after a delete.
 - **User form:** a **Devices** field (All devices or a group); **Your role** shows the group and its summary. For an
   administrator the field is locked and shows what the account stores (a group stays stored and applies once the role
   changes); every role change below Administrator sends the Devices choice the form shows. A chosen group deleted while

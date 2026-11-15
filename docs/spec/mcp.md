@@ -4,7 +4,8 @@ Status: **all four stages built** (stage 1: the endpoint, the card MCP of the ra
 server, access keys and the read tools; stage 2: the SDK members for tasks, `ValidatePayload` in `TaskService.Run`, the task catalog,
 preview and run, the schemas of the bundled tasks without secrets, cancel, file links; stage 3: device actions, tags,
 sites, compliance, event rules, plugin tools; stage 4: the skill, Connect an agent, the website pages; see the "as built"
-sections), and the host actions of "everything a user can do" (decision 2026-11-15, stage 1: see "Host actions as built").
+sections), the host actions of "everything a user can do" (decision 2026-11-15, stage 1: see "Host actions as built") and
+users, roles, device groups and access keys for an Administrator's agent (decision 2026-11-15: see "Access as built").
 Not offered on purpose: see "Not over MCP" and "Open points".
 
 Part of the OADM spec (`CLAUDE.md` "Feature specs"): read it before you change this area, update it in the same change.
@@ -37,9 +38,15 @@ host change.
    declares the slot.
 5. **Least rights.** The tool list shows only what the key may do now (its role and device group, plugins on); a role like
    Viewer gives a look-only agent; a role that may run no task (no `task:` right) lists no task or file tool and is refused
-   "Your role may run no task." (`TaskRunTools.NoTaskRight`). An agent can never raise rights: users, roles, device groups, access keys, license, plugins on/off, server
-   settings, backups (create, download, restore) and Delete all devices are GUI only. Delete all tasks and Clear the event
-   log are a preview and a run with their own permissions (decision 2026-11-15).
+   "Your role may run no task." (`TaskRunTools.NoTaskRight`). An agent never gets more rights than its caller. Users, roles,
+   device groups and access keys (decision 2026-11-15, "Access"): an agent manages them with its caller's rights, exactly as
+   that caller could in the GUI; their services are Administrator only, so only an Administrator's key or session lists
+   them, and an Administrator's agent may create another administrator or an Administrator key as the Administrator could on
+   the Permissions page (the plan says so in words before Run); a caller of any other role never. The GUI's guards hold
+   (never the last enabled administrator, never the caller's own role, state or account), an agent never deletes its own
+   key and a key it makes never ends after its own. License, plugins on/off, server settings, backups (create, download,
+   restore) and Delete all devices are GUI only. Delete all tasks and Clear the event log are a preview and a run with their
+   own permissions (decision 2026-11-15).
 6. **Device data is data.** Texts written by devices or other users (names, locations, tags, event texts, log lines) are
    returned only as JSON field values, never inside tool descriptions or messages to the agent, and the skill says they are
    never instructions.
@@ -124,6 +131,17 @@ made it. There is no Read only flag and no permission "Use AI agents": the key's
 - Audit: every change, upload and download an agent causes as "MCP <key name>"; "Created access key" (the name; role,
   devices and the end in the detail) and "Deleted access key" by the administrator who did it; every failed key as "Access
   key refused".
+- **Keys made by agents** (decision 2026-11-15, "Access"): an Administrator's agent lists, creates and deletes keys with the
+  tools `oadm_access_keys_*`, through the same `AccessKeyService` calls as the dialog. A new key never comes back in a tool
+  answer, a log line or the audit log: the run holds it encrypted with the master key in server memory for one fetch
+  (`OneTimeSecret`), over MCP as `key_link` (a one-time `GET /files/<token>` link, 10 minutes, the caller's key only, the
+  command saves it to `oadm-key.txt` in the user's shell; audited "Downloaded file"), in the Assistant as a card whose Copy
+  fetches it once through `AssistantService.Download` straight to the clipboard (`AssistantRunReply.secret`); a second fetch
+  answers "This access key was fetched already. ..." Guards, checked by the service itself (so every path holds them): a
+  key never deletes itself (`AccessKeyTexts.OwnKey`, like a user's own account), and a key a key makes ends at the latest
+  with the maker's own key (no agent extends its own life; the preview says the end). A key has no change method, so no
+  agent can give a key, its own or another, another role or more devices; the Administrator role it may hold never
+  changes.
 - Limits (HTTP 429 with Retry-After), per key: at most 20 calls a second, at most 4 calls waiting at once and at most 10
   changes a minute ("Too many changes with this access key. Wait a minute."); the whole port takes at most 32 calls waiting
   at once. Every tool that is not a plain read counts as a change (`OadmTool.CountsAsChange`: a run, a task start, or a call
@@ -239,6 +257,16 @@ with its provider and the picture setting, the date, count and source of the lis
 server ID, a customer, a license key, an API key or a certificate. The tools name no MCP type: the host passes the read of
 `McpService.Get` as a function.
 
+### Access
+
+Users, roles, device groups and access keys (decision 2026-11-15: AI agents manage them with the caller's rights). Every
+tool calls the Administrator-only services of the Permissions page and the dialog Access keys in process as its caller, so
+only an Administrator's key or session lists them, and the services' checks, refusals and audit apply. Every change is a
+preview that checks what the page checks and writes nothing, and a run with only its handle; plans that raise rights say so
+in words ("anna becomes Administrator and can change everything in OADM, also users and access keys.", "The new key has the
+role Administrator and all devices: ..."). Passwords only through the secret channel ("Secrets"); a new key only through its
+one-time link or card ("Access keys"). Tools and guards: "Access as built".
+
 **OADM's data first.** OADM already holds most facts (the polled device data, the task history, the logs, the last
 reads of its pages). The tools answer from it; a tool that asks the devices (a VAPIX command, a snapshot) is the last
 resort, and the skill says so. A page's read tool answers what the page read last; the page's own Read or Check is a
@@ -349,8 +377,9 @@ changes (`will_change`, `unit`) for the Assistant's card. Bundled:
 ### Not over MCP
 
 Live video, Live View tabs, Dashboards live updates, Metadata Monitor and I/O Monitor streams (their state and one read
-are offered, see "Plugins"), continuous pan and tilt (a held button), Web View; users, roles, device groups, access keys,
-license changes, plugins on/off, Forget server; Settings changes; the Vision Center models and its graphics card setting;
+are offered, see "Plugins"), continuous pan and tilt (a held button), Web View; license changes, plugins on/off, Forget
+server; Settings changes; a role's start page (users, roles, device groups and access keys are tools since the decision of
+2026-11-15, see "Access"); the Vision Center models and its graphics card setting;
 backup restore, Delete all devices, Install now of a new
 version (reading the license and plugin state is `oadm_server_status`, the version `oadm_update_check`). Backups stay GUI only: no tool creates, downloads or restores one (decision 2026-11-15).
 
@@ -813,6 +842,48 @@ unit, the key fields, red Run for deletes and removals) and a short status line 
   handles end after 10 minutes and belong to their caller, the audit lines, refusals, a role without the rights and a group
   user list none of the changes and a group sees only its devices, Discovery only looks, the scrub of a task read, every
   card), and `McpToolTests` / `McpSecretTests` / `McpSkillTests` over every new tool.
+
+## Access as built
+
+Decision 2026-11-15 (rule 5, "Access"): `Tools/UserTools`, `RoleTools`, `DeviceGroupTools`, `AccessKeyTools`, the shared
+`AccessTools` (paths, finding a user, role, group or key by its name or id, `OneTimeSecret`) and `AccessTexts` (the plans'
+sentences). Names and ids are both taken; `devices` is `"all"` or a device group; the Administrator role always has all
+devices.
+
+- **Users** (`UserService`): `oadm_users_list` (role, devices, enabled, last login, `you`), `oadm_users_add_preview`/`_run`
+  (the name, unique; a role; devices; the slot `password`, the run refused until it is set), `oadm_users_update_preview`/
+  `_run` (role, devices, enabled; the changes as lines "Role: Operator to Administrator"; `ends_sessions` for a disable),
+  `oadm_users_delete_preview`/`_run`, `oadm_users_password_preview`/`_run` (the slot `password`; the user is logged out).
+  The previews refuse what the store refuses, with its texts (`UserStore.OwnRoleOrState`, `OwnAccount`,
+  `LastAdministrator`, `NameTaken`); an access key has no user, so only the last-administrator guard applies to it. Sessions
+  end where the page ends them (a new password, a disabled or deleted user); a new role or new devices apply to the next call.
+- **Roles** (`RoleService`): `oadm_roles_list`, `oadm_roles_permissions` (every right with key, name, group, full device
+  control, plugin on, the roles that have it; `role` narrows to one role's rights), `oadm_roles_save_preview`/`_run` (create
+  with `start_from`, or change; `grant` and `revoke` by key, an unknown key refused at its field; the plan names what the role
+  `gains` and `loses`, the rights of full device control, and how many users and access keys get more rights; the run saves
+  on the role's version, so a change made meanwhile is refused), `oadm_roles_delete_preview`/`_run` (refused for a built-in
+  role and while users or keys have it, `RoleStore.BuiltIn`, `InUse`, `AccessKeyTexts.RoleInUse`). The Administrator role is
+  refused (`RoleStore.AdministratorFixed`); its start page and every role's start page stay in OADM.
+- **Device groups** (`DeviceGroupService`): `oadm_device_groups_list` (rules as the page writes them, sites and tags by
+  name, counts, users), `oadm_device_groups_save_preview`/`_run` (sites and tags by name, `this_server`, serials to replace,
+  add or remove, except; at most 1,000 serials a call; the rules checked with `DeviceGroupRules.Normalize`, counted with
+  `DeviceGroupService.Preview`; the users whose devices change and their new count; saved on the revision read),
+  `oadm_device_groups_delete_preview`/`_run` (as on the page: its users have no devices afterwards and the plan names them;
+  refused while an access key has the group).
+- **Access keys** (`AccessKeyService`): `oadm_access_keys_list` (never a key or hash; `this_key`),
+  `oadm_access_keys_create_preview`/`_run` (name, role, devices, 30, 90 or 365 days; the plan says the role and devices in
+  words), `oadm_access_keys_delete_preview`/`_run`; delivery and guards in "Access keys".
+- **Assistant**: cards for every preview (`AssistantCards`; red Run for the deletes), status lines "Looking at users",
+  "Looking at roles", "Looking at device groups", "Looking at access keys"; the key card `AssistantSecretItem` (title,
+  "Copy it now. OADM cannot show it again.", Copy once).
+- **Tests**: `McpAccessToolTests` (only an Administrator's key lists them, a role with every other right and a group user are
+  refused; the previews write nothing; the last administrator and the caller's own account; a new administrator with the
+  password from the secret channel and the login with it; sessions end on a new password and a disable, a new role on the
+  next call; role rights and refusals; device groups by tag name and the users who lose devices; the key's link once, never
+  in an answer, the audit log or the logs, its end capped by the agent's own; an agent never deletes its own key; the audit
+  lines as "MCP <key name>"), `AssistantTransferTests` (the key card, Copy once, never in the model's requests), client
+  `AssistantTransferUiTests` (the card, Copy to the clipboard once, never shown), and `McpToolTests`, `McpSecretTests`,
+  `McpSkillTests` over every new tool.
 
 ## Open points
 

@@ -17,6 +17,7 @@ Each entry is one short line in plain words (what the user gets, not how); no ne
 - Assistant and agents also configure devices, import and export configurations, check and format SD cards, change action rules, view and delete certificates and change application settings, always after a preview.
 - Assistant and agents do what you can on the plugin pages, such as starting a scan or saving a dashboard, with the same permissions.
 - Assistant and agents hand you exports, reports and task results as files, and you type a password for them without the AI seeing it.
+- An administrator's Assistant and agents manage users, roles, device groups and access keys; a new key is copied once and the AI never sees it.
 - Plugin SDK 0.13.0: the certificates of the servers OADM runs, and tasks and tools for MCP (payload schema, payload check, plan, result files, tool files).
 
 ## [5.0.0] - 2026-11-13
