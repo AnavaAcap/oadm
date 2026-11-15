@@ -270,8 +270,10 @@ public sealed class McpTaskPartTests
         var key = await server.CreateKeyAsync();
 
         // The vendor's ZIP as it comes: the builds per AXIS OS track and architecture in a folder, the mapping file next to them.
+        // Each build made once: a package carries the time it was made, so a second Build could differ (its SHA-256 too).
+        var ltsBuild = Build("aarch64", "2.4.0", "10.0", "10.12");
         var zip = Oadm.Plugins.Acap.Tests.EapBuilder.Zip(
-            ("lpr/lpr_2.4_aarch64.eap", Build("aarch64", "2.4.0", "10.0", "10.12")),
+            ("lpr/lpr_2.4_aarch64.eap", ltsBuild),
             ("lpr/lpr_2.6_aarch64.eap", Build("aarch64", "2.6.0", "11.0")),
             ("lpr/lpr_2.6_armv7hf.eap", Build("armv7hf", "2.6.0", "11.0")),
             ("lpr/oadm-packages.json", System.Text.Encoding.UTF8.GetBytes("""{"packages":[{"file":"lpr_2.6_aarch64.eap","models":["AXIS P3265-V"]}]}""")));
@@ -283,7 +285,7 @@ public sealed class McpTaskPartTests
         Assert.Equal("Install application", preview["task_name"]!.GetValue<string>()); // the name needs no read of the ZIP
         Assert.Equal("No package for AXIS OS 9.80.3.", Assert.Single(preview["skipped"]!.AsArray())!["reason"]!.GetValue<string>());
         Assert.Equal(["lpr.zip", "lpr.zip: lpr_2.4_aarch64.eap", "lpr.zip: lpr_2.6_aarch64.eap", "lpr.zip: lpr_2.6_armv7hf.eap"], preview["files"]!.AsArray().Select(f => f!["name"]!.GetValue<string>()));
-        Assert.Equal(Convert.ToHexString(SHA256.HashData(Build("aarch64", "2.4.0", "10.0", "10.12"))), preview["files"]![1]!["sha256"]!.GetValue<string>());
+        Assert.Equal(Convert.ToHexString(SHA256.HashData(ltsBuild)), preview["files"]![1]!["sha256"]!.GetValue<string>());
         var details = preview["details"]!.AsArray().Select(d => d!.GetValue<string>()).ToList();
         Assert.Contains("P3265-V, AXIS OS 12.11.77, aarch64 (1 device): lpr_2.6_aarch64.eap (row 1 of the mapping file)", details);
         Assert.Contains("M3086-V, AXIS OS 10.12.3, aarch64 (1 device): lpr_2.4_aarch64.eap", details);
