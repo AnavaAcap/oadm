@@ -100,11 +100,16 @@ preview/run handles and caller rules.
   read counts as a change (`OadmTool.CountsAsChange`: a run, a task start, or a call that acts outside OADM such as the
   add preview). A call is counted as soon as its key is valid, before the role and device view are read. Open handles and
   links: at most 20 of a kind per key, 60 and 16 MB per user, the oldest go first. The file links and the skill also need
-  Use AI agents (403). Camera pictures (`oadm_devices_snapshot`, `OadmTool.CountsAsPicture`) have their own limit: 30 a
-  minute per user, all keys together ("Too many pictures with this access key. Wait a minute.", Retry-After 60). File
+  Use AI agents (403). Camera pictures have their own limit, kept by the server for every channel
+  (`LiveViewService.GetSnapshot`): 30 a minute per user, all sessions and access keys together; MCP answers 429 "Too
+  many pictures with this access key. Wait a minute." with Retry-After 60. One `oadm_devices_snapshot` call can take up
+  to three pictures (a smaller size when the first is over 1 MB). File
   transfers (PUT and GET on `/files/`) have their own places, 2 at once per key and per user and 8 on the port, and never
-  take the 32 places of `/mcp`; a transfer must move at least 1 KB a second after 10 seconds or it ends. Changes and
-  pictures are counted from the call's own tool name, not from a header, and a refused call counts against no limit.
+  take the 32 places of `/mcp`; a transfer must move at least 1 KB a second after 10 seconds, and end within 2 minutes
+  plus its size at 100 KB/s (15 minutes when the size is not known), or it ends ("The transfer took too long and was
+  ended.", 408) and its place is freed. Changes and
+  pictures are counted from the call's own tool name, not from a header; a call the tool list refuses (role, Read only,
+  Use AI agents) and an unknown tool count against no limit.
   `oadm_server_info` names the change limit `changes_per_minute`. The MCP host logs ASP.NET requests at Warning only, so
   no upload token reaches the server log.
 - Read only is enforced by the server, not only by the tool list: a Read only key's call of any gRPC method outside the
@@ -379,7 +384,7 @@ The website gets a user page (Tools > AI agents, `tools/ai-agents`) and a develo
 
 - **Devices** (`Tools/DeviceChangeTools`, `Tools/SettingsTools`): `oadm_devices_snapshot(device_id)` (one JPEG as an image
   result, Live view permission, at most 1280 px wide; over 1 MB it is taken again smaller, then at 640 px; the camera's
-  answer is read up to 4 MB; snapshots are audited "Took a snapshot" once per user, device and minute, with the count);
+  answer is read up to 4 MB; snapshots are audited "Took a snapshot" once per user and minute, with the counts of pictures and devices);
   `oadm_devices_refresh_preview`/`_run`; `oadm_devices_remove_preview`/`_run` (a filter is required, an empty one is
   refused); `oadm_devices_credentials_preview`/`_run` (an entry of the credential list by its name, never a password; the
   credential list is the Administrator's, a name two entries share is refused); `oadm_devices_add_preview`/`_run` (exactly
@@ -405,8 +410,8 @@ The website gets a user page (Tools > AI agents, `tools/ai-agents`) and a develo
   (message text, code, multi-line text); any other change of such an action is refused with "Set this in OADM.". Rule answers
   show an address as scheme, host and port only (an address given back unchanged keeps the stored one), and a URL with a
   login in it is refused. The save preview names every outside destination ("Sends event data to ...") and warns again
-  of a new one that is not a saved recipient; the destinations themselves are in `destinations` (kind, target as data,
-  saved recipient, new). Warnings and errors are fixed sentences; rule, recipient and device names
+  of a new one that is not a saved recipient; the destinations themselves are in `destinations` (kind, the scrubbed
+  target, a saved recipient's `name`, saved recipient, new). Warnings and errors are fixed sentences; rule, recipient and device names
   appear only in their own fields, the server's problem text in `problem`. A rule naming more than 200 devices is
   changed in OADM.
 - **Plugin tools** (`Tools/PluginTools`, a tool source of the registry that follows the plugins that are on): core plugins

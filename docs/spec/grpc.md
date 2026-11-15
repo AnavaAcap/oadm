@@ -281,7 +281,9 @@ used again.
   is no longer available.", the camera is never asked; the RTSP port methods refuse the whole selection); `Watch` ends
   with that NOT_FOUND when its device leaves the view.
   - `GetSnapshot(device_id, camera, max_width, compression)` (Live view permission, device group): one JPEG of the largest
-    size at most `max_width` (the AI agents' `oadm_devices_snapshot`); audited once per user, device and minute with a count.
+    size at most `max_width` (the AI agents' `oadm_devices_snapshot`). At most 30 pictures a minute per user, all sessions and access keys
+    together (RESOURCE_EXHAUSTED "Too many pictures. Wait a minute."); audited once per user and minute with the counts of
+    pictures and devices.
 - **`EventService`** (`events.proto`, `docs/spec/event-rules.md`; every method `AccessRule.AllDevices`, rules have no
   owner): `GetCatalog`, `ListRules`, `WatchRules`, `GetRule` (password values never included), `SaveRule`, `DeleteRule`,
   `SetRuleEnabled`, `DuplicateRule`, `ListActionChoices`, `ListLog` (newest first, limit 0 = 10,000), `WatchLog`,
