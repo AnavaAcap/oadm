@@ -6,7 +6,9 @@ Use it for "how are my devices?", before a change and after one. It only reads, 
    Then by model, firmware, site: one `group_by` per call. `oadm_server_status` says which plugins are on and how old
    the list of vulnerabilities is.
 2. For the devices that are not `Ok`, `oadm_devices_search` with a status filter. Look at one with `oadm_devices_get`.
-   `CredentialsRequired` and `PasswordNotSet` need the user in OADM: say "Set the password in OADM."
+   `CredentialsRequired`: set a login of the credential list by name (`oadm_devices_credentials_preview`) or let the user
+   type one (`oadm_devices_login_preview`). `PasswordNotSet`: `oadm_devices_first_password_preview`. The password goes
+   through the secret command of the preview (see "Passwords"), never through the chat.
 3. Time and certificates: `oadm_devices_search` with the filter `"clock": ["off"]` shows each clock as OADM measured
    it; the certificate filters find the certificates that end soon or are not trusted. `oadm_ntp_status` when the NTP
    server is on. A wrong clock breaks certificates and recordings. Never ask the devices for their time: OADM has it.

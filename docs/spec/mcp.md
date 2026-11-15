@@ -197,6 +197,15 @@ nothing is selected.
   Import from file as up to 1,000 addresses, the waiting list; logins with the credential list; only addresses inside a
   network of the server or of a connected site, at most 200 devices a run) as preview/run pairs; the waiting list itself
   (list, remove).
+- Logins typed by the person (decision 2026-11-15, `Tools/LoginTools`, the password always through the secret channel):
+  Log in (`oadm_devices_login_preview`/`_run`: a user name, slot `password`, `DeviceService.LogIn`, stored where the
+  device accepts it; optionally into the credential list for administrators), First password
+  (`oadm_devices_first_password_preview`/`_run`: only devices with Password not set, at most 1,000, the devices' passphrase
+  rules in `rules`, checked when the password is entered, `SetFirstPassword`), the add run's `user_name` (a typed login
+  tried with `RetryAuth` where the credential list fails, never saved) and `first_password` (factory-default devices added
+  with the entered first password, checked against each device's policy, `first_password_rules`); the credential list
+  `oadm_credentials_add_preview`/`_run` and `oadm_credentials_remove_preview`/`_run` (Administrator with all devices, by
+  user name, slot `password`; a password is never shown).
 
 ### Tasks
 
@@ -658,15 +667,18 @@ The website gets a user page (Administration > MCP server, `admin/mcp-server`, n
   - Device configuration: **Configure devices** (`settings` name and value, `actionRules`, `schedules`,
     `streamProfiles`; the dialog's `parameters`/`rules` form stays; "Configure dangerous parameters" for network, HTTPS,
     ports, login and 802.1X parameters; warnings for a value that can cut the devices off; a per-device value on several
-    devices skips them all; a secret parameter or action value is refused, "Set the password in OADM."), **Create
+    devices skips them all; a setting or action parameter with a secret name (pass, secret, community) is sent empty and is a slot of
+    the secret channel (`setting_<i>`, `rule_<i>_parameter_<j>`, "password for <name>", at most 8); a device password
+    parameter whose name is no secret name is skipped on the device), **Create
     configuration file** and **Export configuration** (read-only tasks; the file is the task's result in its log: name,
     size, SHA-256, then the text in parts; download links follow, `TODO(download-link)`), **Import configuration** (one
     `.json` from an upload link for every device of its model, no ZIP; "Import connection settings" and the lock-out
     warning for the area `connection`; the plan reads the uploaded file only).
   - Edge storage (page task `oadm.edge-storage.task`): check, repair, retention, format, encryption off; format and
     encryption off warn that every recording is deleted, repair that damaged recordings can be lost; the page's rights
-    "Change storage settings" (check, retention) and "Format and encrypt storage" (the others). Encrypt needs a passphrase
-    and stays on the page.
+    "Change storage settings" (check, retention) and "Format and encrypt storage" (the others). Encrypt (`encryptionOn`)
+    takes the passphrase the user enters (slot `passphrase`, the page's rule checked when entered), right "Format and
+    encrypt storage".
   - Action Rule Editor (page task `oadm.action-rules.task`): change (on/off, name, wait time, action settings, recipient),
     delete, copy, create, undo; rules by name as the editor read them last (a device not read is skipped, "Not read in the
     Action Rule Editor."); the editor's rights "Change action rules" and "Delete action rules"; a password setting of an
@@ -677,18 +689,19 @@ The website gets a user page (Administration > MCP server, `admin/mcp-server`, n
     certificates** (per device the certificates by name; the plan says how many and that they cannot be restored; one in
     use by HTTPS or 802.1X is still refused on the device), **EST set up and remove** (OADM PRO; no clock question: a late
     clock refuses; Remove says per profile what the cameras lose).
-  - Applications: **Change settings** (`values` by name; a password setting is refused at its field and again on the
-    device before any write; the page's own runs pass `passwordsAllowed`, which agents cannot send).
+  - Applications: **Change settings** (`values` by name; a password setting goes in `passwords` by name and the user
+    enters its value, slot `password_<i>`, "password for <name>"; one in `values` is refused at its field and on the device
+    before any write); **Install license key** (`installLicense`: one key file the user enters, slot `license_key`, label
+    "license key", one device a run; a file that is no key is refused when entered).
   - Page tasks: a task only its page starts (hidden from the menus, no permissions of its own) is offered when it answers
     `ITaskPlugin.PagePermissions` (SDK 0.13.0) with the keys of its package's core plugin one run needs; `TaskService.Plan`
     and `Run` check exactly those (`TaskRunPermissions.RequireOutsidePage`, unknown keys need all of them), the catalog
     lists it only with `with_payload_schema` (`TaskPluginRunnable.InMenus` false), the client's menus never. The page's own
     payload answers null and stays page only.
-  - Secrets: a password, passphrase or key an agent would have to send is refused at its field; each place that takes a
-    secret handle later is marked `TODO(secret-handle)` (Configure devices, Edge storage encrypt, the Action Rule Editor's
-    action passwords, application settings).
-  - Not offered (fail closed): application license keys, Install certificates (secrets), Install CA certificates (a new
-    trust anchor on the devices: the dialog shows each certificate to the person), Users.
+  - Secrets (decision 2026-11-15): every password, passphrase or key of a task goes through the secret channel ("Secrets":
+    `ITaskPlugin.SecretsOf`, the preview's slots, the value checked when entered and put into the run's payload only).
+  - Not offered (fail closed): Install certificates (secrets), Install CA certificates (a new trust anchor on the devices:
+    the dialog shows each certificate to the person).
 - **Tasks and files**: `oadm_tasks_cancel_preview`/`_run` (a batch or up to 200 task ids; counts what stops and what
   cannot; only the caller's devices; one cancel takes at most 200 tasks and runs at most 60 s, `more_after_this` and
   `left` say to preview again); a task preview names each uploaded file it uses with its SHA-256 (`files`), and an
@@ -721,8 +734,8 @@ The website gets a user page (Administration > MCP server, `admin/mcp-server`, n
   network of the server's own interfaces or of a connected site, otherwise a field error names the allowed networks; the
   preview only looks (it sends no login and stores nothing), waits at most 90 s and then says the scan is incomplete; it
   acts outside OADM, so it is not announced as a read and it counts as a change; the run logs in with the credential
-  list and adds only the devices that logged in, at most 200 a run, never one with factory default settings or a failed
-  login); `oadm_settings_get` (what the Settings page shows, without secrets). A preview is listed
+  list and adds only the devices that logged in, at most 200 a run, a device in factory default only with
+  `first_password`, a failed login only with a typed `user_name` that works); `oadm_settings_get` (what the Settings page shows, without secrets). A preview is listed
   only for a caller who may run its change. Refresh is not destructive; Remove and Set credentials are.
 - **Tags, sites, compliance, event rules** (`Tools/TagTools`, `SiteTools`, `ComplianceTools`, `RuleTools`):
   `oadm_tags_list` (device counts in the caller's group), `oadm_tags_assign_preview`/`_run` (add and remove tags on a
@@ -814,8 +827,11 @@ unit, the key fields, red Run for deletes and removals) and a short status line 
 - **Recipients** (users with all devices, Change rules): `oadm_recipients_types` (the types and their fields),
   `oadm_recipients_certificates` (`ListRecipientCertificates`, ids and texts), `oadm_recipients_save_preview`/`_run` (the
   preview is `EventService.CheckRecipient`: the dialog's checks without saving; a change keeps the fields left out and the
-  stored password; a password, header or file value is refused "Set this in OADM.", and so is a new recipient whose type
-  needs a password; an address with a login is refused), `oadm_recipients_delete_preview`/`_run` (no handle while rules
+  stored password; a password or header value is never an argument: `set_secrets` names the password fields (by key) and
+  headers (field and name) the user enters through the secret channel; a new recipient's required passwords and a password
+  the server asks for again (a changed target) are slots by themselves; each value is checked with `CheckRecipient` when
+  entered and put into `SaveRecipient` in memory by the run; a file value is set in OADM; an address with a login is
+  refused; a header value is stored as the dialog stores it), `oadm_recipients_delete_preview`/`_run` (no handle while rules
   use it, their names in `used_by`), `oadm_recipients_test_preview`/`_run` (`TestRecipient` with the stored values).
 - **Compliance**: `oadm_compliance_devices(check_id, outcomes, filter)` (which devices fail a check, or pass, or are unknown,
   pages with the total and the result's detail, `ComplianceService.ListResults`), `oadm_compliance_kinds` (the kinds and
@@ -840,15 +856,19 @@ unit, the key fields, red Run for deletes and removals) and a short status line 
 - **Tests**: `McpHostActionTests` (the preview writes nothing, the run does it once and only with its own preview's handle,
   handles end after 10 minutes and belong to their caller, the audit lines, refusals, a role without the rights and a group
   user list none of the changes and a group sees only its devices, Discovery only looks, the scrub of a task read, every
-  card), and `McpToolTests` / `McpSecretTests` / `McpSkillTests` over every new tool.
+  card), `McpLoginToolTests` (logins, first password, the credential list), the recipient secret test of
+  `McpHostActionTests`, `McpAgentTaskSecretTests` (Configure devices, Edge storage encrypt, Applications passwords and
+  license key), `McpCommanderSecretTests` (VAPIX Commander), and `McpToolTests` / `McpSecretTests` / `McpSkillTests` over
+  every new tool.
 
 ## Open points
 
 - Client support for the MCP tasks extension: if it spreads, `oadm_task_run` may answer a task handle instead of polling.
 - The waiting list keeps no tags or site for a device an agent puts there.
-- The secret channel ("Secrets") exists; its users are wired next: `RecipientChangeTools.SecretOf` (a recipient's or a
-  check's password or configuration file, a password field `{"secret": "<handle>"}`) and the tasks' `TODO(secret-handle)`
-  hooks. Tasks with a `[Secret]` payload (Users, Install certificates) stay not offered until their previews declare slots.
+- Import from ADM with logins needs the import parser on the server (it is the client's `DeviceImportFile`) and a gRPC read
+  of an upload; until then it stays in OADM. Compliance password and file fields stay in OADM until a kind has one (no
+  bundled kind has, and the compliance store does not encrypt settings).
+- A VAPIX Commander command treats every password field as required; an optional one cannot be left empty over MCP.
 - The client's task details have no Save for a task's result file yet (agents and the assistant have it).
 - The skills extension is declared without fields; when its schema settles, `McpSkill` may list the skill there too.
 

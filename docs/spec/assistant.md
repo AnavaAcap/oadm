@@ -127,14 +127,18 @@ shows the chat.
   characters, at most 12 lines with "+N more". Run is red for a delete or removal (`destructive`). The previews of the host
   actions (decision 2026-11-15, docs/spec/mcp.md "Host actions as built") each have their card: tags, the waiting list, tasks
   deleted, a rule turned on or off, copied or tested, the event log cleared, recipients, compliance and its checks, a site
-  renamed, zoom, focus, PTZ, the RTSP port and the vulnerability list ("2 addresses", "1 rule", "3 devices").
+  renamed, zoom, focus, PTZ, the RTSP port and the vulnerability list ("2 addresses", "1 rule", "3 devices"), the login of
+  devices, a first password, the credential list (add, remove) and the recipients' entered secrets ("You enter: token,
+  value of the header Authorization").
 - **Secret fields** (decision 2026-11-15, `docs/spec/mcp.md` "Secrets"): a preview whose run needs a secret
-  (`AssistantPreviewCard.secrets`) shows one `ui:PasswordBox` per secret in a `ui:FormField` ("Password") above Cancel and
+  (`AssistantPreviewCard.secrets`: name and the slot's label, shown with a capital first letter: "Password", "Passphrase",
+  "PKCS#12 password", "License key") shows one `ui:PasswordBox` per secret in a `ui:FormField` above Cancel and
   Run; "Enter the password." below the field once it was edited or left empty, Run disabled with that reason as its tooltip
   while a field is empty. Run sends the values with the handle; the server's refusal of a field ("Enter the password.")
   shows below that field and the card stays. The values are cleared once Run went to the server or the card was
   cancelled, and the fields hide. The model gets `needs_secrets` (the names) and a note that the user types them into the
-  card; never `secret_links`.
+  card; never `secret_links`. A value the run's own check refuses (a passphrase policy, the plugin's rule) is refused with
+  Run below its field and the card stays.
 - **File cards** (`AssistantEvent.file`): a file a tool answer offered (a device list or compliance CSV, a task's result
   file, a plugin's export, report or certificate) is a result card with the file icon, its name and size and **Save**
   (command button, download icon). Save asks where with the save picker, then fetches the file through
@@ -247,7 +251,8 @@ context.
 - The selection reaches the tools (`oadm_selection`, the `selection` filter) and is cut to the caller's group.
 - Pictures: shown to the client always, sent to the model only with the setting on.
 - No secret in any answer, log line or audit entry (the scan of the MCP tests over the assistant's traffic).
-- Secrets and files (`AssistantTransferTests`): a preview with a secret slot is a card with the field; Run without it is
+- Secrets and files (`AssistantTransferTests`): a preview with a secret slot is a card with the field (also a task's
+  passphrase refused by the plugin's rule below the field, and a host preview with a password: the credential list); Run without it is
   refused with the field named and the card stays; with it the run gets the value once; no request to the fake model, no
   event, log line or audit entry holds it; a file card's `Download` from the own chat only (another user's session or
   chat: NOT_FOUND). Client (`AssistantTransferUiTests`, headless screenshots): the field empty (Run disabled with its
