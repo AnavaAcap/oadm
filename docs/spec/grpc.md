@@ -67,12 +67,20 @@ used again.
   - `Search(SearchDevicesRequest)` (signed in, like `List`; the MCP device tools, `docs/spec/mcp.md`): the devices of the
     caller's view that match `DeviceFilter` {ids, search (address, host name, UPnP name, serial, model, AXIS OS version,
     site, tags; any case), tags, sites ("This server" = no site), models, firmware_below, firmware_at_least, statuses,
-    categories; fields combined with AND, a list matches any value}, sorted by `sort` ("address" by default, IPv4 in number
+    categories, and what OADM knows of the devices: clock (ok, off as the Clock column's warning, not_measured),
+    clock_offset_over_seconds, ntp_states, certificate_expires_within_days, certificate_trust, socs (compared short),
+    vulnerabilities (affected, possible, any, none), vulnerability_min_severity, cve (`Devices/DeviceFacts`: the clock
+    tolerance, the CVE matcher of `VulnerabilityStore` and the certificate warning days of now); fields combined with AND,
+    a list matches any value; the same filter for `Resolve`, `TagService.PlanDeviceTags`, `ComplianceService.Summarize`,
+    `TaskService.Plan` and the task counts}, sorted by `sort` ("address" by default, IPv4 in number
     order; "host_name", "upnp_name", "model", "firmware", "status", "last_seen"; a leading "-" descending; ties by id), one
     page of `limit` (0 to 500) after the row `after_key` + `after_id` (the sort key and id of the last row before, from
     `sort_keys`; rows added or removed elsewhere never move a page), the rows without API lists unless `with_apis`, and with
-    `group_by` (status, model, firmware, site, tag, category) the `counts` of every value, the most devices first. Reply
-    `total`, `devices`, `sort_keys`, `counts`, `after_cursor` (the matches after the cursor). Every device of the view is
+    `group_by` (status, model, firmware, site, tag, category, soc, clock, ntp, certificate, vulnerabilities: the worst
+    counted level, "Possible only" or "None"; cve: devices per counted CVE) the `counts` of every value, the most devices
+    first, and with `with_health` the `DeviceHealth` counts of the matches (not Ok, clock off or not measured,
+    certificates expired, expiring soon or not trusted, vulnerable, Critical or High, possible only). Reply `total`,
+    `devices`, `sort_keys`, `counts`, `health`, `after_cursor` (the matches after the cursor). Every device of the view is
     looked at, read without its API list, and only the page is mapped (100,000 devices: about 1.5 s, docs/spec/mcp.md
     "Measured"); no filter, rows or counts answers the view's cached count. Ids in the filter read only those devices: any
     one that is unknown or outside the view refuses the request (NOT_FOUND, like every method); INVALID_ARGUMENT for a sort,

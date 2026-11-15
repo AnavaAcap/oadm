@@ -73,8 +73,8 @@ public sealed partial class DeviceRowViewModel : ObservableObject, IDeviceInfo, 
     public Compliance.DeviceCompliance Compliance => _compliance ??= _complianceStore?.For(Id) ?? new Compliance.ComplianceStore().For(Id);
 
     /// <summary>The Axis CVEs this device may be affected by (Vulnerabilities column): by model, firmware and chip, shared and cached.</summary>
-    public Vulnerabilities.DeviceVulnerabilities Vulnerabilities =>
-        _vulnerabilityCatalog?.For(Model, FirmwareVersion, Soc) ?? Oadm.Client.Vulnerabilities.DeviceVulnerabilities.None;
+    public Oadm.Contracts.Vulnerabilities.DeviceVulnerabilities Vulnerabilities =>
+        _vulnerabilityCatalog?.For(Model, FirmwareVersion, Soc) ?? Oadm.Contracts.Vulnerabilities.DeviceVulnerabilities.None;
 
     /// <summary>A new list of CVEs arrived: the cell reads its match again.</summary>
     internal void OnVulnerabilitiesChanged() => OnPropertyChanged(nameof(Vulnerabilities));

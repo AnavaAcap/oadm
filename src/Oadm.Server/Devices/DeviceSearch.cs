@@ -2,8 +2,12 @@ using System.Globalization;
 using System.Net;
 using System.Net.Sockets;
 
+using Oadm.Contracts.Devices;
+using Oadm.Contracts.Vulnerabilities;
 using Oadm.Core.Devices;
+using Oadm.Core.Vapix;
 using Oadm.Sdk.Devices;
+using Oadm.Server.Mapping;
 
 using Proto = Oadm.Contracts.V1;
 
@@ -32,7 +36,37 @@ public sealed class DeviceSearch
 
     public static IReadOnlyList<string> Sorts { get; } = ["address", "host_name", "upnp_name", "model", "firmware", "status", "last_seen"];
 
-    public static IReadOnlyList<string> GroupBys { get; } = ["status", "model", "firmware", "site", "tag", "category"];
+    public static IReadOnlyList<string> GroupBys { get; } =
+        ["status", "model", "firmware", "site", "tag", "category", "soc", "clock", "ntp", "certificate", "vulnerabilities", "cve"];
+
+    /// <summary>The values of the clock filter: the Clock column's OK and warning, and not measured yet.</summary>
+    public static IReadOnlyList<string> ClockStates { get; } = ["ok", "off", "not_measured"];
+
+    /// <summary>The values of the vulnerabilities filter (docs/spec/vulnerabilities.md: possible ones are not counted).</summary>
+    public static IReadOnlyList<string> VulnerabilityStates { get; } = ["affected", "possible", "any", "none"];
+
+    /// <summary>The CVE levels of the minimum severity filter, the mildest first.</summary>
+    public static IReadOnlyList<string> Severities { get; } = ["Low", "Medium", "High", "Critical"];
+
+    /// <summary>The clock count of a measured clock within the allowed difference and synced (the Clock column's OK).</summary>
+    public const string ClockOk = "OK";
+
+    /// <summary>The clock count of the Clock column's warning.</summary>
+    public const string ClockOff = "Off";
+
+    /// <summary>The clock count of a device whose clock was not measured yet.</summary>
+    public const string NotMeasured = "Not measured";
+
+    public const string CertificateExpired = "Expired";
+    public const string CertificateExpiresSoon = "Expires soon";
+    public const string CertificateValid = "Valid";
+    public const string NoCertificate = "No certificate";
+
+    /// <summary>The vulnerability count of a device with only possible CVEs (not counted, docs/spec/vulnerabilities.md).</summary>
+    public const string PossibleOnly = "Possible only";
+
+    public const string NoVulnerabilities = "None";
+    public const string Unrated = "Unrated";
 
     private readonly Filter _filter;
     private readonly Func<Device, string> _key;
@@ -42,10 +76,14 @@ public sealed class DeviceSearch
     private readonly string? _groupBy;
     private readonly SortedSet<Row> _page;
     private readonly Dictionary<string, int> _counts = new(StringComparer.OrdinalIgnoreCase);
+    private readonly DeviceFacts _facts;
+    private readonly Proto.DeviceHealth? _health;
 
-    private DeviceSearch(Proto.SearchDevicesRequest request)
+    private DeviceSearch(Proto.SearchDevicesRequest request, DeviceFacts facts)
     {
-        _filter = new Filter(request.Filter ?? new Proto.DeviceFilter());
+        _facts = facts;
+        _filter = new Filter(request.Filter ?? new Proto.DeviceFilter(), facts);
+        _health = request.WithHealth ? new Proto.DeviceHealth() : null;
         var sort = string.IsNullOrEmpty(request.Sort) ? "address" : request.Sort;
         _descending = sort.StartsWith('-');
         _key = KeyOf(sort.TrimStart('-')) ?? throw new ArgumentException("Choose a sort: " + string.Join(", ", Sorts) + ".");
@@ -70,17 +108,21 @@ public sealed class DeviceSearch
     }
 
     /// <summary>The search of <paramref name="request"/>; <see cref="ArgumentException"/> with a plain text for a value it does not know.</summary>
-    public static DeviceSearch From(Proto.SearchDevicesRequest request)
+    public static DeviceSearch From(Proto.SearchDevicesRequest request, DeviceFacts facts)
     {
         ArgumentNullException.ThrowIfNull(request);
-        return new DeviceSearch(request);
+        ArgumentNullException.ThrowIfNull(facts);
+        return new DeviceSearch(request, facts);
     }
 
     /// <summary>The ids the filter names, or null for every device (the service then reads only these).</summary>
     public IReadOnlyList<Guid>? Ids => _filter.Ids;
 
     /// <summary>True when only the number of every device of the view is asked for (no filter, no rows, no counts).</summary>
-    public bool CountsOnly => _filter.IsEmpty && _limit == 0 && _groupBy is null;
+    public bool CountsOnly => _filter.IsEmpty && _limit == 0 && _groupBy is null && _health is null;
+
+    /// <summary>What needs a look among the matches (with <c>with_health</c>); null without.</summary>
+    public Proto.DeviceHealth? Health => _health;
 
     /// <summary>Devices that matched.</summary>
     public int Total { get; private set; }
@@ -98,9 +140,14 @@ public sealed class DeviceSearch
         }
 
         Total++;
+        if (_health is not null)
+        {
+            CountHealth(device, _health);
+        }
+
         if (_groupBy is not null)
         {
-            foreach (var value in ValuesOf(device, _groupBy))
+            foreach (var value in ValuesOf(device, _groupBy, _facts))
             {
                 _counts[value] = _counts.GetValueOrDefault(value) + 1;
             }
@@ -134,13 +181,14 @@ public sealed class DeviceSearch
     /// list); ids in the filter read only those (unknown ones and ones outside the view refuse it, NOT_FOUND).
     /// <see cref="ArgumentException"/> for an id that is not valid.
     /// </summary>
-    public static async Task<IReadOnlyList<Device>> MatchesAsync(Core.DeviceGroups.DeviceView view, Proto.DeviceFilter filter, bool withApis, CancellationToken ct)
+    public static async Task<IReadOnlyList<Device>> MatchesAsync(Core.DeviceGroups.DeviceView view, Proto.DeviceFilter filter, DeviceFacts facts, bool withApis, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(view);
+        ArgumentNullException.ThrowIfNull(facts);
         Filter matcher;
         try
         {
-            matcher = new Filter(filter ?? new Proto.DeviceFilter());
+            matcher = new Filter(filter ?? new Proto.DeviceFilter(), facts);
         }
         catch (ArgumentException ex)
         {
@@ -210,10 +258,117 @@ public sealed class DeviceSearch
             ? "0" + string.Concat(ip.GetAddressBytes().Select(b => b.ToString("D3", CultureInfo.InvariantCulture)))
             : "1" + address;
 
-    private static IEnumerable<string> ValuesOf(Device device, string groupBy)
+    private void CountHealth(Device device, Proto.DeviceHealth health)
+    {
+        if (device.Status != DeviceStatus.Ok)
+        {
+            health.NotOk++;
+        }
+
+        if (device.ClockOffsetMs is null)
+        {
+            health.ClockNotMeasured++;
+        }
+        else if (_facts.ClockOff(device))
+        {
+            health.ClockOff++;
+        }
+
+        if (device.CertNotAfterUtc is { } end)
+        {
+            if (CertificateExpiry.Expired(end, _facts.NowUtc))
+            {
+                health.CertificatesExpired++;
+            }
+            else if (CertificateExpiry.ExpiresSoon(end, _facts.NowUtc, _facts.CertWarningDays(device)))
+            {
+                health.CertificatesExpiringSoon++;
+            }
+        }
+
+        if (device.CertTrust is CertificateTrust.SelfSigned or CertificateTrust.Untrusted or CertificateTrust.Expired)
+        {
+            health.CertificatesNotTrusted++;
+        }
+
+        var found = _facts.VulnerabilitiesOf(device);
+        if (found.Certain > 0)
+        {
+            health.Vulnerable++;
+            if (found.IsSevere)
+            {
+                health.VulnerableCriticalOrHigh++;
+            }
+        }
+        else if (found.PossibleCount > 0)
+        {
+            health.PossiblyVulnerableOnly++;
+        }
+    }
+
+    /// <summary>The Clock column's state: "OK", "Off" (its warning), "Not measured".</summary>
+    public static string ClockStateOf(Device device, DeviceFacts facts)
+    {
+        ArgumentNullException.ThrowIfNull(device);
+        ArgumentNullException.ThrowIfNull(facts);
+        return device.ClockOffsetMs is null ? NotMeasured : facts.ClockOff(device) ? ClockOff : ClockOk;
+    }
+
+    /// <summary>The certificate's state: "Expired", "Expires soon" (the column's warning), "Valid", "No certificate".</summary>
+    public static string CertificateStateOf(Device device, DeviceFacts facts)
+    {
+        ArgumentNullException.ThrowIfNull(device);
+        ArgumentNullException.ThrowIfNull(facts);
+        return device.CertNotAfterUtc is not { } end ? NoCertificate
+            : CertificateExpiry.Expired(end, facts.NowUtc) ? CertificateExpired
+            : CertificateExpiry.ExpiresSoon(end, facts.NowUtc, facts.CertWarningDays(device)) ? CertificateExpiresSoon
+            : CertificateValid;
+    }
+
+    /// <summary>The worst counted CVE level ("Critical" ... "Unrated"), "Possible only" or "None".</summary>
+    public static string VulnerabilityStateOf(DeviceVulnerabilities found)
+    {
+        ArgumentNullException.ThrowIfNull(found);
+        return found.Certain > 0 ? (found.Items[0].Vulnerability.Severity is { Length: > 0 } level ? level : Unrated)
+            : found.PossibleCount > 0 ? PossibleOnly
+            : NoVulnerabilities;
+    }
+
+    /// <summary>The NTP state as the filter and the counts name it.</summary>
+    public static string NtpText(Proto.NtpState state) => state switch
+    {
+        Proto.NtpState.Synced => "Synced",
+        Proto.NtpState.NotSynced => "NotSynced",
+        Proto.NtpState.Off => "Off",
+        _ => "Unknown",
+    };
+
+    private static IEnumerable<string> ValuesOf(Device device, string groupBy, DeviceFacts facts)
     {
         switch (groupBy)
         {
+            case "soc":
+                yield return VulnerabilityMatcher.ShortSoc(device.Soc) ?? UnknownValue;
+                break;
+            case "clock":
+                yield return ClockStateOf(device, facts);
+                break;
+            case "ntp":
+                yield return NtpText(Mappers.ToProto(device.NtpState));
+                break;
+            case "certificate":
+                yield return CertificateStateOf(device, facts);
+                break;
+            case "vulnerabilities":
+                yield return VulnerabilityStateOf(facts.VulnerabilitiesOf(device));
+                break;
+            case "cve":
+                foreach (var item in facts.VulnerabilitiesOf(device).Items.Where(i => !i.Possible))
+                {
+                    yield return item.Vulnerability.Id;
+                }
+
+                break;
             case "model":
                 yield return string.IsNullOrEmpty(device.Model) ? UnknownValue : device.Model;
                 break;
@@ -260,9 +415,20 @@ public sealed class DeviceSearch
         private readonly string? _atLeast;
         private readonly HashSet<DeviceStatus>? _statuses;
         private readonly HashSet<DeviceCategory>? _categories;
+        private readonly HashSet<string>? _clock;
+        private readonly long? _offsetOverMs;
+        private readonly HashSet<Proto.NtpState>? _ntp;
+        private readonly int? _certWithinDays;
+        private readonly HashSet<Proto.CertificateTrust>? _certTrust;
+        private readonly HashSet<string>? _socs;
+        private readonly string? _vulnerabilities;
+        private readonly int? _minSeverity;
+        private readonly string? _cve;
+        private readonly DeviceFacts _facts;
 
-        public Filter(Proto.DeviceFilter filter)
+        public Filter(Proto.DeviceFilter filter, DeviceFacts facts)
         {
+            _facts = facts;
             if (filter.Ids.Count > 0)
             {
                 _ids = [];
@@ -282,12 +448,40 @@ public sealed class DeviceSearch
             _atLeast = string.IsNullOrWhiteSpace(filter.FirmwareAtLeast) ? null : filter.FirmwareAtLeast.Trim();
             _statuses = filter.Statuses.Count > 0 ? [.. filter.Statuses.Select(s => (DeviceStatus)(int)s)] : null;
             _categories = filter.Categories.Count > 0 ? [.. filter.Categories.Select(c => (DeviceCategory)(int)c)] : null;
+            _clock = Set(filter.Clock);
+            if (_clock is not null && _clock.Any(c => !ClockStates.Contains(c, StringComparer.OrdinalIgnoreCase)))
+            {
+                throw new ArgumentException("Choose a clock state: " + string.Join(", ", ClockStates) + ".");
+            }
+
+            _offsetOverMs = filter.ClockOffsetOverSeconds switch
+            {
+                < 0 => throw new ArgumentException("The clock offset is 0 seconds or more."),
+                0 => null,
+                var seconds => seconds * 1000L,
+            };
+            _ntp = filter.NtpStates.Count > 0 ? [.. filter.NtpStates] : null;
+            _certWithinDays = !filter.HasCertificateExpiresWithinDays ? null
+                : filter.CertificateExpiresWithinDays >= 0 ? filter.CertificateExpiresWithinDays
+                : throw new ArgumentException("The certificate days are 0 or more.");
+            _certTrust = filter.CertificateTrust.Count > 0 ? [.. filter.CertificateTrust] : null;
+            _socs = filter.Socs.Count > 0 ? [.. filter.Socs.Select(VulnerabilityMatcher.SocKey).Where(k => k.Length > 0)] : null;
+            _vulnerabilities = string.IsNullOrWhiteSpace(filter.Vulnerabilities) ? null
+                : VulnerabilityStates.FirstOrDefault(v => string.Equals(v, filter.Vulnerabilities.Trim(), StringComparison.OrdinalIgnoreCase))
+                    ?? throw new ArgumentException("Choose vulnerabilities: " + string.Join(", ", VulnerabilityStates) + ".");
+            var severity = string.IsNullOrWhiteSpace(filter.VulnerabilityMinSeverity) ? -1
+                : Severities.ToList().FindIndex(v => string.Equals(v, filter.VulnerabilityMinSeverity.Trim(), StringComparison.OrdinalIgnoreCase));
+            _minSeverity = string.IsNullOrWhiteSpace(filter.VulnerabilityMinSeverity) ? null
+                : severity >= 0 ? severity + 1 // Vulnerability.SeverityRank: Low 1 ... Critical 4
+                : throw new ArgumentException("Choose a severity: " + string.Join(", ", Severities) + ".");
+            _cve = string.IsNullOrWhiteSpace(filter.Cve) ? null : filter.Cve.Trim().ToUpperInvariant();
         }
 
         public IReadOnlyList<Guid>? Ids { get; }
 
         public bool IsEmpty => _ids is null && _search is null && _tags is null && _sites is null && _models is null && _below is null
-            && _atLeast is null && _statuses is null && _categories is null;
+            && _atLeast is null && _statuses is null && _categories is null && _clock is null && _offsetOverMs is null && _ntp is null
+            && _certWithinDays is null && _certTrust is null && _socs is null && _vulnerabilities is null && _minSeverity is null && _cve is null;
 
         public bool Matches(Device device)
         {
@@ -311,10 +505,66 @@ public sealed class DeviceSearch
                 return false;
             }
 
+            if (!MatchesFacts(device))
+            {
+                return false;
+            }
+
             return _search is null || Contains(device.Address) || Contains(device.HostName) || Contains(device.UpnpFriendlyName)
                 || Contains(device.Serial) || Contains(device.Model) || Contains(device.FirmwareVersion) || Contains(device.SiteName)
                 || device.Tags.Any(Contains);
         }
+
+        /// <summary>The filters of what OADM knows from polling and the CVE list (the device grid's columns).</summary>
+        private bool MatchesFacts(Device device)
+        {
+            if (_clock is not null && !_clock.Contains(ClockFilterValue(device)))
+            {
+                return false;
+            }
+
+            if (_offsetOverMs is { } over && (device.ClockOffsetMs is not { } offset || Math.Abs((long)offset) <= over))
+            {
+                return false;
+            }
+
+            if ((_ntp is not null && !_ntp.Contains(Mappers.ToProto(device.NtpState)))
+                || (_certTrust is not null && !_certTrust.Contains(Mappers.ToProto(device.CertTrust))))
+            {
+                return false;
+            }
+
+            if (_certWithinDays is { } days
+                && (device.CertNotAfterUtc is not { } end || CertificateExpiry.NeverExpires(end) || (end - _facts.NowUtc).TotalDays > days))
+            {
+                return false;
+            }
+
+            if (_socs is not null && !_socs.Contains(VulnerabilityMatcher.SocKey(device.Soc)))
+            {
+                return false;
+            }
+
+            if (_vulnerabilities is null && _minSeverity is null && _cve is null)
+            {
+                return true;
+            }
+
+            var found = _facts.VulnerabilitiesOf(device);
+            var state = _vulnerabilities switch
+            {
+                "affected" => found.Certain > 0,
+                "possible" => found.Certain == 0 && found.PossibleCount > 0,
+                "any" => found.Any,
+                "none" => !found.Any,
+                _ => true,
+            };
+            return state
+                && (_minSeverity is not { } rank || (found.Certain > 0 && found.Items[0].Vulnerability.SeverityRank >= rank))
+                && (_cve is null || found.Ids.Contains(_cve));
+        }
+
+        private string ClockFilterValue(Device device) => device.ClockOffsetMs is null ? "not_measured" : _facts.ClockOff(device) ? "off" : "ok";
 
         private bool Contains(string? value) => value is not null && value.Contains(_search!, StringComparison.OrdinalIgnoreCase);
 

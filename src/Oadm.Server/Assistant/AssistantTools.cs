@@ -45,6 +45,7 @@ internal static class AssistantTools
         {
             "oadm_devices_summary" or "oadm_devices_search" or "oadm_devices_get" or SelectionTools.Name => "Looking at devices",
             "oadm_devices_snapshot" => "Taking a camera picture",
+            "oadm_vulnerabilities_summary" or "oadm_vulnerabilities" => "Checking vulnerabilities",
             DocsTools.Name => "Searching the docs",
             "oadm_tasks_list" or "oadm_tasks_get" => "Looking at tasks",
             "oadm_tasks_catalog" => "Looking at the tasks the devices can run",

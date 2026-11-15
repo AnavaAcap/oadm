@@ -56,6 +56,18 @@ message DeviceFilter {
   string firmware_at_least = 7;      // only this AXIS OS or newer
   repeated DeviceStatus statuses = 8;
   repeated DeviceCategory categories = 9;
+  // What OADM knows from polling (docs/spec/mcp.md "Devices and the device filter"); nothing is asked of the devices.
+  repeated string clock = 10;               // "ok", "off" (the Clock column's warning), "not_measured"
+  int32 clock_offset_over_seconds = 11;     // only a measured clock more than this many seconds off either way; 0: none
+  repeated NtpState ntp_states = 12;
+  optional int32 certificate_expires_within_days = 13; // only an HTTPS certificate that ends within this many days (or ended)
+  repeated CertificateTrust certificate_trust = 14;
+  repeated string socs = 15;                // chips, compared short ("A8" and "Axis Artpec-8" are the same)
+  // The Axis CVEs of the device's AXIS OS (docs/spec/vulnerabilities.md): "affected" (at least one counted CVE),
+  // "possible" (only possible ones), "any" (counted or possible), "none".
+  string vulnerabilities = 16;
+  string vulnerability_min_severity = 17;   // only a counted CVE of this level or worse: "Low", "Medium", "High", "Critical"
+  string cve = 18;                          // only devices this CVE id may affect (counted or possible)
 }
 
 message SearchDevicesRequest {
@@ -67,7 +79,24 @@ message SearchDevicesRequest {
   string after_id = 4;      // its id; both empty for the first page
   int32 limit = 5;          // rows, 0 to 500 (0: only the total and the counts)
   bool with_apis = 6;       // the API lists of the rows (one device's details); without them the rows have none
-  string group_by = 7;      // counts by "status", "model", "firmware", "site", "tag" or "category"; empty: no counts
+  // counts by "status", "model", "firmware", "site", "tag", "category", "soc", "clock", "ntp", "certificate",
+  // "vulnerabilities" (the worst counted level, "Possible only", "None") or "cve" (devices per CVE id, counted ones);
+  // empty: no counts
+  string group_by = 7;
+  bool with_health = 8;     // the counts of DeviceHealth for the matches
+}
+
+// What needs a look among the matches of a search (the summary of the MCP device tools): counts only.
+message DeviceHealth {
+  int32 not_ok = 1;                       // status other than Ok
+  int32 clock_off = 2;                    // the Clock column's warning (beyond the allowed difference or NTP not synced)
+  int32 clock_not_measured = 3;
+  int32 certificates_expired = 4;
+  int32 certificates_expiring_soon = 5;   // within the device's days of PKI's Expiry warning policy (30 without one)
+  int32 certificates_not_trusted = 6;     // self-signed, untrusted or expired
+  int32 vulnerable = 7;                   // at least one counted CVE
+  int32 vulnerable_critical_or_high = 8;  // the worst counted CVE is Critical or High
+  int32 possibly_vulnerable_only = 9;     // only possible CVEs (not counted)
 }
 
 message DeviceFieldCount {
@@ -81,6 +110,7 @@ message SearchDevicesReply {
   repeated string sort_keys = 3;        // the sort key of each row of the page
   repeated DeviceFieldCount counts = 4; // with group_by: every value, the most devices first
   int32 after_cursor = 5;               // the matches after the cursor (the page and the rest); total without a cursor
+  DeviceHealth health = 6;              // with with_health
 }
 
 message ResolveDevicesRequest {

@@ -352,6 +352,7 @@ public sealed class McpPluginToolTests
                 "tags" => "Tags",
                 "sites" => "Sites",
                 "compliance" => "Compliance",
+                "vulnerabilities" => "Vulnerabilities",
                 "rules" or "events" => "Event rules",
                 "logs" => "Logs",
                 "pki" => "PKI",
@@ -368,7 +369,7 @@ public sealed class McpPluginToolTests
             : name.EndsWith("_run", StringComparison.Ordinal) ? "Run (changes)"
             : tool["annotations"]?["readOnlyHint"]?.GetValue<bool>() == true ? "Read" : "Change";
 
-        var order = new[] { "Server", "Devices", "Tasks", "Files", "Tags", "Sites", "Compliance", "Event rules", "Logs", "PKI", "NTP server", "DHCP server", "Hardening scan", "VAPIX Commander" };
+        var order = new[] { "Server", "Devices", "Tasks", "Files", "Tags", "Sites", "Compliance", "Vulnerabilities", "Event rules", "Logs", "PKI", "NTP server", "DHCP server", "Hardening scan", "VAPIX Commander" };
         var text = new System.Text.StringBuilder();
         foreach (var line in Intro)
         {

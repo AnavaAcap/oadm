@@ -92,8 +92,11 @@ shows the chat.
   rules or devices deleted or removed; a plugin's preview: its plain fields one level deep), each line at most 200
   characters, at most 12 lines with "+N more". Run is red for a delete or removal (`destructive`).
 - **Pictures**: a camera picture (`oadm_devices_snapshot`) shows in the answer, click to enlarge; never stored.
-- **Tables**: a device list the model got from a tool shows as a small table (name, address, model, status) where a click
-  on a row selects the device in the device grid; the panel shows the first 8 rows, the message carries up to 50, then
+- **Tables**: a device list the model got from a tool (`oadm_devices_search`, `oadm_selection`, `oadm_vulnerabilities`)
+  shows as a small table (name, address, model, status) where a click on a row selects the device in the device grid; when
+  the tool's filter asked about a fact of the grid, the 4th column shows it instead of the status, named like its grid
+  column (Clock, Certificate expires, SoC, Vulnerabilities: `AssistantTable.detail_header`, `AssistantDeviceRow.detail`,
+  `AssistantCards.DetailOf`); the panel shows the first 8 rows, the message carries up to 50, then
   "+N more" with **Select all in the grid** (every matching id up to 10,000 comes with the table).
 - **Stop** ends the answer that is streaming; the conversation stays.
 - **Clear** (header, eraser icon; was New chat) empties it and starts a new conversation. **Copy chat** (icon in the header) copies the conversation as Markdown: questions, answers, tool

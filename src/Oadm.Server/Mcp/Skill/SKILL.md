@@ -11,8 +11,8 @@ A tool that is not in your list is not allowed for this key. Say so. Do not look
 ## Start
 
 1. Call `oadm_server_info` first. It shows the OADM version, your name and role, the limits and the device count.
-2. Start with a summary, never a list: `oadm_devices_summary` counts devices by status, model, AXIS OS version, site, tag
-   or category.
+2. Start with a summary, never a list: `oadm_devices_summary` counts devices by status, model, AXIS OS version, site, tag,
+   category, chip, clock, certificate or vulnerabilities, and says what needs a look.
 3. Narrow with a device filter, then list: `oadm_devices_search`. A list answers at most 200 rows, with the total and a
    cursor. Add a filter (site, tag, model, firmware, status) instead of paging through everything.
 4. Ask the user when the scope is not clear (which site, which models). Do not pick one.
@@ -24,8 +24,14 @@ means every device the user may see.
 
 ```json
 { "ids": [], "search": "lobby", "tags": ["Lobby"], "sites": ["Parking"], "models": ["M3085-V"],
-  "firmware": { "below": "12.11" }, "status": ["Ok", "Unreachable"], "categories": ["Camera"] }
+  "firmware": { "below": "12.11" }, "status": ["Ok", "Unreachable"], "categories": ["Camera"],
+  "clock": ["off"], "certificate": { "expires_within_days": 30 }, "socs": ["A8"],
+  "vulnerabilities": { "state": "affected", "min_severity": "High" } }
 ```
+
+OADM already knows what its device list shows: the clock and NTP, the certificate, the chip, the AXIS OS and its Axis
+CVEs. Filter by them and read the rows; a filter on one adds its fields to the rows. Ask a device (a VAPIX command) only
+for a fact OADM does not have.
 
 A device has no one name: its address, host name and UPnP name are separate fields. Use the device `id` for one device.
 
@@ -52,6 +58,9 @@ Settings a task does not cover (image, video, I/O, PTZ, storage, siren and light
 `oadm_vapix_commands` and run it with `oadm_vapix_command_preview`, on device ids from `oadm_devices_search`. Reads go
 preview then run too; read each device's answer with `oadm_tasks_get`. Prefer a task from the catalog when one does the
 job.
+
+Vulnerabilities: `oadm_vulnerabilities_summary` first, then `oadm_vulnerabilities` for the devices and their CVEs.
+"Possible" CVEs are not counted: report them apart and point to the Axis advisory.
 
 ## Rules
 

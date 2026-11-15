@@ -1,5 +1,6 @@
 using System.Globalization;
 
+using Oadm.Contracts.Devices;
 using Oadm.Contracts.V1;
 
 namespace Oadm.Client.Devices;
@@ -25,48 +26,13 @@ public static class CertificateDisplay
     /// Certificates expiring within this many days are shown as a warning when the server does not say (a server without
     /// PKI); else each device's days of PKI's Expiry warning policy (<c>cert_warning_days</c>).
     /// </summary>
-    public const int WarningDays = 30;
+    public const int WarningDays = CertificateExpiry.WarningDays;
 
-    /// <summary>
-    /// "245 days", "1 day", "Today" (less than a day left), "Expired today", "Expired 1 day ago",
-    /// "Expired 3 days ago", "Never" (RFC 5280 "no well-defined expiration", 9999-12-31, e.g. the Axis device ID
-    /// certificate); empty when there is no certificate (HTTP only or not checked).
-    /// </summary>
-    public static string ExpiryText(DateTime? notAfterUtc, DateTime nowUtc)
-    {
-        if (notAfterUtc is not { } notAfter)
-        {
-            return string.Empty;
-        }
-
-        if (NeverExpires(notAfter))
-        {
-            return "Never";
-        }
-
-        TimeSpan left = notAfter - nowUtc;
-        if (left < TimeSpan.Zero)
-        {
-            int ago = (int)Math.Floor(-left.TotalDays);
-            return ago switch
-            {
-                0 => "Expired today",
-                1 => "Expired 1 day ago",
-                _ => string.Create(CultureInfo.InvariantCulture, $"Expired {ago} days ago"),
-            };
-        }
-
-        int days = (int)Math.Floor(left.TotalDays);
-        return days switch
-        {
-            0 => "Today",
-            1 => "1 day",
-            _ => string.Create(CultureInfo.InvariantCulture, $"{days} days"),
-        };
-    }
+    /// <summary>"245 days", "Today", "Expired 3 days ago", "Never"; empty without a certificate (<see cref="CertificateExpiry.Text"/>).</summary>
+    public static string ExpiryText(DateTime? notAfterUtc, DateTime nowUtc) => CertificateExpiry.Text(notAfterUtc, nowUtc);
 
     /// <summary>RFC 5280 4.1.2.5: NotAfter 99991231235959Z means the certificate has no well-defined expiration date.</summary>
-    public static bool NeverExpires(DateTime notAfterUtc) => notAfterUtc.Year >= 9999;
+    public static bool NeverExpires(DateTime notAfterUtc) => CertificateExpiry.NeverExpires(notAfterUtc);
 
     /// <summary>Ok when more than <paramref name="warningDays"/> days are left, warning up to that, error when expired.</summary>
     public static PillKind ExpiryKind(DateTime? notAfterUtc, DateTime nowUtc, int warningDays = WarningDays)

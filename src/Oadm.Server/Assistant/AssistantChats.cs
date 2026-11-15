@@ -720,12 +720,15 @@ public sealed partial class AssistantChats
     /// <summary>The table of a device list (<c>oadm_devices_search</c>, <c>oadm_selection</c>): its first rows, the total, every id up to 10,000.</summary>
     private async Task<Proto.AssistantTable?> TableAsync(OadmTool tool, ToolCaller caller, JsonElement arguments, JsonObject answer, CancellationToken ct)
     {
-        if (tool.Name is not ("oadm_devices_search" or SelectionTools.Name) || answer["devices"] is not JsonArray rows || Number(answer["total"]) is not { } total || total <= 0)
+        if (tool.Name is not ("oadm_devices_search" or SelectionTools.Name or AssistantCards.VulnerabilitiesTool) || answer["devices"] is not JsonArray rows
+            || Number(answer["total"]) is not { } total || total <= 0)
         {
             return null;
         }
 
-        var table = new Proto.AssistantTable { Total = total };
+        var asked = DeviceTools.FilterOf(arguments.ValueKind == JsonValueKind.Object && arguments.TryGetProperty("filter", out var argument) ? argument : null);
+        var detail = tool.Name == SelectionTools.Name ? null : AssistantCards.DetailOf(tool.Name, asked);
+        var table = new Proto.AssistantTable { Total = total, DetailHeader = detail?.Header ?? string.Empty };
         foreach (var row in rows.OfType<JsonObject>().Take(AssistantTexts.MaxTableRows))
         {
             table.Rows.Add(new Proto.AssistantDeviceRow
@@ -735,6 +738,7 @@ public sealed partial class AssistantChats
                 Address = Text(row["address"]) ?? string.Empty,
                 Model = Text(row["model"]) ?? string.Empty,
                 Status = Text(row["status"]) ?? string.Empty,
+                Detail = detail is { } shown ? Text(row[shown.Field]) ?? string.Empty : string.Empty,
             });
         }
 
@@ -756,6 +760,11 @@ public sealed partial class AssistantChats
         }
 
         var request = new Proto.ResolveDevicesRequest { Filter = DeviceTools.FilterOf(filter.ValueKind == JsonValueKind.Object ? filter : null) };
+        if (tool.Name == AssistantCards.VulnerabilitiesTool)
+        {
+            VulnerabilityTools.WithDefault(request.Filter); // the tool's own default: the devices with a CVE
+        }
+
         try
         {
             var reply = await _calls.CallAsync<DeviceGrpcService, Proto.ResolveDevicesRequest, Proto.ResolveDevicesReply>(caller.User, DeviceChangeTools.ResolvePath, request,

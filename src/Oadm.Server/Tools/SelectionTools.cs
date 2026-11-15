@@ -24,7 +24,7 @@ internal static class SelectionTools
     public static JsonObject FilterSchema() =>
         Flag("Only the devices the user selected in the device list of OADM (the assistant's chat; over MCP none are).");
 
-    public static IEnumerable<OadmTool> Create(ToolCursors cursors)
+    public static IEnumerable<OadmTool> Create(ToolCursors cursors, ToolFacts facts)
     {
         yield return new OadmTool(
             Name,
@@ -37,11 +37,11 @@ internal static class SelectionTools
                 P("limit", Number("Rows per page.", 1, ToolAnswers.MaxRows, ToolAnswers.DefaultRows)),
             ]),
             DeviceTools.SearchOutput(),
-            [DeviceTools.SearchPath],
-            call => SelectionAsync(call, cursors));
+            [DeviceTools.SearchPath, ToolFacts.VulnerabilitiesPath],
+            call => SelectionAsync(call, cursors, facts));
     }
 
-    private static Task<JsonObject> SelectionAsync(ToolCall call, ToolCursors cursors)
+    private static Task<JsonObject> SelectionAsync(ToolCall call, ToolCursors cursors, ToolFacts facts)
     {
         var selection = call.Caller.Selection ?? [];
         if (selection.Count == 0)
@@ -58,7 +58,7 @@ internal static class SelectionTools
         // The search of these ids: the caller's view, the address order and the cursors of the device search.
         var arguments = JsonNode.Parse(call.Arguments.GetRawText())!.AsObject();
         arguments["filter"] = new JsonObject { ["ids"] = new JsonArray([.. selection.Select(id => (JsonNode)JsonValue.Create(id)!)]) };
-        return DeviceTools.SearchPageAsync(call with { Arguments = JsonSerializer.SerializeToElement(arguments) }, cursors);
+        return DeviceTools.SearchPageAsync(call with { Arguments = JsonSerializer.SerializeToElement(arguments) }, cursors, facts);
     }
 
     /// <summary>

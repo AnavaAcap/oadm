@@ -127,7 +127,11 @@ public sealed class AssistantPictureItem(string deviceId, string deviceName, byt
 }
 
 /// <summary>One row of a device table: a click selects the device in the grid.</summary>
-public sealed record AssistantTableRow(string DeviceId, string Name, string Address, string Model, string Status);
+public sealed record AssistantTableRow(string DeviceId, string Name, string Address, string Model, string Status)
+{
+    /// <summary>The 4th column: the fact the question filtered by (<see cref="AssistantTableItem.FourthHeader"/>), else the status.</summary>
+    public string Fourth { get; init; } = Status;
+}
 
 /// <summary>A device list from a tool: at most 50 rows, then "+N more" with Select all in the grid.</summary>
 public sealed class AssistantTableItem : AssistantItem
@@ -135,12 +139,17 @@ public sealed class AssistantTableItem : AssistantItem
     public AssistantTableItem(AssistantTable table)
     {
         ArgumentNullException.ThrowIfNull(table);
-        Rows = [.. table.Rows.Select(r => new AssistantTableRow(r.DeviceId, r.Name, r.Address, r.Model, r.Status))];
+        var detail = table.DetailHeader.Length > 0;
+        FourthHeader = detail ? table.DetailHeader : AssistantTexts.ColumnStatus;
+        Rows = [.. table.Rows.Select(r => new AssistantTableRow(r.DeviceId, r.Name, r.Address, r.Model, r.Status) { Fourth = detail ? r.Detail : r.Status })];
         Total = Math.Max(table.Total, Rows.Count);
         AllDeviceIds = table.AllDeviceIds.Count > 0 ? [.. table.AllDeviceIds] : [.. Rows.Select(r => r.DeviceId)];
     }
 
     public IReadOnlyList<AssistantTableRow> Rows { get; }
+
+    /// <summary>The header of the 4th column: the fact the question filtered by ("Clock", "Vulnerabilities"), else Status.</summary>
+    public string FourthHeader { get; }
 
     /// <summary>The most rows the table shows in the chat (no scroll inside an answer); the rest is "+N more".</summary>
     public const int MaxShownRows = 8;

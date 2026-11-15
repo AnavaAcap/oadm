@@ -27,7 +27,8 @@ public sealed class DeviceGrpcService(
     IHostApplicationLifetime lifetime,
     DeviceViewFactory views,
     Core.Vapix.TrustAnchorRegistry anchors,
-    ClockTolerance clock) : Proto.DeviceService.DeviceServiceBase
+    ClockTolerance clock,
+    DeviceFactsSource facts) : Proto.DeviceService.DeviceServiceBase
 {
     /// <summary>Devices read from the database at a time for a device list.</summary>
     public const int SnapshotPageSize = 1_000;
@@ -88,7 +89,7 @@ public sealed class DeviceGrpcService(
         DeviceSearch search;
         try
         {
-            search = DeviceSearch.From(request);
+            search = DeviceSearch.From(request, facts.Now());
         }
         catch (ArgumentException ex)
         {
@@ -150,6 +151,11 @@ public sealed class DeviceGrpcService(
         }
 
         reply.Counts.AddRange(search.Counts().Select(c => new Proto.DeviceFieldCount { Value = c.Value, Count = c.Count }));
+        if (search.Health is { } health)
+        {
+            reply.Health = health;
+        }
+
         return reply;
     }
 
@@ -169,7 +175,7 @@ public sealed class DeviceGrpcService(
         IReadOnlyList<Device> matches;
         try
         {
-            matches = await DeviceSearch.MatchesAsync(view, request.Filter ?? new Proto.DeviceFilter(), withApis: false, ct).ConfigureAwait(false);
+            matches = await DeviceSearch.MatchesAsync(view, request.Filter ?? new Proto.DeviceFilter(), facts.Now(), withApis: false, ct).ConfigureAwait(false);
         }
         catch (ArgumentException ex)
         {
