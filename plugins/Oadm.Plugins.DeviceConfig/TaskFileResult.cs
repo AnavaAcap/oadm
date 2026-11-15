@@ -7,9 +7,10 @@ using Oadm.Sdk.Plugins;
 namespace Oadm.Plugins.DeviceConfig;
 
 /// <summary>
-/// The file a read-only task makes for an AI agent (Export configuration, Create configuration file): for now its result is in
-/// the task's log, a line with its name, size and SHA-256 and then the text in parts that fit one log entry.
-/// TODO(download-link): hand the bytes to a download link once the tools offer them, and keep only the first line here.
+/// The file a read-only task makes for an AI agent (Export configuration, Create configuration file): the task's result file
+/// (<see cref="ITaskExecutionContext.SaveResultFileAsync"/>, one per task: an agent's download link, the assistant's file card)
+/// and a line in the task's log with its name, size and SHA-256. A host that keeps no result files (an older one, a task the
+/// system started) gets the text in the log instead, in parts that fit one log entry.
 /// </summary>
 public static class TaskFileResult
 {
@@ -22,6 +23,36 @@ public static class TaskFileResult
     /// <summary>"Configuration - AXIS P3265-V 12.11.77.cfg, 24 KB".</summary>
     public static string Summary(string name, int bytes) =>
         string.Create(CultureInfo.InvariantCulture, $"{name}, {Math.Max(1, (bytes + 512) / 1024):N0} KB");
+
+    /// <summary>The media type of the files (ADM configuration files and exports are text).</summary>
+    public const string ContentType = "text/plain";
+
+    /// <summary>
+    /// Keeps the file as the task's result and writes its line into the task log; on a host without result files the text
+    /// follows in the log (<see cref="Log"/>).
+    /// </summary>
+    public static async Task SaveAsync(ITaskExecutionContext ctx, string name, byte[] content, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(ctx);
+        ArgumentNullException.ThrowIfNull(content);
+        if (content.LongLength <= TaskResultFile.MaxBytes)
+        {
+            try
+            {
+                using var stream = new MemoryStream(content, writable: false);
+                await ctx.SaveResultFileAsync(name, ContentType, stream, ct).ConfigureAwait(false);
+                ctx.Log(TaskLogLevel.Info, string.Create(CultureInfo.InvariantCulture,
+                    $"File {name}: {content.Length:N0} bytes, SHA-256 {Convert.ToHexString(SHA256.HashData(content))}. It is the task's result file."));
+                return;
+            }
+            catch (NotSupportedException)
+            {
+                // a host that keeps no result files: the text goes into the log
+            }
+        }
+
+        Log(ctx, name, content);
+    }
 
     /// <summary>Writes the file's line and its text into the task log; a file too large for the log gets the line only.</summary>
     public static void Log(ITaskExecutionContext ctx, string name, byte[] content)

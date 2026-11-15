@@ -276,11 +276,10 @@ The four tasks are offered to AI agents through the host's task tools (`oadm_tas
 - **Permissions** as in the dialogs: `dangerous` for the parameters of `DangerousParameters`, `connection` for the area
   `connection`.
 - **Results.** Export and Create configuration file are read-only tasks for agents (the dialogs still run none): the file
-  is the task's result in its log (`TaskFileResult`: a line with name, size and SHA-256, then the text in parts of 1,900
-  characters; a file of more than 400 parts gets the line only). Create configuration file never writes a password or a
-  secret value of an action into the file.
-- **Open.** The file is not kept as the task's result file yet (`ITaskExecutionContext.SaveResultFileAsync`), so agents
-  get no download link for it (`TaskFileResult`).
+  is the task's result file (`TaskFileResult.SaveAsync` through `SaveResultFileAsync`, `text/plain`: the agent's download
+  link, the assistant's file card) and a log line with name, size and SHA-256. A host without result files gets the text in
+  the log instead, in parts of 1,900 characters (more than 400 parts: the line only). Create configuration file never writes
+  a password or a secret value of an action into the file.
 - Tests: `AgentTaskInputTests` (schemas through the host's exporter, field errors, plans, permissions, no request on an
   invalid input, the API refusal, the password parameter skipped, the entered password written and never shown, the
   secrets' slots and plan, the files in the log, the agent's import), host `McpAgentTaskSecretTests`, and the

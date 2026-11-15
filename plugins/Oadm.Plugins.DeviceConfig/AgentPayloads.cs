@@ -31,7 +31,7 @@ public sealed record ConfigureMcpSetting(
 
 /// <summary>
 /// The input of Create configuration file for AI agents: which settings of each device go into its ADM configuration file. The
-/// file of each device is the task's result in its log (TODO(download-link): a download link once the tools hand them out).
+/// file of each device is the task's result file (a download link for the agent, a file card in the assistant).
 /// Passwords and other secret values are never written into it.
 /// </summary>
 [Description("Saves chosen settings of each device as an ADM configuration file, the task's result.")]
@@ -44,8 +44,8 @@ public sealed record CreateConfigFileMcpPayload(
         MaxLength(ConfigureIds.MaxStreamProfiles)] IReadOnlyList<string>? StreamProfiles = null);
 
 /// <summary>
-/// The input of Export configuration for AI agents: no settings. Each device's export is the task's result in its log
-/// (TODO(download-link): a download link once the tools hand them out).
+/// The input of Export configuration for AI agents: no settings. Each device's export is the task's result file (a download
+/// link for the agent, a file card in the assistant).
 /// </summary>
 [Description("Exports the configuration of each device, the task's result.")]
 public sealed record ExportConfigMcpPayload;

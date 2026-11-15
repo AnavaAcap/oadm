@@ -152,7 +152,7 @@ internal sealed class McpFiles(ToolHandles handles, InProcessCalls calls, AuditL
         Stream stream;
         try
         {
-            stream = await download.Open(http.RequestAborted).ConfigureAwait(false);
+            stream = await download.Open(caller.User, http.RequestAborted).ConfigureAwait(false); // the rights of the key now
         }
         catch (RpcException ex) when (ex.StatusCode != StatusCode.Cancelled)
         {

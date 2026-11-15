@@ -256,6 +256,12 @@ internal sealed class ToolRegistry
         if (_secrets is not null && !tool.ReadsOnly && args.TryGetProperty("handle", out var handleArgument) && handleArgument.ValueKind == JsonValueKind.String)
         {
             var handle = handleArgument.GetString();
+            if (_secrets.WasDropped(caller.BindingKey, handle))
+            {
+                // Its secrets went for newer previews: the run would go on without them (fail closed).
+                return ToolResult.Refused(AreaListing.PreviewEnded, [new ToolFieldError("handle", AreaListing.PreviewEnded)]);
+            }
+
             if (_secrets.Missing(caller.BindingKey, handle, tool.Name) is { Count: > 0 } missing)
             {
                 return ToolResult.Refused(ToolSecrets.Enter(missing[0]), [.. missing.Select(m => new ToolFieldError("secrets." + m.Name, ToolSecrets.Enter(m)))]);

@@ -60,7 +60,24 @@ internal sealed class ToolSecrets(TimeProvider time, CredentialProtector protect
     private readonly Lock _gate = new();
     private readonly Dictionary<string, Entry> _byHandle = new(StringComparer.Ordinal);
     private readonly Dictionary<string, (string Handle, string Slot)> _links = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, (string BindingKey, DateTimeOffset Ends)> _dropped = new(StringComparer.Ordinal);
     private long _seq;
+
+    /// <summary>Previews whose slots went because newer ones came (<see cref="MaxPerCaller"/>), remembered until they would have ended.</summary>
+    public const int MaxDropped = 4096;
+
+    /// <summary>
+    /// The slots of <paramref name="handle"/> were dropped for newer previews of the caller before its run: the run is refused
+    /// (it would go on without the secrets the preview needs). False for a handle that declared none or is another caller's.
+    /// </summary>
+    public bool WasDropped(string bindingKey, string? handle)
+    {
+        lock (_gate)
+        {
+            DropEnded();
+            return handle is not null && _dropped.TryGetValue(handle, out var dropped) && string.Equals(dropped.BindingKey, bindingKey, StringComparison.Ordinal);
+        }
+    }
 
     /// <summary>
     /// Declares the slots of a preview's handle for its run tool <paramref name="runTool"/>; answers one link token per slot
@@ -81,10 +98,18 @@ internal sealed class ToolSecrets(TimeProvider time, CredentialProtector protect
         {
             DropEnded();
             Remove(handle);
+            _dropped.Remove(handle);
             var mine = _byHandle.Values.Where(e => e.BindingKey == bindingKey).OrderBy(e => e.Seq).ToList();
             foreach (var oldest in mine.Take(Math.Max(0, mine.Count - MaxPerCaller + 1)))
             {
+                // Its handle may still live (handles are counted per kind): its run must never go on without the secrets.
                 Remove(oldest.Handle);
+                if (_dropped.Count >= MaxDropped)
+                {
+                    _dropped.Remove(_dropped.MinBy(d => d.Value.Ends).Key);
+                }
+
+                _dropped[oldest.Handle] = (oldest.BindingKey, oldest.Ends);
             }
 
             var entry = new Entry(bindingKey, handle, runTool, [.. slots], time.GetUtcNow() + ToolHandles.Lifetime, ++_seq);
@@ -268,6 +293,11 @@ internal sealed class ToolSecrets(TimeProvider time, CredentialProtector protect
         foreach (var ended in _byHandle.Values.Where(e => e.Ends <= now).Select(e => e.Handle).ToList())
         {
             Remove(ended);
+        }
+
+        foreach (var ended in _dropped.Where(d => d.Value.Ends <= now).Select(d => d.Key).ToList())
+        {
+            _dropped.Remove(ended);
         }
     }
 

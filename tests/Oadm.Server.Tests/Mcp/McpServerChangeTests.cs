@@ -265,6 +265,33 @@ public sealed class McpServerChangeTests
     }
 
     [Fact]
+    public async Task AnAssistantKeyThatWentForNewerPreviewsRefusesTheRunAndWritesNothing()
+    {
+        await using var server = await McpTestServer.StartAsync();
+        var admin = await AdminCallerAsync(server);
+        var registry = server.Host.Get<ToolRegistry>();
+        var preview = await InProcessAsync(server, admin, "oadm_assistant_settings_preview", new JsonObject
+        {
+            ["enabled"] = true, ["provider"] = AssistantTexts.Anthropic, ["new_api_key"] = true,
+        });
+        var handle = preview["handle"]!.GetValue<string>();
+        Assert.Null(registry.Secrets!.Set(admin.BindingKey, handle, "api_key", "sk-ant-canary-77"));
+
+        // Newer previews of another kind (task runs) that need secrets too: the oldest slots go, the settings' handle stays.
+        for (var i = 0; i < ToolSecrets.MaxPerCaller; i++)
+        {
+            registry.Secrets.Declare(admin.BindingKey, "task-preview-" + i, "oadm_task_run", [new ToolSecretSlot("password", "password")]);
+        }
+
+        var run = await registry.CallAsync(admin, "oadm_assistant_settings_run", JsonSerializer.SerializeToElement(new JsonObject { ["handle"] = handle }), CancellationToken.None);
+        Assert.True(run.IsError);
+        Assert.Equal(AreaListing.PreviewEnded, run.Error);
+        var settings = await server.Host.Get<AssistantChats>().SettingsAsync(CancellationToken.None);
+        Assert.False(settings.Enabled); // nothing written
+        Assert.DoesNotContain(await AuditAsync(server), e => e.Action == AuditActions.AssistantChanged);
+    }
+
+    [Fact]
     public async Task SitesTurnAcceptOnAndOffOnlyWithTheRunAndRefuseUnknownNodesAndSites()
     {
         await using var server = await McpTestServer.StartAsync();

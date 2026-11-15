@@ -72,10 +72,9 @@ internal static class ExportTools
     {
         var filter = DeviceTools.FilterOf(call.Element("filter"));
         var total = (await DeviceTools.SearchAsync(call, new Proto.SearchDevicesRequest { Filter = filter, Limit = 0 }).ConfigureAwait(false)).Total;
-        var user = call.Caller.User;
         var calls = call.Calls;
         var name = "oadm-devices-" + DateTime.UtcNow.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) + ".csv";
-        var file = new PlannedDownload(name, "text/csv", async ct =>
+        var file = new PlannedDownload(name, "text/csv", async (user, ct) =>
         {
             var sb = new StringBuilder(256);
             CsvWriter.AppendRecord(sb, DeviceColumns);
@@ -98,10 +97,9 @@ internal static class ExportTools
     {
         var filter = DeviceTools.FilterOf(call.Element("filter"));
         var total = (await DeviceTools.SearchAsync(call, new Proto.SearchDevicesRequest { Filter = filter, Limit = 0 }).ConfigureAwait(false)).Total;
-        var user = call.Caller.User;
         var calls = call.Calls;
         var name = "oadm-compliance-" + DateTime.UtcNow.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) + ".csv";
-        var file = new PlannedDownload(name, "text/csv", async ct =>
+        var file = new PlannedDownload(name, "text/csv", async (user, ct) =>
         {
             var checks = (await calls.CallAsync<ComplianceGrpcService, Proto.Empty, Proto.ComplianceCheckList>(user, ComplianceTools.ListChecksPath, new Proto.Empty(),
                 (s, r, c) => s.ListChecks(r, c), ct).ConfigureAwait(false)).Checks.Where(c => c.Enabled).ToList();

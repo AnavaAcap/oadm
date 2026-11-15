@@ -223,6 +223,8 @@ public sealed class DeviceRequestToolTests
         { "PATCH", "/config/rest/network-settings/v1/ipv4", """{"data":{"dhcp":false}}""", null },
         { "PUT", "/config/rest/web-server/v1/https", """{"data":{"enabled":false}}""", null },
         { "POST", "/config/rest/ieee8021x/v1/settings", """{"data":{"enabled":false}}""", null },
+        { "POST", "/vapix/services", """<s:Envelope xmlns:s="http://www.w3.org/2003/05/soap-envelope"><s:Body><DeleteUsers xmlns="http://www.onvif.org/ver10/device/wsdl"><Username>root</Username></DeleteUsers></s:Body></s:Envelope>""", "application/soap+xml" },
+        { "POST", "/vapix/services", """<s:Envelope xmlns:s="http://www.w3.org/2003/05/soap-envelope"><s:Body><tds:SetSystemFactoryDefault xmlns:tds="http://www.onvif.org/ver10/device/wsdl"><tds:FactoryDefault>Hard</tds:FactoryDefault></tds:SetSystemFactoryDefault></s:Body></s:Envelope>""", "application/soap+xml" },
     };
 
     [Theory]

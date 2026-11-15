@@ -635,7 +635,7 @@ public sealed class McpTaskPartTests
         byte[] file = [.. Enumerable.Range(0, 300 * 1024).Select(i => (byte)(i * 7))]; // more than one chunk
         var handles = server.Host.Get<ToolHandles>();
         var caller = (await server.Host.Get<McpAccess>().AuthenticateAsync(readOnly, "local", CancellationToken.None))!;
-        var token = handles.AddDownload(caller.BindingKey, new PlannedDownload("report.csv", "text/csv", _ => Task.FromResult<Stream>(new MemoryStream(file))));
+        var token = handles.AddDownload(caller.BindingKey, new PlannedDownload("report.csv", "text/csv", (_, _) => Task.FromResult<Stream>(new MemoryStream(file))));
 
         using (var foreign = await GetAsync(server, other, token))
         {

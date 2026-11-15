@@ -21,8 +21,9 @@ internal sealed record PlannedUpload(string Name, long Size);
 /// <summary>A file the caller may fetch once through a download link: its name, its media type and how to make its bytes.</summary>
 /// <param name="Name">The file name the answer suggests (no folder).</param>
 /// <param name="ContentType">The media type of the answer.</param>
-/// <param name="Open">Makes the file as the caller of the link (the same rules as in the client); its stream is closed by the channel.</param>
-internal sealed record PlannedDownload(string Name, string ContentType, Func<CancellationToken, Task<Stream>> Open)
+/// <param name="Open">Makes the file as the caller who fetches the link, with that caller's rights of then (never the rights the offer was made
+/// with); its stream is closed by the channel.</param>
+internal sealed record PlannedDownload(string Name, string ContentType, Func<Oadm.Core.Auth.AuthenticatedCaller, CancellationToken, Task<Stream>> Open)
 {
     /// <summary>The size in bytes when known before the file is made.</summary>
     public long? Size { get; init; }

@@ -1137,6 +1137,11 @@ public sealed partial class AssistantChats
             return;
         }
 
+        if (store.WasDropped(bindingKey, handle))
+        {
+            throw GrpcGuard.NotFound(AssistantTexts.PreviewEnded); // its secrets went for newer previews: the run never goes on without them
+        }
+
         foreach (var (name, value) in secrets)
         {
             if (string.IsNullOrEmpty(value))

@@ -403,6 +403,49 @@ public sealed class PackagesPerArchitectureTests : IDisposable
     }
 
     [Fact]
+    public async Task A_ZIP_that_cannot_be_opened_for_the_install_is_closed_and_nothing_is_changed()
+    {
+        var files = new ChangingZipFiles(VendorZip());
+        var payload = new AcapPayload { Action = AcapAction.Install, ZipFileId = files.Zip.Id }.ToJson();
+        var device = new FakeAcapDevice { Firmware = "12.11.77" };
+        var ctx = new RecordingContext(device, files);
+
+        await Assert.ThrowsAnyAsync<Exception>(() => Run(ctx, payload));
+
+        Assert.Null(device.UploadedFileName); // nothing was sent to the device
+        Assert.True(files.Opened.Count >= 2); // the read of the builds, then the open for the install
+        Assert.All(files.Opened, s => Assert.True(s.Closed, "every stream of the uploaded ZIP is closed"));
+    }
+
+    /// <summary>An uploaded ZIP that reads well the first time and is damaged afterwards; it records every stream it handed out.</summary>
+    private sealed class ChangingZipFiles(byte[] zip) : IUploadedFiles
+    {
+        public UploadedFile Zip { get; } = new("zip-1", "lpr.zip", zip.Length, Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(zip)));
+
+        public List<TrackedStream> Opened { get; } = [];
+
+        public Task<UploadedFile?> FindAsync(string fileId, CancellationToken ct) => Task.FromResult<UploadedFile?>(fileId == Zip.Id ? Zip : null);
+
+        public Task<Stream> OpenReadAsync(string fileId, CancellationToken ct)
+        {
+            var stream = new TrackedStream(Opened.Count == 0 ? zip : Encoding.UTF8.GetBytes("no longer a ZIP"));
+            Opened.Add(stream);
+            return Task.FromResult<Stream>(stream);
+        }
+    }
+
+    private sealed class TrackedStream(byte[] data) : MemoryStream(data, writable: false)
+    {
+        public bool Closed { get; private set; }
+
+        protected override void Dispose(bool disposing)
+        {
+            Closed = true;
+            base.Dispose(disposing);
+        }
+    }
+
+    [Fact]
     public async Task The_plan_names_the_build_of_each_group_and_asks_for_unclear_ones_at_mapping()
     {
         var (files, a, b) = TwoEqualBuilds();
