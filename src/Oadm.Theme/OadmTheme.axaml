@@ -503,6 +503,47 @@
     <Setter Property="Margin" Value="-7,-8,0,-8" />
     <Setter Property="HorizontalAlignment" Value="Left" />
   </Style>
+  <!-- The empty Assistant panel: the mark, the question, the live counts (Button.startChip, pills) and the suggestions
+       (Button.startCard, an icon and one line on the raised surface, two per row) -->
+  <Style Selector="StackPanel.chatStart">
+    <Setter Property="Spacing" Value="16" />
+    <Setter Property="VerticalAlignment" Value="Center" />
+    <Setter Property="Margin" Value="0,0,16,12" />
+  </Style>
+  <Style Selector="Button.startChip">
+    <Setter Property="Background" Value="{StaticResource Oadm.SurfaceRaisedBrush}" />
+    <Setter Property="Foreground" Value="{StaticResource Oadm.TextPrimaryBrush}" />
+    <Setter Property="BorderBrush" Value="{StaticResource Oadm.BorderBrush}" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="CornerRadius" Value="14" />
+    <Setter Property="Padding" Value="12,5" />
+    <Setter Property="MinHeight" Value="0" />
+  </Style>
+  <Style Selector="Button.startChip:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="Background" Value="{StaticResource Oadm.SurfaceHoverBrush}" />
+    <Setter Property="BorderBrush" Value="{StaticResource Oadm.BorderBrush}" />
+    <Setter Property="Foreground" Value="{StaticResource Oadm.TextPrimaryBrush}" />
+  </Style>
+  <Style Selector="Button.startCard">
+    <Setter Property="Background" Value="{StaticResource Oadm.SurfaceRaisedBrush}" />
+    <Setter Property="Foreground" Value="{StaticResource Oadm.TextPrimaryBrush}" />
+    <Setter Property="BorderBrush" Value="{StaticResource Oadm.BorderBrush}" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="CornerRadius" Value="{StaticResource Oadm.CardCornerRadius}" />
+    <Setter Property="Padding" Value="12" />
+    <Setter Property="HorizontalAlignment" Value="Stretch" />
+    <Setter Property="VerticalAlignment" Value="Stretch" />
+    <Setter Property="HorizontalContentAlignment" Value="Left" />
+    <Setter Property="VerticalContentAlignment" Value="Top" />
+  </Style>
+  <Style Selector="Button.startCard ui|OadmIcon">
+    <Setter Property="Foreground" Value="{StaticResource Oadm.AccentHoverBrush}" />
+  </Style>
+  <Style Selector="Button.startCard:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="Background" Value="{StaticResource Oadm.SurfaceHoverBrush}" />
+    <Setter Property="BorderBrush" Value="{StaticResource Oadm.BorderBrush}" />
+    <Setter Property="Foreground" Value="{StaticResource Oadm.TextPrimaryBrush}" />
+  </Style>
   <Style Selector="Panel.chatUserRow">
     <Setter Property="Background" Value="{StaticResource Oadm.TransparentBrush}" />
   </Style>
@@ -521,33 +562,6 @@
   </Style>
   <Style Selector="Border.composer.error, Border.composer.error:focus-within">
     <Setter Property="BorderBrush" Value="{StaticResource Oadm.StatusErrorBrush}" />
-  </Style>
-  <!-- The text inside the box: starts at one line, grows to 200 px, then scrolls; its left edge on the chips' and the
-       icons of the buttons below it (7 px in, like an icon button's padding) -->
-  <Style Selector="TextBox.composer">
-    <Setter Property="Background" Value="{StaticResource Oadm.TransparentBrush}" />
-    <Setter Property="BorderThickness" Value="0" />
-    <Setter Property="MinHeight" Value="0" />
-    <Setter Property="MaxHeight" Value="200" />
-    <Setter Property="Padding" Value="7,4,7,4" />
-    <Setter Property="VerticalContentAlignment" Value="Top" />
-  </Style>
-  <Style Selector="TextBox.composer /template/ Border#PART_BorderElement, TextBox.composer:pointerover /template/ Border#PART_BorderElement, TextBox.composer:focus /template/ Border#PART_BorderElement">
-    <Setter Property="Background" Value="{StaticResource Oadm.TransparentBrush}" />
-    <Setter Property="BorderThickness" Value="0" />
-  </Style>
-  <!-- The model picker in the box's row: flat like a command button, its surface only on hover -->
-  <Style Selector="ComboBox.composerModel">
-    <Setter Property="Background" Value="{StaticResource Oadm.TransparentBrush}" />
-    <Setter Property="BorderBrush" Value="{StaticResource Oadm.TransparentBrush}" />
-  </Style>
-  <Style Selector="ComboBox.composerModel /template/ Border#Background">
-    <Setter Property="Background" Value="{StaticResource Oadm.TransparentBrush}" />
-    <Setter Property="BorderBrush" Value="{StaticResource Oadm.TransparentBrush}" />
-  </Style>
-  <Style Selector="ComboBox.composerModel:pointerover /template/ Border#Background">
-    <Setter Property="Background" Value="{StaticResource Oadm.SurfaceRaisedBrush}" />
-    <Setter Property="BorderBrush" Value="{StaticResource Oadm.TransparentBrush}" />
   </Style>
   <!-- The Assistant's send arrow and Stop (CLAUDE.md "Icon-only buttons": the one filled icon button, like the chat apps):
        a 32 px accent circle; .quiet while a preview card's Run is the panel's main button (one accent per view). -->
@@ -1169,6 +1183,23 @@
     <Setter Property="BorderBrush" Value="{StaticResource Oadm.AccentBrush}" />
     <Setter Property="BorderThickness" Value="1" />
   </Style>
+  <!-- The Assistant's message box (Border.composer above): its text and model picker, after the input styles they adapt -->
+  <!-- The text inside the box: starts at one line, grows to 200 px, then scrolls; its left edge on the chips' and the
+       icons of the buttons below it (7 px in, like an icon button's padding) -->
+  <Style Selector="TextBox.composer">
+    <Setter Property="Background" Value="{StaticResource Oadm.TransparentBrush}" />
+    <Setter Property="BorderThickness" Value="0" />
+    <Setter Property="MinHeight" Value="0" />
+    <Setter Property="MaxHeight" Value="200" />
+    <Setter Property="Padding" Value="7,4,7,4" />
+    <Setter Property="VerticalContentAlignment" Value="Top" />
+    <!-- The box around it shows the focus -->
+    <Setter Property="FocusAdorner" Value="{x:Null}" />
+  </Style>
+  <Style Selector="TextBox.composer /template/ Border#PART_BorderElement, TextBox.composer:pointerover /template/ Border#PART_BorderElement, TextBox.composer:focus /template/ Border#PART_BorderElement">
+    <Setter Property="Background" Value="{StaticResource Oadm.TransparentBrush}" />
+    <Setter Property="BorderThickness" Value="0" />
+  </Style>
   <Style Selector="NumericUpDown">
     <!-- The inner text box takes padding and alignment from the NumericUpDown (TemplateBinding). -->
     <Setter Property="VerticalContentAlignment" Value="Center" />
@@ -1238,6 +1269,19 @@
   <!-- The focused select or number field shows it like a focused text box (also after a click, not only with Tab). -->
   <Style Selector="ComboBox:focus /template/ Border#Background, ComboBox:focus:pointerover /template/ Border#Background">
     <Setter Property="BorderBrush" Value="{StaticResource Oadm.AccentBrush}" />
+  </Style>
+  <!-- The model picker in the box's row: flat like a command button, its surface only on hover -->
+  <Style Selector="ComboBox.composerModel">
+    <Setter Property="Background" Value="{StaticResource Oadm.TransparentBrush}" />
+    <Setter Property="BorderBrush" Value="{StaticResource Oadm.TransparentBrush}" />
+  </Style>
+  <Style Selector="ComboBox.composerModel /template/ Border#Background">
+    <Setter Property="Background" Value="{StaticResource Oadm.TransparentBrush}" />
+    <Setter Property="BorderBrush" Value="{StaticResource Oadm.TransparentBrush}" />
+  </Style>
+  <Style Selector="ComboBox.composerModel:pointerover /template/ Border#Background">
+    <Setter Property="Background" Value="{StaticResource Oadm.SurfaceRaisedBrush}" />
+    <Setter Property="BorderBrush" Value="{StaticResource Oadm.TransparentBrush}" />
   </Style>
   <Style Selector="NumericUpDown:focus-within /template/ ButtonSpinner#PART_Spinner">
     <Setter Property="BorderBrush" Value="{StaticResource Oadm.AccentBrush}" />
