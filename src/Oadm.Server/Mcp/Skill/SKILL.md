@@ -49,6 +49,11 @@ new request.
 Tasks: `oadm_tasks_catalog` lists the tasks you may run and how many of the filtered devices can run each. A task that
 is not in the catalog cannot be run over MCP. Tell the user to run it in OADM.
 
+Settings a task does not cover (image, video, I/O, PTZ, storage, siren and light, MQTT, SNMP and more): take a command from
+`oadm_vapix_commands` and run it with `oadm_vapix_command_preview`, on device ids from `oadm_devices_search`. Reads go
+preview then run too; read each device's answer with `oadm_tasks_get`. Prefer a task from the catalog when one does the
+job.
+
 ## Rules
 
 - **Passwords and keys.** Never ask for, guess, store or show a password, private key, license key or token. Stored

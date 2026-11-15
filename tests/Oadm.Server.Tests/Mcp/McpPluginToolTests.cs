@@ -297,6 +297,7 @@ public sealed class McpPluginToolTests
         registry.RegisterCorePlugin(new NtpServerPlugin(), new PluginOrigin(NtpServerPluginInfo.PluginId, "1.0.0", null) { DisplayName = "NTP server" });
         registry.RegisterCorePlugin(new DhcpServerPlugin(), new PluginOrigin(DhcpServerPluginInfo.PluginId, "1.0.0", null) { DisplayName = "DHCP server" });
         registry.RegisterCorePlugin(new HardeningScanPlugin(), new PluginOrigin(HardeningScanPluginInfo.PluginId, "1.0.0", null) { DisplayName = "Hardening scan" });
+        registry.RegisterCorePlugin(new Oadm.Plugins.VapixCommander.VapixCommanderPlugin(), new PluginOrigin(Oadm.Plugins.VapixCommander.VapixCommanderPlugin.PluginId, "1.0.0", null) { DisplayName = "VAPIX Commander" });
         await server.Host.Get<PluginActivation>().LoadAsync(CancellationToken.None);
         await server.Host.Get<RoleStore>().SyncCatalogAsync(PermissionCatalog.Build(registry), CancellationToken.None);
         await server.Host.Get<CorePluginHost>().StartAllAsync(CancellationToken.None);
@@ -320,6 +321,7 @@ public sealed class McpPluginToolTests
                  {
                      "oadm_pki_certificates", "oadm_pki_policies", "oadm_pki_certificate_create_preview", "oadm_pki_certificate_create_run",
                      "oadm_ntp_status", "oadm_dhcp_status", "oadm_dhcp_leases", "oadm_hardening_results",
+                     "oadm_vapix_commands", "oadm_vapix_command_preview", "oadm_vapix_command_run",
                  })
         {
             Assert.Contains(expected, names);
@@ -334,7 +336,7 @@ public sealed class McpPluginToolTests
         }
 
         // Lists are paged with the host's cursor and descriptions never carry a text of a device.
-        foreach (var paged in new[] { "oadm_pki_certificates", "oadm_dhcp_leases", "oadm_hardening_results" })
+        foreach (var paged in new[] { "oadm_pki_certificates", "oadm_dhcp_leases", "oadm_hardening_results", "oadm_vapix_commands" })
         {
             var properties = listed.Single(t => t["name"]!.GetValue<string>() == paged)["inputSchema"]!["properties"]!.AsObject();
             Assert.True(properties.ContainsKey("limit") && properties.ContainsKey("cursor") && !properties.ContainsKey("after"), paged);
@@ -344,6 +346,8 @@ public sealed class McpPluginToolTests
         Assert.True(certificates["total"]!.GetValue<int>() >= 1);
         Assert.Contains(certificates["certificates"]!.AsArray(), c => c!["kind"]!.GetValue<string>() == "Authority");
         Assert.NotEmpty((await server.ToolAsync(key, "oadm_pki_policies"))["policies"]!.AsArray());
+        Assert.Contains((await server.ToolAsync(key, "oadm_vapix_commands", new JsonObject { ["search"] = "brightness" }))["commands"]!.AsArray(),
+            c => c!["id"]!.GetValue<string>() == "library:image.brightness.set"); // the library next to the plugin
 
         var ntp = await server.ToolAsync(key, "oadm_ntp_status");
         Assert.False(ntp["enabled"]!.GetValue<bool>());

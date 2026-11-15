@@ -175,8 +175,17 @@ Each a few tools with the same rules (summary or search first, preview/run for c
 
 Core plugins and task plugins bring their tools through the SDK; the host prefixes them `oadm_<plugin area>_` and lists
 them only while the plugin is on and the role has its permission. Bundled plugins get tools for their pages (e.g. PKI
-certificate list and Create certificate, NTP and DHCP status and leases, Hardening scan results, VAPIX Commander library
-run as a task). A task plugin without a payload schema is not offered over MCP (fail closed).
+certificate list and Create certificate, NTP and DHCP status and leases, Hardening scan results, VAPIX Commander commands
+and their run). A task plugin without a payload schema is not offered over MCP (fail closed).
+
+**VAPIX Commander** (`oadm_vapix_commands`, `oadm_vapix_command_preview` / `_run`, `CommanderTools`): only library and saved
+commands by id (`library:<id>`, `saved:<id>`), never a request of the agent's own. Not offered: a dangerous command
+(`RequestSafety`, of the definition and again of the filled-in request), one with a password or a file field, and one that
+changes what OADM's own tasks change (date and time, NTP, applications, AXIS OS, restart, users, network; their reads stay).
+Every command, a read too, goes preview then run. The preview checks the values (the page's renderer) and plans the chosen
+devices from cached data (an id outside the caller's view refuses the call; Certificate changed, Site offline and a missing
+API skip a device); the run is the page's rollout, one task per device, with the user's OK of the preview as the
+confirmation, and needs the plugin's "Run on many devices" right. At most 1,000 devices a run.
 
 ### Not over MCP
 
@@ -447,9 +456,6 @@ The website gets a user page (Tools > AI agents, `tools/ai-agents`) and a develo
 ## Open points
 
 - Client support for the MCP tasks extension: if it spreads, `oadm_task_run` may answer a task handle instead of polling.
-- VAPIX Commander: its library rollout is a page task (`TaskService.Run` refuses it, the catalog lists only menu tasks), so
-  it is not offered. Offering it needs a tools-only task kind with a payload of a library command id and its declared
-  values, never a free-form VAPIX request.
 - Not offered yet: recipients, changing compliance checks, turning a rule on or off by itself; the waiting list keeps no
   tags or site for a device an agent puts there.
 - The skills extension is declared without fields; when its schema settles, `McpSkill` may list the skill there too.

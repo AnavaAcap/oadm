@@ -140,6 +140,9 @@ command**. Command format: `Schema/command-format.md` + `command.schema.json` (t
   refuse a change without the user's confirmation and a dangerous request without the second one, both carried in the
   request ("... were not confirmed. Nothing was changed."); the page sends only the answers the user gave.
 - Saved commands: plugin setting `savedCommands`, at most 500, shared by all clients, export / import as library files.
+- AI agents (`docs/spec/mcp.md` "Plugins"): `oadm_vapix_commands` and `oadm_vapix_command_preview` / `_run`, only library
+  and saved commands that are not dangerous, have no password or file field and change nothing OADM's own tasks change;
+  every run goes preview then run and is the page's rollout.
 - Roles: methods are Operator; `tryRequest` and `rollout` are audited. Scale: target devices at the device limit, every list action
   under 1 s (Perf test).
 - Device groups: devices, clients and tasks only through the call (`tryRequest`, `checkCompatibility`, `rollout`: an id

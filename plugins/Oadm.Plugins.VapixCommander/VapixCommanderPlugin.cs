@@ -82,8 +82,14 @@ public sealed partial class VapixCommanderPlugin : ICorePlugin, Oadm.Sdk.Actions
 
     public Task StopAsync(CancellationToken ct) => Task.CompletedTask;
 
-    /// <summary>Sending a request and rolling out commands reach devices: both go to the audit log.</summary>
-    public bool IsAudited(string method) => method is CommanderMethods.TryRequest or CommanderMethods.Rollout;
+    /// <summary>Sending a request, rolling out commands and the run of the run tool reach devices: they go to the audit log.</summary>
+    public bool IsAudited(string method) => method is CommanderMethods.TryRequest or CommanderMethods.Rollout || CommanderTools.IsRun(method);
+
+    /// <summary>The tools for AI agents (docs/spec/mcp.md "Plugins"): the commands they may run and a run as preview and run.</summary>
+    public IReadOnlyList<PluginTool> Tools => CommanderTools.All;
+
+    /// <summary>The tools' names start with oadm_vapix_.</summary>
+    public string? ToolArea => "vapix";
 
     /// <summary>Sending to one device, rolling out and the saved commands are rights of their own; reading is "show".</summary>
     public IReadOnlyList<PermissionDefinition> Permissions { get; } =
@@ -97,6 +103,7 @@ public sealed partial class VapixCommanderPlugin : ICorePlugin, Oadm.Sdk.Actions
     {
         CommanderMethods.TryRequest => "send",
         CommanderMethods.Rollout => "rollout",
+        _ when CommanderTools.CommandRun.Calls(method) => "rollout",
         CommanderMethods.Save or CommanderMethods.Delete or CommanderMethods.Import => "saved",
         _ => PermissionKeys.Show,
     };
@@ -117,6 +124,14 @@ public sealed partial class VapixCommanderPlugin : ICorePlugin, Oadm.Sdk.Actions
     private async Task<string?> InvokeCoreAsync(ICallContext? caller, string method, string? payloadJson, CancellationToken ct)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(method);
+        if (CommanderTools.IsToolMethod(method))
+        {
+            // A tool always runs with a caller: its devices, tasks and rights are the user's (fail closed without one).
+            return caller is null
+                ? throw new InvalidOperationException("The tools of the VAPIX Commander need a caller.")
+                : await CommanderTools.InvokeAsync(this, caller, method, payloadJson, ct).ConfigureAwait(false);
+        }
+
         return method switch
         {
             CommanderMethods.ListLibrary => CommandJson.Write(ListLibrary()),
@@ -163,6 +178,21 @@ public sealed partial class VapixCommanderPlugin : ICorePlugin, Oadm.Sdk.Actions
     };
 
     internal void CancelTask(Guid taskId) => _ctx?.Tasks.Cancel(taskId);
+
+    /// <summary>The library and saved commands for the tools, with their references ("library:&lt;id&gt;", "saved:&lt;id&gt;").</summary>
+    internal async Task<IReadOnlyList<(string Reference, CommandDefinition Command)>> ToolCommandsAsync(CancellationToken ct) =>
+    [
+        .. Library.Commands.Select(c => (RunCommandAction.LibraryPrefix + c.Id, c)),
+        .. (await Saved.ListAsync(ct).ConfigureAwait(false)).Select(c => (RunCommandAction.SavedPrefix + c.Command.Id, c.Command)),
+    ];
+
+    /// <summary>The server's definition of a library or saved command; null when there is none.</summary>
+    internal async Task<CommandDefinition?> FindCommandAsync(CommandRef reference, CancellationToken ct) => reference.Source switch
+    {
+        CommandSources.Library => Library.Find(reference.Id ?? string.Empty),
+        CommandSources.Saved => await Saved.FindAsync(reference.Id ?? string.Empty, ct).ConfigureAwait(false),
+        _ => null,
+    };
 
     internal async Task<SaveCommandReply> SaveAsync(SaveCommandRequest request, CancellationToken ct)
     {
