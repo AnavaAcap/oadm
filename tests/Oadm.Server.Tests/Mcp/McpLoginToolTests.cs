@@ -11,6 +11,7 @@ using Oadm.Core.Devices;
 using Oadm.Core.Security;
 using Oadm.Sdk.Devices;
 using Oadm.Sdk.Network;
+using Oadm.Sdk.Testing;
 using Oadm.Server.Assistant;
 using Oadm.Server.Tests.Support;
 using Oadm.Server.Tools;
@@ -145,6 +146,9 @@ public sealed class McpLoginToolTests
         Assert.Equal(FirstCanary, (await server.Host.Get<CredentialStore>().GetAsync(device.Id, CancellationToken.None))!.Password);
         await SecretScan.AssertNowhereAsync(server.Host, FirstCanary, answers.ToString());
 
+        // Its refresh reads the new state; then nothing is left to do for it.
+        await Eventually.TrueAsync(async () => (await TestHelpers.GetDeviceAsync(server.Host, device.Id.ToString())).Status != Proto.DeviceStatus.PasswordNotSet,
+            "the refresh after the first password");
         var none = await server.ToolAsync(key, "oadm_devices_first_password_preview", new JsonObject { ["filter"] = new JsonObject { ["ids"] = new JsonArray(device.Id.ToString()) } });
         Assert.Null(none["handle"]); // it has a password now: nothing to do
     }
