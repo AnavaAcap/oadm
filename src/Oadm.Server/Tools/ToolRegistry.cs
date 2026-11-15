@@ -39,9 +39,9 @@ public sealed record ToolCaller(AuthenticatedCaller User, string BindingKey)
 /// <param name="KeyExpiresUtc">When the key ends.</param>
 /// <param name="CallsPerSecond">Calls a second the channel takes per caller; null without a limit.</param>
 /// <param name="CallsAtOnce">Calls waiting for their answer at once; null without a limit.</param>
-/// <param name="RunsPerMinute">Task runs a minute; null without a limit.</param>
+/// <param name="ChangesPerMinute">Changes a minute (runs, task starts, calls that act outside OADM); null without a limit.</param>
 /// <param name="FilesUrl">Where the channel takes files of upload links ("https://server:5082/files/"); null: it takes none.</param>
-public sealed record ToolChannel(string? KeyName = null, DateTime? KeyExpiresUtc = null, int? CallsPerSecond = null, int? CallsAtOnce = null, int? RunsPerMinute = null, string? FilesUrl = null)
+public sealed record ToolChannel(string? KeyName = null, DateTime? KeyExpiresUtc = null, int? CallsPerSecond = null, int? CallsAtOnce = null, int? ChangesPerMinute = null, string? FilesUrl = null)
 {
     public static ToolChannel None { get; } = new();
 }
@@ -76,6 +76,12 @@ internal sealed record OadmTool(
     /// list): a Read only caller does not get it, and a channel counts it like a change.
     /// </summary>
     public bool ActsOutside { get; init; }
+
+    /// <summary>
+    /// The call takes a camera picture, and every picture is audited: a channel counts it against its own limit of pictures a
+    /// minute so that a low-rights caller cannot fill the audit log.
+    /// </summary>
+    public bool CountsAsPicture { get; init; }
 
     /// <summary>A channel counts this call against its limit of changes (a run, a task start, a call that acts outside).</summary>
     public bool CountsAsChange => !ReadsOnly || StartsTasks || ActsOutside;

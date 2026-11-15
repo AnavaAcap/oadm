@@ -105,7 +105,10 @@ internal static class DeviceChangeTools
                 P("bytes", Out("integer", "The size of the JPEG.")),
             ], "width", "height", "bytes"),
             [SnapshotPath],
-            call => SnapshotAsync(call));
+            call => SnapshotAsync(call))
+        {
+            CountsAsPicture = true,
+        };
 
         yield return new OadmTool(
             "oadm_devices_refresh_preview",

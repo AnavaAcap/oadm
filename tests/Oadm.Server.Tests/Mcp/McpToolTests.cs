@@ -204,6 +204,8 @@ public sealed partial class McpToolTests
         Assert.True(info["read_only"]!.GetValue<bool>());
         Assert.Equal("agent", info["access_key"]!["name"]!.GetValue<string>());
         Assert.Equal(McpAccess.CallsAtOnce, info["limits"]!["calls_at_once"]!.GetValue<int>()); // the limits of MCP, the channel
+        Assert.Equal(McpAccess.ChangesPerMinute, info["limits"]!["changes_per_minute"]!.GetValue<int>());
+        Assert.False(info["limits"]!.AsObject().ContainsKey("runs_per_minute"));
     }
 
     [Fact]

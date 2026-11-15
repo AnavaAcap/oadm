@@ -55,11 +55,11 @@ internal static class ServerInfoTool
             [
                 P("calls_per_second", OrNull(Out("integer", "Calls per second; null without a limit."))),
                 P("calls_at_once", OrNull(Out("integer", "Calls that wait for their answer at the same time; null without a limit."))),
-                P("runs_per_minute", OrNull(Out("integer", "Task runs per minute; null without a limit."))),
+                P("changes_per_minute", OrNull(Out("integer", "Changes per minute (runs, task starts, calls that act outside OADM); null without a limit."))),
                 P("rows_default", Out("integer", "Rows of a list page by default.")),
                 P("rows_max", Out("integer", "Rows of a list page at most.")),
                 P("answer_max_bytes", Out("integer", "The largest answer.")),
-            ], "calls_per_second", "calls_at_once", "runs_per_minute", "rows_default", "rows_max", "answer_max_bytes")),
+            ], "calls_per_second", "calls_at_once", "changes_per_minute", "rows_default", "rows_max", "answer_max_bytes")),
         ], "server", "user", "role", "all_permissions", "permissions", "devices", "read_only", "access_key", "limits"),
         [MePath, SettingsPath, DeviceTools.SearchPath],
         call => RunAsync(call, catalog()));
@@ -100,7 +100,7 @@ internal static class ServerInfoTool
             {
                 ["calls_per_second"] = channel.CallsPerSecond,
                 ["calls_at_once"] = channel.CallsAtOnce,
-                ["runs_per_minute"] = channel.RunsPerMinute,
+                ["changes_per_minute"] = channel.ChangesPerMinute,
                 ["rows_default"] = ToolAnswers.DefaultRows,
                 ["rows_max"] = ToolAnswers.MaxRows,
                 ["answer_max_bytes"] = ToolAnswers.MaxBytes,

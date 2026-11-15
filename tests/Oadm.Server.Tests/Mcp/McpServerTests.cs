@@ -290,6 +290,49 @@ public sealed class McpServerTests
     }
 
     [Fact]
+    public async Task AMissingDoubledOrDifferentlyCasedHeaderIsRefusedAndTheChangeLimitCountsFromTheBodyNeverTheHeader()
+    {
+        var clock = new FakeTimeProvider(DateTimeOffset.UtcNow);
+        await using var server = await McpTestServer.StartAsync(accessClock: clock);
+        var key = await server.CreateKeyAsync();
+        var call = McpTestServer.Request("tools/call", new JsonObject { ["name"] = "oadm_tags_assign_run", ["arguments"] = new JsonObject { ["handle"] = "none" } });
+
+        foreach (var headers in new[]
+        {
+            new Dictionary<string, string?> { ["Mcp-Name"] = null },
+            new Dictionary<string, string?> { ["Mcp-Method"] = null },
+            new Dictionary<string, string?> { ["Mcp-Name"] = "OADM_TAGS_ASSIGN_RUN" },
+            new Dictionary<string, string?> { ["Mcp-Method"] = "Tools/Call" },
+            new Dictionary<string, string?> { ["Mcp-Name"] = "oadm_tags_assign_run, oadm_tags_assign_run" }, // a doubled header reaches the server as one joined value
+            new Dictionary<string, string?> { ["Mcp-Name"] = "oadm_tags_list" }, // names a plain read while the body runs a change
+        })
+        {
+            var reply = await server.PostAsync(key, call, headers);
+            Assert.True(reply.Status == 400 && reply.ErrorCode == -32020, server.LastRaw);
+        }
+
+        using var doubled = new HttpRequestMessage(HttpMethod.Post, "mcp") { Content = new StringContent(call.ToJsonString(), System.Text.Encoding.UTF8, "application/json") };
+        doubled.Headers.TryAddWithoutValidation("Authorization", "Bearer " + key);
+        doubled.Headers.TryAddWithoutValidation("MCP-Protocol-Version", McpEndpoint.ProtocolVersion);
+        doubled.Headers.TryAddWithoutValidation("Mcp-Method", "tools/call");
+        doubled.Headers.TryAddWithoutValidation("Mcp-Name", ["oadm_tags_assign_run", "oadm_tags_assign_run"]);
+        doubled.Headers.Accept.ParseAdd("application/json");
+        doubled.Headers.Accept.ParseAdd("text/event-stream");
+        using var client = server.Http();
+        using var doubledReply = await client.SendAsync(doubled);
+        Assert.Equal(System.Net.HttpStatusCode.BadRequest, doubledReply.StatusCode);
+
+        // Refused calls ran nothing and counted nothing: all ten changes of the minute are still there, the eleventh is the first refused.
+        for (var i = 0; i < McpAccess.ChangesPerMinute; i++)
+        {
+            clock.Advance(TimeSpan.FromMilliseconds(100));
+            Assert.Equal(200, (await server.PostAsync(key, call)).Status);
+        }
+
+        Assert.Equal(429, (await server.PostAsync(key, call)).Status);
+    }
+
+    [Fact]
     public async Task HeadersThatDoNotMatchTheBodyAndOtherRevisionsAreRefused()
     {
         await using var server = await McpTestServer.StartAsync();

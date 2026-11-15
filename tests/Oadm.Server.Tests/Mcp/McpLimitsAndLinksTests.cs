@@ -50,6 +50,220 @@ public sealed class McpLimitsAndLinksTests
     }
 
     [Fact]
+    public async Task SnapshotsHaveALimitOfTheirOwnPerUserAndTheThirtyFirstInAMinuteIs429()
+    {
+        var clock = new FakeTimeProvider(DateTimeOffset.UtcNow);
+        await using var server = await McpTestServer.StartAsync(accessClock: clock);
+        var key = await server.CreateKeyAsync(readOnly: true); // a Read only key takes pictures too
+        var sameUser = await server.CreateKeyAsync(name: "again");
+        var otherUser = await SecondUserKeyAsync(server);
+        JsonObject Snapshot() => McpTestServer.Request("tools/call", new JsonObject { ["name"] = "oadm_devices_snapshot", ["arguments"] = new JsonObject { ["device_id"] = Guid.NewGuid().ToString() } });
+
+        // The device does not exist: the call is still counted (it is audited when it works, and the limit must not depend on that).
+        for (var i = 0; i < McpAccess.PicturesPerMinute; i++)
+        {
+            clock.Advance(TimeSpan.FromSeconds(1)); // under the calls a second, inside the minute
+            Assert.Equal(200, (await server.PostAsync(i % 2 == 0 ? key : sameUser, Snapshot())).Status); // both keys of the user share the limit
+        }
+
+        clock.Advance(TimeSpan.FromSeconds(1));
+        var refused = await server.PostAsync(key, Snapshot());
+        Assert.Equal(429, refused.Status);
+        Assert.Equal("60", refused.RetryAfter);
+        Assert.Equal("Too many pictures with this access key. Wait a minute.", refused.ErrorMessage);
+        Assert.Equal(429, (await server.PostAsync(sameUser, Snapshot())).Status);
+
+        // Plain reads, another user and a later minute are not affected; a picture is no change either.
+        Assert.Equal(200, (await server.PostAsync(key, McpTestServer.Request("tools/call", new JsonObject { ["name"] = "oadm_server_info", ["arguments"] = new JsonObject() }))).Status);
+        Assert.Equal(200, (await server.PostAsync(otherUser, Snapshot())).Status);
+        clock.Advance(TimeSpan.FromMinutes(1));
+        Assert.Equal(200, (await server.PostAsync(key, Snapshot())).Status);
+    }
+
+    [Fact]
+    public async Task ARefusedCallChargesNoCounter()
+    {
+        await using var host = await TestServerHost.StartAsync();
+        var time = new FakeTimeProvider(DateTimeOffset.UtcNow);
+        var tokens = new AuthTokenStore(host.Get<Microsoft.EntityFrameworkCore.IDbContextFactory<Oadm.Core.Persistence.OadmDbContext>>(), time);
+        var admin = (await host.Get<UserStore>().FindByNameAsync(TestServerHost.AdminUserName, CancellationToken.None))!;
+        var (one, _) = await tokens.CreateAccessKeyAsync(admin.Id, admin.UserName, "one", 30, readOnly: false, "test", CancellationToken.None);
+        var (two, _) = await tokens.CreateAccessKeyAsync(admin.Id, admin.UserName, "two", 30, readOnly: false, "test", CancellationToken.None);
+        using var access = new McpAccess(tokens, host.Get<Oadm.Core.Auth.RoleStore>(), host.Get<Oadm.Core.DeviceGroups.DeviceViewFactory>(), host.Get<AccessEpochs>(), host.Get<AuditLog>(), time);
+        var first = (await access.AuthenticateAsync(one, "local", CancellationToken.None))!;
+        var second = (await access.AuthenticateAsync(two, "local", CancellationToken.None))!;
+
+        // The user's window starts first (second key, one change); the first key's window starts 30 s later.
+        Assert.True(access.TryChange(second));
+        time.Advance(TimeSpan.FromSeconds(30));
+        for (var i = 0; i < McpAccess.ChangesPerMinute - 1; i++)
+        {
+            Assert.True(access.TryChange(first));
+        }
+
+        time.Advance(TimeSpan.FromSeconds(31)); // the user's minute is over, the first key's is not
+        Assert.True(access.TryChange(first)); // the key's tenth
+        Assert.False(access.TryChange(first)); // refused by the key: the user is charged nothing for it
+        for (var i = 0; i < 20; i++)
+        {
+            Assert.False(access.TryChange(first));
+        }
+
+        // The user's budget is that of one change (the first key's tenth) and the refusals: nine are left for the second key, whose own minute is over.
+        for (var i = 0; i < McpAccess.ChangesPerMinute - 1; i++)
+        {
+            Assert.True(access.TryChange(second), "change " + i);
+        }
+
+        Assert.False(access.TryChange(second));
+    }
+
+    [Fact]
+    public async Task FileTransfersHaveTheirOwnPlacesAndNeverTakeThoseOfMcpCalls()
+    {
+        await using var server = await McpTestServer.StartAsync();
+        var key = await server.CreateKeyAsync();
+        var otherUser = await SecondUserKeyAsync(server);
+        var access = server.Host.Get<McpAccess>();
+        var caller = (await access.AuthenticateAsync(key, "local", CancellationToken.None))!;
+        var link = await Link(server, key, "a.bin", 3);
+
+        // One user holds all its transfer places (stalled bodies hold them just so): its next PUT and GET are refused, and the other user and /mcp go on.
+        var held = Enumerable.Range(0, McpAccess.TransfersAtOnce).Select(_ => access.TryStartTransfer(caller)!).ToList();
+        Assert.All(held, Assert.NotNull);
+        Assert.Null(access.TryStartTransfer(caller));
+        using var client = server.Http();
+        using var put = Put(link["url"]!.GetValue<string>(), key);
+        using var refusedPut = await client.SendAsync(put);
+        Assert.Equal(System.Net.HttpStatusCode.TooManyRequests, refusedPut.StatusCode);
+        using var get = Get(McpEndpoint.FilesPath + "anything", key);
+        Assert.Equal(System.Net.HttpStatusCode.TooManyRequests, (await client.SendAsync(get)).StatusCode);
+        Assert.Equal(200, (await server.PostAsync(key, McpTestServer.Request("tools/list"))).Status); // /mcp keeps its places also for the key that holds the transfers
+        Assert.Equal(200, (await server.PostAsync(otherUser, McpTestServer.Request("tools/list"))).Status);
+        using var elsewhere = Get(McpEndpoint.FilesPath + "anything", otherUser);
+        Assert.Equal(System.Net.HttpStatusCode.NotFound, (await client.SendAsync(elsewhere)).StatusCode); // reaches the link check
+
+        // The port: the places of 8 transfers taken by many users, then nobody transfers, and every /mcp call still answers.
+        foreach (var place in held)
+        {
+            place.Dispose();
+        }
+
+        var port = new List<IDisposable>();
+        for (var i = 0; i < McpAccess.TransfersInPort; i++)
+        {
+            var someone = caller with { User = caller.User with { UserId = Guid.NewGuid() }, BindingKey = ToolHandles.BindingKeyOf(Guid.NewGuid(), "t" + i) };
+            port.Add(access.TryStartTransfer(someone)!);
+        }
+
+        Assert.All(port, Assert.NotNull);
+        using var late = Get(McpEndpoint.FilesPath + "anything", otherUser);
+        Assert.Equal(System.Net.HttpStatusCode.TooManyRequests, (await client.SendAsync(late)).StatusCode);
+        Assert.Equal(200, (await server.PostAsync(otherUser, McpTestServer.Request("tools/list"))).Status);
+        Assert.Equal(200, (await server.PostAsync(key, McpTestServer.Request("tools/list"))).Status);
+        foreach (var place in port)
+        {
+            place.Dispose();
+        }
+
+        using var free = Get(McpEndpoint.FilesPath + "anything", key);
+        Assert.Equal(System.Net.HttpStatusCode.NotFound, (await client.SendAsync(free)).StatusCode); // places are given back
+    }
+
+    [Fact]
+    public void AFileTransferAsksKestrelForAMinimumDataRate()
+    {
+        var http = new Microsoft.AspNetCore.Http.DefaultHttpContext();
+        var body = new RateFeature();
+        var response = new ResponseRateFeature();
+        http.Features.Set<Microsoft.AspNetCore.Server.Kestrel.Core.Features.IHttpMinRequestBodyDataRateFeature>(body);
+        http.Features.Set<Microsoft.AspNetCore.Server.Kestrel.Core.Features.IHttpMinResponseDataRateFeature>(response);
+        McpEndpoint.RequireTransferRate(http);
+        Assert.Equal(McpEndpoint.TransferMinBytesPerSecond, body.MinDataRate!.BytesPerSecond);
+        Assert.Equal(McpEndpoint.TransferGrace, body.MinDataRate.GracePeriod);
+        Assert.Equal(McpEndpoint.TransferMinBytesPerSecond, response.MinDataRate!.BytesPerSecond);
+        Assert.Equal(1024, McpEndpoint.TransferMinBytesPerSecond);
+        Assert.Equal(TimeSpan.FromSeconds(10), McpEndpoint.TransferGrace);
+    }
+
+    private sealed class RateFeature : Microsoft.AspNetCore.Server.Kestrel.Core.Features.IHttpMinRequestBodyDataRateFeature
+    {
+        public Microsoft.AspNetCore.Server.Kestrel.Core.MinDataRate? MinDataRate { get; set; }
+    }
+
+    private sealed class ResponseRateFeature : Microsoft.AspNetCore.Server.Kestrel.Core.Features.IHttpMinResponseDataRateFeature
+    {
+        public Microsoft.AspNetCore.Server.Kestrel.Core.MinDataRate? MinDataRate { get; set; }
+    }
+
+    [Fact]
+    public async Task ARequestToAFilesLinkLeavesNoLogLineWithTheTokenInIt()
+    {
+        var logs = new CapturingLoggerFactory();
+        await using var server = await McpTestServer.StartAsync(configureServices: s => s.AddSingleton<Microsoft.Extensions.Logging.ILoggerFactory>(logs));
+        var key = await server.CreateKeyAsync();
+        var link = await Link(server, key, "a.bin", 3);
+        var token = new Uri(link["url"]!.GetValue<string>()).AbsolutePath[McpEndpoint.FilesPath.Length..];
+        using var client = server.Http();
+        using var put = Put(link["url"]!.GetValue<string>(), key);
+        Assert.Equal(System.Net.HttpStatusCode.OK, (await client.SendAsync(put)).StatusCode);
+        using var get = Get(McpEndpoint.FilesPath + token, key);
+        await client.SendAsync(get);
+
+        Assert.True(logs.Count > 0, "the capturing factory is the one the server uses");
+        // The web host's own categories (Hosting, Routing, Kestrel) log the request path at Information; the MCP SDK's (capped at Warning by the server's log settings) are not the subject.
+        Assert.DoesNotContain(logs.Lines, l => l.StartsWith("Microsoft.", StringComparison.Ordinal) && l.Contains(token, StringComparison.Ordinal));
+    }
+
+    private sealed class CapturingLoggerFactory : Microsoft.Extensions.Logging.ILoggerFactory
+    {
+        private readonly System.Collections.Concurrent.ConcurrentQueue<string> _lines = new();
+
+        public int Count => _lines.Count;
+
+        public IReadOnlyList<string> Lines => [.. _lines];
+
+        public Microsoft.Extensions.Logging.ILogger CreateLogger(string categoryName) => new Capture(categoryName, _lines);
+
+        public void AddProvider(Microsoft.Extensions.Logging.ILoggerProvider provider)
+        {
+        }
+
+        public void Dispose()
+        {
+        }
+
+        private sealed class Capture(string category, System.Collections.Concurrent.ConcurrentQueue<string> lines) : Microsoft.Extensions.Logging.ILogger
+        {
+            public IDisposable? BeginScope<TState>(TState state)
+                where TState : notnull
+            {
+                lines.Enqueue(category + " scope " + state);
+                return null;
+            }
+
+            public bool IsEnabled(Microsoft.Extensions.Logging.LogLevel logLevel) => true;
+
+            public void Log<TState>(Microsoft.Extensions.Logging.LogLevel logLevel, Microsoft.Extensions.Logging.EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter) =>
+                lines.Enqueue(category + " " + formatter(state, exception) + " " + state);
+        }
+    }
+
+    private static HttpRequestMessage Put(string url, string key)
+    {
+        var put = new HttpRequestMessage(HttpMethod.Put, new Uri(url).PathAndQuery) { Content = new ByteArrayContent([1, 2, 3]) };
+        put.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", key);
+        return put;
+    }
+
+    private static HttpRequestMessage Get(string path, string key)
+    {
+        var get = new HttpRequestMessage(HttpMethod.Get, path);
+        get.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", key);
+        return get;
+    }
+
+    [Fact]
     public async Task AUsersKeysShareTheirCallsASecondAndThePortHasOneCapForEveryone()
     {
         await using var server = await McpTestServer.StartAsync();

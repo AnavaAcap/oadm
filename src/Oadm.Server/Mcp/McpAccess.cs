@@ -13,7 +13,9 @@ namespace Oadm.Server.Mcp;
 /// new password or a deleted key end it at once), at most <see cref="CallsPerSecond"/> calls per second,
 /// <see cref="CallsAtOnce"/> calls waiting for their answer (every device tool reads the whole view) and
 /// <see cref="ChangesPerMinute"/> changes a minute per key and, with the same numbers, per user (a user's keys share one
-/// budget), at most <see cref="CallsInPort"/> calls waiting at once on the whole port, and every
+/// budget), <see cref="PicturesPerMinute"/> camera pictures a minute per user, at most <see cref="CallsInPort"/> calls waiting at once on the
+/// whole port, file transfers in a pool of their own (<see cref="TransfersAtOnce"/> per key and user, <see cref="TransfersInPort"/> on the port),
+/// a refused call counting against nothing, and every
 /// refused key in the audit log (one entry per address and key a minute, its count in the detail, so a client that retries
 /// never pushes the history out).
 /// </summary>
@@ -31,14 +33,44 @@ public sealed class McpAccess(AuthTokenStore tokens, RoleStore roles, DeviceView
     /// <summary>Changes per minute per key and, the same number, per user: every tool with <c>CountsAsChange</c> (runs, task starts, calls that act outside OADM).</summary>
     public const int ChangesPerMinute = 10;
 
+    /// <summary>Camera pictures per minute per user (all their keys together): every tool with <c>CountsAsPicture</c>. Each one is audited, so the limit keeps a low-rights key from filling the audit log.</summary>
+    public const int PicturesPerMinute = 30;
+
+    /// <summary>File transfers (a PUT or a GET of <c>/files/</c>) at the same time per key and, the same number, per user; they never use the places of <c>/mcp</c> calls.</summary>
+    public const int TransfersAtOnce = 2;
+
+    /// <summary>File transfers at the same time on the whole MCP port, whoever transfers.</summary>
+    public const int TransfersInPort = 8;
+
     /// <summary>
-    /// Counts a change of the key and of its user; false beyond <see cref="ChangesPerMinute"/> for either (nothing counted for the
-    /// one that was over).
+    /// Counts a change of the key and of its user; false beyond <see cref="ChangesPerMinute"/> for either (nothing counted for
+    /// either then: both budgets are looked at before one is taken).
     /// </summary>
     public bool TryChange(ToolCaller caller)
     {
         ArgumentNullException.ThrowIfNull(caller);
-        return _userChanges.TryAcquire(UserKey(caller)) && _changes.TryAcquire(caller.BindingKey);
+        return TryBoth(_userChanges, UserKey(caller), _changes, caller.BindingKey);
+    }
+
+    /// <summary>Counts a camera picture of the user (all their keys); false beyond <see cref="PicturesPerMinute"/> (nothing counted).</summary>
+    public bool TryPicture(ToolCaller caller)
+    {
+        ArgumentNullException.ThrowIfNull(caller);
+        return _userPictures.TryAcquire(UserKey(caller));
+    }
+
+    /// <summary>Takes one count of each limiter, or none: a refused call charges no counter.</summary>
+    private bool TryBoth(AddressRateLimiter first, string firstKey, AddressRateLimiter second, string secondKey)
+    {
+        lock (_budgetGate)
+        {
+            if (first.IsLimited(firstKey) || second.IsLimited(secondKey))
+            {
+                return false;
+            }
+
+            return first.TryAcquire(firstKey) && second.TryAcquire(secondKey);
+        }
     }
 
     /// <summary>One audit entry per address and refused key within this time; later refusals count into its detail.</summary>
@@ -56,12 +88,12 @@ public sealed class McpAccess(AuthTokenStore tokens, RoleStore roles, DeviceView
     private readonly AddressRateLimiter _userCalls = new(CallsPerSecond, total: 0, TimeSpan.FromSeconds(1), time);
     private readonly AddressRateLimiter _changes = new(ChangesPerMinute, total: 0, TimeSpan.FromMinutes(1), time);
     private readonly AddressRateLimiter _userChanges = new(ChangesPerMinute, total: 0, TimeSpan.FromMinutes(1), time);
+    private readonly AddressRateLimiter _userPictures = new(PicturesPerMinute, total: 0, TimeSpan.FromMinutes(1), time);
+    private readonly Lock _budgetGate = new();
     private readonly AddressRateLimiter _refused = new(MaxRefusedPerAddress, total: 0, RefusedWindow, time);
     private readonly SemaphoreSlim _refusalGate = new(1, 1);
-    private readonly Lock _inFlightGate = new();
-    private readonly Dictionary<string, int> _inFlight = new(StringComparer.Ordinal); // only keys with a call that waits
-    private readonly Dictionary<string, int> _userInFlight = new(StringComparer.Ordinal); // only users with a call that waits
-    private int _inPort;
+    private readonly Places _callPlaces = new(CallsAtOnce, CallsInPort);
+    private readonly Places _transferPlaces = new(TransfersAtOnce, TransfersInPort);
     private readonly Dictionary<string, Refusals> _refusals = new(StringComparer.Ordinal);
 
     /// <summary>The answer to a change with a Read only key.</summary>
@@ -86,7 +118,7 @@ public sealed class McpAccess(AuthTokenStore tokens, RoleStore roles, DeviceView
         }
 
         var bindingKey = ToolHandles.BindingKeyOf(session.UserId, session.TokenHash);
-        if (!_userCalls.TryAcquire(session.UserId.ToString("N")) || !_calls.TryAcquire(bindingKey))
+        if (!TryBoth(_userCalls, session.UserId.ToString("N"), _calls, bindingKey))
         {
             return new McpSignIn(null, Throttled: true);
         }
@@ -137,61 +169,79 @@ public sealed class McpAccess(AuthTokenStore tokens, RoleStore roles, DeviceView
     /// Takes one of the key's <see cref="CallsAtOnce"/> places, one of its user's and one of the port's <see cref="CallsInPort"/> for
     /// a call until its answer (dispose the result); null when any is taken up (nothing taken).
     /// </summary>
-    public IDisposable? TryStartCall(ToolCaller caller)
-    {
-        ArgumentNullException.ThrowIfNull(caller);
-        var user = UserKey(caller);
-        lock (_inFlightGate)
-        {
-            var byKey = _inFlight.GetValueOrDefault(caller.BindingKey);
-            var byUser = _userInFlight.GetValueOrDefault(user);
-            if (byKey >= CallsAtOnce || byUser >= CallsAtOnce || _inPort >= CallsInPort)
-            {
-                return null;
-            }
+    public IDisposable? TryStartCall(ToolCaller caller) => _callPlaces.TryStart(caller);
 
-            _inFlight[caller.BindingKey] = byKey + 1;
-            _userInFlight[user] = byUser + 1;
-            _inPort++;
-        }
-
-        return new CallInFlight(this, caller.BindingKey, user);
-    }
+    /// <summary>
+    /// Takes one of the key's <see cref="TransfersAtOnce"/> places, one of its user's and one of the port's
+    /// <see cref="TransfersInPort"/> for a file transfer until it ends (dispose the result); null when any is taken up (nothing
+    /// taken). The places of <c>/mcp</c> calls stay free for the other users while a slow transfer runs.
+    /// </summary>
+    public IDisposable? TryStartTransfer(ToolCaller caller) => _transferPlaces.TryStart(caller);
 
     private static string UserKey(ToolCaller caller) => caller.User.UserId.ToString("N");
 
-    private void EndCall(string keyHash, string user)
+    /// <summary>Places taken at once per key, per user and on the port (only keys and users with a place taken are kept).</summary>
+    private sealed class Places(int perCaller, int inPort)
     {
-        lock (_inFlightGate)
+        private readonly Lock _gate = new();
+        private readonly Dictionary<string, int> _byKey = new(StringComparer.Ordinal);
+        private readonly Dictionary<string, int> _byUser = new(StringComparer.Ordinal);
+        private int _inPort;
+
+        public IDisposable? TryStart(ToolCaller caller)
         {
-            Release(_inFlight, keyHash);
-            Release(_userInFlight, user);
-            _inPort--;
+            ArgumentNullException.ThrowIfNull(caller);
+            var user = UserKey(caller);
+            lock (_gate)
+            {
+                var byKey = _byKey.GetValueOrDefault(caller.BindingKey);
+                var byUser = _byUser.GetValueOrDefault(user);
+                if (byKey >= perCaller || byUser >= perCaller || _inPort >= inPort)
+                {
+                    return null;
+                }
+
+                _byKey[caller.BindingKey] = byKey + 1;
+                _byUser[user] = byUser + 1;
+                _inPort++;
+            }
+
+            return new Place(this, caller.BindingKey, user);
         }
 
-        static void Release(Dictionary<string, int> counts, string id)
+        private void End(string keyHash, string user)
         {
-            var now = counts.GetValueOrDefault(id) - 1;
-            if (now <= 0)
+            lock (_gate)
             {
-                counts.Remove(id);
+                Release(_byKey, keyHash);
+                Release(_byUser, user);
+                _inPort--;
             }
-            else
+
+            static void Release(Dictionary<string, int> counts, string id)
             {
-                counts[id] = now;
+                var now = counts.GetValueOrDefault(id) - 1;
+                if (now <= 0)
+                {
+                    counts.Remove(id);
+                }
+                else
+                {
+                    counts[id] = now;
+                }
             }
         }
-    }
 
-    private sealed class CallInFlight(McpAccess access, string keyHash, string user) : IDisposable
-    {
-        private int _ended;
-
-        public void Dispose()
+        private sealed class Place(Places places, string keyHash, string user) : IDisposable
         {
-            if (Interlocked.Exchange(ref _ended, 1) == 0)
+            private int _ended;
+
+            public void Dispose()
             {
-                access.EndCall(keyHash, user);
+                if (Interlocked.Exchange(ref _ended, 1) == 0)
+                {
+                    places.End(keyHash, user);
+                }
             }
         }
     }

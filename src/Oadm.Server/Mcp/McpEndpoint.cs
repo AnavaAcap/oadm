@@ -8,6 +8,7 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.Server.Kestrel.Core;
+using Microsoft.AspNetCore.Server.Kestrel.Core.Features;
 using Microsoft.AspNetCore.Server.Kestrel.Https;
 
 using ModelContextProtocol.Protocol;
@@ -32,7 +33,9 @@ public sealed record McpListenOptions(int Port, IReadOnlyList<IPAddress>? Addres
 /// <see cref="MaxBodyBytes"/> (413), every request needs a valid access key (401) and each key at most
 /// <see cref="McpAccess.CallsPerSecond"/> calls a second, <see cref="McpAccess.CallsAtOnce"/> at once and
 /// <see cref="McpAccess.ChangesPerMinute"/> changes a minute (and its user's keys together the same, the whole port at most
-/// <see cref="McpAccess.CallsInPort"/> at once; 429), and "Use AI agents" for the files and the skill too (403). Answers are not
+/// <see cref="McpAccess.CallsInPort"/> at once; 429; the changes and the camera pictures, <see cref="McpAccess.PicturesPerMinute"/> a minute per
+/// user, are counted from the tool name of the call itself); file transfers have their own places (<see cref="McpAccess.TransfersAtOnce"/> per
+/// user, <see cref="McpAccess.TransfersInPort"/> on the port) and must keep up <see cref="TransferMinBytesPerSecond"/>, and "Use AI agents" for the files and the skill too (403). Answers are not
 /// compressed (no gzip: the SDK's event stream stays as it is; they are at most <see cref="ToolAnswers.MaxBytes"/>).
 /// </summary>
 public static class McpEndpoint
@@ -52,6 +55,12 @@ public static class McpEndpoint
     public const string TooManyCalls = "Too many calls with this access key. Wait a second.";
     public const string TooManyAtOnce = "Too many calls at once. Wait for an answer.";
     public const string TooManyChanges = "Too many changes with this access key. Wait a minute.";
+    public const string TooManyPictures = "Too many pictures with this access key. Wait a minute.";
+
+    /// <summary>A file transfer must send or take at least this many bytes a second (after <see cref="TransferGrace"/>); a stalled one ends and frees its place.</summary>
+    public const double TransferMinBytesPerSecond = 1024;
+
+    public static readonly TimeSpan TransferGrace = TimeSpan.FromSeconds(10);
 
     /// <summary>Where upload links point: <c>PUT /files/&lt;token&gt;</c> with the same key (docs/spec/mcp.md "Files").</summary>
     public const string FilesPath = "/files/";
@@ -72,7 +81,7 @@ public static class McpEndpoint
         var tools = server.GetRequiredService<McpToolAdapter>();
         var access = server.GetRequiredService<McpAccess>();
         var builder = WebApplication.CreateEmptyBuilder(new WebApplicationOptions { EnvironmentName = "Production" });
-        builder.Services.AddSingleton(server.GetRequiredService<ILoggerFactory>());
+        builder.Services.AddSingleton<ILoggerFactory>(new QuietWebLoggerFactory(server.GetRequiredService<ILoggerFactory>())); // no request path (an upload token) in the server log
         builder.Services.AddSingleton(typeof(ILogger<>), typeof(Logger<>));
         builder.Services.AddRouting();
         builder.Services.AddHttpContextAccessor();
@@ -98,6 +107,8 @@ public static class McpEndpoint
             .WithListToolsHandler((request, ct) => ValueTask.FromResult(tools.List(CallerOf(request.Services))))
             .WithCallToolHandler(async (request, ct) =>
             {
+                // The limits of changes and pictures count here, from the call's own tool name (never from a header): a call over its limit is answered 429.
+                CountCall(access, tools.Tools, request.Services, request.Params?.Name);
                 var arguments = request.Params?.Arguments is { } given ? JsonSerializer.SerializeToElement(given) : (JsonElement?)null;
                 return await tools.CallAsync(CallerOf(request.Services), request.Params?.Name ?? string.Empty, arguments, ct).ConfigureAwait(false);
             });
@@ -108,6 +119,7 @@ public static class McpEndpoint
             {
                 k.AddServerHeader = false;
                 k.Limits.MaxRequestBodySize = MaxBodyBytes;
+                k.Limits.MinRequestBodyDataRate = new MinDataRate(TransferMinBytesPerSecond, TransferGrace); // also what the files routes ask for per request
                 void Https(ListenOptions l)
                 {
                     l.Protocols = HttpProtocols.Http1AndHttp2;
@@ -252,7 +264,7 @@ public static class McpEndpoint
 
         if (upload is not null)
         {
-            using var uploading = access.TryStartCall(caller);
+            using var uploading = access.TryStartTransfer(caller); // a pool of its own: a slow transfer never takes the places of /mcp calls
             if (uploading is null)
             {
                 http.Response.Headers.RetryAfter = "1";
@@ -260,6 +272,7 @@ public static class McpEndpoint
                 return;
             }
 
+            RequireTransferRate(http);
             if (download)
             {
                 await files.SendAsync(http, caller, upload).ConfigureAwait(false);
@@ -287,18 +300,60 @@ public static class McpEndpoint
             return;
         }
 
-        // Changes per key and user a minute (MCP's own limit; every tool that is no plain read, OadmTool.CountsAsChange): the SDK checks that Mcp-Name is the body's tool.
-        if (string.Equals(http.Request.Headers["Mcp-Method"].ToString(), "tools/call", StringComparison.Ordinal)
-            && tools.TryGet(http.Request.Headers["Mcp-Name"].ToString(), out var tool) && tool.CountsAsChange && !access.TryChange(caller))
-        {
-            http.Response.Headers.RetryAfter = "60";
-            await RefuseAsync(http, StatusCodes.Status429TooManyRequests, TooManyChanges).ConfigureAwait(false);
-            return;
-        }
-
         // The tools get the caller and where this channel takes files (from the server's own name), nothing else of the request.
         http.Items[CallerKey] = caller with { Channel = caller.Channel with { FilesUrl = filesUrl } };
         await next(http).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Counts the call of <paramref name="name"/> against the key's and the user's limit of changes or of pictures; over it the
+    /// answer is HTTP 429 with Retry-After 60 (nothing was counted, nothing runs).
+    /// </summary>
+    private static void CountCall(McpAccess access, ToolRegistry tools, IServiceProvider? services, string? name)
+    {
+        if (name is null || !tools.TryGet(name, out var tool))
+        {
+            return; // an unknown tool is the adapter's protocol error
+        }
+
+        var caller = CallerOf(services);
+        var refusal = tool.CountsAsChange && !access.TryChange(caller) ? TooManyChanges
+            : tool.CountsAsPicture && !access.TryPicture(caller) ? TooManyPictures
+            : null;
+        if (refusal is null)
+        {
+            return;
+        }
+
+        if (services?.GetService<IHttpContextAccessor>()?.HttpContext is { } http && !http.Response.HasStarted)
+        {
+            http.Response.StatusCode = StatusCodes.Status429TooManyRequests;
+            http.Response.Headers.RetryAfter = "60";
+        }
+
+        throw new ModelContextProtocol.McpProtocolException(refusal, ModelContextProtocol.McpErrorCode.InvalidRequest);
+    }
+
+    /// <summary>A file transfer that stalls ends (Kestrel's minimum data rate, <see cref="TransferMinBytesPerSecond"/> after <see cref="TransferGrace"/>).</summary>
+    internal static void RequireTransferRate(HttpContext http)
+    {
+        var rate = new MinDataRate(TransferMinBytesPerSecond, TransferGrace);
+        try
+        {
+            if (http.Features.Get<IHttpMinRequestBodyDataRateFeature>() is { } body)
+            {
+                body.MinDataRate = rate;
+            }
+
+            if (http.Features.Get<IHttpMinResponseDataRateFeature>() is { } response)
+            {
+                response.MinDataRate = rate;
+            }
+        }
+        catch (NotSupportedException)
+        {
+            // a server without the rule (the in-memory test server): nothing to set
+        }
     }
 
     /// <summary>
@@ -337,5 +392,42 @@ public static class McpEndpoint
             ["error"] = new JsonObject { ["code"] = code, ["message"] = message },
         };
         return http.Response.WriteAsync(body.ToJsonString(), http.RequestAborted);
+    }
+}
+
+/// <summary>
+/// The server's loggers for the MCP web host with ASP.NET's own categories kept to Warning and above whatever the server's log
+/// settings say: its Information lines carry the request path, and the path of an upload link holds its token (and
+/// <c>oadm_logs_search</c> serves that log).
+/// </summary>
+internal sealed class QuietWebLoggerFactory(ILoggerFactory inner) : ILoggerFactory
+{
+    public ILogger CreateLogger(string categoryName)
+    {
+        var logger = inner.CreateLogger(categoryName);
+        return categoryName.StartsWith("Microsoft.AspNetCore.", StringComparison.Ordinal) ? new Quiet(logger) : logger;
+    }
+
+    public void AddProvider(ILoggerProvider provider) => inner.AddProvider(provider);
+
+    public void Dispose()
+    {
+        // the server's own factory is not ours to dispose
+    }
+
+    private sealed class Quiet(ILogger logger) : ILogger
+    {
+        public IDisposable? BeginScope<TState>(TState state)
+            where TState : notnull => null; // a scope would carry the path too
+
+        public bool IsEnabled(LogLevel logLevel) => logLevel >= LogLevel.Warning && logger.IsEnabled(logLevel);
+
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
+        {
+            if (IsEnabled(logLevel))
+            {
+                logger.Log(logLevel, eventId, state, exception, formatter);
+            }
+        }
     }
 }
