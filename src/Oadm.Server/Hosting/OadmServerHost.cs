@@ -223,7 +223,8 @@ public static partial class OadmServerHost
         services.AddSingleton<Mcp.McpToolAdapter>();
         services.AddSingleton<Mcp.McpFiles>();
         services.AddSingleton(sp => new Mcp.McpListener(sp, sp.GetRequiredService<ServerSettingsStore>(), sp.GetRequiredService<PluginServiceRegistry>(),
-            sp.GetRequiredService<TimeProvider>(), sp.GetRequiredService<ILogger<Mcp.McpListener>>(), firewall: sp.GetService<Sdk.Network.IFirewallRules>()));
+            sp.GetRequiredService<TimeProvider>(), sp.GetRequiredService<ILogger<Mcp.McpListener>>(), interfaces: sp.GetService<Sdk.Network.IServerNetworkInterfaces>(),
+            firewall: sp.GetService<Sdk.Network.IFirewallRules>()));
 
         // Installed service (SYSTEM / root): admin-only folders, firewall rules of the NTP and DHCP plugins (Windows).
         var serviceMode = options.ServiceMode ?? ServiceHosting.IsRunningAsService();

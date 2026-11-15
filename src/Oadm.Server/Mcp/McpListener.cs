@@ -70,7 +70,10 @@ public sealed partial class McpListener : IAsyncDisposable
     public event EventHandler? Changed;
 
     /// <summary>The server's interfaces (the choices of Listen on).</summary>
-    public IReadOnlyList<ServerNetworkInterface> Interfaces() => _interfaces.List();
+    public IReadOnlyList<ServerNetworkInterface> Interfaces() =>
+        // Only interfaces an agent can reach: up, with an address that is not IPv6 link-local (no filter drivers, virtual adapters
+        // without an address, tunnels). The loopback stays: an agent on this computer only.
+        [.. _interfaces.List().Where(n => n.IsUp && n.Addresses.Any(a => !a.IsIPv6LinkLocal))];
 
     /// <summary>Starts following the setting and PKI; opens the port when it is on.</summary>
     public async Task StartAsync(CancellationToken ct)

@@ -163,8 +163,7 @@ public sealed class McpTaskToolTests
         await using var server = await StartAsync();
         var device = await DeviceServiceTests.AddDeviceAsync(server.Host, "10.15.0.1", 4601);
         var key = await server.CreateKeyAsync(name: "viewer", roleId: Oadm.Core.Auth.BuiltInRoles.ViewerId.ToString());
-        var catalog = await server.ToolAsync(key, "oadm_tasks_catalog");
-        Assert.DoesNotContain(RestartTaskPlugin.PluginId, catalog.ToJsonString(), StringComparison.Ordinal);
+        Assert.DoesNotContain("oadm_tasks_catalog", await server.ToolNamesAsync(key)); // a role that may run no task gets no task tool
         var refused = await server.CallToolAsync(key, "oadm_task_preview", new JsonObject
         {
             ["task"] = RestartTaskPlugin.PluginId, ["filter"] = new JsonObject { ["ids"] = new JsonArray(device.Id.ToString()) }, ["input"] = new JsonObject(),

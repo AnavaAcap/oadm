@@ -56,7 +56,8 @@ internal sealed class McpTestServer : IAsyncDisposable
         {
             services.RemoveAll<McpListener>();
             services.AddSingleton(sp => new McpListener(sp, sp.GetRequiredService<ServerSettingsStore>(), sp.GetRequiredService<PluginServiceRegistry>(),
-                sp.GetRequiredService<TimeProvider>(), sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<McpListener>>(), firewall: firewall)
+                sp.GetRequiredService<TimeProvider>(), sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<McpListener>>(),
+                interfaces: sp.GetService<Oadm.Sdk.Network.IServerNetworkInterfaces>(), firewall: firewall)
             {
                 ConfigureHost = b => b.WebHost.UseTestServer(),
             });

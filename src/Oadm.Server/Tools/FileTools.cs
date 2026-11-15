@@ -31,7 +31,10 @@ internal static class FileTools
     /// <summary>Files of one delete at most (one preview answer lists them all).</summary>
     public const int MaxDelete = 50;
 
-    public static IEnumerable<OadmTool> Create(ToolCursors cursors, ToolHandles handles)
+    public static IEnumerable<OadmTool> Create(ToolCursors cursors, ToolHandles handles) =>
+        Tools(cursors, handles).Select(TaskRunTools.NeedsTaskRight); // files are only for tasks
+
+    private static IEnumerable<OadmTool> Tools(ToolCursors cursors, ToolHandles handles)
     {
         yield return new OadmTool(
             "oadm_files_list",
