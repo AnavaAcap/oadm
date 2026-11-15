@@ -134,15 +134,15 @@ Administrators only; changes audited ("Changed assistant").
   OpenAI-compatible (`http://10.0.0.5:11434`). The saved key is used only for the provider and address it was saved
   with: another provider or address needs the key again ("Enter the API key." below the key), so a saved key never goes
   to a host just typed in.
-- **Send pictures to the model**: off by default.
-- **Daily limit**: tokens a day for the whole server (default 2,000,000) and, optionally, per user; **Used today** shows
-  the count. At the limit the panel says "The assistant reached today's limit. It works again tomorrow." (reset at
+- **Send pictures to the model**: a check box with its label on the left like every row, off by default; no hint.
+- **Daily limit**: tokens a day for the whole server (default 2,000,000) and, optionally, per user; the panel shows
+  the server's count of today next to the send arrow ("95,333 tokens today"; decision 2026-11-15: not on the card). At the limit the panel says "The assistant reached today's limit. It works again tomorrow." (reset at
   midnight server time).
 - No model here (decision 2026-11-15): each user picks it in the panel.
 - **Test**: checks the address and key by reading the provider's model list (Ollama, OpenAI-compatible without a list:
   one short call); "The provider answered." or the provider's error in plain words.
-- A note under the provider for the cloud ones: device names, addresses and other data of your devices go to that
-  provider. Ollama keeps everything in your network.
+- No intro and no note under the provider on the card (decision 2026-11-15): the panel shows where the data goes
+  (the notice of the first answer).
 - Who may use it: permission **Use the assistant** (on for Administrator, off for the other built-in roles).
 
 ## The panel
@@ -151,7 +151,7 @@ Administrators only; changes audited ("Changed assistant").
   while the user moves between pages. Hidden when the assistant is off or the role lacks the permission.
 - Bottom: the message box like the chat apps, one rounded box (`Border.composer`, the input colours, the accent border
   while it has the focus): the chosen devices and the attached files as chips on top, the text (one line at first, grows to 200 px, then
-  scrolls), and a row with **Attach file** (paperclip icon), **Choose devices** (devices icon), the model picker and the round send arrow (`Button.send`,
+  scrolls), and a row with **Attach file** (paperclip icon), **Choose devices** (devices icon), the model picker , the tokens of today (dim, right) and the round send arrow (`Button.send`,
   tooltip Send, dimmed while empty) that turns into a round **Stop** while an answer streams. While a preview card waits
   for Run, the send arrow is not the accent (`Button.send.quiet`): Run is the panel's one accent button. Below the box:
   its problem in red (the selection limit, "Choose a model.", the server's refusal of the model), a message ("Copied.",

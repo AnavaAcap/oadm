@@ -179,11 +179,9 @@ public static class AssistantTexts
         return char.ToUpperInvariant(text[0]) + text[1..];
     }
 
-    // Settings, section Assistant (Settings card AI).
-    public const string SectionIntro = "Chat with an AI model in OADM. It works with the rights of the signed-in user.";
+    // The card Assistant of the page MCP & Assistant.
     public const string Saved = "Saved";
     public const string ApiKeyHint = "Leave empty to keep the saved key.";
-    public const string PicturesHint = "Camera pictures always show in the chat.";
     public const string OllamaPrivacy = "Ollama keeps everything in your network.";
     public const string NoProvider = Shared.ChooseProvider;
     public const string ChooseModel = Shared.ChooseModel;
@@ -203,6 +201,9 @@ public static class AssistantTexts
     public static string CloudPrivacy(string provider) =>
         $"Device names, addresses and other data of your devices go to {provider}.";
 
-    /// <summary>"18,420 tokens" (Used today).</summary>
+    /// <summary>"18,420 tokens".</summary>
     public static string Tokens(long count) => string.Create(CultureInfo.CurrentCulture, $"{count:N0} tokens");
+
+    /// <summary>"95,333 tokens today": the server's use of today in the panel's composer, next to Send.</summary>
+    public static string TokensToday(long count) => Tokens(count) + " today";
 }

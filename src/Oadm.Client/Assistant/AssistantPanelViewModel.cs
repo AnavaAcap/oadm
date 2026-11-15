@@ -404,6 +404,21 @@ public sealed partial class AssistantPanelViewModel : ObservableObject
         : IsLoadingModels ? AssistantTexts.LoadingModels
         : SelectionError ?? (Draft.Trim().Length == 0 ? AssistantTexts.EnterMessage : Model.Trim().Length == 0 ? AssistantTexts.ChooseModel : null);
 
+    /// <summary>"95,333 tokens today" next to Send: the server's tokens of today, read when the panel opens and after each answer.</summary>
+    [ObservableProperty] public partial string? UsageText { get; private set; }
+
+    private async Task RefreshUsageAsync()
+    {
+        try
+        {
+            UsageText = AssistantTexts.TokensToday((await _api.GetAssistantSettingsAsync(CancellationToken.None).ConfigureAwait(true)).UsedToday);
+        }
+        catch (Exception ex) when (ex is RpcException or NotSupportedException)
+        {
+            UsageText = null; // no number rather than a wrong one
+        }
+    }
+
     /// <summary>The server has it on and the role may use it (read on every connect).</summary>
     public async Task RefreshAsync(CancellationToken ct)
     {
@@ -441,6 +456,7 @@ public sealed partial class AssistantPanelViewModel : ObservableObject
         ConversationId = Guid.NewGuid().ToString();
         IsOpen = true;
         _ = LoadModelsAsync(CancellationToken.None);
+        _ = RefreshUsageAsync();
     }
 
     /// <summary>Closes the panel and forgets the conversation (End on the server).</summary>
@@ -723,6 +739,7 @@ public sealed partial class AssistantPanelViewModel : ObservableObject
 
                 return;
             case AssistantEvent.KindOneofCase.Done:
+                _ = RefreshUsageAsync();
                 if (e.Done.Error.Length > 0)
                 {
                     Add(new AssistantNoticeItem(e.Done.Error, isError: true));

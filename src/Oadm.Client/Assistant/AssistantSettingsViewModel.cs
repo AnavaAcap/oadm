@@ -121,8 +121,6 @@ public sealed partial class AssistantSettingsViewModel : ValidatingViewModel
 
     public string StatusText => _state?.Status is { Length: > 0 } status ? status : IsOn ? "On" : "Off";
 
-    public string UsedTodayText => AssistantTexts.Tokens(_state?.UsedToday ?? 0);
-
     public string DailyLimitText => AssistantTexts.Tokens(_state?.Settings?.DailyLimit ?? DefaultDailyLimit);
 
     public string UserDailyLimitText => _state?.Settings?.UserDailyLimit is > 0 and var limit ? AssistantTexts.Tokens(limit) : "None";
@@ -307,7 +305,6 @@ public sealed partial class AssistantSettingsViewModel : ValidatingViewModel
         OnPropertyChanged(nameof(StatusText));
         OnPropertyChanged(nameof(HasApiKey));
         OnPropertyChanged(nameof(ApiKeyPlaceholder));
-        OnPropertyChanged(nameof(UsedTodayText));
         OnPropertyChanged(nameof(DailyLimitText));
         OnPropertyChanged(nameof(UserDailyLimitText));
         OnPropertyChanged(nameof(SendPicturesText));

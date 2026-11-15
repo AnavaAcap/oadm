@@ -85,6 +85,8 @@
                 <TextBlock Classes="secondary" Text="{x:Static a:AssistantTexts.LoadingModels}" VerticalAlignment="Center" />
               </StackPanel>
             </Panel>
+            <TextBlock Grid.Column="3" x:Name="Usage" Classes="secondary small" Text="{Binding UsageText}" HorizontalAlignment="Right" VerticalAlignment="Center"
+                       Margin="0,0,4,0" TextTrimming="CharacterEllipsis" IsVisible="{Binding UsageText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
             <Panel Grid.Column="4" VerticalAlignment="Center">
               <Button x:Name="Send" Classes="send" Classes.quiet="{Binding SendIsQuiet}" Command="{Binding SendCommand}" IsVisible="{Binding !IsStreaming}"
                       ToolTip.Tip="{Binding SendButtonTip}" ToolTip.ShowOnDisabled="True">

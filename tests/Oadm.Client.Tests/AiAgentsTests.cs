@@ -157,7 +157,6 @@ public sealed class AiAgentsTests
                 var view = Assert.Single(window.GetVisualDescendants().OfType<AiPageView>(), c => c.IsEffectivelyVisible);
                 Pump();
                 var texts = view.GetVisualDescendants().OfType<TextBlock>().Where(t => t.IsEffectivelyVisible).Select(t => t.Text).ToList();
-                Assert.Contains(AiAgentsViewModel.Intro, texts);
                 Assert.Equal(role == UserRole.Admin, view.FindControl<Button>("McpSave")!.IsEffectivelyVisible);
                 Assert.Equal(role == UserRole.Admin, view.FindControl<TextBox>("McpPort")!.IsEffectivelyVisible);
                 Save(window, outDir, name);
@@ -392,17 +391,26 @@ public sealed class AiAgentsTests
             Pump();
             var view = Assert.Single(window.GetVisualDescendants().OfType<AiPageView>(), c => c.IsEffectivelyVisible);
             Pump();
-            Assert.True(view.FindControl<Control>("AccessKeys")!.IsEffectivelyVisible);
-            var grid = view.FindControl<DataGrid>("KeysGrid")!;
-            Assert.Equal(["Name", "Role", "Devices", "Created", "Expires", "Last used"], grid.Columns.Take(6).Select(c => c.Header as string));
-            var texts = view.GetVisualDescendants().OfType<TextBlock>().Where(t => t.IsEffectivelyVisible).Select(t => t.Text).ToList();
-            Assert.Contains("MCP", texts);
-            Assert.Contains(AccessKeyWords.Title, texts);
+            Assert.True(view.FindControl<Button>("McpAccessKeys")!.IsEffectivelyVisible); // the list is a dialog now
+            Assert.Null(view.FindControl<DataGrid>("KeysGrid"));
             Save(window, outDir, "client-page-ai-mcp.png");
+            await card.ShowAccessKeysCommand.ExecuteAsync(null);
+            await dialogs.Received(1).ShowAccessKeysAsync(card.Keys);
+
+            var keysWindow = new AccessKeysWindow();
+            keysWindow.Attach(card.Keys);
+            keysWindow.Show();
+            Pump();
+            var grid = keysWindow.FindControl<DataGrid>("KeysGrid")!;
+            Assert.Equal(["Name", "Role", "Devices", "Created", "Expires", "Last used"], grid.Columns.Take(6).Select(c => c.Header as string));
+            Assert.True(keysWindow.FindControl<Control>("CreateAccessKey")!.IsEffectivelyVisible);
+            Save(keysWindow, outDir, "client-access-keys-dialog.png");
 
             await card.Keys.DeleteCommand.ExecuteAsync(card.Keys.Keys.Single(k => k.Name == "Yard"));
             await dialogs.Received(1).ConfirmAsync("Delete access key", "Agents that use Yard can no longer connect.", "Delete"); // red: starts with Delete
             Assert.Equal(["Health check", "Lobby-bot"], card.Keys.Keys.Select(k => k.Name));
+            card.Keys.CloseCommand.Execute(null); // Close of the dialog
+            Assert.False(keysWindow.IsVisible);
             window.Close();
             return true;
         }, CancellationToken.None);

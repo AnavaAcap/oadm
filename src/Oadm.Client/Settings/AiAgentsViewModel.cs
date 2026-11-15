@@ -29,7 +29,6 @@ public sealed partial class AiAgentsViewModel : ValidatingViewModel
 
     /// <summary>The rail entry and title of the page.</summary>
     public const string PageTitle = "MCP & Assistant";
-    public const string Intro = "AI agents such as Claude Code connect to OADM over MCP with an access key.";
     public const string PageSubtitle = "Agents and the Assistant work with your devices.";
     public const string ChooseCertificate = McpTexts.CertificateOnTurnOn;
     public const string NoCertificate = "None";
@@ -155,6 +154,14 @@ public sealed partial class AiAgentsViewModel : ValidatingViewModel
 
     /// <summary>The configuration chosen in Connect an agent (its index in <see cref="Connections"/>; Claude Code first).</summary>
     [ObservableProperty] public partial int SelectedConnection { get; set; }
+
+    /// <summary>The button Access keys (administrators): the dialog with the list, Create access key and Delete.</summary>
+    [RelayCommand]
+    private async Task ShowAccessKeysAsync()
+    {
+        _ = Keys.LoadAsync(); // the dialog shows its ring while the list reads
+        await _dialogs.ShowAccessKeysAsync(Keys).ConfigureAwait(true);
+    }
 
     /// <summary>Copy of Connect an agent: the command or the file text of the chosen configuration.</summary>
     [RelayCommand]

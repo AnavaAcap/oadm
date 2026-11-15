@@ -89,7 +89,8 @@ filter, preview/run handles and caller rules.
 Decision 2026-11-15 (redesign): a key is an identity of its own, made by an administrator, never a login of the user who
 made it. There is no Read only flag and no permission "Use AI agents": the key's role decides what an agent may do.
 
-- **Administrators only**, on the page **MCP & Assistant**, card **MCP**, part **Access keys** (`AccessKeyService`, every
+- **Administrators only**, on the page **MCP & Assistant**, card **MCP**, button **Access keys** (left in the row of Turn on and Save; decision 2026-11-15), which opens the
+  dialog **Access keys** (`Settings/AccessKeysWindow`: the list, Delete, Create access key; `AccessKeyService`, every
   method `AccessRule.Admin`). **Create access key** opens a dialog (`Settings/AccessKeyFormWindow`): Name (1..64 letters,
   digits, spaces, `-`, `_` and `.`, unique on the server, case-insensitive), Role (any role of the role list), Devices
   (All devices or one device group; an Administrator key always has all devices, the field is disabled with "Administrators
@@ -308,7 +309,7 @@ The website gets a user page (Administration > MCP server, `admin/mcp-server`, n
   server); core `AccessKeyStore` (table AccessKeys, migration `AgentAccessKeys`, which replaced the first design's rows of
   `AuthTokens` of migration `AccessKeys`); PKI `PolicyKinds.McpServer` (shown as "MCP server"), `PkiServerCertificates`;
   SDK 0.13.0 `IServerCertificates`, `HostServers.Mcp`; client `Settings/AiPageView` (the page MCP & Assistant, card MCP),
-  `Settings/AccessKeysViewModel` (the list), `Settings/AccessKeyFormWindow` and `AccessKeyFormViewModel` (Create access key).
+  `Settings/AccessKeysViewModel` and `AccessKeysWindow` (the dialog with the list), `Settings/AccessKeyFormWindow` and `AccessKeyFormViewModel` (Create access key).
   Contracts `mcp.proto` (`McpService`, `AccessKeyService`) and `Mcp/McpTexts` (the card's texts, server and client).
 - **Origin**: a request with an `Origin` passes only when it is the request's own scheme, host and port and the host is a
   name or address of the certificate (with DNS rebinding the browser sends the page's name as Origin and Host).
