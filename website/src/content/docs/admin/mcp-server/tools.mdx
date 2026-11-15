@@ -25,6 +25,7 @@ and runs after the user agreed.
 | `oadm_devices_add_run` | Run (changes) | Logs in to the devices of a preview with the credential list and adds those that log in, keeps the waiting addresses, or tries the waiting list. Devices that do not log in are not added. |
 | `oadm_devices_credentials_preview` | Preview | Shows which devices would get the login of a stored credential, chosen by its name. Without a name it lists the names; no password is ever sent or shown. |
 | `oadm_devices_credentials_run` | Run (changes) | Stores the chosen credential as the login of the devices of a preview and queues their refresh. The devices themselves are not changed. |
+| `oadm_devices_export` | Read | The devices of a filter as a CSV file (the columns of Export devices). Answers the count and a file reference; fetch it with oadm_files_download_link. |
 | `oadm_devices_get` | Read | One device with its details, as the device details in OADM show them, never its credentials. Take the id from oadm_devices_search. |
 | `oadm_devices_optics` | Change | Reads now whether a camera has a remote zoom and focus, and where they stand. |
 | `oadm_devices_optics_preview` | Preview | Checks one zoom or focus change against what the camera supports; nothing moves yet. Then call oadm_devices_optics_run with the handle. |
@@ -66,6 +67,7 @@ and runs after the user agreed.
 | --- | --- | --- |
 | `oadm_files_delete_preview` | Preview | Checks the files and shows what a delete would remove; nothing is changed. Show the list to the user, then call oadm_files_delete_run with the handle. |
 | `oadm_files_delete_run` | Run (changes) | Deletes the files of a preview from the server. A task that still needs one can no longer use it. |
+| `oadm_files_download_link` | Read | A one-time link to fetch a file from your shell: the file of a tool answer (its file_ref) or a task's result file (task_id). The file never passes the model. |
 | `oadm_files_list` | Read | The files you sent with upload links, the newest first. They stay on the server for a day or so and are used by task previews through their id. |
 | `oadm_files_upload_link` | Change | A one-time link to send a file for a task (an AXIS OS file, an application) from your shell; the file never passes the model. Use the answer's file id in the task's input. |
 
@@ -105,6 +107,7 @@ and runs after the user agreed.
 | `oadm_compliance_devices` | Read | The devices of a filter that fail a compliance check (or pass it, or are unknown), a page at a time with the reason. Take the check id from oadm_compliance_summary. |
 | `oadm_compliance_enable_preview` | Preview | Shows what turning Compliance on or off for the server does; nothing is changed. Then call oadm_compliance_enable_run with the handle. |
 | `oadm_compliance_enable_run` | Run (changes) | Turns Compliance on or off for the server. Off removes the results; the checks stay. |
+| `oadm_compliance_export` | Read | The compliance results of a filter's devices as a CSV file: one row per device, one column per check that is on. Answers the count and a file reference. |
 | `oadm_compliance_kinds` | Read | The kinds of check with their settings fields, for oadm_compliance_check_save_preview. |
 | `oadm_compliance_summary` | Read | Per check how many devices of a filter pass, fail or are unknown, the worst check first. Devices come only as counts; use oadm_devices_search to list them. |
 
@@ -158,8 +161,10 @@ and runs after the user agreed.
 
 | Tool | Kind | What it does |
 | --- | --- | --- |
+| `oadm_pki_ca_file` | Read | The certificate of the first-start root CA, or of a previous CA by its id, with its chain, as a file (PEM or DER). Never a key. |
 | `oadm_pki_certificate_create_preview` | Preview | Makes a key and a certificate for HTTPS or IEEE 802.1X with an issuing policy. The key stays in OADM. Nothing is changed. Call oadm_pki_certificate_create_run with the handle to apply it. |
 | `oadm_pki_certificate_create_run` | Run (changes) | Applies the plan of oadm_pki_certificate_create_preview, which checks everything again. |
+| `oadm_pki_certificate_file` | Read | One certificate of oadm_pki_certificates as a file, PEM or DER. Only the certificate: never its private key. |
 | `oadm_pki_certificates` | Read | Lists the certificates PKI knows: device certificates, certificate authorities, servers and the ones created here. Never shows a private key. |
 | `oadm_pki_policies` | Read | Lists the issuing policies for HTTPS and IEEE 802.1X certificates, to pick the policy of a new certificate. |
 
@@ -207,6 +212,7 @@ and runs after the user agreed.
 | --- | --- | --- |
 | `oadm_hardening_detail` | Read | The last hardening results of one device, check by check, with the value found and the guide's recommendation. |
 | `oadm_hardening_results` | Read | Lists the last hardening scan results per device as counts of passed, warning and failed checks, and the state of the running scan. |
+| `oadm_hardening_results_csv` | Read | The last hardening scan results of your devices as a CSV file, one row per device and level with every check's result and value. |
 | `oadm_hardening_scan_start` | Read | Starts a hardening scan of the chosen devices, or of all your devices with all_devices. It only reads the devices. While a scan runs, answers that one. |
 | `oadm_hardening_scan_stop` | Read | Stops the running hardening scan of your devices. The results read so far stay. |
 
@@ -296,6 +302,7 @@ and runs after the user agreed.
 
 | Tool | Kind | What it does |
 | --- | --- | --- |
+| `oadm_recordings_export` | Read | One recording of a camera as a file (MP4, else Matroska), cut to the range when given. Take the ids from oadm_recordings_search. |
 | `oadm_recordings_search` | Read | Searches the recordings on the SD card or network share of one camera in a time range: the count, the time span, the estimated size, then the recordings oldest first. |
 
 ## Image Health Dashboard
@@ -349,6 +356,9 @@ and runs after the user agreed.
 
 | Tool | Kind | What it does |
 | --- | --- | --- |
+| `oadm_snapshot_report_report_file` | Read | The state of a report you started and, once it is done, its PDF as a file. |
+| `oadm_snapshot_report_report_preview` | Preview | Starts the PDF report of chosen camera sources (take them from oadm_snapshot_report_sources); it takes a picture of each. Then call oadm_snapshot_report_report_file with the job id. Nothing is changed. Call oadm_snapshot_report_report_run with the handle to apply it. |
+| `oadm_snapshot_report_report_run` | Run (changes) | Applies the plan of oadm_snapshot_report_report_preview, which checks everything again. |
 | `oadm_snapshot_report_sources` | Read | Lists the video sources of chosen cameras as the Snapshot report shows them, with the facts the report prints and why a camera cannot be shown. |
 
 ## Live View
