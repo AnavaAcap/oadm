@@ -77,11 +77,16 @@ skipped and why, and the warnings. **Run** starts the tasks; the card follows th
 
 <Image src={preview} alt="Two plan cards: save a rule with its event and target, and delete two tags with a red Run" class="screen" />
 
+When a change needs a password, the card has a password field. Type it there and press **Run**: it goes straight to
+OADM, never to the AI model or into the chat.
+
+A file the assistant made for you (the device list as CSV, a task's result, a report) shows as a card with **Save**.
+
 Every change and every camera picture is in the audit log under your name, as if you did it in OADM.
 
 ## What it cannot do
 
-- Read or set passwords, keys or tokens.
+- Read passwords, keys or tokens, or take one from the chat: a password goes only into a card's password field.
 - Change users, roles, device groups, the license, plugins or server settings.
 - Show live video.
 - Remember a chat: closing the panel or signing out forgets it.

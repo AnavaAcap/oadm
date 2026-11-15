@@ -199,6 +199,11 @@ used again.
     active tasks, then one bulk delete.
   - `TaskInfo`: `repeated TaskStep steps = 13` (index, name, `TaskStepState`, detail, progress, started, finished) and
     `current_step_index = 14` (-1 none).
+  - `GetResultFile(TaskIdRequest)` and `DownloadResult(TaskIdRequest)` (server-streaming `DownloadChunk`: the name and
+    length first, then data, uncompressed): the result file a task kept (`ITaskExecutionContext.SaveResultFileAsync`,
+    `TaskResultFiles`, docs/spec/mcp.md "Files"), only for the user or access key that started the task and administrators,
+    in the caller's view; NOT_FOUND "This task has no result file (it is kept for a day)." for every other case alike.
+    `DownloadResult` is audited "Downloaded file". Signed in.
   - `Query(pluginId, deviceId, method, payloadJson)`: read-only `ITaskPluginQuery` for task dialogs, 30 s timeout;
     NOT_FOUND, UNIMPLEMENTED, FAILED_PRECONDITION for an incompatible device, changed certificate or rejected
     credentials, UNAVAILABLE, DEADLINE_EXCEEDED, INVALID_ARGUMENT; the status detail is the user message.
@@ -390,6 +395,12 @@ used again.
   all devices; INVALID_ARGUMENT with the trailer `oadm-field` = `provider`, `address`, `api_key`, `daily_limit` or
   `user_daily_limit`; an empty `api_key` keeps the saved one only for the same provider and address, else `api_key` "Enter the API key."). `SetSettings` is audited "Changed
   assistant" (never the key) and ends every chat when the assistant is turned off or its provider or address changes.
+  `Run` takes `secrets` (the card's secret fields by name, at most 8, each at most 4,096 bytes; docs/spec/mcp.md "Secrets"):
+  INVALID_ARGUMENT with `oadm-field` for a name the preview did not declare or a value too long, FAILED_PRECONDITION "Enter
+  the password." with `oadm-field` = the name while one is missing (the card stays). `Download(conversation_id, file_ref)`
+  ("Use the assistant", server-streaming `DownloadChunk`): a file a tool answer of the caller's own chat offered
+  (`AssistantEvent.file`), made now with the caller's rights and audited "Downloaded file"; NOT_FOUND "This file has ended.
+  Ask again." for a reference of another chat, session or user or one that ended.
   `Test` reads the provider's model list (no model needed; an OpenAI-compatible server without a list counts as an
   answer) and says "The provider answered." or the error in plain words; it never saves.
 - **`SupportService`** (`support.proto`, `docs/spec/settings-backup.md` "Support report"): `CreateReport` (Admin, audited

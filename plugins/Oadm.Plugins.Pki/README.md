@@ -358,6 +358,15 @@ certificate" (`Ca/NotAcceptedTexts`) and never listed.
   over the real database, a created key restored), Perf `IssuedScaleTests` (the device limit x 4 certificates),
   `CertificateListPerfTests`.
 
+## Tools
+
+`Tools/PkiTools` (`ICorePlugin.Tools`, area `pki`, docs/spec/mcp.md): `oadm_pki_certificates` and `oadm_pki_policies`
+(reads), `oadm_pki_certificate_create_preview`/`_run`, and two file tools (`ReturnsFile`, Admin with "Manage the
+certificate authority" and all devices, like the page's Export): `oadm_pki_certificate_file(id, format)` names the
+download `downloadCertificate`, `oadm_pki_ca_file(previous_id, format)` the downloads `exportPublic` and `exportPrevious`
+(`OpenDownloadAsync` answers the page's file of these Invoke methods). Only PEM or DER of the certificate: never a private
+key, a PKCS#12 file or a backup (`PkiTools.FileFormats`).
+
 ## Device groups
 
 `minSdkVersion` 0.4.0. `InvokeAsync(ICallContext, ...)`: `getState` for everyone who may see the page, with the counts of

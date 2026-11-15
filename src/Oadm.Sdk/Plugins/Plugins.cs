@@ -417,6 +417,30 @@ public interface ITaskExecutionContext
     /// on older hosts and for tasks the system started.
     /// </summary>
     IAxisDownloads? AxisDownloads => null;
+
+    /// <summary>
+    /// Keeps a file the task made as its result (SDK 0.13.0, docs/spec/mcp.md "Files"): an exported configuration, a report.
+    /// The host keeps it for a day (or until it restarts) for the user who started the task, who fetches it with the task
+    /// (an agent's download link, the assistant's file card); one file per task, a second call replaces it. At most
+    /// <see cref="TaskResultFile.MaxBytes"/>; never a secret the user did not ask for, never a private key. Older hosts and
+    /// tasks the system started throw <see cref="NotSupportedException"/>.
+    /// </summary>
+    /// <param name="fileName">The file name the user gets (no folder), e.g. "config-ACCC8E012345.txt".</param>
+    /// <param name="contentType">Its media type, e.g. "text/plain", "application/pdf".</param>
+    /// <param name="content">The bytes, read once from its position to the end.</param>
+    /// <param name="ct">Ends the copy.</param>
+    Task SaveResultFileAsync(string fileName, string contentType, Stream content, CancellationToken ct) =>
+        throw new NotSupportedException("This host keeps no result files.");
+}
+
+/// <summary>The limits of a task's result file (<see cref="ITaskExecutionContext.SaveResultFileAsync"/>).</summary>
+public static class TaskResultFile
+{
+    /// <summary>The largest result file (64 MB).</summary>
+    public const long MaxBytes = 64L * 1024 * 1024;
+
+    /// <summary>The longest file name.</summary>
+    public const int MaxNameLength = 255;
 }
 
 /// <summary>The device answering at an address is not the expected one (different or missing serial number).</summary>

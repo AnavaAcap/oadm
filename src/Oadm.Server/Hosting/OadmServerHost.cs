@@ -199,6 +199,7 @@ public static partial class OadmServerHost
         services.AddSingleton<Tools.ToolCursors>();
         services.AddSingleton(sp => new Tools.ToolFacts(sp.GetRequiredService<TimeProvider>()));
         services.AddSingleton(sp => new Tools.ToolHandles(sp.GetRequiredService<TimeProvider>()));
+        services.AddSingleton(sp => new Tools.ToolSecrets(sp.GetRequiredService<TimeProvider>(), sp.GetRequiredService<Core.Security.CredentialProtector>()));
         services.AddSingleton<Tools.PluginTools>();
         services.AddSingleton(sp =>
         {
@@ -209,7 +210,7 @@ public static partial class OadmServerHost
                 [
                     Tools.ServerInfoTool.Create(() => roles.Catalog),
                     .. Tools.DeviceTools.Create(cursors, facts),
-                    .. Tools.TaskTools.Create(cursors),
+                    .. Tools.TaskTools.Create(cursors, sp.GetRequiredService<Tools.ToolHandles>()),
                     .. Tools.LogTools.Create(cursors),
                     .. Tools.TaskRunTools.Create(sp.GetRequiredService<Tools.ToolHandles>()),
                     .. Tools.TagTools.Create(cursors, sp.GetRequiredService<Tools.ToolHandles>()),
@@ -223,11 +224,14 @@ public static partial class OadmServerHost
                     Tools.ServerStatusTool.Create(call => call.CallAsync<Mcp.McpGrpcService, Oadm.Contracts.V1.Empty, Oadm.Contracts.V1.McpState>(
                         Tools.ServerStatusTool.McpPath, new Oadm.Contracts.V1.Empty(), (s, r, c) => s.Get(r, c))),
                     .. Tools.FileTools.Create(cursors, sp.GetRequiredService<Tools.ToolHandles>()),
+                    .. Tools.ToolFiles.Create(sp.GetRequiredService<Tools.ToolHandles>()),
+                    .. Tools.ExportTools.Create(sp.GetRequiredService<Tools.ToolHandles>(), () => roles.Catalog),
                     .. Tools.SelectionTools.Create(cursors, facts),
                     .. Tools.DocsTools.Create(() => Assistant.DocsIndex.Shipped),
                 ],
                 sp.GetRequiredService<InProcessCalls>(),
-                [sp.GetRequiredService<Tools.PluginTools>()]); // the tools of the plugins that are on
+                [sp.GetRequiredService<Tools.PluginTools>(), .. sp.GetServices<Tools.IToolSource>()], // the tools of the plugins that are on
+                sp.GetRequiredService<Tools.ToolSecrets>());
         });
         // The assistant (docs/spec/assistant.md): a second channel of the same tools, as the signed-in user; chats in memory only.
         services.AddSingleton<Assistant.IAssistantProviders>(sp => new Assistant.AssistantProviders(sp.GetRequiredService<TimeProvider>()));
@@ -241,6 +245,7 @@ public static partial class OadmServerHost
         services.AddSingleton<Mcp.McpAccess>();
         services.AddSingleton<Mcp.McpToolAdapter>();
         services.AddSingleton<Mcp.McpFiles>();
+        services.AddSingleton<Mcp.McpSecrets>();
         services.AddSingleton(sp => new Mcp.McpListener(sp, sp.GetRequiredService<ServerSettingsStore>(), sp.GetRequiredService<PluginServiceRegistry>(),
             sp.GetRequiredService<TimeProvider>(), sp.GetRequiredService<ILogger<Mcp.McpListener>>(), interfaces: sp.GetService<Sdk.Network.IServerNetworkInterfaces>(),
             firewall: sp.GetService<Sdk.Network.IFirewallRules>()));
@@ -397,6 +402,7 @@ public static partial class OadmServerHost
         // Tasks.MaxParallelPerPlugin (server setting, default 16, 1..256, Settings page): read live by the engine,
         // a change applies to tasks that start afterwards. A plugin's MaxParallelDevices can only lower it
         // (firmware: 4). The former configuration value Oadm:MaxParallelTasksPerPlugin is no longer read.
+        services.AddSingleton(sp => new TaskResultFiles(sp.GetRequiredService<Core.Persistence.OadmPaths>(), sp.GetRequiredService<TimeProvider>()));
         services.AddSingleton(sp => new TaskParallelismSetting(sp.GetRequiredService<ServerSettingsStore>()));
         services.AddSingleton(sp =>
         {
@@ -406,6 +412,7 @@ public static partial class OadmServerHost
                 MaxParallelTasksPerPluginSource = () => parallelism.Current,
                 Networks = sp.GetRequiredService<Core.Sites.DeviceNetworks>(),
                 AxisDownloads = sp.GetRequiredService<Core.MyAxis.AxisDownloadService>(),
+                ResultFiles = sp.GetRequiredService<TaskResultFiles>(),
             };
         });
         services.AddSingleton(sp =>

@@ -29,6 +29,7 @@ public sealed partial class McpToolTests
         "oadm_files_upload_link", "oadm_logs_audit", "oadm_logs_search", "oadm_server_info", "oadm_settings_get",
         "oadm_task_preview", "oadm_task_run", "oadm_tasks_cancel_preview", "oadm_tasks_cancel_run", "oadm_tasks_catalog",
         "oadm_tasks_get", "oadm_tasks_list", "oadm_tasks_summary", "oadm_selection", "oadm_docs_search", "oadm_server_status",
+        "oadm_files_download_link", "oadm_devices_export", "oadm_compliance_export",
     ];
 
     /// <summary>The tools of the areas stage 3 (tags, sites, compliance, event rules, the event log): <see cref="McpAreaToolTests"/>.</summary>
@@ -128,7 +129,8 @@ public sealed partial class McpToolTests
         "/oadm.v1.FileService/List", "/oadm.v1.FileService/Upload", "/oadm.v1.LicenseService/GetLicense", "/oadm.v1.LiveViewService/GetSnapshot",
         "/oadm.v1.McpService/Get", "/oadm.v1.PluginService/ListPackages", "/oadm.v1.VulnerabilityService/Get",
         "/oadm.v1.ServerLogService/List", "/oadm.v1.SettingsService/Get", "/oadm.v1.SettingsService/ListCredentials",
-        "/oadm.v1.TaskService/Cancel", "/oadm.v1.TaskService/GetLog", "/oadm.v1.TaskService/List",
+        "/oadm.v1.TaskService/Cancel", "/oadm.v1.TaskService/GetLog", "/oadm.v1.TaskService/List", "/oadm.v1.TaskService/GetResultFile",
+        "/oadm.v1.ComplianceService/WatchResults", "/oadm.v1.ComplianceService/ListChecks",
         "/oadm.v1.TaskService/ListTaskPlugins", "/oadm.v1.TaskService/Plan", "/oadm.v1.TaskService/Run",
         "/oadm.v1.WaitingDeviceService/Add", "/oadm.v1.WaitingDeviceService/List", "/oadm.v1.WaitingDeviceService/TryNow",
     ];

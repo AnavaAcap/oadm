@@ -14,6 +14,16 @@ Part of the OADM spec (`CLAUDE.md` "Feature specs"): read it before you change t
 - MyAxis sign-ins ([myaxis.md](myaxis.md)): the session cookie of each user, AES-256-GCM like device passwords with the user
   id as associated data (table MyAxisSessions); never in a gRPC answer, a backup or the log; sent only to www.axis.com.
 - Never log passwords or digest headers.
+- **AI agents and the assistant** (decision 2026-11-15, [mcp.md](mcp.md) "Secrets"): no tool returns a secret, and no
+  secret ever goes through a model; a secret reaches OADM only through the secret channel: a preview declares a slot, the
+  person types the value into a command of their own shell (`PUT /secrets/<token>` on the MCP port with the access key) or
+  into the assistant's preview card (sent with Run). Values are held in server memory only, encrypted with the master key
+  (AES-256-GCM, the caller's binding key, the handle and the slot as associated data), bound to the key or session and the
+  preview, taken once by the run, gone with the handle after 10 minutes, at most 4,096 bytes; never logged, never in an
+  answer or the chat; the audit entry "Set secret" names the secret and the caller, never the value.
+- **Files for agents** ([mcp.md](mcp.md) "Files"): a tool answers a file reference, never the bytes; the bytes leave only
+  through a one-time link bound to the key (MCP) or the user's own chat (assistant), made with the caller's rights at the
+  time of the download and audited "Downloaded file". Never a backup, a private key or a PKCS#12 file.
 
 ## TLS
 
@@ -409,7 +419,8 @@ server.
 `tests/Oadm.Server.Tests`: `AuthTests` (every service per role, the role table against the contracts, plugin method
 roles, first administrator, sessions, throttling, audit), `LoginLimitsTests` (long names and passwords, the audit entry
 of unknown names, the limit per address), `TlsPinningTests` (real Kestrel with TLS), `MasterKeyCheckTests`,
-`MasterKeyFileTests`, `KeyReplacedNoticeTests`, `DeviceLimitsTests`, `UploadStoreTests`; `MethodRoleTests` in the DHCP,
+`MasterKeyFileTests`, `KeyReplacedNoticeTests`, `DeviceLimitsTests`, `UploadStoreTests`, `McpTransferTests` and
+`AssistantTransferTests` (the secret channel and the file links); `MethodRoleTests` in the DHCP,
 NTP, PKI, Hardening scan and VAPIX Commander test projects; `tests/Oadm.Client.Tests`: `LoginTests`, `CrashHandlingTests`.
 `TestServerHost` calls as the administrator "admin" (`InvokerFor(token)` / `InvokerForUserAsync(name, role)` for others,
 `createAdmin: false` for an empty user table, PBKDF2 with 1,000 iterations for speed).

@@ -20,7 +20,7 @@ public sealed class ToolTests
         using var plugin = new SnapshotReportPlugin();
         await plugin.StartAsync(ctx, CancellationToken.None);
         ICorePlugin core = plugin;
-        Assert.Equal("sources", Assert.Single(core.Tools).Name);
+        Assert.Equal(["sources", "report", "report_file"], core.Tools.Select(t => t.Name));
         Assert.Equal(PermissionKeys.Show, core.RequiredPermission(SnapshotTools.Sources.Method));
         Assert.False(core.IsAudited(SnapshotTools.Sources.Method));
         var admin = ctx.CallAsAllDevices();
@@ -36,6 +36,55 @@ public sealed class ToolTests
             var refused = JsonNode.Parse((await ctx.InvokeAsync(plugin, admin, SnapshotTools.Sources.Method, payload))!)!;
             Assert.Equal("device_ids", Assert.Single(refused["errors"]!.AsArray())!["field"]!.GetValue<string>());
         }
+    }
+
+    [Fact]
+    public async Task A_report_is_previewed_without_a_camera_then_started_and_its_pdf_is_a_file_of_its_own_user()
+    {
+        var ctx = new Testing.FakeCoreContext();
+        var camera = ctx.Add(new Testing.FakeDevice { Address = "10.0.0.48", Model = "AXIS P3265-V" });
+        using var plugin = new SnapshotReportPlugin();
+        await plugin.StartAsync(ctx, CancellationToken.None);
+        ICorePlugin core = plugin;
+        Assert.True(SnapshotTools.Report.Changes);
+        Assert.True(SnapshotTools.ReportFile.ReturnsFile);
+        Assert.Equal("report", core.RequiredPermission(SnapshotTools.Report.PreviewMethod));
+        Assert.Equal("report", core.RequiredPermission(SnapshotTools.ReportFile.Method));
+        var admin = ctx.CallAsAllDevices();
+        var input = $$"""{"site":"Lobby","technician":"Ann","date":"2026-11-15","items":[{"device_id":"{{camera.Id}}"}]}""";
+
+        var plan = JsonNode.Parse((await ctx.InvokeAsync(plugin, admin, SnapshotTools.Report.PreviewMethod, input))!)!;
+        Assert.Equal((1, 1), (plan["pictures"]!.GetValue<int>(), plan["cameras"]!.GetValue<int>()));
+        Assert.Empty(ctx.Cameras[camera.Id].Requests); // the preview takes no picture
+        Assert.Empty(ctx.FakeJobs.List(admin));
+
+        var bad = JsonNode.Parse((await ctx.InvokeAsync(plugin, admin, SnapshotTools.Report.PreviewMethod, """{"date":"15.11.2026"}"""))!)!;
+        Assert.Equal(["site", "technician", "date", "items"], bad["errors"]!.AsArray().Select(e => e!["field"]!.GetValue<string>()));
+
+        var started = JsonNode.Parse((await ctx.InvokeAsync(plugin, admin, SnapshotTools.Report.RunMethod, input))!)!;
+        var jobId = started["job_id"]!.GetValue<string>();
+        JsonNode state = started;
+        await Testing.Eventually.TrueAsync(async () =>
+        {
+            state = JsonNode.Parse((await ctx.InvokeAsync(plugin, admin, SnapshotTools.ReportFile.Method, $$"""{"job_id":"{{jobId}}"}"""))!)!;
+            return state["state"]!.GetValue<string>() != "running";
+        }, "the report ends");
+        Assert.Equal("done", state["state"]!.GetValue<string>());
+        var file = state["file"]!;
+        Assert.Equal((SnapshotReportMethods.DownloadReport, "application/pdf"), (file["method"]!.GetValue<string>(), file["content_type"]!.GetValue<string>()));
+
+        await using (var download = await plugin.OpenDownloadAsync(admin, file["method"]!.GetValue<string>(), file["payload_json"]!.GetValue<string>(), CancellationToken.None))
+        {
+            using var copy = new MemoryStream();
+            await download.Content.CopyToAsync(copy);
+            Assert.Equal("%PDF", System.Text.Encoding.ASCII.GetString(copy.ToArray(), 0, 4));
+        }
+
+        // Another user's job answers like an unknown one, for the tool and for the file.
+        var other = ctx.CallAsAllDevices("someone else");
+        var foreign = JsonNode.Parse((await ctx.InvokeAsync(plugin, other, SnapshotTools.ReportFile.Method, $$"""{"job_id":"{{jobId}}"}"""))!)!;
+        Assert.Equal("job_id", Assert.Single(foreign["errors"]!.AsArray())!["field"]!.GetValue<string>());
+        await Assert.ThrowsAsync<InvalidOperationException>(() => plugin.OpenDownloadAsync(other, SnapshotReportMethods.DownloadReport, file["payload_json"]!.GetValue<string>(), CancellationToken.None));
     }
 
     [Fact]
@@ -61,8 +110,7 @@ public sealed class ToolTests
         var admin = ctx.CallAsAllDevices();
 
         ICorePlugin core = plugin;
-        Assert.All(core.Tools, t => Assert.False(t.Changes)); // no change tool here: every tool is a read
-        foreach (var tool in core.Tools)
+        foreach (var tool in core.Tools.Where(t => !t.Changes))
         {
             Assert.NotNull(await ctx.InvokeAsync(plugin, admin, tool.Method, $$"""{"device_ids":["{{camera.Id}}"]}"""));
         }

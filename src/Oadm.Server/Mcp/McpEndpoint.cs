@@ -64,6 +64,9 @@ public static class McpEndpoint
 
     /// <summary>Where upload links point: <c>PUT /files/&lt;token&gt;</c> with the same key (docs/spec/mcp.md "Files").</summary>
     public const string FilesPath = "/files/";
+
+    /// <summary>Where secret links point: <c>PUT /secrets/&lt;token&gt;</c> with the same key (docs/spec/mcp.md "Secrets").</summary>
+    public const string SecretsPath = "/secrets/";
     public const string NoProtocolVersion = "The MCP-Protocol-Version header is missing.";
     public const string TooManyRefused = "Too many refused access keys from your address. Try again in a few minutes.";
 
@@ -148,7 +151,8 @@ public static class McpEndpoint
         var files = server.GetRequiredService<McpFiles>();
         var registry = server.GetRequiredService<ToolRegistry>();
         var filesUrl = FilesUrlOf(serverNames, port);
-        app.Use((http, next) => GuardAsync(http, next, access, serverNames, files, registry, filesUrl));
+        var secrets = server.GetRequiredService<McpSecrets>();
+        app.Use((http, next) => GuardAsync(http, next, access, serverNames, files, registry, filesUrl, secrets));
         app.MapMcp(Path);
         return app;
     }
@@ -171,17 +175,28 @@ public static class McpEndpoint
         return string.Create(System.Globalization.CultureInfo.InvariantCulture, $"https://{host}:{port}{FilesPath}");
     }
 
+    /// <summary>Where secret links point: the address of <see cref="FilesUrlOf"/> with <see cref="SecretsPath"/>; null without one.</summary>
+    internal static string? SecretsUrlOf(string? filesUrl) => filesUrl is null ? null : filesUrl[..^FilesPath.Length] + SecretsPath;
+
     /// <summary>The tool caller the guard made from the access key (the only thing of the request the tools get).</summary>
     private static ToolCaller CallerOf(IServiceProvider? services) =>
         services?.GetService<IHttpContextAccessor>()?.HttpContext?.Items[CallerKey] as ToolCaller
         ?? throw new InvalidOperationException("An MCP request without its caller."); // the guard runs first: never reached
 
     /// <summary>The checks before the SDK sees a request.</summary>
-    internal static async Task GuardAsync(HttpContext http, RequestDelegate next, McpAccess access, IReadOnlyCollection<string>? serverNames, McpFiles files, ToolRegistry tools, string? filesUrl)
+    internal static async Task GuardAsync(HttpContext http, RequestDelegate next, McpAccess access, IReadOnlyCollection<string>? serverNames, McpFiles files, ToolRegistry tools, string? filesUrl,
+        McpSecrets? secrets = null)
     {
         var path = http.Request.Path.Value ?? string.Empty;
         var upload = path.StartsWith(FilesPath, StringComparison.Ordinal) ? path[FilesPath.Length..] : null;
-        if (!string.Equals(path, Path, StringComparison.Ordinal) && (upload is null || upload.Length == 0 || upload.Contains('/', StringComparison.Ordinal)))
+        var secret = secrets is not null && path.StartsWith(SecretsPath, StringComparison.Ordinal) ? path[SecretsPath.Length..] : null;
+        if (secret is not null && (secret.Length == 0 || secret.Contains('/', StringComparison.Ordinal)))
+        {
+            http.Response.StatusCode = StatusCodes.Status404NotFound;
+            return;
+        }
+
+        if (secret is null && !string.Equals(path, Path, StringComparison.Ordinal) && (upload is null || upload.Length == 0 || upload.Contains('/', StringComparison.Ordinal)))
         {
             http.Response.StatusCode = StatusCodes.Status404NotFound;
             return;
@@ -194,12 +209,19 @@ public static class McpEndpoint
         }
 
         // /mcp takes POST only (no stream on GET, no session to DELETE); a link of /files/ takes PUT (an upload) or GET (a download).
+        // A secret link takes PUT only.
         var download = upload is not null && HttpMethods.IsGet(http.Request.Method);
-        var method = upload is null ? HttpMethods.Post : download ? HttpMethods.Get : HttpMethods.Put;
+        var method = secret is not null ? HttpMethods.Put : upload is null ? HttpMethods.Post : download ? HttpMethods.Get : HttpMethods.Put;
         if (!string.Equals(http.Request.Method, method, StringComparison.OrdinalIgnoreCase))
         {
-            http.Response.Headers.Allow = upload is null ? HttpMethods.Post : HttpMethods.Put + ", " + HttpMethods.Get;
+            http.Response.Headers.Allow = secret is not null ? HttpMethods.Put : upload is null ? HttpMethods.Post : HttpMethods.Put + ", " + HttpMethods.Get;
             http.Response.StatusCode = StatusCodes.Status405MethodNotAllowed;
+            return;
+        }
+
+        if (secret is not null && http.Request.ContentLength > ToolSecrets.MaxBytes + 2)
+        {
+            await RefuseAsync(http, StatusCodes.Status413PayloadTooLarge, ToolSecrets.TooLong).ConfigureAwait(false);
             return;
         }
 
@@ -242,6 +264,20 @@ public static class McpEndpoint
             return;
         }
 
+        if (secret is not null)
+        {
+            using var sending = access.TryStartTransfer(caller); // the transfer places: never one of the /mcp calls
+            if (sending is null)
+            {
+                http.Response.Headers.RetryAfter = "1";
+                await RefuseAsync(http, StatusCodes.Status429TooManyRequests, TooManyAtOnce).ConfigureAwait(false);
+                return;
+            }
+
+            await secrets!.ReceiveAsync(http, caller, secret).ConfigureAwait(false);
+            return;
+        }
+
         if (upload is not null)
         {
             using var uploading = access.TryStartTransfer(caller); // a pool of its own: a slow transfer never takes the places of /mcp calls
@@ -281,7 +317,7 @@ public static class McpEndpoint
         }
 
         // The tools get the caller and where this channel takes files (from the server's own name), nothing else of the request.
-        http.Items[CallerKey] = caller with { Channel = caller.Channel with { FilesUrl = filesUrl } };
+        http.Items[CallerKey] = caller with { Channel = caller.Channel with { FilesUrl = filesUrl, SecretsUrl = SecretsUrlOf(filesUrl) } };
         await next(http).ConfigureAwait(false);
     }
 

@@ -2,6 +2,7 @@ using System.Text.Json;
 
 using Oadm.Plugins.EdgeRecordingExport.Recordings;
 using Oadm.Plugins.EdgeRecordingExport.Tools;
+using Oadm.Sdk.Devices;
 using Oadm.Sdk.Plugins;
 
 namespace Oadm.Plugins.EdgeRecordingExport;
@@ -47,6 +48,7 @@ public sealed class EdgeRecordingExportPlugin : ICorePlugin, ICorePluginDownload
     {
         EdgeRecordingMethods.Search => PermissionKeys.Show,
         _ when RecordingTools.Search.Calls(method) => PermissionKeys.Show,
+        _ when RecordingTools.Export.Calls(method) => EdgeRecordingInfo.ExportKey,
         EdgeRecordingMethods.Export => EdgeRecordingInfo.ExportKey,
         _ => null,
     };
@@ -85,6 +87,7 @@ public sealed class EdgeRecordingExportPlugin : ICorePlugin, ICorePluginDownload
             EdgeRecordingMethods.Search => JsonSerializer.Serialize(
                 await service.SearchAsync(caller, Read<SearchRequest>(payloadJson), ct).ConfigureAwait(false), EdgeRecordingInfo.Json),
             _ when method == RecordingTools.Search.Method => await SearchToolAsync(service, caller, payloadJson, ct).ConfigureAwait(false),
+            _ when method == RecordingTools.Export.Method => await ExportToolAsync(caller, payloadJson, ct).ConfigureAwait(false),
             _ => throw new ArgumentException($"Unknown method '{method}'.", nameof(method)),
         };
     }
@@ -94,6 +97,32 @@ public sealed class EdgeRecordingExportPlugin : ICorePlugin, ICorePluginDownload
     {
         var (request, errors) = RecordingTools.RequestOf(payloadJson);
         return request is null ? errors! : RecordingTools.Answer(await service.SearchAsync(caller, request, ct).ConfigureAwait(false), payloadJson);
+    }
+
+    /// <summary>
+    /// The export tool: the file of one recording as the page's download (fetched later with the caller's rights, audited then).
+    /// A camera outside the caller's view answers like an unknown one; nothing is read from the camera here.
+    /// </summary>
+    private static async Task<string> ExportToolAsync(ICallContext caller, string? payloadJson, CancellationToken ct)
+    {
+        var (request, errors) = RecordingTools.ExportRequestOf(payloadJson);
+        if (request is null)
+        {
+            return errors!;
+        }
+
+        var device = await caller.Devices.FindAsync(request.DeviceId, ct).ConfigureAwait(false);
+        if (device is null)
+        {
+            return caller.HasAllDevices ? PluginToolErrors.Answer([new("device_id", RecordingTools.EnterCamera)]) : throw new DevicesNotAvailableException();
+        }
+
+        if (!device.HasVideo)
+        {
+            return PluginToolErrors.Answer([new("device_id", EdgeRecordingTexts.NotVideo)]);
+        }
+
+        return RecordingTools.ExportAnswerOf(request, device.HostName ?? device.Address);
     }
 
     /// <summary>Only through the user's call (<see cref="OpenDownloadAsync(ICallContext, string, string?, CancellationToken)"/>).</summary>

@@ -52,6 +52,18 @@ public static class AssistantTexts
     public const string NothingToRetry = "There is nothing to try again.";
     public const string DailyLimit = "The assistant reached today's limit. It works again tomorrow.";
     public const string PreviewEnded = "This preview has ended. Ask again.";
+
+    /// <summary>A file of an answer that ended or is another user's (AssistantService.Download).</summary>
+    public const string FileEnded = "This file has ended. Ask again.";
+
+    /// <summary>Secrets of one Run at most (AssistantRunRequest.secrets).</summary>
+    public const int MaxRunSecrets = 8;
+
+    /// <summary>The label of a secret field: "password" is "Password".</summary>
+    public static string SecretLabel(string label) => string.IsNullOrEmpty(label) ? label : char.ToUpperInvariant(label[0]) + label[1..];
+
+    /// <summary>The error below an empty secret field: "Enter the password." (the server's refusal of Run says the same).</summary>
+    public static string EnterSecret(string label) => "Enter the " + label + ".";
     public const string NoAnswer = "The provider did not answer. Try again.";
     public const string TooManySelected = "Select at most 10,000 devices for the assistant.";
     public const string EmptyMessage = "Write a message.";

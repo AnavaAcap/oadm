@@ -24,7 +24,7 @@ public sealed class ToolTests
         var device = rig.Add(camera, "10.0.0.48");
         ICorePlugin core = rig.Plugin;
         Assert.Equal("recordings", core.ToolArea);
-        Assert.Equal("search", Assert.Single(core.Tools).Name);
+        Assert.Equal(["search", "export"], core.Tools.Select(t => t.Name));
         Assert.Equal(PermissionKeys.Show, core.RequiredPermission(RecordingTools.Search.Method));
         Assert.False(core.IsAudited(RecordingTools.Search.Method));
 
@@ -88,6 +88,52 @@ public sealed class ToolTests
     }
 
     [Fact]
+    public async Task The_export_tool_answers_the_pages_download_as_a_file_and_reads_nothing_from_the_camera()
+    {
+        var rig = new Rig();
+        var camera = FakeCamera.WithClips(1, TimeSpan.FromMinutes(1), TimeSpan.FromSeconds(10));
+        var device = rig.Add(camera, "10.0.0.48");
+        ICorePlugin core = rig.Plugin;
+        var tool = RecordingTools.Export;
+        Assert.True(tool.ReturnsFile);
+        Assert.False(tool.Changes);
+        Assert.Equal(EdgeRecordingInfo.ExportKey, tool.Permission);
+        Assert.Equal(EdgeRecordingInfo.ExportKey, core.RequiredPermission(tool.Method));
+        Assert.False(core.IsAudited(tool.Method)); // the fetch of the file is the audited export
+
+        var recording = (await SearchAsync(rig, new JsonObject { ["device_id"] = device.Id.ToString() }))["recordings"]![0]!;
+        var requestsBefore = camera.Requests.Count;
+        var answer = JsonNode.Parse((await rig.Plugin.InvokeAsync(rig.Call, tool.Method, new JsonObject
+        {
+            ["device_id"] = device.Id.ToString(),
+            ["recording_id"] = recording["id"]!.GetValue<string>(),
+            ["disk_id"] = recording["disk_id"]!.GetValue<string>(),
+        }.ToJsonString(), CancellationToken.None))!)!;
+        Assert.Equal(requestsBefore, camera.Requests.Count); // the tool only names the file
+        var file = answer["file"]!;
+        Assert.Equal(EdgeRecordingMethods.Export, file["method"]!.GetValue<string>());
+        Assert.Equal("video/mp4", file["content_type"]!.GetValue<string>());
+        Assert.EndsWith(".mp4", file["file_name"]!.GetValue<string>(), StringComparison.Ordinal);
+        var request = System.Text.Json.JsonSerializer.Deserialize<ExportRequest>(file["payload_json"]!.GetValue<string>(), EdgeRecordingInfo.Json)!;
+        Assert.Equal((device.Id, recording["id"]!.GetValue<string>(), "mp4"), (request.DeviceId, request.RecordingId, request.Format));
+
+        // The payload is the page's own export: the host fetches it with the caller's rights.
+        await using (var download = await rig.Plugin.OpenDownloadAsync(rig.Call, file["method"]!.GetValue<string>(), file["payload_json"]!.GetValue<string>(), CancellationToken.None))
+        {
+            using var copy = new MemoryStream();
+            await download.Content.CopyToAsync(copy);
+            Assert.True(copy.Length > 0);
+        }
+
+        var errors = JsonNode.Parse((await rig.Plugin.InvokeAsync(rig.Call, tool.Method, "{}", CancellationToken.None))!)!["errors"]!.AsArray()
+            .Select(e => e!["field"]!.GetValue<string>()).ToList();
+        Assert.Equal(["device_id", "recording_id", "disk_id"], errors);
+        var unknown = JsonNode.Parse((await rig.Plugin.InvokeAsync(rig.Call, tool.Method,
+            $$"""{"device_id":"{{Guid.NewGuid()}}","recording_id":"r","disk_id":"SD_DISK"}""", CancellationToken.None))!)!;
+        Assert.Equal("device_id", Assert.Single(unknown["errors"]!.AsArray())!["field"]!.GetValue<string>());
+    }
+
+    [Fact]
     public async Task The_tool_reaches_no_camera_outside_the_users_group()
     {
         var ctx = new Testing.FakeCoreContext();
@@ -97,6 +143,7 @@ public sealed class ToolTests
         await plugin.StartAsync(ctx, CancellationToken.None);
         await new PluginCanary(ctx, plugin, inside, outside)
             .Method(RecordingTools.Search.Method, """{"device_id":"{device}"}""")
+            .Method(RecordingTools.Export.Method, """{"device_id":"{device}","recording_id":"r1","disk_id":"SD_DISK"}""")
             .RunAsync();
     }
 }

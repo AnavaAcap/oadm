@@ -131,7 +131,29 @@ public sealed class FakeTaskContext : ITaskExecutionContext
 
     /// <inheritdoc />
     public void Log(TaskLogLevel level, string message) => LogLines.Add($"{level}: {message}");
+
+    /// <summary>The result file the task kept last (<see cref="SaveResultFileAsync"/>); null before any.</summary>
+    public FakeResultFile? ResultFile { get; private set; }
+
+    /// <inheritdoc />
+    public async Task SaveResultFileAsync(string fileName, string contentType, Stream content, CancellationToken ct)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(fileName);
+        ArgumentException.ThrowIfNullOrWhiteSpace(contentType);
+        ArgumentNullException.ThrowIfNull(content);
+        using var copy = new MemoryStream();
+        await content.CopyToAsync(copy, ct).ConfigureAwait(false);
+        if (copy.Length > TaskResultFile.MaxBytes)
+        {
+            throw new InvalidOperationException("The result file is larger than 64 MB.");
+        }
+
+        ResultFile = new FakeResultFile(fileName, contentType, copy.ToArray());
+    }
 }
+
+/// <summary>A result file a task kept in a <see cref="FakeTaskContext"/>: its name, media type and bytes.</summary>
+public sealed record FakeResultFile(string FileName, string ContentType, byte[] Bytes);
 
 /// <summary>
 /// The server's context of one action run: the target's <see cref="Vapix"/> client (null for actions without devices),

@@ -61,8 +61,11 @@ whether the camera is still in the group's devices now (`IDeviceScopes.Devices`)
 `Tools/RecordingTools` (`ICorePlugin.Tools`, area `recordings`, docs/spec/mcp.md): the read-only tool
 `oadm_recordings_search` is the page's Search of one camera (`device_id`, optional `start` and `stop`): the problem and the
 disk's problem, the format, the estimated size, the first and last time, the counts by type, then the recordings oldest
-first, paged by start time. Every page searches the camera again, like the page. Right "show"; the export stays in the
-page.
+first, paged by start time. Every page searches the camera again, like the page. Right "show".
+`oadm_recordings_export` (`device_id`, `recording_id`, `disk_id`, optional `start`, `stop`, `format`) answers one
+recording as a file (`ReturnsFile`): the page's download `export` with its payload, never the bytes. It reads nothing from
+the camera; the host fetches the file through `PluginService.Download` as the caller when the agent asks for its link, so
+the right "export", the device group and the audit line are the page's. Right "export".
 
 ## Tests
 

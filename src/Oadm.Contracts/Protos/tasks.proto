@@ -3,6 +3,7 @@ package oadm.v1;
 option csharp_namespace = "Oadm.Contracts.V1";
 import "Protos/common.proto";
 import "Protos/devices.proto";
+import "Protos/plugins.proto";
 import "google/protobuf/timestamp.proto";
 
 // ListTaskPluginsRequest, ListTasksRequest and WatchTasksRequest replaced Empty; they are wire compatible
@@ -32,6 +33,21 @@ service TaskService {
   // with a reason (PlanAsync, cached data only), the task name and the warnings. The checks of Run (unknown plugin, page task,
   // the run's permissions); an invalid payload answers its field errors, never an error status.
   rpc Plan (PlanTaskRequest) returns (TaskPlanReply);
+  // The result file a task kept (ITaskExecutionContext.SaveResultFileAsync, docs/spec/mcp.md "Files"): its name, type and size.
+  // Only for the user or access key that started the task, and administrators; NOT_FOUND for a task outside the caller's view,
+  // one of another user and one without a file (the same answer).
+  rpc GetResultFile (TaskIdRequest) returns (TaskResultFile);
+  // The bytes of that file: the first message carries file_name and length, the others data (256 KB at most), uncompressed.
+  // The same rules and answers as GetResultFile; audited "Downloaded file".
+  rpc DownloadResult (TaskIdRequest) returns (stream DownloadChunk);
+}
+
+message TaskResultFile {
+  string task_id = 1;
+  string file_name = 2;
+  string content_type = 3;
+  int64 size = 4;
+  google.protobuf.Timestamp saved = 5;
 }
 
 message TaskPluginInfo {

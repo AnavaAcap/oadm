@@ -35,7 +35,9 @@ public sealed record ToolCaller(AuthenticatedCaller User, string BindingKey)
 /// <param name="CallsAtOnce">Calls waiting for their answer at once; null without a limit.</param>
 /// <param name="ChangesPerMinute">Changes a minute (runs, task starts, calls that act outside OADM); null without a limit.</param>
 /// <param name="FilesUrl">Where the channel takes files of upload links ("https://server:5082/files/"); null: it takes none.</param>
-public sealed record ToolChannel(string? KeyName = null, DateTime? KeyExpiresUtc = null, int? CallsPerSecond = null, int? CallsAtOnce = null, int? ChangesPerMinute = null, string? FilesUrl = null)
+/// <param name="SecretsUrl">Where the channel takes the values of secret links ("https://server:5082/secrets/"); null: it takes none (the assistant's card takes them).</param>
+public sealed record ToolChannel(string? KeyName = null, DateTime? KeyExpiresUtc = null, int? CallsPerSecond = null, int? CallsAtOnce = null, int? ChangesPerMinute = null, string? FilesUrl = null,
+    string? SecretsUrl = null)
 {
     public static ToolChannel None { get; } = new();
 }
@@ -111,6 +113,15 @@ internal sealed record ToolCall(ToolCaller Caller, JsonElement Arguments, InProc
     /// <summary>A tool that answers a picture sets it here; it goes with the answer (<see cref="ToolResult.Image"/>).</summary>
     public ToolImage? Image { get; set; }
 
+    /// <summary>The secret channel: a preview declares its slots here (<see cref="ToolSecretAnswers.Declare"/>); null without one.</summary>
+    public ToolSecrets? SecretStore { get; init; }
+
+    /// <summary>The secrets of the run's handle, taken by the registry before the call (in memory only, never in an answer).</summary>
+    public IReadOnlyDictionary<string, string> SecretValues { get; init; } = new Dictionary<string, string>();
+
+    /// <summary>The value of the secret <paramref name="name"/> the preview declared; null when the call has none.</summary>
+    public string? Secret(string name) => SecretValues.TryGetValue(name, out var value) ? value : null;
+
     /// <summary>A run that starts tasks sets their ids here (<see cref="ToolResult.TaskIds"/>): the assistant's card follows them.</summary>
     public IReadOnlyList<string>? TaskIds { get; set; }
 
@@ -168,13 +179,18 @@ internal sealed class ToolRegistry
     private readonly Dictionary<string, OadmTool> _tools;
     private readonly IReadOnlyList<IToolSource> _sources;
     private readonly InProcessCalls _calls;
+    private readonly ToolSecrets? _secrets;
 
-    public ToolRegistry(IEnumerable<OadmTool> tools, InProcessCalls calls, IEnumerable<IToolSource>? sources = null)
+    public ToolRegistry(IEnumerable<OadmTool> tools, InProcessCalls calls, IEnumerable<IToolSource>? sources = null, ToolSecrets? secrets = null)
     {
         _tools = tools.ToDictionary(t => t.Name, StringComparer.Ordinal);
         _sources = [.. sources ?? []];
         _calls = calls;
+        _secrets = secrets;
     }
+
+    /// <summary>The secret channel of the registry's tools (docs/spec/mcp.md "Secrets"); null without one.</summary>
+    public ToolSecrets? Secrets => _secrets;
 
     /// <summary>The fixed tools and those of the sources now; a source never replaces a fixed tool or another source's first.</summary>
     private Dictionary<string, OadmTool> Now()
@@ -226,10 +242,23 @@ internal sealed class ToolRegistry
             return ToolResult.Refused(ToolAnswers.FieldsMessage, errors);
         }
 
+        // A run whose preview declared secrets: refused while one is missing (the handle stays), else it gets them once.
+        IReadOnlyDictionary<string, string>? secretValues = null;
+        if (_secrets is not null && !tool.ReadsOnly && args.TryGetProperty("handle", out var handleArgument) && handleArgument.ValueKind == JsonValueKind.String)
+        {
+            var handle = handleArgument.GetString();
+            if (_secrets.Missing(caller.BindingKey, handle, tool.Name) is { Count: > 0 } missing)
+            {
+                return ToolResult.Refused(ToolSecrets.Enter(missing[0]), [.. missing.Select(m => new ToolFieldError("secrets." + m.Name, ToolSecrets.Enter(m)))]);
+            }
+
+            secretValues = _secrets.Take(caller.BindingKey, handle, tool.Name);
+        }
+
         try
         {
             args = SelectionTools.Apply(caller, args); // "selection": true is the caller's selected devices
-            var call = new ToolCall(caller, args, _calls, ct) { Tool = tool.Name };
+            var call = new ToolCall(caller, args, _calls, ct) { Tool = tool.Name, SecretStore = _secrets, SecretValues = secretValues ?? new Dictionary<string, string>() };
             var answer = await tool.Run(call).ConfigureAwait(false);
             return ToolResult.Ok(answer) with { Image = call.Image, TaskIds = call.TaskIds };
         }

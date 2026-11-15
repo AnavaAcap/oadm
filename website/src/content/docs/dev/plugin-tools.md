@@ -130,6 +130,19 @@ internal sealed record SavePlan(string Name) : PluginToolPlan(1, "gate"); // the
 public string? RequiredPermission(string method) => GateTools.Set.RulesMethodOf(method) is "save" ? PermissionKeys.Manage : PermissionKeys.Show;
 public bool IsAudited(string method) => !PluginTool.IsPreviewMethod(method) && GateTools.Set.RulesMethodOf(method) is "save";
 ```
+## Files
+
+A tool that hands the caller a file (an export, a report, a certificate) sets `ReturnsFile` and puts a `PluginToolFile`
+into its answer's `file` property: one of your downloads (`ICorePluginDownloads.OpenDownloadAsync`) with its payload.
+
+```csharp
+return new ExportAnswer(Recordings: 1, File: new PluginToolFile("export", JsonSerializer.Serialize(request, Json), "recording.mp4", "video/mp4"));
+```
+
+The host never passes the bytes through the answer. It replaces `file` with a file reference; an agent turns it into a
+one-time download link, the assistant shows a card with Save. The bytes are read only then, through your download as the
+caller: its permission, device group and audit apply again. Give `Size` only when you know it exactly. Never a backup, a
+private key or a PKCS#12 file.
 
 ## Your duty
 

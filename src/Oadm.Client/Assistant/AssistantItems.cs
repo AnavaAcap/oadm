@@ -6,6 +6,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 
 using Oadm.Client.Tasks;
 using Oadm.Contracts.V1;
+using Oadm.Sdk.Client.Validation;
 
 namespace Oadm.Client.Assistant;
 
@@ -255,6 +256,83 @@ public enum PreviewState
 }
 
 /// <summary>
+/// A secret field of a preview card (docs/spec/mcp.md "Secrets"): a password the run needs, typed by the user into the card and
+/// sent with Run straight to the server (<c>AssistantRunRequest.secrets</c>), never into the chat or to the model. Its error
+/// shows below it once it was edited, left or Run was tried.
+/// </summary>
+public sealed partial class AssistantSecretFieldItem : ValidatingViewModel
+{
+    public AssistantSecretFieldItem(string name, string label)
+    {
+        Name = name;
+        Label = Contracts.Assistant.AssistantTexts.SecretLabel(label);
+        EmptyError = Contracts.Assistant.AssistantTexts.EnterSecret(label);
+        Validation.Rule(nameof(Value), () => string.IsNullOrEmpty(Value) ? EmptyError : null);
+        Validation.Validate();
+    }
+
+    /// <summary>The key of the value in Run's secrets.</summary>
+    public string Name { get; }
+
+    /// <summary>"Password".</summary>
+    public string Label { get; }
+
+    /// <summary>"Enter the password."</summary>
+    public string EmptyError { get; }
+
+    [ObservableProperty]
+    public partial string Value { get; set; } = string.Empty;
+
+    partial void OnValueChanged(string value) => Validation.Validate();
+
+    /// <summary>Shows the field's error (Run was tried); <paramref name="serverError"/> is the server's refusal of this field.</summary>
+    internal void ShowError(string? serverError = null)
+    {
+        if (serverError is not null)
+        {
+            Validation.SetServerError(nameof(Value), serverError);
+        }
+
+        Validation.ShowAll();
+    }
+
+    /// <summary>Forgets the value (the run started or the card ended): it never stays in the client longer than needed.</summary>
+    internal void Clear()
+    {
+        Value = string.Empty;
+        Validation.Reset(nameof(Value));
+    }
+}
+
+/// <summary>
+/// A file a tool answer offered (docs/spec/mcp.md "Files"): a card with its name, size and Save. Save asks where to keep it
+/// and fetches it then (<c>AssistantService.Download</c>, the user's rights of then); the bytes never pass the model.
+/// </summary>
+public sealed partial class AssistantFileItem(AssistantFile file) : AssistantItem
+{
+    public string FileRef { get; } = file?.FileRef ?? string.Empty;
+
+    public string Name { get; } = file?.Name ?? string.Empty;
+
+    public string ContentType { get; } = file?.ContentType ?? string.Empty;
+
+    /// <summary>"48 KB"; empty when the size is not known before the download.</summary>
+    public string SizeText { get; } = file is { Size: >= 0 } ? Oadm.Sdk.Formatting.ByteSize.Text(file.Size) : string.Empty;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasStatus))]
+    public partial string StatusText { get; internal set; } = string.Empty;
+
+    public bool HasStatus => StatusText.Length > 0;
+
+    [ObservableProperty] public partial bool IsSaving { get; internal set; }
+
+    [ObservableProperty] public partial bool HasFailed { get; internal set; }
+
+    [ObservableProperty] public partial bool IsSaved { get; internal set; }
+}
+
+/// <summary>
 /// A change the model prepared (docs/spec/assistant.md rule 2): title, device count, the first devices, the skipped ones and
 /// the warnings; only the user's Run runs it. After Run the card follows its tasks in the client's task mirror
 /// (<see cref="TaskStore"/>) and links to the tasks pane.
@@ -278,7 +356,36 @@ public sealed partial class AssistantPreviewItem : AssistantItem, IDisposable
         Warnings = [.. card.Warnings];
         Details = [.. card.Details];
         IsDestructive = card.Destructive;
+        Secrets = [.. card.Secrets.Select(s => new AssistantSecretFieldItem(s.Name, s.Label))];
+        foreach (var secret in Secrets)
+        {
+            secret.PropertyChanged += (_, e) =>
+            {
+                if (e.PropertyName is nameof(AssistantSecretFieldItem.Value) or nameof(AssistantSecretFieldItem.HasErrors))
+                {
+                    OnPropertyChanged(nameof(CanRun));
+                    OnPropertyChanged(nameof(RunBlockedReason));
+                }
+            };
+        }
     }
+
+    /// <summary>The secrets Run needs (a password): typed into the card, sent with Run, never into the chat.</summary>
+    public IReadOnlyList<AssistantSecretFieldItem> Secrets { get; }
+
+    public bool HasSecrets => Secrets.Count > 0;
+
+    /// <summary>The secret fields show while the card waits for Run (afterwards their values are gone).</summary>
+    public bool ShowsSecrets => HasSecrets && IsReady;
+
+    /// <summary>Run is possible: the card waits for it and every secret field has a value.</summary>
+    public bool CanRun => IsReady && Secrets.All(s => s.Value.Length > 0);
+
+    /// <summary>Why Run is disabled ("Enter the password."); null when it is not.</summary>
+    public string? RunBlockedReason => !IsReady ? null : Secrets.FirstOrDefault(s => s.Value.Length == 0)?.EmptyError;
+
+    /// <summary>The values for Run by name.</summary>
+    internal Dictionary<string, string> SecretValues() => Secrets.ToDictionary(s => s.Name, s => s.Value, StringComparer.Ordinal);
 
     /// <summary>What Run does, one line per key field, from the server's preview ("Sends to: http://10.0.0.5/hook").</summary>
     public IReadOnlyList<string> Details { get; }
@@ -323,7 +430,7 @@ public sealed partial class AssistantPreviewItem : AssistantItem, IDisposable
     public bool HasWarnings => Warnings.Count > 0;
 
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(IsReady), nameof(IsStarted), nameof(HasStatus))]
+    [NotifyPropertyChangedFor(nameof(IsReady), nameof(IsStarted), nameof(HasStatus), nameof(CanRun), nameof(RunBlockedReason), nameof(ShowsSecrets))]
     public partial PreviewState State { get; private set; }
 
     public bool IsReady => State == PreviewState.Ready;
@@ -365,11 +472,30 @@ public sealed partial class AssistantPreviewItem : AssistantItem, IDisposable
         IsActive = true;
     }
 
+    /// <summary>The server refused Run because of a secret field: the card waits again with the error below that field.</summary>
+    internal void MarkSecretRefused(string field, string error)
+    {
+        State = PreviewState.Ready;
+        StatusText = string.Empty;
+        IsActive = false;
+        (Secrets.FirstOrDefault(s => s.Name == field) ?? (Secrets.Count > 0 ? Secrets[0] : null))?.ShowError(error);
+    }
+
     internal void MarkCancelled()
     {
         State = PreviewState.Cancelled;
         StatusText = AssistantTexts.Cancelled;
         IsActive = false;
+        ClearSecrets();
+    }
+
+    /// <summary>The typed secrets are forgotten once they went to the server or the card ended.</summary>
+    internal void ClearSecrets()
+    {
+        foreach (var secret in Secrets)
+        {
+            secret.Clear();
+        }
     }
 
     internal void MarkRefused(string reason)

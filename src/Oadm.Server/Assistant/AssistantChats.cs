@@ -43,6 +43,15 @@ public sealed partial class AssistantChats
     public const string PreviewNote = "The user sees this plan as a card with Run and Cancel and decides. You cannot run it. Tell the user in one sentence what Run would do.";
 
     public const string PictureShown = "The picture was shown to the user. You do not see it.";
+
+    /// <summary>The note to the model of an answer that offered a file: the user saves it from the card.</summary>
+    public const string FileNote = "The panel shows the file as a card with Save. You cannot fetch it. Tell the user in one sentence what it is.";
+
+    /// <summary>The note to the model of a preview whose run needs a secret: the user types it into the card.</summary>
+    public const string SecretNote = "The user sees this plan as a card with Run and Cancel and types the secrets named in needs_secrets into the card. Never ask for them and never repeat one. You cannot run it.";
+
+    /// <summary>Files of one tool answer shown as cards at most.</summary>
+    public const int MaxFileCards = 5;
     public const string PictureSent = "The picture follows as an image.";
     public const string NotOffered = "This tool is not offered here.";
     public const string NoChatId = "Open the assistant again.";
@@ -666,7 +675,30 @@ public sealed partial class AssistantChats
             answer = (JsonObject)answer.DeepClone();
             answer.Remove("handle");
             answer.Remove("expires");
-            answer["note"] = PreviewNote;
+            answer.Remove("secret_links"); // the card takes the secrets, never the model
+            answer["note"] = card.Secrets.Count > 0 ? SecretNote : PreviewNote;
+        }
+
+        var offers = FileOffers(answer).Take(MaxFileCards).ToList();
+        foreach (var offer in offers)
+        {
+            await emit(new Proto.AssistantEvent
+            {
+                File = new Proto.AssistantFile
+                {
+                    FileRef = Text(offer["file_ref"]) ?? string.Empty,
+                    Name = Text(offer["name"]) ?? string.Empty,
+                    Size = offer["size"] is JsonValue size && size.TryGetValue<long>(out var bytes) ? bytes : -1,
+                    ContentType = Text(offer["content_type"]) ?? string.Empty,
+                    ExpiresUtc = Text(offer["expires"]) ?? string.Empty,
+                },
+            }).ConfigureAwait(false);
+        }
+
+        if (offers.Count > 0)
+        {
+            answer = (JsonObject)answer.DeepClone();
+            answer["note"] = FileNote;
         }
 
         if (result.Image is { } image)
@@ -699,6 +731,25 @@ public sealed partial class AssistantChats
         return Result(request, answer);
     }
 
+    /// <summary>The files a tool answer offers: its fields that are file references, and the references in its lists (one level deep).</summary>
+    private static IEnumerable<JsonObject> FileOffers(JsonObject answer)
+    {
+        foreach (var (_, value) in answer)
+        {
+            if (ToolFiles.IsOffer(value))
+            {
+                yield return (JsonObject)value!;
+            }
+            else if (value is JsonArray list)
+            {
+                foreach (var item in list.Where(ToolFiles.IsOffer))
+                {
+                    yield return (JsonObject)item!;
+                }
+            }
+        }
+    }
+
     /// <summary>The preview's card; the chat keeps its tools and input for Run and Try the failed devices again.</summary>
     private Proto.AssistantPreviewCard RememberPreview(AssistantConversation conversation, OadmTool tool, string handle, JsonObject answer, JsonElement arguments,
         ToolCaller caller)
@@ -709,7 +760,13 @@ public sealed partial class AssistantChats
             conversation.Previews[handle] = new AssistantPreview(tool.Name, runTool, Original(arguments, caller));
         }
 
-        return AssistantCards.Build(tool, _tools.TryGet(runTool, out var run) ? run : null, handle, answer, arguments);
+        var card = AssistantCards.Build(tool, _tools.TryGet(runTool, out var run) ? run : null, handle, answer, arguments);
+        foreach (var slot in _tools.Secrets?.SlotsOf(caller.BindingKey, handle) ?? [])
+        {
+            card.Secrets.Add(new Proto.AssistantSecretField { Name = slot.Name, Label = slot.Label });
+        }
+
+        return card;
     }
 
     /// <summary>
@@ -858,7 +915,8 @@ public sealed partial class AssistantChats
     /// Runs a preview of the chat: the user's click, with the run tool of the preview and its handle, as the user (the run checks
     /// everything again). Once per handle; NOT_FOUND for a handle the chat did not show, one that ran or ended.
     /// </summary>
-    public async Task<Proto.AssistantRunReply> RunAsync(AuthenticatedCaller caller, string conversationId, string handle, CancellationToken ct)
+    public async Task<Proto.AssistantRunReply> RunAsync(AuthenticatedCaller caller, string conversationId, string handle, CancellationToken ct,
+        IReadOnlyDictionary<string, string>? secrets = null)
     {
         ArgumentNullException.ThrowIfNull(caller);
         await OnAsync(ct).ConfigureAwait(false);
@@ -866,7 +924,17 @@ public sealed partial class AssistantChats
         AssistantPreview? preview;
         lock (conversation.Gate)
         {
-            if (string.IsNullOrEmpty(handle) || !conversation.Previews.Remove(handle, out preview))
+            if (string.IsNullOrEmpty(handle) || !conversation.Previews.TryGetValue(handle, out preview))
+            {
+                throw GrpcGuard.NotFound(AssistantTexts.PreviewEnded);
+            }
+        }
+
+        // The card's secret fields go straight into the secret channel (never into the conversation); the card stays while one is missing.
+        SetSecrets(ToolCallerOf(caller).BindingKey, handle, preview.RunTool, secrets ?? new Dictionary<string, string>());
+        lock (conversation.Gate)
+        {
+            if (!conversation.Previews.Remove(handle, out preview))
             {
                 throw GrpcGuard.NotFound(AssistantTexts.PreviewEnded);
             }
@@ -906,6 +974,52 @@ public sealed partial class AssistantChats
         }
 
         return reply;
+    }
+
+    private void SetSecrets(string bindingKey, string handle, string runTool, IReadOnlyDictionary<string, string> secrets)
+    {
+        if (secrets.Count > AssistantTexts.MaxRunSecrets)
+        {
+            throw GrpcGuard.InvalidArgument(ToolSecrets.NoSuchSlot);
+        }
+
+        var store = _tools.Secrets;
+        if (store is null)
+        {
+            if (secrets.Count > 0)
+            {
+                throw FieldError(secrets.Keys.First(), ToolSecrets.NoSuchSlot);
+            }
+
+            return;
+        }
+
+        foreach (var (name, value) in secrets)
+        {
+            if (string.IsNullOrEmpty(value))
+            {
+                continue; // an empty field is a missing one
+            }
+
+            if (store.Set(bindingKey, handle, name, value) is { } error)
+            {
+                throw FieldError(name, error);
+            }
+        }
+
+        if (store.Missing(bindingKey, handle, runTool) is { Count: > 0 } missing)
+        {
+            throw new RpcException(new Status(StatusCode.FailedPrecondition, ToolSecrets.Enter(missing[0])), new Metadata { { AssistantTexts.FieldTrailer, missing[0].Name } });
+        }
+    }
+
+    /// <summary>The file a tool answer of this chat offered, for <see cref="AssistantGrpcService.Download"/>; null when it ended or is another session's.</summary>
+    internal PlannedDownload? OfferedFile(AuthenticatedCaller caller, string conversationId, string fileRef, ToolHandles handles)
+    {
+        ArgumentNullException.ThrowIfNull(caller);
+        ArgumentNullException.ThrowIfNull(handles);
+        return _conversations.Find(caller.TokenHash, conversationId ?? string.Empty) is null ? null
+            : handles.FindOffer(ToolCallerOf(caller).BindingKey, fileRef);
     }
 
     /// <summary>

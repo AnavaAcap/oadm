@@ -199,12 +199,16 @@ must never break.
   page MCP & Assistant, card MCP); access keys only by administrators there, each an identity of its own with a name, a role, its
   devices (all or one group) and an end, audit user and task owner "MCP <name>", stored only as SHA-256, never a session;
   every change is preview then run; never all devices in a result (pages with the total and a sort-key cursor, logs with
-  `more` instead of a total, answers at most 32 KB); no secrets over MCP; rights and settings GUI only; the tools answer
+  `more` instead of a total, answers at most 32 KB); no tool returns a secret and no secret ever goes through the model: a
+  secret reaches OADM only through the secret channel (`ToolSecrets`: a preview's slot, filled by the person's own shell
+  over `PUT /secrets/` or the assistant card's field, encrypted in memory, once, 10 minutes); files leave only as one-time
+  links of a tool's file reference (`oadm_files_download_link`, never a backup); rights and settings GUI only; the tools answer
   from OADM's own data first (a device is asked only when OADM does not have the fact); a new page, column or plugin view
   gets its read tool in the same change (a core plugin declares `ICorePlugin.Tools`, `McpPluginCoverageTests`).
 - **[Assistant](docs/spec/assistant.md)**: a chat with an AI model in the client's side panel (title bar button); the loop
   runs on the server with the tool registry as the signed-in user; the model only reads and previews, a person presses Run;
-  nothing kept; pictures reach the provider only with an administrator's setting; off by default, set up on the page MCP & Assistant.
+  a secret a run needs is typed into the preview card and goes with Run, never to the model; a tool's file is a card with
+  Save; nothing kept; pictures reach the provider only with an administrator's setting; off by default, set up on the page MCP & Assistant.
 - **[Load test](docs/spec/load-test.md)** (core plugin `oadm.load-test`, off by default): a load test of the chosen
   cameras and the network to the server, at most 1,000 camera streams per check in batches of at most 200; the exposure
   is the only write and always goes back.

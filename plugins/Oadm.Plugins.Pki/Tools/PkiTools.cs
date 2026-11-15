@@ -48,12 +48,97 @@ internal static class PkiTools
         Permission = PermissionKeys.Manage,
     };
 
-    public static IReadOnlyList<PluginTool> All { get; } = [Certificates, Policies, CertificateCreate];
+    public static readonly PluginTool CertificateFile = new("certificate_file", "Certificate file",
+        "One certificate of oadm_pki_certificates as a file, PEM or DER. Only the certificate: never its private key.")
+    {
+        InputType = typeof(CertificateFileArgs),
+        OutputType = typeof(FileAnswer),
+        JsonOptions = Json,
+        Permission = PermissionKeys.Manage,
+        ReturnsFile = true,
+    };
+
+    public static readonly PluginTool CaFile = new("ca_file", "Certificate authority file",
+        "The certificate of the first-start root CA, or of a previous CA by its id, with its chain, as a file (PEM or DER). Never a key.")
+    {
+        InputType = typeof(CaFileArgs),
+        OutputType = typeof(FileAnswer),
+        JsonOptions = Json,
+        Permission = PermissionKeys.Manage,
+        ReturnsFile = true,
+    };
+
+    public static IReadOnlyList<PluginTool> All { get; } = [Certificates, Policies, CertificateCreate, CertificateFile, CaFile];
+
+    /// <summary>The formats a tool hands out: the certificate alone, never a format with a key (PKCS#12).</summary>
+    public static IReadOnlyList<string> FileFormats { get; } = [CertificateFormats.Pem, CertificateFormats.Der];
+
+    public const string ChooseFormat = "Use pem or der.";
+    public const string EnterCertificate = "Enter the id of a certificate from oadm_pki_certificates.";
+
+    /// <summary>True for the tools that hand out a certificate file (Admin, all devices, like the page's Export).</summary>
+    public static bool IsFileTool(string method) => method == CertificateFile.Method || method == CaFile.Method;
+
+    /// <summary>
+    /// The answer of a file tool: the page's download (<see cref="CertificateMethods.Download"/>, <see cref="PkiMethods.ExportPublic"/>,
+    /// <see cref="PkiMethods.ExportPrevious"/>) with a PEM or DER payload, checked again with the caller's rights when it is fetched.
+    /// </summary>
+    public static string FileOf(string method, string? payloadJson)
+    {
+        if (method == CertificateFile.Method)
+        {
+            var args = Read<CertificateFileArgs>(payloadJson);
+            var errors = new List<KeyValuePair<string, string>>();
+            var format = Format(args.Format, errors);
+            if (string.IsNullOrWhiteSpace(args.Id))
+            {
+                errors.Add(new("id", EnterCertificate));
+            }
+
+            if (errors.Count > 0)
+            {
+                return PluginToolErrors.Answer(errors);
+            }
+
+            var id = args.Id!.Trim();
+            var payload = PkiJson.Serialize(new DownloadCertificateRequest(id, format!));
+            return Serialize(new FileAnswer(format!, new PluginToolFile(CertificateMethods.Download, payload, FileNameOf("certificate", format!), MediaTypeOf(format!))));
+        }
+
+        var ca = Read<CaFileArgs>(payloadJson);
+        var caErrors = new List<KeyValuePair<string, string>>();
+        var caFormat = Format(ca.Format, caErrors);
+        if (caErrors.Count > 0)
+        {
+            return PluginToolErrors.Answer(caErrors);
+        }
+
+        var file = string.IsNullOrWhiteSpace(ca.PreviousId)
+            ? new PluginToolFile(PkiMethods.ExportPublic, PkiJson.Serialize(new ExportRequest(caFormat)), FileNameOf("ca", caFormat!), MediaTypeOf(caFormat!))
+            : new PluginToolFile(PkiMethods.ExportPrevious, PkiJson.Serialize(new ExportPreviousRequest(ca.PreviousId.Trim(), caFormat)), FileNameOf("previous-ca", caFormat!), MediaTypeOf(caFormat!));
+        return Serialize(new FileAnswer(caFormat!, file));
+    }
+
+    private static string? Format(string? given, List<KeyValuePair<string, string>> errors)
+    {
+        var format = given?.Trim().ToLowerInvariant() ?? CertificateFormats.Pem;
+        if (!FileFormats.Contains(format))
+        {
+            errors.Add(new("format", ChooseFormat));
+            return null;
+        }
+
+        return format;
+    }
+
+    private static string FileNameOf(string name, string format) => name + (format == CertificateFormats.Der ? ".cer" : ".crt");
+
+    private static string MediaTypeOf(string format) => format == CertificateFormats.Der ? "application/pkix-cert" : "application/x-pem-file";
 
     /// <summary>True for the tool methods that only read (the same rule as the page's reads).</summary>
     public static bool IsRead(string method) => method == Certificates.Method || method == Policies.Method;
 
-    public static bool IsToolMethod(string method) => IsRead(method) || CertificateCreate.Calls(method);
+    public static bool IsToolMethod(string method) => IsRead(method) || CertificateCreate.Calls(method) || IsFileTool(method);
 
     public static async Task<string?> InvokeAsync(PkiService service, ICallContext caller, string method, string? payloadJson, CancellationToken ct)
     {
@@ -70,6 +155,11 @@ internal static class PkiTools
         if (!caller.HasAllDevices)
         {
             throw new DeviceAccessRefusedException(); // the host refuses it first (RequiresAllDevices); fail closed
+        }
+
+        if (IsFileTool(method))
+        {
+            return FileOf(method, payloadJson);
         }
 
         var args = Read<CreateArgs>(payloadJson);
@@ -285,6 +375,18 @@ internal static class PkiTools
         [property: Description("The certificate authority that signs it.")] string IssuedBy,
         [property: Description("How many days it is valid; shorter when the authority ends sooner.")] int ValidDays,
         [property: Description("The key OADM makes; it stays in OADM.")] string Key);
+
+    internal sealed record CertificateFileArgs(
+        [property: Description("The certificate's id from oadm_pki_certificates."), MaxLength(200)] string? Id = null,
+        [property: Description("pem (default) or der."), MaxLength(3), AllowedValues("pem", "der")] string? Format = null);
+
+    internal sealed record CaFileArgs(
+        [property: Description("A previous CA's id; leave out for the first-start root CA."), MaxLength(100)] string? PreviousId = null,
+        [property: Description("pem (default, with the chain) or der."), MaxLength(3), AllowedValues("pem", "der")] string? Format = null);
+
+    internal sealed record FileAnswer(
+        [property: Description("pem or der.")] string Format,
+        [property: Description("The certificate file; fetch it with oadm_files_download_link.")] PluginToolFile? File);
 
     internal sealed record CreateRunAnswer(
         [property: Description("The id of the new certificate in oadm_pki_certificates.")] string Id,
