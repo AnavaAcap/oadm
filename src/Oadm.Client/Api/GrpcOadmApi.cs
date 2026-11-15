@@ -725,6 +725,27 @@ public sealed class GrpcOadmApi : IOadmApi, IDisposable
     public async Task<IReadOnlyList<AccessKey>> DeleteAccessKeyAsync(string id, CancellationToken ct) =>
         (await C.AccessKeys.DeleteAsync(new AccessKeyIdRequest { Id = id }, cancellationToken: ct)).Keys;
 
+    public IAsyncEnumerable<AssistantEvent> AssistantChatAsync(AssistantMessage message, CancellationToken ct) =>
+        ReadAll(C.Assistant.Chat(message, cancellationToken: ct), ct);
+
+    public async Task AssistantStopAsync(string conversationId, CancellationToken ct) =>
+        await C.Assistant.StopAsync(new AssistantConversationRequest { ConversationId = conversationId }, cancellationToken: ct);
+
+    public async Task<AssistantRunReply> AssistantRunAsync(string conversationId, string handle, CancellationToken ct) =>
+        await C.Assistant.RunAsync(new AssistantRunRequest { ConversationId = conversationId, Handle = handle }, cancellationToken: ct);
+
+    public async Task AssistantEndAsync(string conversationId, CancellationToken ct) =>
+        await C.Assistant.EndAsync(new AssistantConversationRequest { ConversationId = conversationId }, cancellationToken: ct);
+
+    public async Task<AssistantSettingsState> GetAssistantSettingsAsync(CancellationToken ct) =>
+        await C.Assistant.GetSettingsAsync(new Empty(), cancellationToken: ct);
+
+    public async Task<AssistantSettingsState> SetAssistantSettingsAsync(AssistantSettings settings, CancellationToken ct) =>
+        await C.Assistant.SetSettingsAsync(settings, cancellationToken: ct);
+
+    public async Task<AssistantTestReply> TestAssistantAsync(AssistantSettings settings, CancellationToken ct) =>
+        await C.Assistant.TestAsync(settings, cancellationToken: ct);
+
     public Task<Oadm.Sdk.Plugins.PluginDownload> CreateSupportReportAsync(CancellationToken ct) =>
         OpenDownloadAsync(C.Support.CreateReport(new Empty(), cancellationToken: CancellationToken.None), ct);
 
@@ -886,5 +907,6 @@ public sealed class GrpcOadmApi : IOadmApi, IDisposable
         public UpdateService.UpdateServiceClient Update { get; } = new(channel);
         public McpService.McpServiceClient Mcp { get; } = new(channel);
         public AccessKeyService.AccessKeyServiceClient AccessKeys { get; } = new(channel);
+        public AssistantService.AssistantServiceClient Assistant { get; } = new(channel);
     }
 }

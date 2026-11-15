@@ -429,6 +429,35 @@ public interface IOadmApi
     /// <summary>The refusal of a connection without the MCP server (an older server).</summary>
     const string NoAiAgents = "This server has no MCP server. Update the server.";
 
+    // AssistantService (docs/spec/assistant.md): the chat panel and the Settings card AI, section Assistant. Default: a
+    // server without it (UNIMPLEMENTED: the title bar hides the button, the section says so).
+
+    /// <summary>One user message; the answer streams until <c>AssistantEvent.done</c>.</summary>
+    IAsyncEnumerable<AssistantEvent> AssistantChatAsync(AssistantMessage message, CancellationToken ct) => throw NoAssistant();
+
+    /// <summary>Ends the answer that streams for the conversation.</summary>
+    Task AssistantStopAsync(string conversationId, CancellationToken ct) => throw NoAssistant();
+
+    /// <summary>Runs a preview the model asked for (the user's click on Run).</summary>
+    Task<AssistantRunReply> AssistantRunAsync(string conversationId, string handle, CancellationToken ct) => throw NoAssistant();
+
+    /// <summary>Forgets the conversation (panel closed, New chat, sign out).</summary>
+    Task AssistantEndAsync(string conversationId, CancellationToken ct) => throw NoAssistant();
+
+    /// <summary>The settings (every signed-in user, without the key).</summary>
+    Task<AssistantSettingsState> GetAssistantSettingsAsync(CancellationToken ct) => throw NoAssistant();
+
+    /// <summary>Saves the settings (administrators); INVALID_ARGUMENT with trailer <c>oadm-field</c>.</summary>
+    Task<AssistantSettingsState> SetAssistantSettingsAsync(AssistantSettings settings, CancellationToken ct) => throw NoAssistant();
+
+    /// <summary>One short call to the provider with these settings; never saves.</summary>
+    Task<AssistantTestReply> TestAssistantAsync(AssistantSettings settings, CancellationToken ct) => throw NoAssistant();
+
+    /// <summary>The refusal of a connection without the assistant (an older server).</summary>
+    const string NoAssistantText = "This server has no assistant. Update the server.";
+
+    private static Grpc.Core.RpcException NoAssistant() => new(new Grpc.Core.Status(Grpc.Core.StatusCode.Unimplemented, NoAssistantText));
+
     /// <summary>Checks and stores an OADM PRO license key (INVALID_ARGUMENT with the reason).</summary>
     Task<ProLicenseState> ImportLicenseAsync(string license, CancellationToken ct) => throw new NotSupportedException("This connection has no license.");
 
