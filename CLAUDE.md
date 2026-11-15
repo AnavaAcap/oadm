@@ -24,6 +24,7 @@ Every rule here and in `docs/spec/` is agreed with the maintainer; change one on
 | Live video | RTSP (server, own client) relayed as encoded H.265/H.264 over gRPC, decoded in the client with FFmpeg (LGPL, bundled) |
 | Text recognition | ONNX Runtime with PaddleOCR models, in an optional plugin; DirectML (Windows x64), CUDA (Linux x64) or the CPU |
 | Event rule targets | MQTTnet (MQTT), the OPC Foundation .NET stack (OPC UA), our own Modbus TCP client, in plugins |
+| AI agents | ModelContextProtocol.AspNetCore (MCP, the official C# SDK) |
 | Embedded browser | `Avalonia.Controls.WebView` (MIT; WebView2, WKWebView, WPE WebKit / WebKitGTK of the OS), in the client host for the Web View plugin, Help and the MyAxis sign-in |
 
 Cross-platform is a day-one requirement: Windows, Linux, macOS. No Windows-only APIs

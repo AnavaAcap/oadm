@@ -25,7 +25,8 @@ public IReadOnlyList<PluginTool> Tools { get; } =
 ```
 
 The host names it `oadm_<area>_<name>`: the area is the plugin id without `oadm.` (`ToolArea` changes it), the name is yours.
-Use lower case words with underscores, at most 64 characters in all. A tool that does not fit is left out and logged.
+Use lower case words with underscores, at most 40 characters for your name (`PluginTool.MaxNameLength`). A tool with a
+longer name is left out and logged.
 
 - `InputType` is the record of the arguments. The host writes its JSON Schema like it does for
   [task payloads](../tasks/#tasks-for-ai-agents): `[Description]` explains a property, `[MaxLength]` and `[Range]` bound it,

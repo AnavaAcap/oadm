@@ -504,10 +504,12 @@ what each version added is `website/src/content/docs/dev/compatibility.md`.
   into `plugin.json`, so an older host refuses it. A plugin that uses no newer member may set a lower `OadmMinSdkVersion`
   in its project to stay loadable on older hosts; below 0.4.0 it is refused for users with a device group. The bundled
   packages keep their own hand-written `plugin.json`: 0.4.0, or the version of the newest member a package uses at run time
-  (0.13.0: PKI with the EST and 802.1X servers, which offers `IServerCertificates`, Date and time (`ValidatePayload`) and
-  Users (`Secret`); 0.12.0: `PluginJson` or `ByteSize` in Action Rule Editor, Applications (ACAP), Application management, the
-  configuration tasks, Dashboards, Device triggers, DHCP server, Edge recording export, Edge storage, Hardening scan,
-  Image Health, I/O monitor, Live view, Load test, Metadata monitor, Network, NTP server, Snapshot report, System report, Text recognition, Upgrade AXIS OS, Users, VAPIX commander and Vision Center; PKI also
+  (0.13.0, the members for AI agents: Applications (ACAP), Upgrade AXIS OS, Network, DHCP server, NTP server, Hardening
+  scan (payload schemas or plugin tools), PKI with the EST and 802.1X servers (also `IServerCertificates`), Date and time
+  (`ValidatePayload`) and Users (`Secret`); 0.12.0: `PluginJson` or `ByteSize` in Action Rule Editor, Application
+  management, the configuration tasks, Dashboards, Device triggers, Edge recording export, Edge storage, Image Health, I/O
+  monitor, Live view, Load test, Metadata monitor, Snapshot report, System report, Text recognition, VAPIX commander and
+  Vision Center; PKI also
   `IRecipientCertificates` and `IRecipientCertificateUse`; Modbus, MQTT and OPC UA `RecipientType.Sessions`; 0.11.0:
   Notifications `ActionField.Recipient`; constants such as `AxisOsTexts.Name` are compiled in and need none; 0.4.0:
   Date and time, Outputs, Restart, Web View).

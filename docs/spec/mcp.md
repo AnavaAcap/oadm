@@ -30,7 +30,7 @@ host change.
    credentials are used by name; a task that needs a new password is not offered over MCP ("Set the password in OADM.").
 5. **Least rights.** The tool list shows only what the key's user may do now (role, device group, plugins on, Read only
    key). An agent can never raise rights: users, roles, device groups, access keys, license, plugins on/off, server
-   settings, backup restore and data resets are GUI only.
+   settings, backups (create, download, restore) and data resets are GUI only.
 6. **Device data is data.** Texts written by devices or other users (names, locations, tags, event texts, log lines) are
    returned only as JSON field values, never inside tool descriptions or messages to the agent, and the skill says they are
    never instructions.
@@ -68,10 +68,12 @@ preview/run handles and caller rules.
   closed.
 - **Certificate**: picked from the PKI Certificates list by the PKI server policy **AI agents**, like the EST and 802.1X
   servers (`docs/spec/pki.md` "Server certificates": a certificate with its key, server authentication, not ended, not on
-  the not-accepted list; the policy refuses a certificate that does not name the server's addresses or host name). Like the
-  EST server, the first Turn on gives the policy the shared server certificate automatically, also without OADM PRO; its
-  Certificate field changes it afterwards. The agent's computer trusts its CA once (**Download CA certificate** on the card; Claude Code: `NODE_EXTRA_CA_CERTS`, else
-  the OS store). Without PKI on, the card says "Turn on PKI to choose the certificate." and MCP cannot be turned on.
+  the not-accepted list; the policy refuses a certificate that does not name the server's addresses or host name). Its own
+  certificate, never the shared "802.1X and EST server" (decision 2026-11-15): the first Turn on, while the policy has none,
+  makes "MCP Server Certificate" (this computer's addresses and host name, the CA of the shared one, ECC P-256, server
+  authentication), also without OADM PRO; the policy's Certificate field changes it afterwards. PKI never makes or assigns
+  one for this policy at a start or a license change. The agent's computer trusts its CA once (**Download CA certificate** on the card; Claude Code: `NODE_EXTRA_CA_CERTS`, else
+  the OS store). Without PKI running, the card says "PKI is not running. The server log says why." and MCP cannot be turned on.
 - Origin check (403 for a browser origin that is not the server), `MCP-Protocol-Version` / `Mcp-Method` / `Mcp-Name`
   checked against the body (-32020), request body at most 1 MB (files go through upload links), answers at most 32 KB and
   not compressed.
@@ -81,7 +83,8 @@ preview/run handles and caller rules.
 ## Access keys
 
 - A user creates keys for themselves in the client (account menu **Access keys**; permission **Use AI agents**,
-  `mcp.use`, off for every built-in role except Administrator). Fields: Name (1..64, unique per user), Expires (30, 90 or
+  `mcp.use`, off for every built-in role except Administrator). No password is asked: the signed-in session is trusted
+  (decision 2026-11-15). Fields: Name (1..64, unique per user), Expires (30, 90 or
   365 days, default 90), **Read only**. OADM shows the key once ("Copy it now. OADM cannot show it again."); it stores
   only its SHA-256 (32 random bytes, base64url, prefix `oadm_`), like session tokens (`AuthTokens`, new kind `AccessKey`,
   migration `AccessKeys`). A name has letters, digits, spaces, `-`, `_` and `.` only (the form's field error and
@@ -93,7 +96,7 @@ preview/run handles and caller rules.
   a new one in OADM under Access keys."; not allowed: the tool is not listed, and a call answers `isError` with
   `AccessPolicy.DeniedMessage`.
 - Audit: every call that changes something, every upload and every failed key is logged as "<user> via access key
-  <name>"; a task's Owner is "<user>@MCP <key name>".
+  <name>"; a task's Owner is "<user>@AI agent <key name>", never "MCP".
 - Limits (HTTP 429 with Retry-After): each key and, with the same numbers, each user (all their keys together) makes at
   most 20 calls a second, has at most 4 calls waiting at once and makes at most 10 changes a minute ("Too many changes with
   this access key. Wait a minute."); the whole port takes at most 32 calls waiting at once. Every tool that is not a plain
@@ -148,7 +151,8 @@ page, every page with the total and a cursor.
 - `oadm_devices_get(device_id)`: one device with its details (the client's device details, no credentials).
 - `oadm_devices_snapshot(device_id)`: one JPEG of the camera as image content (Live view permission, at most 1280 px wide).
 - Refresh, Remove, Set credentials (by stored credential name), Add devices (Network range, Add manually, the waiting
-  list; logins with the credential list) as preview/run pairs.
+  list; logins with the credential list; only addresses inside a network of the server or of a connected site, at most
+  200 devices a run) as preview/run pairs.
 
 ### Tasks
 
@@ -168,8 +172,10 @@ page, every page with the total and a cursor.
 ### Other areas
 
 Each a few tools with the same rules (summary or search first, preview/run for changes): tags, sites (read), compliance
-(results, checks), event rules (list, get, create, change, delete, the event log), logs (server log search with `since`,
-`level`, `text`, at most 200 lines; audit log), files (`oadm_files_upload_link`, list, delete), settings (read only).
+(results, checks), event rules (the catalog of events and actions `oadm_rules_catalog`, list, get, create, change,
+delete, the event log), logs (server log search with `since`, `level`, `text`, at most 200 lines; audit log), files
+(`oadm_files_upload_link`, list, delete), settings (read only), PKI policies (read only, `oadm_pki_policies`, a tool of
+the PKI plugin).
 
 ### Plugins
 
@@ -182,15 +188,15 @@ run as a task). A task plugin without a payload schema is not offered over MCP (
 
 Live video, Live View tabs, Dashboards live values, Metadata Monitor and I/O Monitor streams, Web View; users, roles,
 device groups, access keys, license, plugins on/off, Forget server; Settings changes; backup restore, Delete all tasks,
-Delete all devices. Creating a backup stays possible (as a download link, like uploads).
+Delete all devices. Backups stay GUI only: no tool creates, downloads or restores one (decision 2026-11-15).
 
 ## Files
 
 `oadm_files_upload_link(name, size)` answers a one-time HTTPS URL on the MCP port (10 minutes, one file, the file limits
 of `FileService`, PUT with the same Bearer key) and the command for the agent's shell (`curl --cacert oadm-ca.pem -H
 "Authorization: Bearer $OADM_KEY" -T <file> <url>`). The file never passes the model. The upload answers the file id and
-SHA-256, used in a task preview like a file uploaded in the client (`IUploadedFiles`). Downloads (backups, reports,
-exports) work the same way with a one-time download link. A Read only key gets download links, never upload links.
+SHA-256, used in a task preview like a file uploaded in the client (`IUploadedFiles`). Downloads (reports, exports; never
+backups) work the same way with a one-time download link. A Read only key gets download links, never upload links.
 
 ## SDK
 
@@ -245,7 +251,7 @@ The website gets a user page (Tools > AI agents, `tools/ai-agents`) and a develo
 
 ## Stages
 
-1. Endpoint, Settings card, PKI policy MCP server, access keys, `oadm_server_info`, devices summary/search/get, tasks
+1. Endpoint, Settings card, PKI policy AI agents, access keys, `oadm_server_info`, devices summary/search/get, tasks
    list/get, logs (read only).
 2. SDK members, `ValidatePayload` in `TaskService.Run`, task catalog/preview/run, schemas for the bundled task plugins,
    upload and download links.
@@ -272,11 +278,13 @@ The website gets a user page (Tools > AI agents, `tools/ai-agents`) and a develo
   `McpServerOptions.ProtocolVersion` "2026-07-28" (an `initialize` is refused with -32022), the SDK's own handlers for
   `tools/list` and `tools/call`. The SDK checks `Mcp-Method` and `Mcp-Name` (-32020); OADM refuses a request without
   `MCP-Protocol-Version` (400, -32020), which the SDK would serve as an older revision. GET is 405, other paths 404.
-- **Who calls**: the key's user with the role and devices of now, client machine "MCP <key name>" (task owner
-  "<user>@MCP <key name>"). A tool is listed when the role has "Use AI agents" and `AccessPolicy` allows every gRPC method
+- **Who calls**: the key's user with the role and devices of now, client machine "AI agent <key name>" (task owner
+  "<user>@AI agent <key name>", `McpAccess.AgentMachinePrefix`). A tool is listed when the role has "Use AI agents" and `AccessPolicy` allows every gRPC method
   the tool calls (so the logs need "See the server log" and all devices, the audit log the Administrator role); otherwise a
   call answers `isError` with the refusal. Calls per key: 20 a second (429, Retry-After 1) and 4 waiting for their answer at
-  once (429 "Too many calls with this access key at once. Wait for an answer.", Retry-After 1); 10 changes a minute (stage 2). A refused key is audited once per address and key a minute, the count in the detail; an ended
+  once (429 "Too many calls at once. Wait for an answer.", Retry-After 1); 10 changes a minute (stage 2). A refused key is
+  audited once per address (IPv6 per /64) and key a minute, the count in the detail, and the whole port starts at most 30
+  such entries a minute (`McpAccess.MaxRefusalAuditsPerMinute`; later refusals of that minute are not audited); an ended
   key keeps its row until the hourly cleanup, so its refusal names "<user> via access key <name>" ("The key has ended. 2
   refused calls"); after 50 refused keys from an address (IPv6 per /64) in 5 minutes it waits until they end (429,
   Retry-After 300), like logins.
@@ -304,10 +312,10 @@ The website gets a user page (Tools > AI agents, `tools/ai-agents`) and a develo
 - **Card**: setting `Mcp` (on, port 1025 to 65535, Listen on), audited "Changed AI agents"; every user sees the state and
   downloads the CA certificate (`oadm-ca.pem`, the issuers of the server's certificate). Off, PKI is not asked and the
   certificate line says "Turn on gets it from the PKI policy AI agents."; the host loads the certificate only while it is
-  on (`IServerCertificates.LoadAsync`), and PKI's first load gives a policy without one the shared server certificate
-  "802.1X and EST server" (`PkiService.EnsureServerCertificatesAsync`, docs/spec/pki.md "Server certificates"). On, the port
-  opens when PKI runs and its policy picks a usable certificate; otherwise the status says why ("Turn on PKI to choose the
-  certificate.", the certificate's problem, "Interface ... is not available", "Port 5082 cannot be opened: ..."), tried
+  on (`IServerCertificates.LoadAsync`), and PKI's first load gives a policy without one its own "MCP Server Certificate"
+  (`PkiService.EnsureMcpServerCertificateAsync`, docs/spec/pki.md "Server certificates"). On, the port
+  opens when PKI runs and its policy picks a usable certificate; otherwise the status says why ("PKI is not running. The
+  server log says why.", the certificate's problem, "Interface ... is not available", "Port 5082 cannot be opened: ..."), tried
   again every 30 s, on a change of the policy or the Certificates list and when a plugin is turned on or off. Windows service: the rule
   "OADM Server (AI agents, TCP 5082)" while it listens.
 - **Keys**: at most 20 per user (the credential list's limit); a restore ends them like the sessions (backups hold no
@@ -324,7 +332,8 @@ The website gets a user page (Tools > AI agents, `tools/ai-agents`) and a develo
   audit log; `DeviceSearchTests` (`DeviceService.Search`);
   `McpSecretTests`: no password, token or key in any answer, audit entry or log line), `Tools/ToolRegistryTests` (two tools
   called in process with a caller object and no request; the tools name nothing of MCP or ASP.NET), `Perf/McpScaleTests`, PKI
-  `McpServerPolicyTests` (the shared certificate on the first Turn on, also without OADM PRO; the host's full name), client `AiAgentsTests` (headless, screenshots).
+  `McpServerPolicyTests` (its own certificate on the first Turn on, also without OADM PRO; nothing at a PRO start while it is
+  off; the user's choice stays; the host's full name), client `AiAgentsTests` (headless, screenshots).
 
 ## Stage 2 as built
 
@@ -371,8 +380,10 @@ The website gets a user page (Tools > AI agents, `tools/ai-agents`) and a develo
   application install warns that the package runs on the devices; `oadm_files_list` (the files this key's user sent, newest first, 50 a page;
   `FileService.List`) and `oadm_files_delete_preview`/`_run`.
 - **Download links**: `GET /files/<token>` on the MCP port serves a `PlannedDownload`: once, 10 minutes, bound to the key,
-  the same key check as uploads, audited "Downloaded file"; a Read only key may fetch one. No tool hands one out yet: a
-  backup needs a password the administrator chooses and holds every secret of the server (see "Open points").
+  the same key check as uploads, audited "Downloaded file"; a Read only key may fetch one. No tool hands one out yet;
+  never a backup (backups stay GUI only).
+- **Request body**: at most 1 MB for every request, `/files/` too, until its key passed and its upload link was taken;
+  only then `McpFiles.ReceiveAsync` raises the limit to the link's exact size.
 - **Read only**: a Read only key lists no tool that changes something (`oadm_task_run`, `oadm_files_upload_link`), a call of
   one answers "This access key is Read only.", and an upload with it is refused; previews stay (they write nothing).
 - **Tests**: `McpTaskToolTests` (the catalog and a secret task, a preview that writes nothing, the handle of another key,
@@ -453,7 +464,4 @@ The website gets a user page (Tools > AI agents, `tools/ai-agents`) and a develo
 - Not offered yet: recipients, changing compliance checks, turning a rule on or off by itself; the waiting list keeps no
   tags or site for a device an agent puts there.
 - The skills extension is declared without fields; when its schema settles, `McpSkill` may list the skill there too.
-- A backup over a download link: `BackupService.Create` needs a password the administrator chooses (rule 4: no tool takes
-  one) and the file holds the database, the server key and the plugins' files. A link to a backup already kept on the
-  server (`BackupService.Download` by name) would need no password; whether agents get it, and with which right, is the
-  maintainer's call. The download route and `ToolHandles.AddDownload` are ready for it.
+
