@@ -35,6 +35,76 @@ public static class AssistantTexts
     public const string GoToLatest = "Go to the latest";
     public const string DropFiles = "Drop files to attach";
     public const string NothingToRetry = Shared.NothingToRetry;
+    public const string ChooseDevices = "Choose devices";
+    public const string RemoveDevices = "Remove devices";
+    public const string Select = "Select";
+    public const string OpenLiveView = "Open live view";
+    public const string OpenWebInterface = "Open web interface";
+    public const string RetryFailed = "Try the failed devices again";
+    public const string FailedReason = "Failed";
+    public const string CopyChat = "Copy chat";
+    public const string CopyCsv = Oadm.Client.Controls.MarkdownText.CopyCsv;
+    public const string SaveCsv = Oadm.Client.Controls.MarkdownText.SaveCsv;
+    public const string StartHeading = "What can I do for your devices?";
+
+    /// <summary>The title bar button's tooltip with its key.</summary>
+    public const string TitleTip = "Assistant (Ctrl+J)";
+
+    // The empty panel's chips (live counts) and what a click asks.
+    public const string AskSummary = "Give me a summary of my devices.";
+    public const string AskOffline = "Which devices are offline?";
+    public const string AskVulnerable = "Which devices have vulnerabilities?";
+
+    public static string DevicesChip(int count) => count == 1 ? "1 device" : string.Create(CultureInfo.CurrentCulture, $"{count:N0} devices");
+
+    public static string OfflineChip(int count) => string.Create(CultureInfo.CurrentCulture, $"{count:N0} offline");
+
+    public static string VulnerableChip(int count) => string.Create(CultureInfo.CurrentCulture, $"{count:N0} with vulnerabilities");
+
+    // The empty panel's cards: the selection, the page, then the general ones.
+    public static string RestartSelected(int count) =>
+        count == 1 ? "Restart the selected device" : string.Create(CultureInfo.CurrentCulture, $"Restart the {count:N0} selected devices");
+
+    public const string PictureOfSelected = "Show a picture of the selected camera";
+    public const string FirmwareOfSelected = "Which AXIS OS do the selected devices run?";
+    public const string OldFirmware = "Which cameras run old AXIS OS?";
+    public const string PictureOfACamera = "Show me a picture of a camera";
+    public const string ExpiringCertificates = "Which device certificates expire soon?";
+    public const string HttpsOff = "Which devices do not use HTTPS?";
+    public const string RulesOn = "Which event rules are on?";
+    public const string RulesFailing = "Which event rules failed today?";
+    public const string ComplianceFailing = "Which devices fail compliance?";
+    public const string SitesOffline = "Which sites are offline?";
+    public const string LogProblems = "What went wrong on the server today?";
+    public const string RecentTasks = "Which tasks failed today?";
+
+    /// <summary>The devices chosen with @: "3 devices", or the device's name when one.</summary>
+    public static string ChosenDevices(int count, string? oneName) => count == 1 && !string.IsNullOrEmpty(oneName) ? oneName! : Devices(count);
+
+    /// <summary>The end of a run with failures: "11 done, 1 failed: Wrong password".</summary>
+    public static string RunResult(int done, int failed, int cancelled, IReadOnlyList<(string Reason, int Count)> reasons)
+    {
+        var parts = new List<string> { string.Create(CultureInfo.CurrentCulture, $"{done:N0} done") };
+        if (cancelled > 0)
+        {
+            parts.Add(string.Create(CultureInfo.CurrentCulture, $"{cancelled:N0} cancelled"));
+        }
+
+        var failedText = string.Create(CultureInfo.CurrentCulture, $"{failed:N0} failed");
+        if (reasons.Count > 0)
+        {
+            var shown = reasons.Take(3).Select(r => reasons.Count == 1 ? r.Reason : string.Create(CultureInfo.CurrentCulture, $"{r.Reason} ({r.Count:N0})")).ToList();
+            if (reasons.Count > 3)
+            {
+                shown.Add(More(reasons.Count - 3));
+            }
+
+            failedText += ": " + string.Join(", ", shown);
+        }
+
+        parts.Add(failedText);
+        return string.Join(", ", parts);
+    }
 
     /// <summary>The name of a picture pasted from the clipboard: "Pasted image 2.png".</summary>
     public static string PastedImage(int number) => string.Create(CultureInfo.InvariantCulture, $"Pasted image {number}.png");

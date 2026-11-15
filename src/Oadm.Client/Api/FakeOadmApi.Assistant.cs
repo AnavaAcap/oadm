@@ -181,9 +181,39 @@ public sealed partial class FakeOadmApi
         }
 
         var ids = await RunTaskAsync(RestartPluginId, devices, null, "admin", ct).ConfigureAwait(false);
+        lock (_gate)
+        {
+            _assistantRan.Add(handle);
+        }
+
         var reply = new AssistantRunReply { BatchId = Guid.NewGuid().ToString(), TaskCount = ids.Count };
         reply.TaskIds.AddRange(ids);
         return reply;
+    }
+
+    private readonly HashSet<string> _assistantRan = new(StringComparer.Ordinal);
+
+    /// <summary>The Try the failed devices again calls (tests).</summary>
+    public List<AssistantRetryRequest> AssistantRetries { get; } = [];
+
+    public Task<AssistantPreviewCard> AssistantRetryFailedAsync(string conversationId, string handle, IReadOnlyList<string> failedDeviceIds, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(failedDeviceIds);
+        lock (_gate)
+        {
+            ThrowIfOffline();
+            var request = new AssistantRetryRequest { ConversationId = conversationId, Handle = handle };
+            request.FailedDeviceIds.AddRange(failedDeviceIds);
+            AssistantRetries.Add(request);
+            if (!_assistantRan.Contains(handle))
+            {
+                throw new RpcException(new Status(StatusCode.NotFound, AssistantPreviewEnded));
+            }
+        }
+
+        var card = new AssistantPreviewCard { Handle = AddAssistantPreview(failedDeviceIds), Title = "Restart", DeviceCount = failedDeviceIds.Count };
+        card.FirstDevices.AddRange(failedDeviceIds.Take(20));
+        return Task.FromResult(card);
     }
 
     public Task AssistantEndAsync(string conversationId, CancellationToken ct)

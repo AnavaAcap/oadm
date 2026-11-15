@@ -734,6 +734,14 @@ public sealed class GrpcOadmApi : IOadmApi, IDisposable
     public async Task<AssistantRunReply> AssistantRunAsync(string conversationId, string handle, CancellationToken ct) =>
         await C.Assistant.RunAsync(new AssistantRunRequest { ConversationId = conversationId, Handle = handle }, cancellationToken: ct);
 
+    public async Task<AssistantPreviewCard> AssistantRetryFailedAsync(string conversationId, string handle, IReadOnlyList<string> failedDeviceIds, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(failedDeviceIds);
+        var request = new AssistantRetryRequest { ConversationId = conversationId, Handle = handle };
+        request.FailedDeviceIds.AddRange(failedDeviceIds);
+        return await C.Assistant.RetryFailedAsync(request, cancellationToken: ct);
+    }
+
     public async Task AssistantEndAsync(string conversationId, CancellationToken ct) =>
         await C.Assistant.EndAsync(new AssistantConversationRequest { ConversationId = conversationId }, cancellationToken: ct);
 

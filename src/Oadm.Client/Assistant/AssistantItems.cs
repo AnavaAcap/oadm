@@ -17,9 +17,18 @@ public abstract partial class AssistantItem : ObservableObject
 }
 
 /// <summary>The user's message, with the attached files (sent again by Try again, back in the box by Edit).</summary>
-public sealed partial class AssistantUserItem(string text, IReadOnlyList<AssistantAttachmentItem> files) : AssistantItem
+public sealed partial class AssistantUserItem(string text, IReadOnlyList<AssistantAttachmentItem> files, IReadOnlyList<string>? mentioned = null,
+    string? mentionText = null) : AssistantItem
 {
     public string Text { get; } = text;
+
+    /// <summary>The devices chosen with @ that went with the message.</summary>
+    public IReadOnlyList<string> Mentioned { get; } = mentioned ?? [];
+
+    /// <summary>"3 devices", or the device's address when one.</summary>
+    public string MentionText { get; } = mentionText ?? string.Empty;
+
+    public bool HasMention => Mentioned.Count > 0;
 
     public IReadOnlyList<AssistantAttachmentItem> Files { get; } = files;
 
@@ -272,6 +281,18 @@ public sealed partial class AssistantPreviewItem : AssistantItem, IDisposable
 
     [ObservableProperty] public partial bool IsDone { get; private set; }
 
+    /// <summary>The devices whose tasks failed, once every task ended: Try the failed devices again.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CanRetryFailed))]
+    public partial IReadOnlyList<string> FailedDeviceIds { get; private set; } = [];
+
+    /// <summary>Try the failed devices again was pressed (a new card follows): the button goes.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CanRetryFailed))]
+    public partial bool RetriedFailed { get; internal set; }
+
+    public bool CanRetryFailed => FailedDeviceIds.Count > 0 && !RetriedFailed;
+
     /// <summary>The task ids Run returned.</summary>
     public IReadOnlyList<string> TaskIds => _taskIds;
 
@@ -357,6 +378,15 @@ public sealed partial class AssistantPreviewItem : AssistantItem, IDisposable
         HasFailed = failed > 0;
         IsDone = active == 0 && failed == 0;
         StatusText = AssistantTexts.RunState(_taskIds.Count, done, failed, cancelled, active);
+        if (active == 0 && failed > 0)
+        {
+            // The end with failures: the reasons, the most frequent first, and the devices to try again.
+            var failedRows = _taskIds.Select(id => _tasks?.Find(id) ?? _gone.GetValueOrDefault(id)).Where(r => r is { State: TaskState.Failed }).Select(r => r!).ToList();
+            var reasons = failedRows.GroupBy(r => r.StatusMessage.Length > 0 ? r.StatusMessage : AssistantTexts.FailedReason, StringComparer.Ordinal)
+                .Select(g => (Reason: g.Key, Count: g.Count())).OrderByDescending(r => r.Count).ThenBy(r => r.Reason, StringComparer.CurrentCulture).ToList();
+            StatusText = AssistantTexts.RunResult(done, failed, cancelled, reasons);
+            FailedDeviceIds = [.. failedRows.Select(r => r.DeviceId).Where(id => id.Length > 0).Distinct(StringComparer.Ordinal)];
+        }
         if (active == 0)
         {
             Dispose();

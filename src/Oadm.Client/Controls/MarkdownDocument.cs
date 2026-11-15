@@ -169,6 +169,20 @@ public static class MarkdownDocument
         };
     }
 
+    /// <summary>A table as CSV: the header and every row, plain text per cell (RFC 4180, formula-safe cells).</summary>
+    public static string ToCsv(MarkdownTable table)
+    {
+        ArgumentNullException.ThrowIfNull(table);
+        var csv = new StringBuilder();
+        Oadm.Client.Infrastructure.Csv.AppendRecord(csv, table.Header.Select(PlainText));
+        foreach (var row in table.Rows)
+        {
+            Oadm.Client.Infrastructure.Csv.AppendRecord(csv, row.Select(PlainText));
+        }
+
+        return csv.ToString();
+    }
+
     /// <summary>The plain text of spans (tests, copy).</summary>
     public static string PlainText(IEnumerable<MarkdownSpan> spans) => string.Concat(spans.Select(s => s.Text));
 

@@ -13,7 +13,8 @@ namespace Oadm.Client.Assistant;
 
 /// <summary>
 /// The view of <see cref="AssistantPanelViewModel"/>. Only input, scrolling and drag plumbing live here: Enter in the message
-/// box sends (Shift+Enter a new line), Up arrow in the empty box edits the last message, Escape stops an answer; files
+/// box sends (Shift+Enter a new line), @ opens the device picker, Up arrow in the empty box edits the last message, Escape
+/// stops an answer; files
 /// pasted or dropped go to the view model; the list follows new content while the user is at its end.
 /// </summary>
 public partial class AssistantPanelView : UserControl
@@ -30,6 +31,7 @@ public partial class AssistantPanelView : UserControl
         InitializeComponent();
         MessageBox.AddHandler(KeyDownEvent, OnMessageKeyDown, RoutingStrategies.Tunnel);
         MessageBox.PastingFromClipboard += OnPasting;
+        MessageBox.AddHandler(TextInputEvent, OnMessageTextInput, RoutingStrategies.Tunnel);
         AddHandler(KeyDownEvent, OnPanelKeyDown, RoutingStrategies.Bubble);
         DragDrop.SetAllowDrop(this, true);
         AddHandler(DragDrop.DragEnterEvent, OnDragOver);
@@ -57,6 +59,16 @@ public partial class AssistantPanelView : UserControl
         else if (e.Key == Key.Up && e.KeyModifiers == KeyModifiers.None && vm.EditLast())
         {
             e.Handled = true;
+        }
+    }
+
+    /// <summary>@ opens the device picker; the character stays out of the text (Cancel leaves the text as it was).</summary>
+    private void OnMessageTextInput(object? sender, TextInputEventArgs e)
+    {
+        if (e.Text == "@" && _vm is { } vm && vm.ChooseDevicesCommand.CanExecute(null))
+        {
+            e.Handled = true;
+            vm.ChooseDevicesCommand.Execute(null);
         }
     }
 

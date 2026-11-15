@@ -1,4 +1,6 @@
 using Avalonia.Controls;
+using Avalonia.Input;
+using Avalonia.Interactivity;
 
 using Oadm.Theme.Shell;
 
@@ -19,12 +21,23 @@ public partial class MainWindow : Window
     {
         InitializeComponent();
         DataContextChanged += (_, _) => Attach(DataContext as MainWindowViewModel);
+        AddHandler(KeyDownEvent, OnShortcut, RoutingStrategies.Tunnel);
         Closed += (_, _) =>
         {
             Attach(null);
             ClosePluginWindows(null);
             _helpWindow?.Close();
         };
+    }
+
+    /// <summary>Ctrl+J opens the Assistant with the focus in its message box; with the focus in the panel it closes it.</summary>
+    private void OnShortcut(object? sender, KeyEventArgs e)
+    {
+        if (e.Key == Key.J && e.KeyModifiers == KeyModifiers.Control && _vm?.Assistant is { } assistant
+            && assistant.ToggleFromKeyboard(AssistantPanel.IsKeyboardFocusWithin))
+        {
+            e.Handled = true;
+        }
     }
 
     /// <summary>The plugin windows of this main window that are open (tests).</summary>

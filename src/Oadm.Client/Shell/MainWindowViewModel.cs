@@ -539,6 +539,10 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
         CurrentItem = item;
         CurrentPage = item.Page;
+        if (Assistant is not null)
+        {
+            Assistant.CurrentPageKey = item.Key; // the empty panel's suggestions follow the page
+        }
 
         // The add page and other clients change the credential list: read it again whenever the page opens.
         if (item.Page is CredentialsViewModel credentials)

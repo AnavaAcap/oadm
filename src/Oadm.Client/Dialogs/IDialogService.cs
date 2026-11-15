@@ -59,6 +59,9 @@ public interface IDialogService
     /// <summary>The event rule dialog; true when the rule was saved (<see cref="Oadm.Client.EventRules.RuleEditorViewModel.Saved"/>).</summary>
     Task<bool> ShowRuleEditorAsync(Oadm.Client.EventRules.RuleEditorViewModel editor);
 
+    /// <summary>The shared device picker (Choose devices) over the main window; true after OK, the choice in <paramref name="picker"/>.</summary>
+    Task<bool> ShowDevicePickerAsync(Oadm.Sdk.Client.Controls.DevicePickerViewModel picker) => Task.FromResult(false);
+
     /// <summary>The recipient dialog; true after Save.</summary>
     Task<bool> ShowRecipientEditorAsync(Oadm.Client.EventRules.RecipientEditorViewModel editor) => Task.FromResult(false);
 

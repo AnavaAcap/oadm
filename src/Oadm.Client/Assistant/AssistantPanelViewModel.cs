@@ -114,10 +114,12 @@ public sealed partial class AssistantPanelViewModel : ObservableObject
         Items.CollectionChanged += (_, _) =>
         {
             OnPropertyChanged(nameof(IsEmpty));
+            CopyChatCommand.NotifyCanExecuteChanged();
             OnPropertyChanged(nameof(ShowJumpToLatest));
             OnPreviewsChanged();
             UpdateLastActions();
         };
+        InitializeExtras();
     }
 
     /// <summary>The conversation, the user's messages and the answers (virtualized list).</summary>
@@ -462,13 +464,13 @@ public sealed partial class AssistantPanelViewModel : ObservableObject
     private bool CanSend => !IsStreaming && !IsUploading && !IsLoadingModels && SelectionError is null && Draft.Trim().Length > 0 && Model.Trim().Length > 0;
 
     [RelayCommand(CanExecute = nameof(CanSend))]
-    private Task SendAsync() => SendTextAsync(Draft, [.. Attachments], _editing);
+    private Task SendAsync() => SendTextAsync(Draft, [.. Attachments], _editing, Mentioned);
 
     private bool CanRetry(AssistantItem? item) => !IsStreaming && !IsUploading && !IsLoadingModels && SelectionError is null && Model.Trim().Length > 0;
 
     /// <summary>Try again: the last message again (its files too), in place of its answer.</summary>
     [RelayCommand(CanExecute = nameof(CanRetry))]
-    private Task RetryAsync(AssistantItem? item) => LastUser is { } user ? SendTextAsync(user.Text, user.Files, user) : Task.CompletedTask;
+    private Task RetryAsync(AssistantItem? item) => LastUser is { } user ? SendTextAsync(user.Text, user.Files, user, user.Mentioned) : Task.CompletedTask;
 
     private bool CanEdit(AssistantUserItem? user) => !IsStreaming;
 
@@ -487,6 +489,7 @@ public sealed partial class AssistantPanelViewModel : ObservableObject
             Attachments.Add(file);
         }
 
+        Mentioned = user.Mentioned;
         Draft = user.Text;
         _editing = user;
         Message = null;
@@ -508,13 +511,13 @@ public sealed partial class AssistantPanelViewModel : ObservableObject
     private bool CanSendSuggestion(string? text) => !IsStreaming && !IsUploading && !IsLoadingModels && SelectionError is null && Model.Trim().Length > 0;
 
     [RelayCommand(CanExecute = nameof(CanSendSuggestion))]
-    private Task SendSuggestionAsync(string? text) => string.IsNullOrWhiteSpace(text) ? Task.CompletedTask : SendTextAsync(text, [], null);
+    private Task SendSuggestionAsync(string? text) => string.IsNullOrWhiteSpace(text) ? Task.CompletedTask : SendTextAsync(text, [], null, Mentioned);
 
     /// <summary>
     /// Sends a message with its files. <paramref name="replace"/> (Try again, Edit): that message and everything after it
     /// leave the list in one step, and the server drops them too when it had them (<c>replace_last</c>).
     /// </summary>
-    private async Task SendTextAsync(string text, IReadOnlyList<AssistantAttachmentItem> files, AssistantUserItem? replace)
+    private async Task SendTextAsync(string text, IReadOnlyList<AssistantAttachmentItem> files, AssistantUserItem? replace, IReadOnlyList<string> mentioned)
     {
         var conversation = ConversationId;
         text = text.Trim();
@@ -541,6 +544,8 @@ public sealed partial class AssistantPanelViewModel : ObservableObject
         }
 
         message.Attachments.AddRange(files.Select(a => new AssistantAttachment { FileId = a.FileId, Name = a.Name, Size = a.Size }));
+        message.MentionedDeviceIds.AddRange(mentioned);
+        var mentionText = mentioned.Count == 0 ? null : ReferenceEquals(mentioned, Mentioned) ? MentionText : replace?.MentionText;
         if (replace is not null && Items.IndexOf(replace) is var at and >= 0)
         {
             message.ReplaceLast = replace.Reached;
@@ -548,7 +553,8 @@ public sealed partial class AssistantPanelViewModel : ObservableObject
         }
 
         _editing = null;
-        var user = new AssistantUserItem(text, [.. files]);
+        var user = new AssistantUserItem(text, [.. files], [.. mentioned], mentionText);
+        Mentioned = [];
         var attached = files.ToList();
         Items.Add(user);
         Attachments.Clear();
@@ -587,6 +593,7 @@ public sealed partial class AssistantPanelViewModel : ObservableObject
             if (ReferenceEquals(_chat, chat))
             {
                 Items.Remove(user);
+                Mentioned = user.Mentioned;
                 Draft = text;
                 foreach (var file in attached)
                 {
@@ -1045,6 +1052,7 @@ public sealed partial class AssistantPanelViewModel : ObservableObject
         IsThinking = false;
         _editing = null;
         _pastedImages = 0;
+        Mentioned = [];
         foreach (var item in Items.OfType<IDisposable>())
         {
             item.Dispose();
@@ -1100,5 +1108,6 @@ public sealed partial class AssistantPanelViewModel : ObservableObject
         SendCommand.NotifyCanExecuteChanged();
         SendSuggestionCommand.NotifyCanExecuteChanged();
         RetryCommand.NotifyCanExecuteChanged();
+        UpdateStart();
     }
 }

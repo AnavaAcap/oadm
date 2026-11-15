@@ -1,12 +1,41 @@
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Documents;
+using Avalonia.Input;
 using Avalonia.Layout;
 using Avalonia.Media;
 
 using Oadm.Sdk.Client.Controls;
 
 namespace Oadm.Client.Controls;
+
+/// <summary>A word of a Markdown text that is a link (the Assistant: a device): <see cref="Key"/> goes to the actions.</summary>
+public readonly record struct MarkdownLink(int Start, int Length, string Key);
+
+/// <summary>One entry of a link's menu.</summary>
+public sealed record MarkdownLinkAction(string Text, string IconKey, Action Run);
+
+/// <summary>
+/// What a <see cref="MarkdownText"/> offers besides the text (the Assistant's answers): links in the text (a click opens,
+/// the right button shows the menu) and Copy as CSV / Save as CSV below each table.
+/// </summary>
+public interface IMarkdownActions
+{
+    /// <summary>The links in one piece of text (positions in it).</summary>
+    IReadOnlyList<MarkdownLink> FindLinks(string text);
+
+    /// <summary>A click on a link.</summary>
+    void OpenLink(string key);
+
+    /// <summary>The link's menu (right button).</summary>
+    IReadOnlyList<MarkdownLinkAction> LinkMenu(string key);
+
+    /// <summary>Copy as CSV below a table.</summary>
+    void CopyTable(MarkdownTable table);
+
+    /// <summary>Save as CSV below a table.</summary>
+    void SaveTable(MarkdownTable table);
+}
 
 /// <summary>
 /// Markdown shown as text (the Assistant's answers): paragraphs, headings, lists, bold, italic, inline code, code blocks
@@ -20,9 +49,27 @@ public sealed class MarkdownText : StackPanel
     public static readonly StyledProperty<string?> MarkdownProperty =
         AvaloniaProperty.Register<MarkdownText, string?>(nameof(Markdown));
 
+    public static readonly StyledProperty<IMarkdownActions?> ActionsProperty =
+        AvaloniaProperty.Register<MarkdownText, IMarkdownActions?>(nameof(Actions));
+
+    /// <summary>The tooltips of the buttons below a table.</summary>
+    public const string CopyCsv = "Copy as CSV", SaveCsv = "Save as CSV";
+
     static MarkdownText()
     {
         MarkdownProperty.Changed.AddClassHandler<MarkdownText>((control, _) => control.Rebuild());
+        ActionsProperty.Changed.AddClassHandler<MarkdownText>((control, _) =>
+        {
+            control._keys = []; // every block again: with or without links and table buttons
+            control.Rebuild();
+        });
+    }
+
+    /// <summary>Links and table buttons (the Assistant); null: plain text.</summary>
+    public IMarkdownActions? Actions
+    {
+        get => GetValue(ActionsProperty);
+        set => SetValue(ActionsProperty, value);
     }
 
     public MarkdownText()
@@ -82,9 +129,21 @@ public sealed class MarkdownText : StackPanel
         }
 
         text.Inlines ??= [];
-        foreach (var span in spans)
+        List<(int Start, int End, string Key)>? links = null;
+        int position = 0;
+        foreach (var (span, piece, link) in Pieces(spans))
         {
-            var run = new Run(span.Text);
+            var run = new Run(piece);
+            if (link is { } key)
+            {
+                (links ??= []).Add((position, position + piece.Length, key));
+                if (this.TryFindResource("Oadm.TealBrush", out var teal) && teal is IBrush linkBrush)
+                {
+                    run.Foreground = linkBrush;
+                }
+            }
+
+            position += piece.Length;
             if (span.Bold)
             {
                 run.FontWeight = FontWeight.SemiBold;
@@ -112,7 +171,89 @@ public sealed class MarkdownText : StackPanel
             text.Inlines.Add(run);
         }
 
+        if (links is not null)
+        {
+            text.Cursor = new Cursor(StandardCursorType.Hand);
+            text.AddHandler(PointerReleasedEvent, (_, e) => OnLinkPointer(text, links, e), handledEventsToo: true);
+        }
+
         return text;
+    }
+
+    /// <summary>The spans cut at the links <see cref="Actions"/> finds in them: (span, text, link key or null).</summary>
+    private IEnumerable<(MarkdownSpan Span, string Text, string? Link)> Pieces(IReadOnlyList<MarkdownSpan> spans)
+    {
+        foreach (var span in spans)
+        {
+            var found = Actions?.FindLinks(span.Text) ?? [];
+            int at = 0;
+            foreach (var link in found.OrderBy(l => l.Start))
+            {
+                if (link.Start < at || link.Start + link.Length > span.Text.Length)
+                {
+                    continue;
+                }
+
+                if (link.Start > at)
+                {
+                    yield return (span, span.Text[at..link.Start], null);
+                }
+
+                yield return (span, span.Text.Substring(link.Start, link.Length), link.Key);
+                at = link.Start + link.Length;
+            }
+
+            if (at < span.Text.Length || span.Text.Length == 0)
+            {
+                yield return (span, span.Text[at..], null);
+            }
+        }
+    }
+
+    /// <summary>A click on a link opens it; the right button shows its menu. A selection being made is left alone.</summary>
+    private void OnLinkPointer(SelectableTextBlock text, List<(int Start, int End, string Key)> links, PointerReleasedEventArgs e)
+    {
+        if (Actions is not { } actions || text.SelectionEnd != text.SelectionStart || text.TextLayout is not { } layout)
+        {
+            return;
+        }
+
+        var point = e.GetPosition(text) - new Point(text.Padding.Left, text.Padding.Top);
+        var hit = layout.HitTestPoint(point);
+        if (!hit.IsInside)
+        {
+            return;
+        }
+
+        int index = hit.TextPosition;
+        var link = links.FirstOrDefault(l => index >= l.Start && index < l.End);
+        if (link.Key is null)
+        {
+            return;
+        }
+
+        e.Handled = true;
+        if (e.InitialPressMouseButton == MouseButton.Right)
+        {
+            var menu = new ContextMenu();
+            foreach (var action in actions.LinkMenu(link.Key))
+            {
+                var item = new MenuItem { Header = action.Text };
+                if (this.TryFindResource("Icon." + action.IconKey, out var icon) && icon is Geometry geometry)
+                {
+                    item.Icon = new OadmIcon { Data = geometry };
+                }
+
+                item.Click += (_, _) => action.Run();
+                menu.Items.Add(item);
+            }
+
+            menu.Open(text);
+        }
+        else if (e.InitialPressMouseButton == MouseButton.Left)
+        {
+            actions.OpenLink(link.Key);
+        }
     }
 
     private Grid List(MarkdownList list)
@@ -137,7 +278,7 @@ public sealed class MarkdownText : StackPanel
         return grid;
     }
 
-    private ScrollViewer Table(MarkdownTable table)
+    private Control Table(MarkdownTable table)
     {
         int columns = table.Header.Count;
         var grid = new Grid { HorizontalAlignment = HorizontalAlignment.Left, Classes = { "mdTable" } };
@@ -177,11 +318,34 @@ public sealed class MarkdownText : StackPanel
         }
 
         // Wide tables scroll sideways inside the answer instead of widening the panel.
-        return new ScrollViewer
+        var scroller = new ScrollViewer
         {
             Content = grid,
             HorizontalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Auto,
             VerticalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Disabled,
         };
+        if (Actions is not { } actions)
+        {
+            return scroller;
+        }
+
+        // Copy as CSV and Save as CSV below the table (the Assistant).
+        var buttons = new StackPanel { Classes = { "chatActions" } };
+        buttons.Children.Add(IconButton("copy", CopyCsv, () => actions.CopyTable(table)));
+        buttons.Children.Add(IconButton("download", SaveCsv, () => actions.SaveTable(table)));
+        return new StackPanel { Classes = { "chatItem" }, Children = { scroller, buttons } };
+    }
+
+    private Button IconButton(string iconKey, string tip, Action run)
+    {
+        var button = new Button { Classes = { "toolbar", "iconOnly" } };
+        if (this.TryFindResource("Icon." + iconKey, out var icon) && icon is Geometry geometry)
+        {
+            button.Content = new OadmIcon { Data = geometry };
+        }
+
+        ToolTip.SetTip(button, tip);
+        button.Click += (_, _) => run();
+        return button;
     }
 }

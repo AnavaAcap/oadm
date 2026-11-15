@@ -73,7 +73,7 @@
         <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center" Margin="0,0,0,0"
                     chrome:WindowDecorationProperties.ElementRole="User">
           <!-- Assistant (left of MyAxis and Help, which stay next to the user): opens and closes the chat panel right of every page; hidden while it is off or the role may not use it -->
-          <ui:ToolbarButton x:Name="TitleAssistant" Text="{x:Static assistant:AssistantTexts.Title}" IconKey="chat" IsIconOnly="True"
+          <ui:ToolbarButton x:Name="TitleAssistant" Text="{x:Static assistant:AssistantTexts.TitleTip}" IconKey="chat" IsIconOnly="True"
                             Classes.active="{Binding Assistant.IsOpen, FallbackValue=False}"
                             IsVisible="{Binding Assistant.IsAvailable, FallbackValue=False}"
                             Command="{Binding Assistant.ToggleCommand, FallbackValue={x:Null}}" />

@@ -221,12 +221,14 @@ public sealed class AssistantTests
         {
             var ended = task.Clone();
             ended.State = ended.DeviceId == devices[1].Id ? TaskState.Failed : TaskState.Done;
+            ended.Devices[0].Message = ended.State == TaskState.Failed ? "Check device" : string.Empty;
             f.Tasks.Apply(new TaskChanged { Kind = TaskChanged.Types.Kind.Added, Task = ended });
         }
 
         Assert.False(preview.IsActive);
         Assert.True(preview.HasFailed);
-        Assert.Equal("Done on 2 devices, failed on 1 device", preview.StatusText);
+        Assert.Equal("2 done, 1 failed: Check device", preview.StatusText); // the reasons of the failures
+        Assert.Equal([devices[1].Id], preview.FailedDeviceIds);
 
         await panel.RunPreviewCommand.ExecuteAsync(preview); // used: no second run
         Assert.Single(api.AssistantRuns);

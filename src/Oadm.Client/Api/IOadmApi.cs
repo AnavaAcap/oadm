@@ -441,6 +441,9 @@ public interface IOadmApi
     /// <summary>Runs a preview the model asked for (the user's click on Run).</summary>
     Task<AssistantRunReply> AssistantRunAsync(string conversationId, string handle, CancellationToken ct) => throw NoAssistant();
 
+    /// <summary>Try the failed devices again: a new preview card of the same change for them (a card that ran).</summary>
+    Task<AssistantPreviewCard> AssistantRetryFailedAsync(string conversationId, string handle, IReadOnlyList<string> failedDeviceIds, CancellationToken ct) => throw NoAssistant();
+
     /// <summary>Forgets the conversation (panel closed, New chat, sign out).</summary>
     Task AssistantEndAsync(string conversationId, CancellationToken ct) => throw NoAssistant();
 

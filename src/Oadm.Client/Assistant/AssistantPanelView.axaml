@@ -3,6 +3,7 @@
              xmlns:ui="using:Oadm.Sdk.Client.Controls"
              xmlns:c="using:Oadm.Client.Controls"
              xmlns:a="using:Oadm.Client.Assistant"
+             xmlns:tc="using:Oadm.Theme.Controls"
              x:Class="Oadm.Client.Assistant.AssistantPanelView"
              x:DataType="a:AssistantPanelViewModel">
   <!-- The Assistant panel (docs/spec/assistant.md "The panel"): title with New chat and Close, the conversation (a virtualized
@@ -11,11 +12,15 @@
        model and the send arrow / Stop), its problem and the selection count below it. Files dropped on the panel attach. -->
   <Panel>
   <DockPanel>
-    <Grid DockPanel.Dock="Top" ColumnDefinitions="*,Auto,Auto" ColumnSpacing="4" Margin="0,0,0,12">
+    <Grid DockPanel.Dock="Top" ColumnDefinitions="*,Auto,Auto,Auto" ColumnSpacing="4" Margin="0,0,0,12">
       <TextBlock Classes="cardTitle" Text="{x:Static a:AssistantTexts.Title}" VerticalAlignment="Center" />
-      <ui:ToolbarButton Grid.Column="1" x:Name="NewChat" Text="{x:Static a:AssistantTexts.NewChat}" IconKey="edit" Command="{Binding NewChatCommand}"
+      <Button Grid.Column="1" x:Name="CopyChat" Classes="toolbar iconOnly" VerticalAlignment="Center" Command="{Binding CopyChatCommand}"
+              ToolTip.Tip="{x:Static a:AssistantTexts.CopyChat}">
+        <ui:OadmIcon Data="{StaticResource Icon.copy}" />
+      </Button>
+      <ui:ToolbarButton Grid.Column="2" x:Name="NewChat" Text="{x:Static a:AssistantTexts.NewChat}" IconKey="edit" Command="{Binding NewChatCommand}"
                         VerticalAlignment="Center" />
-      <Button Grid.Column="2" x:Name="ClosePanel" Classes="toolbar iconOnly" VerticalAlignment="Center" Command="{Binding CloseCommand}"
+      <Button Grid.Column="3" x:Name="ClosePanel" Classes="toolbar iconOnly" VerticalAlignment="Center" Command="{Binding CloseCommand}"
               ToolTip.Tip="{x:Static a:AssistantTexts.Close}">
         <ui:OadmIcon Data="{StaticResource Icon.close}" />
       </Button>
@@ -26,6 +31,17 @@
     <StackPanel DockPanel.Dock="Bottom">
       <Border x:Name="Composer" Classes="composer" Classes.error="{Binding HasComposerError}">
         <StackPanel Spacing="8">
+          <!-- The devices chosen with @ or Choose devices: one chip, a click opens the picker with that choice. -->
+          <Border x:Name="MentionChip" Classes="chatChip" HorizontalAlignment="Left" IsVisible="{Binding HasMention}">
+            <StackPanel Orientation="Horizontal" Spacing="6">
+              <Button Classes="link" Command="{Binding ChooseDevicesCommand}" ToolTip.Tip="{x:Static a:AssistantTexts.ChooseDevices}">
+                <ui:IconLabel Icon="{StaticResource Icon.devices}" Text="{Binding MentionText}" />
+              </Button>
+              <Button Classes="toolbar iconOnly" Command="{Binding RemoveMentionCommand}" ToolTip.Tip="{x:Static a:AssistantTexts.RemoveDevices}">
+                <ui:OadmIcon Data="{StaticResource Icon.close}" />
+              </Button>
+            </StackPanel>
+          </Border>
           <ItemsControl x:Name="AttachmentList" ItemsSource="{Binding Attachments}" IsVisible="{Binding HasAttachments}">
             <ItemsControl.ItemsPanel>
               <ItemsPanelTemplate>
@@ -51,12 +67,16 @@
           <ui:ProgressRow Text="{x:Static a:AssistantTexts.Uploading}" IsVisible="{Binding IsUploading}" />
           <TextBox x:Name="MessageBox" Classes="composer" Text="{Binding Draft}" AcceptsReturn="True" TextWrapping="Wrap"
                    MaxLength="{x:Static a:AssistantTexts.MaxMessageLength}" PlaceholderText="{x:Static a:AssistantTexts.Placeholder}" />
-          <Grid ColumnDefinitions="Auto,Auto,*,Auto" ColumnSpacing="4">
+          <Grid ColumnDefinitions="Auto,Auto,Auto,*,Auto" ColumnSpacing="4">
             <Button x:Name="AttachFile" Classes="toolbar iconOnly" Command="{Binding AttachFileCommand}" VerticalAlignment="Center"
                     ToolTip.Tip="{Binding AttachButtonTip}" ToolTip.ShowOnDisabled="True">
               <ui:OadmIcon Data="{StaticResource Icon.paperclip}" />
             </Button>
-            <Panel Grid.Column="1" VerticalAlignment="Center">
+            <Button Grid.Column="1" x:Name="ChooseDevices" Classes="toolbar iconOnly" Command="{Binding ChooseDevicesCommand}" VerticalAlignment="Center"
+                    ToolTip.Tip="{x:Static a:AssistantTexts.ChooseDevices}">
+              <ui:OadmIcon Data="{StaticResource Icon.devices}" />
+            </Button>
+            <Panel Grid.Column="2" VerticalAlignment="Center">
               <ComboBox x:Name="ModelPicker" Classes="composerModel" MaxWidth="200" ItemsSource="{Binding Models}" SelectedItem="{Binding Model}" Text="{Binding Model}"
                         IsEditable="{Binding IsModelEditable}" IsVisible="{Binding !IsLoadingModels}" PlaceholderText="{x:Static a:AssistantTexts.ModelTip}"
                         ToolTip.Tip="{x:Static a:AssistantTexts.ModelTip}" />
@@ -65,7 +85,7 @@
                 <TextBlock Classes="secondary" Text="{x:Static a:AssistantTexts.LoadingModels}" VerticalAlignment="Center" />
               </StackPanel>
             </Panel>
-            <Panel Grid.Column="3" VerticalAlignment="Center">
+            <Panel Grid.Column="4" VerticalAlignment="Center">
               <Button x:Name="Send" Classes="send" Classes.quiet="{Binding SendIsQuiet}" Command="{Binding SendCommand}" IsVisible="{Binding !IsStreaming}"
                       ToolTip.Tip="{Binding SendButtonTip}" ToolTip.ShowOnDisabled="True">
                 <ui:OadmIcon Data="{StaticResource Icon.arrowUp}" />
@@ -85,22 +105,44 @@
     </StackPanel>
 
     <Panel>
-      <!-- Empty: the four start suggestions, a click sends one. -->
-      <StackPanel x:Name="Suggestions" Spacing="8" VerticalAlignment="Bottom" Margin="0,0,0,12" IsVisible="{Binding IsEmpty}">
-        <ItemsControl ItemsSource="{x:Static a:AssistantTexts.Suggestions}">
-          <ItemsControl.ItemsPanel>
-            <ItemsPanelTemplate>
-              <StackPanel Spacing="8" />
-            </ItemsPanelTemplate>
-          </ItemsControl.ItemsPanel>
-          <ItemsControl.ItemTemplate>
-            <DataTemplate x:DataType="x:String">
-              <Button Classes="secondary" HorizontalAlignment="Left" Content="{Binding}"
-                      Command="{Binding $parent[a:AssistantPanelView].((a:AssistantPanelViewModel)DataContext).SendSuggestionCommand}" CommandParameter="{Binding}" />
-            </DataTemplate>
-          </ItemsControl.ItemTemplate>
-        </ItemsControl>
-      </StackPanel>
+      <!-- Empty: the mark, the question, the live counts of the devices (a click asks about them) and at most four suggestions
+           for the moment (the selection, the page, the role); a click sends one. -->
+      <ScrollViewer IsVisible="{Binding IsEmpty}" HorizontalScrollBarVisibility="Disabled">
+        <StackPanel x:Name="Suggestions" Classes="chatStart">
+          <tc:OadmMark Width="48" Height="48" HorizontalAlignment="Center" />
+          <TextBlock Classes="sectionTitle" HorizontalAlignment="Center" TextAlignment="Center" TextWrapping="Wrap" Text="{x:Static a:AssistantTexts.StartHeading}" />
+          <ItemsControl x:Name="StartChips" ItemsSource="{Binding StartChips}" IsVisible="{Binding HasStartChips}" HorizontalAlignment="Center">
+            <ItemsControl.ItemsPanel>
+              <ItemsPanelTemplate>
+                <WrapPanel ItemSpacing="8" LineSpacing="8" />
+              </ItemsPanelTemplate>
+            </ItemsControl.ItemsPanel>
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="a:AssistantStartChip">
+                <Button Classes="startChip" Content="{Binding Text}"
+                        Command="{Binding $parent[a:AssistantPanelView].((a:AssistantPanelViewModel)DataContext).SendSuggestionCommand}" CommandParameter="{Binding Question}" />
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+          <ItemsControl x:Name="StartCards" ItemsSource="{Binding StartCards}">
+            <ItemsControl.ItemsPanel>
+              <ItemsPanelTemplate>
+                <UniformGrid Columns="2" ColumnSpacing="8" RowSpacing="8" />
+              </ItemsPanelTemplate>
+            </ItemsControl.ItemsPanel>
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="a:AssistantStartCard">
+                <Button Classes="startCard" Command="{Binding $parent[a:AssistantPanelView].((a:AssistantPanelViewModel)DataContext).SendSuggestionCommand}" CommandParameter="{Binding Text}">
+                  <StackPanel Spacing="8">
+                    <ui:OadmIcon Data="{Binding IconKey, Converter={x:Static c:IconKeyConverter.Instance}}" HorizontalAlignment="Left" />
+                    <TextBlock Text="{Binding Text}" TextWrapping="Wrap" />
+                  </StackPanel>
+                </Button>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+        </StackPanel>
+      </ScrollViewer>
 
       <ListBox x:Name="Conversation" Classes="readOnlyList chatList" ItemsSource="{Binding Items}" IsVisible="{Binding !IsEmpty}"
                ScrollViewer.HorizontalScrollBarVisibility="Disabled">
@@ -122,6 +164,7 @@
                   <StackPanel Spacing="4">
                     <SelectableTextBlock Text="{Binding Text}" TextWrapping="Wrap" />
                     <ui:IconLabel Icon="{StaticResource Icon.paperclip}" Text="{Binding FilesText}" IsVisible="{Binding HasFiles}" />
+                    <ui:IconLabel Icon="{StaticResource Icon.devices}" Text="{Binding MentionText}" IsVisible="{Binding HasMention}" />
                   </StackPanel>
                 </Border>
               </StackPanel>
@@ -135,7 +178,7 @@
           </DataTemplate>
           <DataTemplate x:DataType="a:AssistantAnswerItem">
             <StackPanel Classes="chatItem">
-              <c:MarkdownText Markdown="{Binding Text}" />
+              <c:MarkdownText Markdown="{Binding Text}" Actions="{Binding $parent[a:AssistantPanelView].((a:AssistantPanelViewModel)DataContext)}" />
               <StackPanel Classes="chatActions">
                 <Button Classes="toolbar iconOnly" ToolTip.Tip="{x:Static a:AssistantTexts.Copy}"
                         Command="{Binding $parent[a:AssistantPanelView].((a:AssistantPanelViewModel)DataContext).CopyCommand}" CommandParameter="{Binding}">
@@ -193,6 +236,16 @@
                 <Button Classes="link" Content="{x:Static a:AssistantTexts.SelectAllInGrid}"
                         Command="{Binding $parent[a:AssistantPanelView].((a:AssistantPanelViewModel)DataContext).SelectAllCommand}" CommandParameter="{Binding}" />
               </StackPanel>
+              <StackPanel Classes="chatActions" IsVisible="{Binding $parent[a:AssistantPanelView].((a:AssistantPanelViewModel)DataContext).CanExportTables}">
+                <Button x:Name="CopyTableCsv" Classes="toolbar iconOnly" ToolTip.Tip="{x:Static a:AssistantTexts.CopyCsv}"
+                        Command="{Binding $parent[a:AssistantPanelView].((a:AssistantPanelViewModel)DataContext).CopyTableCsvCommand}" CommandParameter="{Binding}">
+                  <ui:OadmIcon Data="{StaticResource Icon.copy}" />
+                </Button>
+                <Button x:Name="SaveTableCsv" Classes="toolbar iconOnly" ToolTip.Tip="{x:Static a:AssistantTexts.SaveCsv}"
+                        Command="{Binding $parent[a:AssistantPanelView].((a:AssistantPanelViewModel)DataContext).SaveTableCsvCommand}" CommandParameter="{Binding}">
+                  <ui:OadmIcon Data="{StaticResource Icon.download}" />
+                </Button>
+              </StackPanel>
             </StackPanel>
           </DataTemplate>
           <DataTemplate x:DataType="a:AssistantPreviewItem">
@@ -240,6 +293,8 @@
                   <ui:StatusChip HorizontalAlignment="Left" Text="{Binding StatusText}" IsAccent="{Binding IsActive}" IsOk="{Binding IsDone}"
                                  IsError="{Binding HasFailed}" MaxLines="2" />
                 </DockPanel>
+                <Button x:Name="RetryFailed" Classes="link" HorizontalAlignment="Left" Content="{x:Static a:AssistantTexts.RetryFailed}" IsVisible="{Binding CanRetryFailed}"
+                        Command="{Binding $parent[a:AssistantPanelView].((a:AssistantPanelViewModel)DataContext).RetryFailedCommand}" CommandParameter="{Binding}" />
               </StackPanel>
             </Border>
           </DataTemplate>
