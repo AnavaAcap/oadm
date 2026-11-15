@@ -275,6 +275,7 @@ internal sealed partial class AppReadService : IAsyncDisposable
                 Application = item.Application?.Trim(),
                 AppDisplayName = string.IsNullOrWhiteSpace(item.DisplayName) ? null : item.DisplayName.Trim(),
                 Values = request.Action == AcapAction.Settings ? request.Values : null,
+                PasswordsAllowed = request.Action == AcapAction.Settings, // a person typed them in the Change settings dialog
                 FileId = install is { Files.Count: > 0 } ? install.Files[0].FileId : null,
                 Sha256 = install is { Files.Count: > 0 } ? install.Files[0].Sha256 : null,
                 Files = install is { Files.Count: > 1 } ? install.Files : null,

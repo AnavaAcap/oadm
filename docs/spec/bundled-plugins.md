@@ -693,7 +693,9 @@ version and a valid license; the choices are read from one device.
   (16 files, 2 GB, counted while writing), entry names are never paths, then the checks and the upload of loose files run
   unchanged (`docs/spec/app-management.md` "A ZIP of packages"). Change settings: every name must be a setting of the installed application and every value fit its type and
   range before the one write, read back afterwards (passwords never read back); setting values never appear in a log,
-  step text, task name or the audit log.
+  step text, task name or the audit log. AI agents change settings through the task tools without passwords: a setting
+  the application declares as a password, or whose name points to a secret, is refused before any write; only the
+  Applications page may send one (`passwordsAllowed`).
 
 ## Outputs, Notifications, Modbus, MQTT and OPC UA (event rule actions)
 

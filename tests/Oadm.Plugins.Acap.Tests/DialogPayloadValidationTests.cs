@@ -195,7 +195,8 @@ public sealed class DialogPayloadValidationTests : IDisposable
             Action = AcapAction.Settings,
             Application = "hello",
             AppDisplayName = "Hello World",
-            Values = new Dictionary<string, string> { ["Mode"] = "fast", ["Empty"] = string.Empty },
+            Values = new Dictionary<string, string> { ["Mode"] = "fast", ["Empty"] = string.Empty, ["Password"] = "typed-in-oadm" },
+            PasswordsAllowed = true,
         }.ToJson());
     }
 }
