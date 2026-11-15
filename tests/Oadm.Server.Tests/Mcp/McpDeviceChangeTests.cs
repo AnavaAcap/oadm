@@ -129,10 +129,9 @@ public sealed class McpDeviceChangeTests
 
     // ---- audit: snapshots count, memberships name the key ------------------------------------------------------------------
 
-    [Fact]
-    public async Task ManySnapshotsOfOneDeviceByOneUserInAMinuteAreOneAuditEntryWithTheCountAndTheNextMinuteStartsANewOne()
+    private static async Task<(McpTestServer Server, FakeCamera Camera, Microsoft.Extensions.Time.Testing.FakeTimeProvider Time)> StartWithClockAsync()
     {
-        var time = new Microsoft.Extensions.Time.Testing.FakeTimeProvider();
+        var time = new Microsoft.Extensions.Time.Testing.FakeTimeProvider(DateTimeOffset.UtcNow);
         var camera = new FakeCamera();
         var server = await McpTestServer.StartAsync(configureServices: services =>
         {
@@ -141,35 +140,105 @@ public sealed class McpDeviceChangeTests
             services.RemoveAll<SnapshotAudit>();
             services.AddSingleton(sp => new SnapshotAudit(sp.GetRequiredService<AuditLog>(), time));
         });
+        return (server, camera, time);
+    }
+
+    private static async Task<List<Proto.AuditEntry>> SnapshotEntriesAsync(McpTestServer server) =>
+        [.. (await server.Host.Audit.ListAsync(new Proto.ListAuditRequest())).Entries.Where(e => e.Action == AuditActions.SnapshotTaken)];
+
+    [Fact]
+    public async Task ManySnapshotsOfAUserInAMinuteAreOneAuditEntryWithTheCountsAndTheNextMinuteStartsANewOne()
+    {
+        var (server, camera, time) = await StartWithClockAsync();
         await using var _ = server;
         var device = await DeviceServiceTests.AddDeviceAsync(server.Host, "10.30.0.7", 5007);
         var other = await DeviceServiceTests.AddDeviceAsync(server.Host, "10.30.0.8", 5008);
         var live = new Proto.LiveViewService.LiveViewServiceClient(server.Host.Invoker);
-        async Task<List<Proto.AuditEntry>> EntriesAsync() =>
-            [.. (await server.Host.Audit.ListAsync(new Proto.ListAuditRequest())).Entries.Where(e => e.Action == AuditActions.SnapshotTaken)];
 
-        for (var i = 0; i < 100; i++)
+        await live.GetSnapshotAsync(new Proto.SnapshotRequest { DeviceId = device.Id.ToString() });
+        Assert.Equal("1280x720", Assert.Single(await SnapshotEntriesAsync(server)).Detail); // one picture: its size
+
+        for (var i = 0; i < 19; i++)
         {
             await live.GetSnapshotAsync(new Proto.SnapshotRequest { DeviceId = device.Id.ToString() });
         }
 
-        var entry = Assert.Single(await EntriesAsync());
-        Assert.Equal("100 pictures", entry.Detail);
-        Assert.Equal(100, camera.Snapshots.Count); // every picture was taken; only the log is aggregated
+        // Another device of the same user joins the same entry (one entry per user and minute, never per device).
+        for (var i = 0; i < 5; i++)
+        {
+            await live.GetSnapshotAsync(new Proto.SnapshotRequest { DeviceId = other.Id.ToString() });
+        }
 
-        // Another device of the same user has its own entry; the next minute starts a new one for the first.
-        await live.GetSnapshotAsync(new Proto.SnapshotRequest { DeviceId = other.Id.ToString() });
+        var entry = Assert.Single(await SnapshotEntriesAsync(server));
+        Assert.Equal("25 pictures of 2 devices", entry.Detail);
+        Assert.Equal(25, camera.Snapshots.Count); // every picture was taken; only the log is aggregated
+
         time.Advance(SnapshotAudit.EntryLength);
         await live.GetSnapshotAsync(new Proto.SnapshotRequest { DeviceId = device.Id.ToString() });
         await live.GetSnapshotAsync(new Proto.SnapshotRequest { DeviceId = device.Id.ToString() });
+        var entries = await SnapshotEntriesAsync(server);
+        Assert.Equal(2, entries.Count);
+        Assert.Contains(entries, e => e.Detail == "2 pictures of 1 device");
+        Assert.Contains(entries, e => e.Detail == "25 pictures of 2 devices");
+    }
 
-        var entries = await EntriesAsync();
-        Assert.Equal(3, entries.Count);
-        var first = entries.Where(e => e.Target.Contains("10.30.0.7", StringComparison.Ordinal)).Select(e => e.Detail).ToList();
-        Assert.Equal(2, first.Count);
-        Assert.Contains("100 pictures", first);
-        Assert.Contains("2 pictures", first);
-        Assert.Single(entries, e => e.Target.Contains("10.30.0.8", StringComparison.Ordinal) && !e.Detail.Contains("pictures", StringComparison.Ordinal));
+    [Fact]
+    public async Task AViewerSessionOnTheGrpcPortIsHeldToThirtyPicturesAMinuteAndWritesOneAuditEntryNotOnePerDevice()
+    {
+        var (server, camera, time) = await StartWithClockAsync();
+        await using var _ = server;
+        var ids = new List<string>();
+        for (var i = 0; i < 50; i++)
+        {
+            ids.Add((await DeviceServiceTests.AddDeviceAsync(server.Host, "10.32.0." + (i + 1).ToString(System.Globalization.CultureInfo.InvariantCulture), 5200 + i)).Id.ToString());
+        }
+
+        // A client session (no access key) of a Viewer, who has Live view: the call the GUI client would make.
+        var viewer = new Proto.LiveViewService.LiveViewServiceClient(await server.Host.InvokerForRoleAsync("guard", BuiltInRoles.ViewerId));
+        var refused = new List<Grpc.Core.RpcException>();
+        foreach (var id in ids)
+        {
+            try
+            {
+                await viewer.GetSnapshotAsync(new Proto.SnapshotRequest { DeviceId = id });
+            }
+            catch (Grpc.Core.RpcException ex)
+            {
+                refused.Add(ex);
+            }
+        }
+
+        Assert.Equal(50 - SnapshotAudit.PicturesPerMinute, refused.Count);
+        Assert.All(refused, ex => Assert.Equal((Grpc.Core.StatusCode.ResourceExhausted, "Too many pictures. Wait a minute."), (ex.StatusCode, ex.Status.Detail)));
+        Assert.Equal(SnapshotAudit.PicturesPerMinute, camera.Snapshots.Count); // the camera is never asked beyond the limit
+        var entry = Assert.Single(await SnapshotEntriesAsync(server));
+        Assert.Equal("30 pictures of 30 devices", entry.Detail);
+
+        // The next minute: a new budget and a new entry.
+        time.Advance(SnapshotAudit.EntryLength);
+        await viewer.GetSnapshotAsync(new Proto.SnapshotRequest { DeviceId = ids[40] });
+        var entries = await SnapshotEntriesAsync(server);
+        Assert.Equal(2, entries.Count);
+        Assert.Contains(entries, e => e.Detail == "1280x720");
+    }
+
+    [Fact]
+    public async Task AnAgentAndAClientSessionOfOneUserShareTheLimitOfPictures()
+    {
+        var (server, _, _) = await StartWithClockAsync();
+        await using var _ = server;
+        var device = await DeviceServiceTests.AddDeviceAsync(server.Host, "10.33.0.1", 5301);
+        var key = await server.CreateKeyAsync();
+        var live = new Proto.LiveViewService.LiveViewServiceClient(server.Host.Invoker);
+
+        for (var i = 0; i < SnapshotAudit.PicturesPerMinute; i++)
+        {
+            await live.GetSnapshotAsync(new Proto.SnapshotRequest { DeviceId = device.Id.ToString() });
+        }
+
+        var refused = await server.PostAsync(key, McpTestServer.Request("tools/call", new JsonObject { ["name"] = "oadm_devices_snapshot", ["arguments"] = new JsonObject { ["device_id"] = device.Id.ToString() } }));
+        Assert.Equal(429, refused.Status); // the admin's key and the admin's session are one user
+        await Assert.ThrowsAsync<Grpc.Core.RpcException>(async () => await live.GetSnapshotAsync(new Proto.SnapshotRequest { DeviceId = device.Id.ToString() }));
     }
 
     [Fact]

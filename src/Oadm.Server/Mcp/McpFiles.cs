@@ -22,8 +22,58 @@ namespace Oadm.Server.Mcp;
 /// key &lt;name&gt;". A Read only key never sends a file, also with a link. The download links are the same path with GET
 /// (<see cref="SendAsync"/>): once, within 10 minutes, bound to the key; a Read only key may fetch them (it changes nothing).
 /// </summary>
-internal sealed class McpFiles(ToolHandles handles, InProcessCalls calls, AuditLog audit)
+internal sealed class McpFiles(ToolHandles handles, InProcessCalls calls, AuditLog audit, TimeProvider time)
 {
+    /// <summary>The rate a transfer is given its time for: a file of N bytes may take N / this many seconds (plus <see cref="TransferBase"/>).</summary>
+    public const double TransferBudgetBytesPerSecond = 100 * 1024;
+
+    /// <summary>Time added to every transfer's budget.</summary>
+    public static readonly TimeSpan TransferBase = TimeSpan.FromMinutes(2);
+
+    /// <summary>The budget of a transfer whose size is not known when it starts.</summary>
+    public static readonly TimeSpan TransferUnknownSize = TimeSpan.FromMinutes(15);
+
+    public const string TransferTooLong = "The transfer took too long and was ended.";
+
+    /// <summary>
+    /// How long a transfer of <paramref name="size"/> bytes may last in all: <see cref="TransferBase"/> plus the size at
+    /// <see cref="TransferBudgetBytesPerSecond"/> (<see cref="TransferUnknownSize"/> when the size is not known). Beside the minimum rate
+    /// (1 KB/s), so a slow client cannot keep one of the few transfer places for days.
+    /// </summary>
+    public static TimeSpan TransferBudget(long? size) =>
+        size is null ? TransferUnknownSize : TransferBase + TimeSpan.FromSeconds(size.Value / TransferBudgetBytesPerSecond);
+
+    /// <summary>The request's abort token with the transfer's budget on it, set as <c>RequestAborted</c> until disposed.</summary>
+    private sealed class Budget : IDisposable
+    {
+        private readonly HttpContext _http;
+        private readonly CancellationTokenSource _timer;
+        private readonly CancellationTokenSource _linked;
+
+        public Budget(HttpContext http, TimeSpan span, TimeProvider time)
+        {
+            _http = http;
+            Original = http.RequestAborted;
+            _timer = new CancellationTokenSource(span, time);
+            _linked = CancellationTokenSource.CreateLinkedTokenSource(Original, _timer.Token);
+            http.RequestAborted = _linked.Token;
+        }
+
+        public CancellationToken Original { get; }
+
+        /// <summary>The budget ran out (the client did not leave).</summary>
+        public bool Ended => _timer.IsCancellationRequested && !Original.IsCancellationRequested;
+
+        public void Restore() => _http.RequestAborted = Original;
+
+        public void Dispose()
+        {
+            Restore();
+            _linked.Dispose();
+            _timer.Dispose();
+        }
+    }
+
     /// <summary>The size of one data chunk, as the client sends them.</summary>
     public const int ChunkBytes = 256 * 1024;
 
@@ -58,11 +108,18 @@ internal sealed class McpFiles(ToolHandles handles, InProcessCalls calls, AuditL
             limit.MaxRequestBodySize = upload.Size;
         }
 
+        using var budget = new Budget(http, TransferBudget(upload.Size), time);
         Proto.UploadedFileInfo file;
         try
         {
             file = await calls.CallAsync<FileGrpcService, IAsyncStreamReader<Proto.UploadChunk>, Proto.UploadedFileInfo>(
                 caller.User, TaskRunTools.UploadPath, new BodyChunks(http.Request.Body, upload), (s, r, c) => s.Upload(r, c), http.RequestAborted).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (budget.Ended && (ex is OperationCanceledException || ex is RpcException { StatusCode: StatusCode.Cancelled }))
+        {
+            budget.Restore();
+            await RefuseAsync(http, StatusCodes.Status408RequestTimeout, TransferTooLong).ConfigureAwait(false);
+            return;
         }
         catch (RpcException ex) when (ex.StatusCode != StatusCode.Cancelled)
         {
@@ -117,6 +174,7 @@ internal sealed class McpFiles(ToolHandles handles, InProcessCalls calls, AuditL
         }
 
         long sent = 0;
+        using var budget = new Budget(http, TransferBudget(stream.CanSeek ? stream.Length : null), time);
         try
         {
             await using (stream.ConfigureAwait(false))
@@ -137,6 +195,10 @@ internal sealed class McpFiles(ToolHandles handles, InProcessCalls calls, AuditL
                     sent += read;
                 }
             }
+        }
+        catch (OperationCanceledException) when (budget.Ended)
+        {
+            http.Abort(); // the answer has begun: the only way to say it is incomplete is to cut the connection
         }
         finally
         {

@@ -13,7 +13,7 @@ namespace Oadm.Server.Mcp;
 /// new password or a deleted key end it at once), at most <see cref="CallsPerSecond"/> calls per second,
 /// <see cref="CallsAtOnce"/> calls waiting for their answer (every device tool reads the whole view) and
 /// <see cref="ChangesPerMinute"/> changes a minute per key and, with the same numbers, per user (a user's keys share one
-/// budget), <see cref="PicturesPerMinute"/> camera pictures a minute per user, at most <see cref="CallsInPort"/> calls waiting at once on the
+/// budget), at most <see cref="CallsInPort"/> calls waiting at once on the
 /// whole port, file transfers in a pool of their own (<see cref="TransfersAtOnce"/> per key and user, <see cref="TransfersInPort"/> on the port),
 /// a refused call counting against nothing, and every
 /// refused key in the audit log (one entry per address and key a minute, its count in the detail, so a client that retries
@@ -33,9 +33,6 @@ public sealed class McpAccess(AuthTokenStore tokens, RoleStore roles, DeviceView
     /// <summary>Changes per minute per key and, the same number, per user: every tool with <c>CountsAsChange</c> (runs, task starts, calls that act outside OADM).</summary>
     public const int ChangesPerMinute = 10;
 
-    /// <summary>Camera pictures per minute per user (all their keys together): every tool with <c>CountsAsPicture</c>. Each one is audited, so the limit keeps a low-rights key from filling the audit log.</summary>
-    public const int PicturesPerMinute = 30;
-
     /// <summary>File transfers (a PUT or a GET of <c>/files/</c>) at the same time per key and, the same number, per user; they never use the places of <c>/mcp</c> calls.</summary>
     public const int TransfersAtOnce = 2;
 
@@ -50,13 +47,6 @@ public sealed class McpAccess(AuthTokenStore tokens, RoleStore roles, DeviceView
     {
         ArgumentNullException.ThrowIfNull(caller);
         return TryBoth(_userChanges, UserKey(caller), _changes, caller.BindingKey);
-    }
-
-    /// <summary>Counts a camera picture of the user (all their keys); false beyond <see cref="PicturesPerMinute"/> (nothing counted).</summary>
-    public bool TryPicture(ToolCaller caller)
-    {
-        ArgumentNullException.ThrowIfNull(caller);
-        return _userPictures.TryAcquire(UserKey(caller));
     }
 
     /// <summary>Takes one count of each limiter, or none: a refused call charges no counter.</summary>
@@ -88,7 +78,6 @@ public sealed class McpAccess(AuthTokenStore tokens, RoleStore roles, DeviceView
     private readonly AddressRateLimiter _userCalls = new(CallsPerSecond, total: 0, TimeSpan.FromSeconds(1), time);
     private readonly AddressRateLimiter _changes = new(ChangesPerMinute, total: 0, TimeSpan.FromMinutes(1), time);
     private readonly AddressRateLimiter _userChanges = new(ChangesPerMinute, total: 0, TimeSpan.FromMinutes(1), time);
-    private readonly AddressRateLimiter _userPictures = new(PicturesPerMinute, total: 0, TimeSpan.FromMinutes(1), time);
     private readonly Lock _budgetGate = new();
     private readonly AddressRateLimiter _refused = new(MaxRefusedPerAddress, total: 0, RefusedWindow, time);
     private readonly SemaphoreSlim _refusalGate = new(1, 1);

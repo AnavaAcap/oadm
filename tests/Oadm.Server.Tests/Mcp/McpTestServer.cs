@@ -64,6 +64,8 @@ internal sealed class McpTestServer : IAsyncDisposable
                 services.RemoveAll<McpAccess>();
                 services.AddSingleton(sp => new McpAccess(sp.GetRequiredService<Oadm.Core.Auth.AuthTokenStore>(), sp.GetRequiredService<Oadm.Core.Auth.RoleStore>(),
                     sp.GetRequiredService<Oadm.Core.DeviceGroups.DeviceViewFactory>(), sp.GetRequiredService<Oadm.Core.Auth.AccessEpochs>(), sp.GetRequiredService<Oadm.Core.Auth.AuditLog>(), accessClock));
+                services.RemoveAll<Oadm.Server.LiveView.SnapshotAudit>();
+                services.AddSingleton(sp => new Oadm.Server.LiveView.SnapshotAudit(sp.GetRequiredService<Oadm.Core.Auth.AuditLog>(), accessClock));
             }
 
             configureServices?.Invoke(services);

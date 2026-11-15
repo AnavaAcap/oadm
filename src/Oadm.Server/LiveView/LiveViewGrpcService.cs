@@ -316,6 +316,13 @@ public sealed class LiveViewGrpcService(
             throw GrpcGuard.InvalidArgument("The picture size or compression is not valid.");
         }
 
+        // The limit holds for every caller of this method (a client session as much as an access key): the picture is audited, so one user
+        // may take only SnapshotAudit.PicturesPerMinute a minute (counted before the camera is asked).
+        if (!snapshots.TryTake(CallerContext.Current?.UserId ?? Guid.Empty))
+        {
+            throw new RpcException(new Status(StatusCode.ResourceExhausted, SnapshotAudit.TooManyPictures));
+        }
+
         var viewed = await RequireDeviceAsync(request.DeviceId, context).ConfigureAwait(false);
         var device = viewed[0];
         if (device.Status == DeviceStatus.SiteOffline)
@@ -341,7 +348,7 @@ public sealed class LiveViewGrpcService(
 
             var size = fitting.MaxBy(r => (long)r.Width * r.Height);
             var jpeg = await live.GetSnapshotAsync(viewed, source.Camera, size, request.Compression, context.CancellationToken).ConfigureAwait(false);
-            // The picture leaves OADM: every one is counted in the audit log (one entry per user, device and minute; the user is "<user> via access key <name>" for an agent)
+            // The picture leaves OADM: every one is counted in the audit log (one entry per user and minute, the devices in its detail; the user is "<user> via access key <name>" for an agent)
             // The client's own live view does not call this method; it streams, which is not audited.
             await snapshots.WriteAsync($"{device.Address} ({device.Serial})", $"{size.Width}x{size.Height}", context.CancellationToken).ConfigureAwait(false);
             return new Proto.SnapshotReply { Jpeg = ByteString.CopyFrom(jpeg), Width = size.Width, Height = size.Height };

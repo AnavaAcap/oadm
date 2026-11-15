@@ -5,6 +5,7 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Time.Testing;
 
 using Oadm.Core.Auth;
+using Oadm.Server.LiveView;
 using Oadm.Server.Mcp;
 using Oadm.Server.Tests.Support;
 using Oadm.Server.Tools;
@@ -50,6 +51,73 @@ public sealed class McpLimitsAndLinksTests
     }
 
     [Fact]
+    public async Task ACallTheRegistryRefusesCountsAgainstNoLimit()
+    {
+        var clock = new FakeTimeProvider(DateTimeOffset.UtcNow);
+        await using var server = await McpTestServer.StartAsync(accessClock: clock);
+        var readOnly = await server.CreateKeyAsync(readOnly: true, name: "reader");
+        var normal = await server.CreateKeyAsync(name: "worker");
+        JsonObject Run(string tool = "oadm_tags_assign_run") => McpTestServer.Request("tools/call", new JsonObject { ["name"] = tool, ["arguments"] = new JsonObject { ["handle"] = "none" } });
+
+        // A Read only key calls a run tool twice the budget: every call is refused (a tool error, never 429) and charges nothing.
+        for (var i = 0; i < 2 * McpAccess.ChangesPerMinute; i++)
+        {
+            clock.Advance(TimeSpan.FromMilliseconds(100));
+            var refused = await server.PostAsync(readOnly, Run());
+            Assert.Equal(200, refused.Status);
+            Assert.Contains("Read only", refused.Body!.ToJsonString(), StringComparison.Ordinal);
+        }
+
+        // An unknown tool counts nothing either.
+        for (var i = 0; i < 2 * McpAccess.ChangesPerMinute; i++)
+        {
+            clock.Advance(TimeSpan.FromMilliseconds(100));
+            await server.PostAsync(readOnly, Run("oadm_no_such_tool"));
+        }
+
+        // The same user's normal key still has its whole budget of changes.
+        for (var i = 0; i < McpAccess.ChangesPerMinute; i++)
+        {
+            clock.Advance(TimeSpan.FromMilliseconds(100));
+            Assert.Equal(200, (await server.PostAsync(normal, Run())).Status);
+        }
+
+        clock.Advance(TimeSpan.FromMilliseconds(100));
+        Assert.Equal(429, (await server.PostAsync(normal, Run())).Status);
+    }
+
+    [Fact]
+    public async Task ASnapshotACallerWithoutLiveViewIsRefusedForCountsAgainstNoPictureLimit()
+    {
+        var clock = new FakeTimeProvider(DateTimeOffset.UtcNow);
+        await using var server = await McpTestServer.StartAsync(accessClock: clock);
+        var roles = new Proto.RoleService.RoleServiceClient(server.Host.Invoker);
+        var saved = await roles.SaveRolesAsync(new Proto.SaveRolesRequest { Roles = { new Proto.RoleChange { Name = "Agents", Permissions = { HostPermissions.McpUse } } } });
+        var role = Guid.Parse(saved.Roles.Single(r => r.Name == "Agents").Id);
+        var key = await server.CreateKeyAsync(await server.Host.InvokerForRoleAsync("agent2", role));
+        JsonObject Snapshot() => McpTestServer.Request("tools/call", new JsonObject { ["name"] = "oadm_devices_snapshot", ["arguments"] = new JsonObject { ["device_id"] = Guid.NewGuid().ToString() } });
+
+        for (var i = 0; i < 2 * SnapshotAudit.PicturesPerMinute; i++)
+        {
+            clock.Advance(TimeSpan.FromMilliseconds(100));
+            var refused = await server.PostAsync(key, Snapshot());
+            Assert.Equal(200, refused.Status); // refused by the role, never 429
+            Assert.Contains("Your role does not allow", refused.Body!.ToJsonString(), StringComparison.Ordinal);
+        }
+
+        // Give the role Live view: the user's whole budget of pictures is still there.
+        await roles.SaveRolesAsync(new Proto.SaveRolesRequest { Roles = { new Proto.RoleChange { Id = role.ToString(), Name = "Agents", Permissions = { HostPermissions.McpUse, HostPermissions.DevicesLiveView } } } });
+        for (var i = 0; i < SnapshotAudit.PicturesPerMinute; i++)
+        {
+            clock.Advance(TimeSpan.FromMilliseconds(100));
+            Assert.Equal(200, (await server.PostAsync(key, Snapshot())).Status);
+        }
+
+        clock.Advance(TimeSpan.FromMilliseconds(100));
+        Assert.Equal(429, (await server.PostAsync(key, Snapshot())).Status);
+    }
+
+    [Fact]
     public async Task SnapshotsHaveALimitOfTheirOwnPerUserAndTheThirtyFirstInAMinuteIs429()
     {
         var clock = new FakeTimeProvider(DateTimeOffset.UtcNow);
@@ -60,7 +128,7 @@ public sealed class McpLimitsAndLinksTests
         JsonObject Snapshot() => McpTestServer.Request("tools/call", new JsonObject { ["name"] = "oadm_devices_snapshot", ["arguments"] = new JsonObject { ["device_id"] = Guid.NewGuid().ToString() } });
 
         // The device does not exist: the call is still counted (it is audited when it works, and the limit must not depend on that).
-        for (var i = 0; i < McpAccess.PicturesPerMinute; i++)
+        for (var i = 0; i < SnapshotAudit.PicturesPerMinute; i++)
         {
             clock.Advance(TimeSpan.FromSeconds(1)); // under the calls a second, inside the minute
             Assert.Equal(200, (await server.PostAsync(i % 2 == 0 ? key : sameUser, Snapshot())).Status); // both keys of the user share the limit
@@ -70,7 +138,7 @@ public sealed class McpLimitsAndLinksTests
         var refused = await server.PostAsync(key, Snapshot());
         Assert.Equal(429, refused.Status);
         Assert.Equal("60", refused.RetryAfter);
-        Assert.Equal("Too many pictures with this access key. Wait a minute.", refused.ErrorMessage);
+        Assert.Equal("Too many pictures. Wait a minute.", refused.ErrorMessage);
         Assert.Equal(429, (await server.PostAsync(sameUser, Snapshot())).Status);
 
         // Plain reads, another user and a later minute are not affected; a picture is no change either.
@@ -246,6 +314,79 @@ public sealed class McpLimitsAndLinksTests
 
             public void Log<TState>(Microsoft.Extensions.Logging.LogLevel logLevel, Microsoft.Extensions.Logging.EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter) =>
                 lines.Enqueue(category + " " + formatter(state, exception) + " " + state);
+        }
+    }
+
+    [Fact]
+    public async Task AFileTransferThatKeepsUpTheMinimumRateStillEndsAfterItsBudgetAndFreesItsPlace()
+    {
+        var clock = new FakeTimeProvider(DateTimeOffset.UtcNow);
+        await using var server = await McpTestServer.StartAsync(configureServices: services =>
+        {
+            services.RemoveAll<McpFiles>();
+            services.AddSingleton(sp => new McpFiles(sp.GetRequiredService<ToolHandles>(), sp.GetRequiredService<Oadm.Server.Auth.InProcessCalls>(), sp.GetRequiredService<AuditLog>(), clock));
+        });
+        var key = await server.CreateKeyAsync();
+        var access = server.Host.Get<McpAccess>();
+        var caller = (await access.AuthenticateAsync(key, "local", CancellationToken.None))!;
+        var link = await Link(server, key, "slow.bin", 3);
+        using var client = server.Http();
+        using var stalled = new StalledContent(3);
+        using var put = new HttpRequestMessage(HttpMethod.Put, new Uri(link["url"]!.GetValue<string>()).PathAndQuery) { Content = stalled };
+        put.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", key);
+
+        // The body sends a byte and then waits: a trickle. Its budget is 2 minutes plus the size at 100 KB/s; the fake clock runs it out.
+        Assert.Equal(TimeSpan.FromMinutes(2).Add(TimeSpan.FromSeconds(3 / McpFiles.TransferBudgetBytesPerSecond)), McpFiles.TransferBudget(3));
+        var sending = client.SendAsync(put);
+        try
+        {
+            for (var i = 0; i < 100 && !sending.IsCompleted; i++)
+            {
+                clock.Advance(TimeSpan.FromMinutes(3)); // the budget's timer starts when the transfer does; later advances reach it as well
+                await Task.WhenAny(sending, Task.Delay(50));
+            }
+
+            Assert.True(sending.IsCompleted, "the transfer did not end after its budget");
+            using var response = await sending;
+            Assert.Equal(System.Net.HttpStatusCode.RequestTimeout, response.StatusCode);
+            Assert.Contains(McpFiles.TransferTooLong, await response.Content.ReadAsStringAsync(), StringComparison.Ordinal);
+        }
+        finally
+        {
+            stalled.Release();
+        }
+
+        // Its place is free again: the user can hold all of its places.
+        var held = Enumerable.Range(0, McpAccess.TransfersAtOnce).Select(_ => access.TryStartTransfer(caller)).ToList();
+        Assert.All(held, h => Assert.NotNull(h));
+        foreach (var place in held)
+        {
+            place!.Dispose();
+        }
+
+        Assert.Equal(TimeSpan.FromMinutes(15), McpFiles.TransferBudget(null)); // a download of unknown size
+    }
+
+    /// <summary>A request body that sends one byte and then waits until released.</summary>
+    private sealed class StalledContent : HttpContent
+    {
+        private readonly TaskCompletionSource _release = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public StalledContent(long length) => Headers.ContentLength = length;
+
+        public void Release() => _release.TrySetResult();
+
+        protected override async Task SerializeToStreamAsync(Stream stream, System.Net.TransportContext? context)
+        {
+            await stream.WriteAsync(new byte[] { 1 }).ConfigureAwait(false);
+            await stream.FlushAsync().ConfigureAwait(false);
+            await _release.Task.ConfigureAwait(false);
+        }
+
+        protected override bool TryComputeLength(out long length)
+        {
+            length = Headers.ContentLength ?? 0;
+            return true;
         }
     }
 

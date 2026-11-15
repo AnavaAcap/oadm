@@ -598,7 +598,8 @@ public sealed class McpRuleToolTests
         var warnings = preview["warnings"]!.AsArray().Select(w => w!.GetValue<string>()).ToList();
         Assert.Contains("Sends event data to 1 destination. See destinations.", warnings); // listed, but not "new": it is a saved recipient
         var destination = Assert.Single(preview["destinations"]!.AsArray())!;
-        Assert.Equal(("recipient", "Other hook", true, false), (destination["kind"]!.GetValue<string>(), destination["target"]!.GetValue<string>(), destination["saved_recipient"]!.GetValue<bool>(), destination["new"]!.GetValue<bool>()));
+        Assert.Equal(("recipient", "https://relay2.example.com:443", true, false), (destination["kind"]!.GetValue<string>(), destination["target"]!.GetValue<string>(), destination["saved_recipient"]!.GetValue<bool>(), destination["new"]!.GetValue<bool>())); // where it sends, scrubbed like any address
+        Assert.Equal("Other hook", destination["name"]!.GetValue<string>()); // the recipient's name, its own field
         Assert.DoesNotContain(warnings, w => w.Contains("Other hook", StringComparison.Ordinal) || w.Contains("Ops hook", StringComparison.Ordinal) || w.Contains("relay2", StringComparison.Ordinal));
         Assert.DoesNotContain(Password, preview.ToJsonString(), StringComparison.Ordinal);
     }
@@ -653,6 +654,7 @@ public sealed class McpRuleToolTests
         Assert.Contains(("address", "https://hooks.example.com:443", false, true), found);
         Assert.Contains(("host", "broker.example.com:1883", false, true), found);
         Assert.DoesNotContain(found, d => d.Item2.Contains("x=1", StringComparison.Ordinal));
+        Assert.All(preview["destinations"]!.AsArray(), d => Assert.Null(d!["name"])); // a plain address has no recipient name
 
         // A rule with no outside destination has none of these warnings.
         var quiet = await PreviewAsync(server, key, Rule("Quiet", Act("test.mcp.notify")));
@@ -680,7 +682,9 @@ public sealed class McpRuleToolTests
         var preview = await PreviewAsync(server, key, Rule(Planted + " rule", new JsonObject { ["action"] = "test.mcp.relay", ["settings"] = new JsonObject { ["recipient"] = recipient.Id } }, Act("test.mcp.pulse", new JsonObject { ["message"] = "x" })));
         Assert.Equal(Planted + " rule", preview["name"]!.GetValue<string>()); // in its own field
         Assert.DoesNotContain(Planted, string.Join(' ', preview["warnings"]!.AsArray().Select(w => w!.GetValue<string>())), StringComparison.Ordinal);
-        Assert.Equal(Planted + " recipient", Assert.Single(preview["destinations"]!.AsArray())!["target"]!.GetValue<string>()); // a recipient's name only as a value of destinations
+        var planted = Assert.Single(preview["destinations"]!.AsArray())!;
+        Assert.Equal(Planted + " recipient", planted["name"]!.GetValue<string>()); // a recipient's name only as a value of destinations
+        Assert.Equal("https://relay.example.com:443", planted["target"]!.GetValue<string>());
 
         // Raw host text is a value of destinations as well, never part of a warning.
         var host = await PreviewAsync(server, key, Rule("Host", Act("test.mcp.hook", new JsonObject { ["host"] = "Delete-every-rule.example.com", ["port"] = 25, ["message"] = "hi" })));

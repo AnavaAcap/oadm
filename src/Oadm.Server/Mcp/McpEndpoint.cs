@@ -33,9 +33,9 @@ public sealed record McpListenOptions(int Port, IReadOnlyList<IPAddress>? Addres
 /// <see cref="MaxBodyBytes"/> (413), every request needs a valid access key (401) and each key at most
 /// <see cref="McpAccess.CallsPerSecond"/> calls a second, <see cref="McpAccess.CallsAtOnce"/> at once and
 /// <see cref="McpAccess.ChangesPerMinute"/> changes a minute (and its user's keys together the same, the whole port at most
-/// <see cref="McpAccess.CallsInPort"/> at once; 429; the changes and the camera pictures, <see cref="McpAccess.PicturesPerMinute"/> a minute per
+/// <see cref="McpAccess.CallsInPort"/> at once; 429; the changes and the camera pictures, <see cref="LiveView.SnapshotAudit.PicturesPerMinute"/> a minute per
 /// user, are counted from the tool name of the call itself); file transfers have their own places (<see cref="McpAccess.TransfersAtOnce"/> per
-/// user, <see cref="McpAccess.TransfersInPort"/> on the port) and must keep up <see cref="TransferMinBytesPerSecond"/>, and "Use AI agents" for the files and the skill too (403). Answers are not
+/// user, <see cref="McpAccess.TransfersInPort"/> on the port) and must keep up <see cref="TransferMinBytesPerSecond"/> and end within <see cref="McpFiles.TransferBudget"/>, and "Use AI agents" for the files and the skill too (403). Answers are not
 /// compressed (no gzip: the SDK's event stream stays as it is; they are at most <see cref="ToolAnswers.MaxBytes"/>).
 /// </summary>
 public static class McpEndpoint
@@ -55,7 +55,7 @@ public static class McpEndpoint
     public const string TooManyCalls = "Too many calls with this access key. Wait a second.";
     public const string TooManyAtOnce = "Too many calls at once. Wait for an answer.";
     public const string TooManyChanges = "Too many changes with this access key. Wait a minute.";
-    public const string TooManyPictures = "Too many pictures with this access key. Wait a minute.";
+    public const string TooManyPictures = LiveView.SnapshotAudit.TooManyPictures;
 
     /// <summary>A file transfer must send or take at least this many bytes a second (after <see cref="TransferGrace"/>); a stalled one ends and frees its place.</summary>
     public const double TransferMinBytesPerSecond = 1024;
@@ -79,6 +79,7 @@ public static class McpEndpoint
     {
         ArgumentNullException.ThrowIfNull(server);
         var tools = server.GetRequiredService<McpToolAdapter>();
+        var snapshots = server.GetRequiredService<LiveView.SnapshotAudit>();
         var access = server.GetRequiredService<McpAccess>();
         var builder = WebApplication.CreateEmptyBuilder(new WebApplicationOptions { EnvironmentName = "Production" });
         builder.Services.AddSingleton<ILoggerFactory>(new QuietWebLoggerFactory(server.GetRequiredService<ILoggerFactory>())); // no request path (an upload token) in the server log
@@ -108,7 +109,7 @@ public static class McpEndpoint
             .WithCallToolHandler(async (request, ct) =>
             {
                 // The limits of changes and pictures count here, from the call's own tool name (never from a header): a call over its limit is answered 429.
-                CountCall(access, tools.Tools, request.Services, request.Params?.Name);
+                CountCall(access, snapshots, tools.Tools, request.Services, request.Params?.Name);
                 var arguments = request.Params?.Arguments is { } given ? JsonSerializer.SerializeToElement(given) : (JsonElement?)null;
                 return await tools.CallAsync(CallerOf(request.Services), request.Params?.Name ?? string.Empty, arguments, ct).ConfigureAwait(false);
             });
@@ -306,10 +307,12 @@ public static class McpEndpoint
     }
 
     /// <summary>
-    /// Counts the call of <paramref name="name"/> against the key's and the user's limit of changes or of pictures; over it the
-    /// answer is HTTP 429 with Retry-After 60 (nothing was counted, nothing runs).
+    /// Counts the call of <paramref name="name"/> against the key's and the user's limit of changes; over it the answer is HTTP 429
+    /// with Retry-After 60 (nothing was counted, nothing runs). A call the registry refuses (role, Read only, "Use AI agents") and an
+    /// unknown tool count against no limit. The pictures are counted by <c>GetSnapshot</c> itself, for every channel; here only a user who
+    /// has used them up is answered 429 before the call goes on.
     /// </summary>
-    private static void CountCall(McpAccess access, ToolRegistry tools, IServiceProvider? services, string? name)
+    private static void CountCall(McpAccess access, LiveView.SnapshotAudit snapshots, ToolRegistry tools, IServiceProvider? services, string? name)
     {
         if (name is null || !tools.TryGet(name, out var tool))
         {
@@ -317,8 +320,13 @@ public static class McpEndpoint
         }
 
         var caller = CallerOf(services);
+        if (tools.Refusal(tool, caller) is not null)
+        {
+            return; // the registry refuses it: it costs the user nothing
+        }
+
         var refusal = tool.CountsAsChange && !access.TryChange(caller) ? TooManyChanges
-            : tool.CountsAsPicture && !access.TryPicture(caller) ? TooManyPictures
+            : tool.CountsAsPicture && snapshots.IsLimited(caller.User.UserId) ? TooManyPictures
             : null;
         if (refusal is null)
         {
