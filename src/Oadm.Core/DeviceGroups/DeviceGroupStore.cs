@@ -266,6 +266,14 @@ public sealed class DeviceGroupStore(IDbContextFactory<OadmDbContext> dbFactory,
             await using var transaction = await db.Database.BeginTransactionAsync(ct).ConfigureAwait(false);
             var group = await db.DeviceGroups.FirstOrDefaultAsync(g => g.Id == id, ct).ConfigureAwait(false)
                 ?? throw new DeviceGroupException(DeviceGroupError.NotFound, DeviceGroupTexts.UnknownGroup);
+
+            // An access key keeps its group (docs/spec/mcp.md "Access keys"): refused, naming the keys, before anything changes.
+            var keys = await AccessKeyStore.NamesWithGroupAsync(db, id, ct).ConfigureAwait(false);
+            if (keys.Count > 0)
+            {
+                throw new DeviceGroupException(DeviceGroupError.Precondition, AccessKeyTexts.GroupInUse(group.Name, keys));
+            }
+
             var affected = await db.Users.Where(u => u.DeviceGroupId == id).Select(u => new { u.Id, u.UserName }).ToListAsync(ct).ConfigureAwait(false);
             userIds = [.. affected.Select(u => u.Id)];
 

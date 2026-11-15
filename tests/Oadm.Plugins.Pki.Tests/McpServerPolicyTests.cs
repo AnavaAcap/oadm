@@ -4,7 +4,7 @@ using Oadm.Sdk.Certificates;
 namespace Oadm.Plugins.Pki.Tests;
 
 /// <summary>
-/// The server policy AI agents (docs/spec/mcp.md "Transport and certificate", docs/spec/pki.md "Server certificates"): a system
+/// The server policy MCP server (docs/spec/mcp.md "Transport and certificate", docs/spec/pki.md "Server certificates"): a system
 /// policy on every server, not a PRO part, that gets its own "MCP Server Certificate" on the first Turn on (the host's first
 /// load) also without OADM PRO and never the shared 802.1X and EST server certificate, refusing a certificate that names none of the server's addresses or its host name, and the host's
 /// certificate through <see cref="IServerCertificates"/>.
@@ -16,12 +16,12 @@ public sealed class McpServerPolicyTests
     {
         await using var pki = await PkiHarness.StartAsync(pro: false);
         var policy = Assert.Single(pki.Policies.PoliciesOf(PolicyKinds.McpServer));
-        Assert.Equal("AI agents", policy.Name);
-        Assert.Equal("AI agents", PolicyKinds.Name(PolicyKinds.McpServer));
+        Assert.Equal("MCP server", policy.Name);
+        Assert.Equal("MCP server", PolicyKinds.Name(PolicyKinds.McpServer));
         Assert.Null(policy.CertificateId);
         Assert.True(PolicyStore.IsSystem(policy, pki.Policies.All));
         Assert.False(PolicyKinds.IsPro(PolicyKinds.McpServer));
-        Assert.Equal("The server for AI agents has no certificate yet.", PolicyStore.Summary(policy, new Dictionary<string, string>()));
+        Assert.Equal("The MCP server has no certificate yet.", PolicyStore.Summary(policy, new Dictionary<string, string>()));
 
         var refused = await pki.Policies.DeleteAsync(policy.Id, "admin", CancellationToken.None);
         Assert.Equal(PolicyTexts.SystemPolicy, refused.Error?.Message);
@@ -93,7 +93,7 @@ public sealed class McpServerPolicyTests
         Assert.Null(pki.Policies.FirstOf(PolicyKinds.McpServer)!.CertificateId);
         Assert.DoesNotContain(pki.Service.ServerCertificateChoices(), c => c.Name == PkiService.McpServerCertificateName);
 
-        // Turn on of AI agents afterwards: its own certificate, never the shared one the PRO servers show.
+        // Turn on of the MCP server afterwards: its own certificate, never the shared one the PRO servers show.
         var host = pki.Core.FakeServices.Find<IServerCertificates>()!;
         (await host.LoadAsync(HostServers.Mcp, CancellationToken.None)).Chain.ToList().ForEach(c => c.Dispose());
         var own = pki.Policies.FirstOf(PolicyKinds.McpServer)!.CertificateId;
@@ -139,7 +139,7 @@ public sealed class McpServerPolicyTests
             }
         }
 
-        // The certificate the policy shows cannot be deleted; another server than the one for AI agents has no policy here.
+        // The certificate the policy shows cannot be deleted; another server than the MCP server has no policy here.
         Assert.Equal(PolicyKinds.McpServer, pki.Policies.ShowingCertificate(own)?.Kind);
         Assert.NotNull((await host.LoadAsync("other", CancellationToken.None)).Problem);
 

@@ -236,6 +236,13 @@ public sealed class AuthGrpcService(AuthManager auth, UserStore users, RoleStore
     /// <summary>The caller's user with role and permissions, or null when it is gone or disabled.</summary>
     private async Task<Proto.UserInfo?> SelfAsync(AuthenticatedCaller caller, CancellationToken ct)
     {
+        if (caller.IsAccessKey)
+        {
+            // An MCP access key is an identity of its own (no user row): its name, role and devices of this call.
+            var key = new UserRecord(caller.UserId, caller.UserName, caller.RoleId, false, DateTime.UnixEpoch, null) { DeviceAccess = caller.Devices.Access };
+            return await AuthMapping.SelfAsync(key, roles, groups, ct).ConfigureAwait(false);
+        }
+
         var user = await users.FindByNameAsync(caller.UserName, ct).ConfigureAwait(false);
         return user is null || user.Disabled || user.Id != caller.UserId ? null : await AuthMapping.SelfAsync(UserRecord.From(user), roles, groups, ct).ConfigureAwait(false);
     }

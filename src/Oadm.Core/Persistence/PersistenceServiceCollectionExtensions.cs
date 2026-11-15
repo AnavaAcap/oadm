@@ -65,6 +65,7 @@ public static class PersistenceServiceCollectionExtensions
         services.TryAddSingleton(_ => new PasswordHasher());
         services.AddSingleton<LoginThrottle>();
         services.AddSingleton<AuthTokenStore>();
+        services.AddSingleton<AccessKeyStore>();
         services.AddSingleton<UserStore>();
         services.AddSingleton<RoleStore>();
         services.AddSingleton<AuditLog>();

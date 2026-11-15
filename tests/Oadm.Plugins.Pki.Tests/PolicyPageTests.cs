@@ -59,7 +59,7 @@ public sealed class PolicyPageTests
                 (PolicyTableGroups.Issuing, "HTTPS", "HTTPS certificate", true),
                 (PolicyTableGroups.Issuing, "IEEE 802.1X", "IEEE 802.1X certificate", true),
                 (PolicyTableGroups.Servers, "EST server", "EST server", true), // in age order: PKI made it before the 802.1X server's conversion
-                (PolicyTableGroups.Servers, "AI agents", "AI agents", true), // PKI's next conversion, also before the 802.1X server's
+                (PolicyTableGroups.Servers, "MCP server", "MCP server", true), // PKI's next conversion, also before the 802.1X server's
                 (PolicyTableGroups.Servers, "802.1X server", "802.1X server", true),
                 (PolicyTableGroups.Access, "OADM Root CA SERVER01", "802.1X trusted CA", false),
                 (PolicyTableGroups.Access, "Axis device ID", "802.1X trusted CA", false),

@@ -38,6 +38,7 @@ public sealed partial class DiscoverySessionOwners : IDisposable
     private readonly DeviceGroupStore? _groups;
     private readonly ILogger<DiscoverySessionOwners>? _logger;
     private readonly ITimer _prune;
+    private readonly AccessKeyStore? _keys;
 
     public DiscoverySessionOwners(
         TimeProvider time,
@@ -47,7 +48,8 @@ public sealed partial class DiscoverySessionOwners : IDisposable
         UserStore? users = null,
         AuthTokenStore? tokens = null,
         DeviceGroupStore? groups = null,
-        ILogger<DiscoverySessionOwners>? logger = null)
+        ILogger<DiscoverySessionOwners>? logger = null,
+        AccessKeyStore? keys = null)
     {
         ArgumentNullException.ThrowIfNull(time);
         _time = time;
@@ -70,6 +72,12 @@ public sealed partial class DiscoverySessionOwners : IDisposable
         if (_tokens is not null)
         {
             _tokens.SessionsEnded += OnSessionsEnded;
+        }
+
+        _keys = keys;
+        if (_keys is not null)
+        {
+            _keys.Ended += OnKeyEnded; // an MCP access key that ends stops its add sessions like a logout
         }
 
         if (_groups is not null)
@@ -187,6 +195,11 @@ public sealed partial class DiscoverySessionOwners : IDisposable
             _tokens.SessionsEnded -= OnSessionsEnded;
         }
 
+        if (_keys is not null)
+        {
+            _keys.Ended -= OnKeyEnded;
+        }
+
         if (_groups is not null)
         {
             _groups.Changed -= OnGroupChanged;
@@ -216,6 +229,12 @@ public sealed partial class DiscoverySessionOwners : IDisposable
         {
             Run(StopSessionAsync(SessionIds.Of(hash)));
         }
+    }
+
+    private void OnKeyEnded(object? sender, EndedAccessKey e)
+    {
+        Run(StopUserAsync(e.Id));
+        Run(StopSessionAsync(SessionIds.Of(e.TokenHash)));
     }
 
     private void OnGroupChanged(object? sender, Guid groupId) => Run(StopGroupAsync(groupId));

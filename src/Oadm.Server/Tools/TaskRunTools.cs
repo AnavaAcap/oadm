@@ -48,7 +48,7 @@ internal static class TaskRunTools
     /// <summary>Devices of a preview shown by name (the rest are counted).</summary>
     public const int ShownDevices = 20;
 
-    public const string NotOffered = "This task is not offered to AI agents. Run it in OADM.";
+    public const string NotOffered = "This task is not offered over MCP. Run it in OADM.";
     public const string NothingToRun = "No device of the filter would get this task.";
 
     public static IEnumerable<OadmTool> Create(ToolHandles handles)

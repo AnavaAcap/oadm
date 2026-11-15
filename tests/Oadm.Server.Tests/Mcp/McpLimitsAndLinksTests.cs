@@ -15,21 +15,20 @@ using Proto = Oadm.Contracts.V1;
 namespace Oadm.Server.Tests.Mcp;
 
 /// <summary>
-/// The limits per user and for the whole port, what counts as a change, the upload link's address and name, "Use AI agents" on the
-/// file routes and the skill, the held handles per user, the cursors bound to their tool, and the names of access keys.
+/// The limits per key and for the whole port, what counts as a change, the upload link's address and name, the file routes and
+/// the skill, the held handles per key, the cursors bound to their tool, and the names of access keys.
 /// </summary>
 public sealed class McpLimitsAndLinksTests
 {
-    private static async Task<string> SecondUserKeyAsync(McpTestServer server, string name = "second") =>
-        await server.CreateKeyAsync(await server.Host.InvokerForUserAsync(name, Oadm.Sdk.Plugins.UserRole.Admin), name: "other");
+    private static async Task<string> SecondKeyAsync(McpTestServer server, string name = "other") =>
+        await server.CreateKeyAsync(name: name);
 
     [Fact]
-    public async Task EveryToolThatIsNoPlainReadCountsAsAChangeAndAUsersKeysShareOneBudget()
+    public async Task EveryToolThatIsNoPlainReadCountsAsAChangeAndEveryKeyHasItsOwnBudget()
     {
         await using var server = await McpTestServer.StartAsync();
         var key = await server.CreateKeyAsync();
-        var sameUser = await server.CreateKeyAsync(name: "again");
-        var otherUser = await SecondUserKeyAsync(server);
+        var other = await SecondKeyAsync(server);
         static JsonObject Arguments() => new() { ["handle"] = "none" };
 
         // A tag run is no task run: it counted for nothing before; every run of any tool counts now (the handle does not exist: still counted).
@@ -43,11 +42,9 @@ public sealed class McpLimitsAndLinksTests
         Assert.Equal("60", refused.RetryAfter);
         Assert.Equal("Too many changes with this access key. Wait a minute.", refused.ErrorMessage);
 
-        // The user's other key shares the budget, another user and plain reads do not.
-        var shared = await server.PostAsync(sameUser, McpTestServer.Request("tools/call", new JsonObject { ["name"] = "oadm_devices_remove_run", ["arguments"] = Arguments() }));
-        Assert.Equal(429, shared.Status);
-        Assert.Equal(200, (await server.PostAsync(sameUser, McpTestServer.Request("tools/call", new JsonObject { ["name"] = "oadm_tags_list", ["arguments"] = new JsonObject() }))).Status);
-        Assert.Equal(200, (await server.PostAsync(otherUser, McpTestServer.Request("tools/call", new JsonObject { ["name"] = "oadm_tags_assign_run", ["arguments"] = Arguments() }))).Status);
+        // Plain reads of the same key go on; another key has its own budget (a key is an identity of its own).
+        Assert.Equal(200, (await server.PostAsync(key, McpTestServer.Request("tools/call", new JsonObject { ["name"] = "oadm_tags_list", ["arguments"] = new JsonObject() }))).Status);
+        Assert.Equal(200, (await server.PostAsync(other, McpTestServer.Request("tools/call", new JsonObject { ["name"] = "oadm_devices_remove_run", ["arguments"] = Arguments() }))).Status);
     }
 
     [Fact]
@@ -55,35 +52,38 @@ public sealed class McpLimitsAndLinksTests
     {
         var clock = new FakeTimeProvider(DateTimeOffset.UtcNow);
         await using var server = await McpTestServer.StartAsync(accessClock: clock);
-        var readOnly = await server.CreateKeyAsync(readOnly: true, name: "reader");
-        var normal = await server.CreateKeyAsync(name: "worker");
+        var roles = new Proto.RoleService.RoleServiceClient(server.Host.Invoker);
+        var saved = await roles.SaveRolesAsync(new Proto.SaveRolesRequest { Roles = { new Proto.RoleChange { Name = "Readers", Permissions = { } } } });
+        var role = saved.Roles.Single(r => r.Name == "Readers");
+        var key = await server.CreateKeyAsync(name: "reader", roleId: role.Id);
         JsonObject Run(string tool = "oadm_tags_assign_run") => McpTestServer.Request("tools/call", new JsonObject { ["name"] = tool, ["arguments"] = new JsonObject { ["handle"] = "none" } });
 
-        // A Read only key calls a run tool twice the budget: every call is refused (a tool error, never 429) and charges nothing.
+        // A role without tag rights calls a run tool twice the budget: every call is refused (a tool error, never 429) and charges nothing.
         for (var i = 0; i < 2 * McpAccess.ChangesPerMinute; i++)
         {
             clock.Advance(TimeSpan.FromMilliseconds(100));
-            var refused = await server.PostAsync(readOnly, Run());
+            var refused = await server.PostAsync(key, Run());
             Assert.Equal(200, refused.Status);
-            Assert.Contains("Read only", refused.Body!.ToJsonString(), StringComparison.Ordinal);
+            Assert.Contains("Your role does not allow", refused.Body!.ToJsonString(), StringComparison.Ordinal);
         }
 
         // An unknown tool counts nothing either.
         for (var i = 0; i < 2 * McpAccess.ChangesPerMinute; i++)
         {
             clock.Advance(TimeSpan.FromMilliseconds(100));
-            await server.PostAsync(readOnly, Run("oadm_no_such_tool"));
+            await server.PostAsync(key, Run("oadm_no_such_tool"));
         }
 
-        // The same user's normal key still has its whole budget of changes.
+        // With the right, the same key still has its whole budget of changes.
+        await roles.SaveRolesAsync(new Proto.SaveRolesRequest { Roles = { new Proto.RoleChange { Id = role.Id, Name = "Readers", Permissions = { HostPermissions.TagsAssign } } } });
         for (var i = 0; i < McpAccess.ChangesPerMinute; i++)
         {
             clock.Advance(TimeSpan.FromMilliseconds(100));
-            Assert.Equal(200, (await server.PostAsync(normal, Run())).Status);
+            Assert.Equal(200, (await server.PostAsync(key, Run())).Status);
         }
 
         clock.Advance(TimeSpan.FromMilliseconds(100));
-        Assert.Equal(429, (await server.PostAsync(normal, Run())).Status);
+        Assert.Equal(429, (await server.PostAsync(key, Run())).Status);
     }
 
     [Fact]
@@ -92,7 +92,7 @@ public sealed class McpLimitsAndLinksTests
         var clock = new FakeTimeProvider(DateTimeOffset.UtcNow);
         await using var server = await McpTestServer.StartAsync(accessClock: clock);
         var roles = new Proto.RoleService.RoleServiceClient(server.Host.Invoker);
-        var saved = await roles.SaveRolesAsync(new Proto.SaveRolesRequest { Roles = { new Proto.RoleChange { Name = "Agents", Permissions = { HostPermissions.McpUse } } } });
+        var saved = await roles.SaveRolesAsync(new Proto.SaveRolesRequest { Roles = { new Proto.RoleChange { Name = "Agents", Permissions = { } } } });
         var role = Guid.Parse(saved.Roles.Single(r => r.Name == "Agents").Id);
         var key = await server.CreateKeyAsync(await server.Host.InvokerForRoleAsync("agent2", role));
         JsonObject Snapshot() => McpTestServer.Request("tools/call", new JsonObject { ["name"] = "oadm_devices_snapshot", ["arguments"] = new JsonObject { ["device_id"] = Guid.NewGuid().ToString() } });
@@ -106,7 +106,7 @@ public sealed class McpLimitsAndLinksTests
         }
 
         // Give the role Live view: the user's whole budget of pictures is still there.
-        await roles.SaveRolesAsync(new Proto.SaveRolesRequest { Roles = { new Proto.RoleChange { Id = role.ToString(), Name = "Agents", Permissions = { HostPermissions.McpUse, HostPermissions.DevicesLiveView } } } });
+        await roles.SaveRolesAsync(new Proto.SaveRolesRequest { Roles = { new Proto.RoleChange { Id = role.ToString(), Name = "Agents", Permissions = { HostPermissions.DevicesLiveView } } } });
         for (var i = 0; i < SnapshotAudit.PicturesPerMinute; i++)
         {
             clock.Advance(TimeSpan.FromMilliseconds(100));
@@ -118,20 +118,19 @@ public sealed class McpLimitsAndLinksTests
     }
 
     [Fact]
-    public async Task SnapshotsHaveALimitOfTheirOwnPerUserAndTheThirtyFirstInAMinuteIs429()
+    public async Task SnapshotsHaveALimitOfTheirOwnPerKeyAndTheThirtyFirstInAMinuteIs429()
     {
         var clock = new FakeTimeProvider(DateTimeOffset.UtcNow);
         await using var server = await McpTestServer.StartAsync(accessClock: clock);
-        var key = await server.CreateKeyAsync(readOnly: true); // a Read only key takes pictures too
-        var sameUser = await server.CreateKeyAsync(name: "again");
-        var otherUser = await SecondUserKeyAsync(server);
+        var key = await server.CreateKeyAsync();
+        var other = await SecondKeyAsync(server);
         JsonObject Snapshot() => McpTestServer.Request("tools/call", new JsonObject { ["name"] = "oadm_devices_snapshot", ["arguments"] = new JsonObject { ["device_id"] = Guid.NewGuid().ToString() } });
 
         // The device does not exist: the call is still counted (it is audited when it works, and the limit must not depend on that).
         for (var i = 0; i < SnapshotAudit.PicturesPerMinute; i++)
         {
             clock.Advance(TimeSpan.FromSeconds(1)); // under the calls a second, inside the minute
-            Assert.Equal(200, (await server.PostAsync(i % 2 == 0 ? key : sameUser, Snapshot())).Status); // both keys of the user share the limit
+            Assert.Equal(200, (await server.PostAsync(key, Snapshot())).Status);
         }
 
         clock.Advance(TimeSpan.FromSeconds(1));
@@ -139,11 +138,10 @@ public sealed class McpLimitsAndLinksTests
         Assert.Equal(429, refused.Status);
         Assert.Equal("60", refused.RetryAfter);
         Assert.Equal("Too many pictures. Wait a minute.", refused.ErrorMessage);
-        Assert.Equal(429, (await server.PostAsync(sameUser, Snapshot())).Status);
 
-        // Plain reads, another user and a later minute are not affected; a picture is no change either.
+        // Plain reads, another key and a later minute are not affected; a picture is no change either.
         Assert.Equal(200, (await server.PostAsync(key, McpTestServer.Request("tools/call", new JsonObject { ["name"] = "oadm_server_info", ["arguments"] = new JsonObject() }))).Status);
-        Assert.Equal(200, (await server.PostAsync(otherUser, Snapshot())).Status);
+        Assert.Equal(200, (await server.PostAsync(other, Snapshot())).Status);
         clock.Advance(TimeSpan.FromMinutes(1));
         Assert.Equal(200, (await server.PostAsync(key, Snapshot())).Status);
     }
@@ -153,37 +151,35 @@ public sealed class McpLimitsAndLinksTests
     {
         await using var host = await TestServerHost.StartAsync();
         var time = new FakeTimeProvider(DateTimeOffset.UtcNow);
-        var tokens = new AuthTokenStore(host.Get<Microsoft.EntityFrameworkCore.IDbContextFactory<Oadm.Core.Persistence.OadmDbContext>>(), time);
-        var admin = (await host.Get<UserStore>().FindByNameAsync(TestServerHost.AdminUserName, CancellationToken.None))!;
-        var (one, _) = await tokens.CreateAccessKeyAsync(admin.Id, admin.UserName, "one", 30, readOnly: false, "test", CancellationToken.None);
-        var (two, _) = await tokens.CreateAccessKeyAsync(admin.Id, admin.UserName, "two", 30, readOnly: false, "test", CancellationToken.None);
-        using var access = new McpAccess(tokens, host.Get<Oadm.Core.Auth.RoleStore>(), host.Get<Oadm.Core.DeviceGroups.DeviceViewFactory>(), host.Get<AccessEpochs>(), host.Get<AuditLog>(), time);
+        using var keys = new AccessKeyStore(host.Get<Microsoft.EntityFrameworkCore.IDbContextFactory<Oadm.Core.Persistence.OadmDbContext>>(), time);
+        var (one, _) = await keys.CreateAsync("one", BuiltInRoles.AdministratorId, DeviceScope.All, 30, "admin", CancellationToken.None);
+        var (two, _) = await keys.CreateAsync("two", BuiltInRoles.AdministratorId, DeviceScope.All, 30, "admin", CancellationToken.None);
+        using var access = new McpAccess(keys, host.Get<Oadm.Core.Auth.RoleStore>(), host.Get<Oadm.Core.DeviceGroups.DeviceViewFactory>(), host.Get<AccessEpochs>(), host.Get<AuditLog>(), time);
         var first = (await access.AuthenticateAsync(one, "local", CancellationToken.None))!;
         var second = (await access.AuthenticateAsync(two, "local", CancellationToken.None))!;
 
-        // The user's window starts first (second key, one change); the first key's window starts 30 s later.
-        Assert.True(access.TryChange(second));
-        time.Advance(TimeSpan.FromSeconds(30));
-        for (var i = 0; i < McpAccess.ChangesPerMinute - 1; i++)
+        for (var i = 0; i < McpAccess.ChangesPerMinute; i++)
         {
             Assert.True(access.TryChange(first));
         }
 
-        time.Advance(TimeSpan.FromSeconds(31)); // the user's minute is over, the first key's is not
-        Assert.True(access.TryChange(first)); // the key's tenth
-        Assert.False(access.TryChange(first)); // refused by the key: the user is charged nothing for it
+        // Refused calls of the first key charge nothing: after its minute it has its whole budget again, and the second key never lost any.
         for (var i = 0; i < 20; i++)
         {
             Assert.False(access.TryChange(first));
         }
 
-        // The user's budget is that of one change (the first key's tenth) and the refusals: nine are left for the second key, whose own minute is over.
-        for (var i = 0; i < McpAccess.ChangesPerMinute - 1; i++)
+        for (var i = 0; i < McpAccess.ChangesPerMinute; i++)
         {
             Assert.True(access.TryChange(second), "change " + i);
         }
 
         Assert.False(access.TryChange(second));
+        time.Advance(TimeSpan.FromMinutes(1));
+        for (var i = 0; i < McpAccess.ChangesPerMinute; i++)
+        {
+            Assert.True(access.TryChange(first), "after the minute " + i);
+        }
     }
 
     [Fact]
@@ -191,7 +187,7 @@ public sealed class McpLimitsAndLinksTests
     {
         await using var server = await McpTestServer.StartAsync();
         var key = await server.CreateKeyAsync();
-        var otherUser = await SecondUserKeyAsync(server);
+        var otherUser = await SecondKeyAsync(server);
         var access = server.Host.Get<McpAccess>();
         var caller = (await access.AuthenticateAsync(key, "local", CancellationToken.None))!;
         var link = await Link(server, key, "a.bin", 3);
@@ -465,26 +461,22 @@ public sealed class McpLimitsAndLinksTests
     }
 
     [Fact]
-    public async Task AUsersKeysShareTheirCallsASecondAndThePortHasOneCapForEveryone()
+    public async Task AKeyHasItsCallsASecondAndThePortHasOneCapForEveryone()
     {
         var clock = new FakeTimeProvider(DateTimeOffset.UtcNow); // stands still: every call falls into the same second
         await using var server = await McpTestServer.StartAsync(accessClock: clock);
         var key = await server.CreateKeyAsync();
-        var sameUser = await server.CreateKeyAsync(name: "again");
-        var otherUser = await SecondUserKeyAsync(server);
+        var otherUser = await SecondKeyAsync(server);
 
-        // 20 calls a second for the user: the two keys together; the 21st of either key is refused, another user is not.
+        // 20 calls a second per key: the 21st is refused, another key is not.
         for (var i = 0; i < McpAccess.CallsPerSecond; i++)
         {
-            Assert.Equal(200, (await server.PostAsync(i % 2 == 0 ? key : sameUser, McpTestServer.Request("tools/list"))).Status);
+            Assert.Equal(200, (await server.PostAsync(key, McpTestServer.Request("tools/list"))).Status);
         }
 
-        foreach (var either in new[] { key, sameUser })
-        {
-            var refused = await server.PostAsync(either, McpTestServer.Request("tools/list"));
-            Assert.Equal(429, refused.Status);
-            Assert.Equal(McpEndpoint.TooManyCalls, refused.ErrorMessage);
-        }
+        var refused = await server.PostAsync(key, McpTestServer.Request("tools/list"));
+        Assert.Equal(429, refused.Status);
+        Assert.Equal(McpEndpoint.TooManyCalls, refused.ErrorMessage);
 
         Assert.Equal(200, (await server.PostAsync(otherUser, McpTestServer.Request("tools/list"))).Status);
         clock.Advance(TimeSpan.FromSeconds(1));
@@ -516,10 +508,9 @@ public sealed class McpLimitsAndLinksTests
     {
         await using var host = await TestServerHost.StartAsync();
         var time = new FakeTimeProvider(DateTimeOffset.UtcNow);
-        var tokens = new AuthTokenStore(host.Get<Microsoft.EntityFrameworkCore.IDbContextFactory<Oadm.Core.Persistence.OadmDbContext>>(), time);
-        var admin = (await host.Get<UserStore>().FindByNameAsync(TestServerHost.AdminUserName, CancellationToken.None))!;
-        var (key, _) = await tokens.CreateAccessKeyAsync(admin.Id, admin.UserName, "laptop", 30, readOnly: false, "test", CancellationToken.None);
-        using var access = new McpAccess(tokens, host.Get<Oadm.Core.Auth.RoleStore>(), host.Get<Oadm.Core.DeviceGroups.DeviceViewFactory>(), host.Get<AccessEpochs>(), host.Get<AuditLog>(), time);
+        using var keys = new AccessKeyStore(host.Get<Microsoft.EntityFrameworkCore.IDbContextFactory<Oadm.Core.Persistence.OadmDbContext>>(), time);
+        var (key, _) = await keys.CreateAsync("laptop", BuiltInRoles.AdministratorId, DeviceScope.All, 30, "admin", CancellationToken.None);
+        using var access = new McpAccess(keys, host.Get<Oadm.Core.Auth.RoleStore>(), host.Get<Oadm.Core.DeviceGroups.DeviceViewFactory>(), host.Get<AccessEpochs>(), host.Get<AuditLog>(), time);
         for (var i = 0; i < McpAccess.CallsPerSecond; i++)
         {
             Assert.NotNull((await access.SignInAsync(key, "10.9.0.1", CancellationToken.None)).Caller);
@@ -564,32 +555,17 @@ public sealed class McpLimitsAndLinksTests
     }
 
     [Fact]
-    public async Task AKeyWhoseRoleLostUseAiAgentsNeitherUploadsNorFetchesAFileNorReadsTheSkill()
+    public async Task AnyValidKeyReadsTheSkillWhateverItsRoleAllows()
     {
         await using var server = await McpTestServer.StartAsync();
         var roles = new Proto.RoleService.RoleServiceClient(server.Host.Invoker);
-        var saved = await roles.SaveRolesAsync(new Proto.SaveRolesRequest { Roles = { new Proto.RoleChange { Name = "Agents", Permissions = { Oadm.Core.Auth.HostPermissions.McpUse } } } });
+        var saved = await roles.SaveRolesAsync(new Proto.SaveRolesRequest { Roles = { new Proto.RoleChange { Name = "Agents", Permissions = { } } } });
         var role = saved.Roles.Single(r => r.Name == "Agents");
-        var key = await server.CreateKeyAsync(await server.Host.InvokerForRoleAsync("agent-user", Guid.Parse(role.Id)));
-        var link = await Link(server, key, "a.bin", 3);
+        var key = await server.CreateKeyAsync(roleId: role.Id);
         Assert.NotEmpty(await ResourceUrisAsync(server, key));
-
-        await roles.SaveRolesAsync(new Proto.SaveRolesRequest { Roles = { new Proto.RoleChange { Id = role.Id, Name = "Agents" } } });
-        using var client = server.Http();
-        using var put = new HttpRequestMessage(HttpMethod.Put, new Uri(link["url"]!.GetValue<string>()).PathAndQuery) { Content = new ByteArrayContent([1, 2, 3]) };
-        put.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", key);
-        using var denied = await client.SendAsync(put);
-        Assert.Equal(System.Net.HttpStatusCode.Forbidden, denied.StatusCode);
-        Assert.Contains("Use AI agents", await denied.Content.ReadAsStringAsync(), StringComparison.Ordinal);
-        using var get = new HttpRequestMessage(HttpMethod.Get, McpEndpoint.FilesPath + "anything");
-        get.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", key);
-        Assert.Equal(System.Net.HttpStatusCode.Forbidden, (await client.SendAsync(get)).StatusCode);
-
-        Assert.Empty(await ResourceUrisAsync(server, key));
         var read = await server.PostAsync(key, McpTestServer.Request("resources/read", new JsonObject { ["uri"] = McpSkill.UriOf(McpSkill.Files.Keys.First()) }),
             new Dictionary<string, string?> { ["Mcp-Name"] = McpSkill.UriOf(McpSkill.Files.Keys.First()) });
-        Assert.NotNull(read.Body?["error"]);
-        Assert.Contains("Use AI agents", read.Body!["error"]!["message"]!.GetValue<string>(), StringComparison.Ordinal);
+        Assert.Null(read.Body?["error"]);
     }
 
     [Fact]
@@ -678,7 +654,7 @@ public sealed class McpLimitsAndLinksTests
         Assert.Equal(Grpc.Core.StatusCode.InvalidArgument, refused.StatusCode);
         Assert.Equal(AccessKeyTexts.NameCharacters, refused.Status.Detail);
         await server.CreateKeyAsync(name: "Laptop 2.0_a-b"); // fine
-        Assert.Equal("Old name_", AuthTokenStore.CleanAccessKeyName("Old name$"));
+        Assert.Equal("Old name_", AccessKeyStore.CleanName("Old name$"));
     }
 
     private static async Task<JsonObject> Link(McpTestServer server, string key, string name, int size, IReadOnlyDictionary<string, string?>? headers = null)

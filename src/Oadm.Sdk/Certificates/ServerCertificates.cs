@@ -5,7 +5,7 @@ namespace Oadm.Sdk.Certificates;
 /// <summary>The servers the host runs whose certificate a PKI server policy picks (<see cref="IServerCertificates"/>).</summary>
 public static class HostServers
 {
-    /// <summary>The MCP server for AI agents (its policy "AI agents").</summary>
+    /// <summary>The MCP server (its policy "MCP server").</summary>
     public const string Mcp = "mcp";
 }
 
@@ -30,5 +30,5 @@ public interface IServerCertificates
 
 /// <summary>The answer of <see cref="IServerCertificates.LoadAsync"/>.</summary>
 /// <param name="Chain">The certificate with its private key, then its issuers; empty when <paramref name="Problem"/> is set.</param>
-/// <param name="Problem">Why the server has no certificate it can use ("The server for AI agents has no certificate. Choose one in its policy."); null when it has one.</param>
+/// <param name="Problem">Why the server has no certificate it can use ("The MCP server has no certificate. Choose one in its policy."); null when it has one.</param>
 public sealed record HostServerCertificate(IReadOnlyList<X509Certificate2> Chain, string? Problem);

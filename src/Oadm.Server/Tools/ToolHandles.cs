@@ -40,7 +40,7 @@ internal sealed class ToolHandles(TimeProvider time)
     /// <summary>Open handles of one kind per caller at most.</summary>
     public const int MaxPerCaller = 20;
 
-    /// <summary>Open handles and links of all kinds per user (all the user's keys together).</summary>
+    /// <summary>Open handles and links of all kinds per caller (a user's sessions together; an access key is a caller of its own).</summary>
     public const int MaxPerUser = 60;
 
     /// <summary>

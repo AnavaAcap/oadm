@@ -29,6 +29,7 @@ public sealed class OadmDbContext(DbContextOptions<OadmDbContext> options) : DbC
     public DbSet<UserEntity> Users => Set<UserEntity>();
     public DbSet<RoleEntity> Roles => Set<RoleEntity>();
     public DbSet<AuthTokenEntity> AuthTokens => Set<AuthTokenEntity>();
+    public DbSet<AccessKeyEntity> AccessKeys => Set<AccessKeyEntity>();
     public DbSet<AuditEntryEntity> AuditEntries => Set<AuditEntryEntity>();
     public DbSet<TagDefinition> TagDefinitions => Set<TagDefinition>();
     public DbSet<Sites.Site> Sites => Set<Sites.Site>();
@@ -255,10 +256,30 @@ public sealed class OadmDbContext(DbContextOptions<OadmDbContext> options) : DbC
             e.Property(t => t.ClientAddress).IsRequired().HasMaxLength(64);
             e.Property(t => t.CreatedUtc).HasConversion(UtcConverter);
             e.Property(t => t.ExpiresUtc).HasConversion(UtcConverter);
-            e.Property(t => t.Name).IsRequired().HasMaxLength(AuthTokenStore.MaxAccessKeyNameLength);
-            e.Property(t => t.LastUsedUtc).HasConversion(NullableUtcConverter);
             e.HasIndex(t => t.UserId);
             e.HasOne<UserEntity>().WithMany().HasForeignKey(t => t.UserId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<AccessKeyEntity>(e =>
+        {
+            // docs/spec/mcp.md "Access keys": never in a backup (BackupArchive), every key ends with a restore.
+            e.ToTable("AccessKeys");
+            e.HasKey(k => k.Id);
+            e.Property(k => k.Id).ValueGeneratedNever();
+            e.Property(k => k.TokenHash).IsRequired().HasMaxLength(64);
+            e.HasIndex(k => k.TokenHash).IsUnique();
+            e.Property(k => k.Name).IsRequired().HasMaxLength(AccessKeyStore.MaxNameLength);
+            e.Property(k => k.NormalizedName).IsRequired().HasMaxLength(AccessKeyStore.MaxNameLength);
+            e.HasIndex(k => k.NormalizedName).IsUnique();
+            e.HasIndex(k => k.RoleId);
+            e.HasOne<RoleEntity>().WithMany().HasForeignKey(k => k.RoleId).OnDelete(DeleteBehavior.Restrict);
+            e.HasIndex(k => k.DeviceGroupId);
+            e.HasOne<DeviceGroup>().WithMany().HasForeignKey(k => k.DeviceGroupId).OnDelete(DeleteBehavior.Restrict);
+            e.Ignore(k => k.DeviceAccess);
+            e.Property(k => k.CreatedBy).IsRequired().HasMaxLength(UserStore.MaxUserNameLength);
+            e.Property(k => k.CreatedUtc).HasConversion(UtcConverter);
+            e.Property(k => k.ExpiresUtc).HasConversion(UtcConverter);
+            e.Property(k => k.LastUsedUtc).HasConversion(NullableUtcConverter);
         });
 
         modelBuilder.Entity<AuditEntryEntity>(e =>

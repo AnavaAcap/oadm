@@ -14,8 +14,8 @@ using Proto = Oadm.Contracts.V1;
 namespace Oadm.Server.Mcp;
 
 /// <summary>
-/// gRPC McpService, the Settings card AI agents (docs/spec/mcp.md "Transport and certificate"): the state for every signed-in
-/// user, Turn on or off, the port and Listen on for administrators (audited as "Changed AI agents"), and the CA certificates of
+/// gRPC McpService, the Settings card AI, section MCP (docs/spec/mcp.md "Transport and certificate"): the state for every signed-in
+/// user, Turn on or off, the port and Listen on for administrators (audited as "Changed MCP server"), and the CA certificates of
 /// the server's certificate for the agent's computer.
 /// </summary>
 public sealed class McpGrpcService(McpListener listener, ServerSettingsStore store, AuditLog audit) : Proto.McpService.McpServiceBase
@@ -50,7 +50,7 @@ public sealed class McpGrpcService(McpListener listener, ServerSettingsStore sto
         var after = new McpSettings { Enabled = request.Enabled, Port = request.Port, ListenOn = listenOn };
         await after.SaveAsync(store, ct).ConfigureAwait(false);
         string NameOf(string? id) => McpSettings.Normal(id) is not { } chosen ? InterfaceOptions.AllLabel : interfaces.FirstOrDefault(i => i.Id == chosen)?.Name ?? chosen;
-        await audit.WriteAsync(AuditActions.AiAgentsChanged, "AI agents", McpSettings.Changes(before, after, NameOf), ct).ConfigureAwait(false);
+        await audit.WriteAsync(AuditActions.McpChanged, "MCP server", McpSettings.Changes(before, after, NameOf), ct).ConfigureAwait(false);
         await listener.ApplyAsync(ct).ConfigureAwait(false);
         return ToProto(listener.Status, admin: true);
     }

@@ -201,7 +201,7 @@ public sealed partial class BackupArchive(OadmPaths paths, ILogger<BackupArchive
     }
 
     /// <summary>
-    /// Removes the login sessions and the MyAxis sign-ins from the copy (a restored server never resumes an old login; a
+    /// Removes the login sessions, the access keys and the MyAxis sign-ins from the copy (a restored server never resumes an old login; a
     /// MyAxis session never leaves the server) and counts what it holds.
     /// Plain SQL by table name: a database of an older OADM may not have every table yet (counted 0).
     /// </summary>
@@ -212,6 +212,7 @@ public sealed partial class BackupArchive(OadmPaths paths, ILogger<BackupArchive
         {
             await connection.OpenAsync(ct).ConfigureAwait(false);
             await ExecuteAsync(connection, "DELETE FROM AuthTokens", ct).ConfigureAwait(false);
+            await ExecuteAsync(connection, "DELETE FROM AccessKeys", ct).ConfigureAwait(false); // docs/spec/mcp.md: a restore ends every key
             await ExecuteAsync(connection, "DELETE FROM MyAxisSessions", ct).ConfigureAwait(false); // docs/spec/myaxis.md: never in a backup
             await ExecuteAsync(connection, "VACUUM", ct).ConfigureAwait(false); // no deleted page keeps an old blob
             return await CountAsync(connection, ct).ConfigureAwait(false);

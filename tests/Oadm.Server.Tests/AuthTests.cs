@@ -114,10 +114,9 @@ public sealed class AuthTests
         Assert.Equal(AccessRule.Admin, AccessPolicy.For("/oadm.v1.UpdateService/Start"));
         Assert.Equal(AccessRule.Admin, AccessPolicy.For("/oadm.v1.UpdateService/Get"));
         Assert.Equal(AccessRule.SignedIn, AccessPolicy.For("/oadm.v1.UpdateService/Watch"));
-        // AI agents (docs/spec/mcp.md): the card for every role, changes like the server settings; keys of the caller's own.
+        // MCP (docs/spec/mcp.md): the card for every role, changes like the server settings; access keys Administrator only.
         Assert.Equal(AccessRule.Admin.ForAllDevices(), AccessPolicy.For("/oadm.v1.McpService/Set"));
-        Assert.Equal(AccessRule.Needs(HostPermissions.McpUse), AccessPolicy.For("/oadm.v1.AccessKeyService/Create"));
-        Assert.Equal(AccessRule.Admin, AccessPolicy.For("/oadm.v1.AccessKeyService/ListAll"));
+        Assert.All(Proto.AccessKeyService.Descriptor.Methods, m => Assert.Equal(AccessRule.Admin, AccessPolicy.For($"/oadm.v1.AccessKeyService/{m.Name}")));
         // Sites: the page with "See sites", every change Administrator only.
         Assert.Equal(AccessRule.Needs(Oadm.Core.Auth.HostPermissions.SitesView), AccessPolicy.For("/oadm.v1.SiteService/WatchSites"));
         Assert.All(Proto.SiteService.Descriptor.Methods.Where(m => m.Name is not ("ListSites" or "WatchSites")),

@@ -111,17 +111,7 @@ public sealed class RoleEntity
     public override string ToString() => $"Role {Name} ({Kind})";
 }
 
-/// <summary>What a row of AuthTokens is (migration <c>AccessKeys</c>).</summary>
-public enum AuthTokenKind
-{
-    /// <summary>A login session of the client (gRPC).</summary>
-    Session = 0,
-
-    /// <summary>An access key of an AI agent (the MCP server only, docs/spec/mcp.md "Access keys").</summary>
-    AccessKey = 1,
-}
-
-/// <summary>A login session or an access key (table AuthTokens): only the SHA-256 of the token is stored.</summary>
+/// <summary>A login session (table AuthTokens): only the SHA-256 of the token is stored.</summary>
 public sealed class AuthTokenEntity
 {
     /// <summary>Lower-case hex SHA-256 of the token.</summary>
@@ -135,20 +125,53 @@ public sealed class AuthTokenEntity
 
     public DateTime CreatedUtc { get; set; }
 
-    /// <summary>Sliding for sessions: moved forward on use (written at most once per minute). Fixed for access keys.</summary>
+    /// <summary>Sliding: moved forward on use (written at most once per minute).</summary>
     public DateTime ExpiresUtc { get; set; }
+}
 
-    /// <summary>A session or an access key; a session token never works as an access key and the other way round.</summary>
-    public AuthTokenKind Kind { get; set; }
+/// <summary>
+/// An access key of an AI agent (table AccessKeys, migration <c>AgentAccessKeys</c>; docs/spec/mcp.md "Access keys"): an
+/// identity of its own with a role and devices, made by an administrator, never a login of a user. Only the SHA-256 of the
+/// key is stored. Its role and device group cannot be deleted while it names them.
+/// </summary>
+public sealed class AccessKeyEntity
+{
+    /// <summary>The key's identity: the user id of its calls (task owner, handles, limits); never secret.</summary>
+    public Guid Id { get; set; }
 
-    /// <summary>The name of an access key (1..64, unique per user); empty for sessions.</summary>
+    /// <summary>Lower-case hex SHA-256 of the key (unique).</summary>
+    public string TokenHash { get; set; } = string.Empty;
+
+    /// <summary>1..64 letters, digits, spaces, '-', '_' and '.'.</summary>
     public string Name { get; set; } = string.Empty;
 
-    /// <summary>An access key for reading only: no tool that changes something is listed or runs.</summary>
-    public bool ReadOnly { get; set; }
+    /// <summary>Upper-case invariant name: unique, so names are unique case-insensitively.</summary>
+    public string NormalizedName { get; set; } = string.Empty;
 
-    /// <summary>The last call with an access key (written at most once per minute); null: never used.</summary>
+    /// <summary>The key's role (table Roles, delete restricted).</summary>
+    public Guid RoleId { get; set; }
+
+    /// <summary>Every device; false: the devices of <see cref="DeviceGroupId"/>.</summary>
+    public bool AllDevices { get; set; }
+
+    /// <summary>The key's device group (table DeviceGroups, delete restricted); null with all devices.</summary>
+    public Guid? DeviceGroupId { get; set; }
+
+    /// <summary>The administrator who made it, for the audit only.</summary>
+    public string CreatedBy { get; set; } = string.Empty;
+
+    public DateTime CreatedUtc { get; set; }
+
+    /// <summary>Fixed: 30, 90 or 365 days after <see cref="CreatedUtc"/>.</summary>
+    public DateTime ExpiresUtc { get; set; }
+
+    /// <summary>The last call with the key (written at most once per minute); null: never used.</summary>
     public DateTime? LastUsedUtc { get; set; }
+
+    /// <summary>The stored device access.</summary>
+    public DeviceScope DeviceAccess => new(AllDevices, DeviceGroupId);
+
+    public override string ToString() => $"Access key {Name}";
 }
 
 /// <summary>One audit log entry (table AuditEntries).</summary>

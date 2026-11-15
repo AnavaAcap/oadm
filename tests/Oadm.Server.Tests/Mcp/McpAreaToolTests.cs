@@ -162,7 +162,7 @@ public sealed class McpAreaToolTests
         Assert.True(again["isError"]!.GetValue<bool>());
         Assert.Contains(AreaListing.PreviewEnded, Text(again), StringComparison.Ordinal);
         var audit = (await server.Host.Audit.ListAsync(new Proto.ListAuditRequest())).Entries;
-        Assert.Contains(audit, e => e.Action == AuditActions.DevicesTagged && e.UserName == AuditActions.ViaAccessKey(TestServerHost.AdminUserName, "agent"));
+        Assert.Contains(audit, e => e.Action == AuditActions.DevicesTagged && e.UserName == Oadm.Core.Auth.AccessKeyStore.AgentNameOf("agent"));
 
         // Nothing left to change: no handle.
         var done = await server.ToolAsync(key, "oadm_tags_assign_preview", new JsonObject { ["filter"] = Filter(), ["add"] = new JsonArray("New") });
@@ -227,19 +227,11 @@ public sealed class McpAreaToolTests
     }
 
     [Fact]
-    public async Task AReadOnlyKeyAndARoleWithoutTheTagPermissionListNoTagChangeTool()
+    public async Task ARoleWithoutTheTagPermissionListsNoTagChangeTool()
     {
         await using var server = await McpTestServer.StartAsync();
-        var readOnly = await server.CreateKeyAsync(readOnly: true);
-        var names = await server.ToolNamesAsync(readOnly);
-        Assert.Contains("oadm_tags_assign_preview", names); // a preview writes nothing
-        Assert.Contains("oadm_tags_list", names);
-        Assert.All(RunTools, run => Assert.DoesNotContain(run, names));
-        var refused = await server.CallToolAsync(readOnly, "oadm_tags_assign_run", new JsonObject { ["handle"] = "x" });
-        Assert.Contains(McpAccess.ReadOnlyKey, Text(refused), StringComparison.Ordinal);
-
         var roles = new Proto.RoleService.RoleServiceClient(server.Host.Invoker);
-        var saved = await roles.SaveRolesAsync(new Proto.SaveRolesRequest { Roles = { new Proto.RoleChange { Name = "Readers", Permissions = { HostPermissions.McpUse } } } });
+        var saved = await roles.SaveRolesAsync(new Proto.SaveRolesRequest { Roles = { new Proto.RoleChange { Name = "Readers", Permissions = { } } } });
         var role = saved.Roles.Single(r => r.Name == "Readers");
         var key = await server.CreateKeyAsync(await server.Host.InvokerForRoleAsync("reader", Guid.Parse(role.Id)));
         var listed = await server.ToolNamesAsync(key);
