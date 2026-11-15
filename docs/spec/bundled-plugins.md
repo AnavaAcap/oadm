@@ -143,8 +143,13 @@ command**. Command format: `Schema/command-format.md` + `command.schema.json` (t
 - Saved commands: plugin setting `savedCommands`, at most 500, shared by all clients, export / import as library files.
 - MCP (`docs/spec/mcp.md` "Plugins"): `oadm_vapix_commands` and `oadm_vapix_command_preview` / `_run`, only library
   and saved commands that are not dangerous, have no password or file field and change nothing OADM's own tasks change;
-  every run goes preview then run and is the page's rollout.
-- Roles: methods are Operator; `tryRequest` and `rollout` are audited. Scale: target devices at the device limit, every list action
+  every run goes preview then run and is the page's rollout. `oadm_device_request_preview` / `_run` (decision 2026-11-15): a
+  request of the agent's own on the page's request code (paths under `/axis-cgi/`, `/config/rest/`, `/vapix/` only, no
+  password in it, "send"); a request that can lock OADM out or break a device needs the right "dangerous" (not an
+  Operator default; a restart does not); a change reaches more than one device only after the same request succeeded on
+  one device for the same caller (24 h, plugin memory); at most 100 devices, answers cut and secret values as `***`;
+  the audit names method, path and device count, never the query values or the body.
+- Roles: methods are Operator; `tryRequest`, `rollout` and the run of the device request are audited. Scale: target devices at the device limit, every list action
   under 1 s (Perf test).
 - Device groups: devices, clients and tasks only through the call (`tryRequest`, `checkCompatibility`, `rollout`: an id
   outside the user's view refuses the request like an unknown one); `save`, `delete` and `import` only for users with

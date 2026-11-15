@@ -284,8 +284,8 @@ without a core plugin (a task plugin, an event rule action) is covered by the ta
 Web View (the device's own web interface), plus plugins whose tools are built on other branches until they are merged.
 Live View offers its saved views; its video stays in the client.
 
-**VAPIX Commander** (`oadm_vapix_commands`, `oadm_vapix_command_preview` / `_run`, `CommanderTools`): only library and saved
-commands by id (`library:<id>`, `saved:<id>`), never a request of the agent's own. Not offered: a dangerous command
+**VAPIX Commander** (`oadm_vapix_commands`, `oadm_vapix_command_preview` / `_run`, `CommanderTools`): library and saved
+commands by id (`library:<id>`, `saved:<id>`); a request of the agent's own is the device request below. Not offered: a dangerous command
 (`RequestSafety`, of the definition and again of the filled-in request), one with a password or a file field, and one that
 changes what OADM's own tasks change (date and time, NTP, applications, AXIS OS, restart, users, network; their reads stay).
 Every command, a read too, goes preview then run. The preview checks the values (the page's renderer) and plans the chosen
@@ -294,6 +294,37 @@ API skip a device); the run is the page's rollout, one task per device, with the
 confirmation, and needs the plugin's "Run on many devices" right. At most 1,000 devices a run. An agent's run masks secret
 values as `***` in its steps and log (`RolloutPayload.MaskSecrets`, `SecretValues`): a value whose label, parameter or path
 names a secret (community, password, key, token, ...), never a yes/no value.
+
+**Device request** (decision 2026-11-15, replaces "never a request of the agent's own"; `oadm_device_request_preview` /
+`_run`, VAPIX Commander's `DeviceRequestTool`, area `device` by `PluginTool.Area`): one VAPIX request the agent writes
+itself (method GET, POST, PUT, PATCH or DELETE; a path under `/axis-cgi/`, `/config/rest/` or `/vapix/` that
+`CommandValidator.IsDevicePath` accepts, without `?`; query pairs; a body of at most 64 KB with its media type; a wait of 1
+to 60 s) on the devices of the device filter. It is an inline command sent with the page's own code (`CommandRenderer`,
+`RequestSafety`, `Compatibility`, `SendCheckedAsync` of Send: a fresh API list before a write), never a second VAPIX client;
+the API is the known path's (as the request builder fills it in), else `param-cgi` in any version. Rules:
+- The plugin's right "send" (Send to one device, full device control); every request, a read too, is a preview and a run.
+- No secret in the request: a query pair, form pair, JSON property or XML element whose name points to a secret
+  (`SecretValues.IsSecretName`, plus `pwd`, `pass`, `pin`) with a value other than yes/no is refused "This request carries
+  a password or another secret. Set passwords in OADM.".
+- A request that can lock OADM out of a device or break it (`RequestSafety` Dangerous: accounts through `pwdgrp.cgi`,
+  network settings, `param.cgi` `Network.*`, `HTTPS.*`, `IEEE8021X.*`, factory default, AXIS OS; and any change of a path
+  whose words name accounts, the network, HTTPS, TLS, certificates, 802.1X, AXIS OS or a reset, such as
+  `/config/rest/network-settings/...`) needs the plugin's right **Send dangerous requests** (`dangerous`, not an Operator
+  default, full device control), else "This request can lock OADM out of the device or break it (accounts, network, HTTPS,
+  802.1X, AXIS OS, factory default). It needs the right Send dangerous requests."; with it the plan says `dangerous` and
+  warns. A restart (`restart.cgi`) needs no such right and warns that the devices are offline for a few minutes.
+- One device first (user decision): a change (not a read) runs on more than one device only after the same request (method,
+  the path as the device reads it, query, media type and body) succeeded on exactly one device (2xx, no device error) for
+  the same caller (its user name, "MCP <key name>" for a key), kept 24 h in plugin memory (`DeviceRequestTrials`, at most
+  1,000); else "Run this request on one device first. When it succeeded there, run it on more devices.". Reads run on
+  many devices at once.
+- At most 100 devices, 8 at a time. The plan: read or change, the request line and body (secret values `***`), `will_run`,
+  `will_change` and `unit` for the Assistant's card, the first 20 devices, the skipped ones by reason (Certificate changed,
+  Site offline, a missing API), the warnings. The run answers per device status, ok and error (the first 50 devices), the
+  bodies of the first 10 (pretty JSON or XML, binary as type and size), cut so the answer stays under 28 KB, every value
+  whose name points to a secret as `***` (JSON, `name=value`, XML elements and attributes, the interpreted parameters).
+- Audit: the run as "Device request POST /axis-cgi/param.cgi on 3 devices" (`ICorePlugin.AuditDetail`), never the query
+  values or the body; the server log has the masked request line per device.
 
 **Monitoring and maintenance pages** (read only, what each page shows, with the page's right, the caller's devices and
 counts first; decision 2026-11-15 "the agents see everything OADM shows"): `oadm_edge_storage_cards`,
@@ -444,6 +475,8 @@ New default interface members (SDK minor version up, `docs/spec/plugins.md`):
   method (`PageMethodOf`, `RulesMethodOf`) for the plugin's rules. `PluginToolPlan(WillChange, Unit)` is the base of a plan,
   so the Assistant's card says "1 reader" (`AssistantCards`). Tests: `McpPageActionTests` and each plugin's `PageToolTests`;
   `McpAddOnToolSchemaTests` checks the schemas of the optional plugins without starting them.
+- `PluginTool.Area` (decision 2026-11-15): the area of one tool's name instead of the plugin's `ToolArea` (lower case
+  words with underscores; `oadm_device_request` of VAPIX Commander); a host tool's name still wins.
 - `[Secret]` (`SecretAttribute`) on a payload property: a task whose payload has one, anywhere, is not offered over MCP.
 - `ITaskPlugin.PagePermissions(payloadJson)`: a page task names the keys of its core plugin one run needs; then the task
   tools offer it with those rights ("Offered tasks").
