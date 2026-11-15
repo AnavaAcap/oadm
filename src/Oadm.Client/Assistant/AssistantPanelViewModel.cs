@@ -114,7 +114,9 @@ public sealed partial class AssistantPanelViewModel : ObservableObject
         Items.CollectionChanged += (_, _) =>
         {
             OnPropertyChanged(nameof(IsEmpty));
+            OnPropertyChanged(nameof(ShowJumpToLatest));
             OnPreviewsChanged();
+            UpdateLastActions();
         };
     }
 
@@ -147,10 +149,99 @@ public sealed partial class AssistantPanelViewModel : ObservableObject
         }
 
         OnPropertyChanged(nameof(HasReadyPreview));
+        OnPropertyChanged(nameof(SendIsQuiet));
     }
 
     /// <summary>The empty panel shows the start suggestions.</summary>
     public bool IsEmpty => Items.Count == 0;
+
+    /// <summary>"Thinking" shows where the answer will appear: from Send until the answer's first event.</summary>
+    [ObservableProperty] public partial bool IsThinking { get; private set; }
+
+    /// <summary>
+    /// The list follows new content (the view sets it: the user is at the end, or within 40 px of it). Scrolled up, it stays
+    /// where the user is and Go to the latest shows.
+    /// </summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ShowJumpToLatest))]
+    public partial bool IsFollowing { get; set; } = true;
+
+    /// <summary>The round Go to the latest button above the message box.</summary>
+    public bool ShowJumpToLatest => !IsFollowing && !IsEmpty;
+
+    /// <summary>The view scrolls to the end (Go to the latest, Send).</summary>
+    public event EventHandler? ScrollToEndRequested;
+
+    /// <summary>The view puts the focus into the message box with the caret at the end (Edit).</summary>
+    public event EventHandler? FocusMessageRequested;
+
+    /// <summary>Files are dragged over the panel: the drop hint shows.</summary>
+    [ObservableProperty] public partial bool IsDragOver { get; set; }
+
+    /// <summary>Go to the latest: the list goes to the end and follows again.</summary>
+    [RelayCommand]
+    private void JumpToLatest()
+    {
+        IsFollowing = true;
+        ScrollToEndRequested?.Invoke(this, EventArgs.Empty);
+    }
+
+    /// <summary>A card waits for Run: the send arrow is not the accent (one accent per view).</summary>
+    public bool SendIsQuiet => HasReadyPreview;
+
+    /// <summary>The problem of the message box, directly below it: the selection limit, else the model's problem.</summary>
+    public string? ComposerError => SelectionError ?? ModelError;
+
+    public bool HasComposerError => ComposerError is not null;
+
+    /// <summary>The user's message that Edit put back into the box: sending replaces that exchange. An empty box drops it.</summary>
+    private AssistantUserItem? _editing;
+
+    private int _pastedImages;
+
+    /// <summary>Try again under the end of the last answer, Edit on the last message of the user; nothing while an answer streams.</summary>
+    private void UpdateLastActions()
+    {
+        int userAt = -1;
+        for (int i = Items.Count - 1; i >= 0 && userAt < 0; i--)
+        {
+            if (Items[i] is AssistantUserItem)
+            {
+                userAt = i;
+            }
+        }
+
+        AssistantItem? retry = null;
+        if (!IsStreaming && userAt >= 0)
+        {
+            if (Items[^1] is AssistantNoticeItem notice && (notice.IsError || notice.IsStopped))
+            {
+                retry = notice;
+            }
+            else
+            {
+                for (int i = Items.Count - 1; i > userAt && retry is null; i--)
+                {
+                    if (Items[i] is AssistantAnswerItem answer)
+                    {
+                        retry = answer;
+                    }
+                }
+            }
+        }
+
+        for (int i = 0; i < Items.Count; i++)
+        {
+            var item = Items[i];
+            item.ShowsRetry = ReferenceEquals(item, retry);
+            if (item is AssistantUserItem user)
+            {
+                user.CanEdit = !IsStreaming && i == userAt;
+            }
+        }
+    }
+
+    private AssistantUserItem? LastUser => Items.LastOrDefault(i => i is AssistantUserItem) as AssistantUserItem;
 
     /// <summary>The title bar button shows: the assistant is on and the role may use it.</summary>
     public bool IsAvailable => _availability.IsOn && (_session is null || (_session.IsLoggedIn && _session.Has(HostPermissionKeys.AssistantUse)));
@@ -164,10 +255,13 @@ public sealed partial class AssistantPanelViewModel : ObservableObject
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(SendCommand), nameof(StopCommand), nameof(SendSuggestionCommand))]
     [NotifyPropertyChangedFor(nameof(SendTip))]
+    [NotifyCanExecuteChangedFor(nameof(RetryCommand), nameof(EditCommand))]
     public partial bool IsStreaming { get; private set; }
 
+    partial void OnIsStreamingChanged(bool value) => UpdateLastActions();
+
     [ObservableProperty]
-    [NotifyCanExecuteChangedFor(nameof(SendCommand), nameof(AttachFileCommand), nameof(SendSuggestionCommand))]
+    [NotifyCanExecuteChangedFor(nameof(SendCommand), nameof(AttachFileCommand), nameof(SendSuggestionCommand), nameof(RetryCommand))]
     [NotifyPropertyChangedFor(nameof(SendTip))]
     public partial bool IsUploading { get; private set; }
 
@@ -176,6 +270,14 @@ public sealed partial class AssistantPanelViewModel : ObservableObject
     [NotifyCanExecuteChangedFor(nameof(SendCommand))]
     [NotifyPropertyChangedFor(nameof(SendTip))]
     public partial string Draft { get; set; } = string.Empty;
+
+    partial void OnDraftChanged(string value)
+    {
+        if (value.Length == 0)
+        {
+            _editing = null; // the edited text is gone: the next message is a new one
+        }
+    }
 
     /// <summary>The provider's models for the picker (empty when it gives none: the picker takes a typed name).</summary>
     [ObservableProperty] public partial IReadOnlyList<string> Models { get; private set; } = [];
@@ -186,18 +288,18 @@ public sealed partial class AssistantPanelViewModel : ObservableObject
     /// <summary>ListModels runs: a ring in place of the picker.</summary>
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(SendTip))]
-    [NotifyCanExecuteChangedFor(nameof(SendCommand), nameof(SendSuggestionCommand))]
+    [NotifyCanExecuteChangedFor(nameof(SendCommand), nameof(SendSuggestionCommand), nameof(RetryCommand))]
     public partial bool IsLoadingModels { get; private set; }
 
     /// <summary>The model every message carries; kept per user on this client. Changing it keeps the conversation.</summary>
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(SendTip))]
-    [NotifyCanExecuteChangedFor(nameof(SendCommand), nameof(SendSuggestionCommand))]
+    [NotifyCanExecuteChangedFor(nameof(SendCommand), nameof(SendSuggestionCommand), nameof(RetryCommand))]
     public partial string Model { get; set; } = string.Empty;
 
     /// <summary>A problem of the model, directly below the picker ("Choose a model.", the server's refusal, the list's error).</summary>
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(ModelErrors))]
+    [NotifyPropertyChangedFor(nameof(ModelErrors), nameof(ComposerError), nameof(HasComposerError))]
     public partial string? ModelError { get; private set; }
 
     /// <summary><see cref="ModelError"/> as the picker's data validation errors (red border, the text below it).</summary>
@@ -278,6 +380,22 @@ public sealed partial class AssistantPanelViewModel : ObservableObject
 
     public static int MaxMessageLength => AssistantTexts.MaxMessageLength;
 
+    /// <summary>The send arrow's tooltip: why it is off, else "Send".</summary>
+    public string SendButtonTip => SendTip ?? AssistantTexts.Send;
+
+    protected override void OnPropertyChanged(System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        base.OnPropertyChanged(e);
+        if (e.PropertyName == nameof(SendTip))
+        {
+            base.OnPropertyChanged(new System.ComponentModel.PropertyChangedEventArgs(nameof(SendButtonTip)));
+        }
+        else if (e.PropertyName == nameof(AttachTip))
+        {
+            base.OnPropertyChanged(new System.ComponentModel.PropertyChangedEventArgs(nameof(AttachButtonTip)));
+        }
+    }
+
     /// <summary>Why Send is off.</summary>
     public string? SendTip => IsStreaming ? AssistantTexts.WaitForAnswer
         : IsUploading ? AssistantTexts.WaitForUpload
@@ -338,19 +456,65 @@ public sealed partial class AssistantPanelViewModel : ObservableObject
     {
         EndConversation();
         ConversationId = Guid.NewGuid().ToString();
+        IsFollowing = true;
     }
 
     private bool CanSend => !IsStreaming && !IsUploading && !IsLoadingModels && SelectionError is null && Draft.Trim().Length > 0 && Model.Trim().Length > 0;
 
     [RelayCommand(CanExecute = nameof(CanSend))]
-    private Task SendAsync() => SendTextAsync(Draft);
+    private Task SendAsync() => SendTextAsync(Draft, [.. Attachments], _editing);
+
+    private bool CanRetry(AssistantItem? item) => !IsStreaming && !IsUploading && !IsLoadingModels && SelectionError is null && Model.Trim().Length > 0;
+
+    /// <summary>Try again: the last message again (its files too), in place of its answer.</summary>
+    [RelayCommand(CanExecute = nameof(CanRetry))]
+    private Task RetryAsync(AssistantItem? item) => LastUser is { } user ? SendTextAsync(user.Text, user.Files, user) : Task.CompletedTask;
+
+    private bool CanEdit(AssistantUserItem? user) => !IsStreaming;
+
+    /// <summary>Edit: the last message back in the box with its files; sending it replaces that exchange.</summary>
+    [RelayCommand(CanExecute = nameof(CanEdit))]
+    private void Edit(AssistantUserItem? user)
+    {
+        if (IsStreaming || user is null || !ReferenceEquals(user, LastUser))
+        {
+            return;
+        }
+
+        Attachments.Clear();
+        foreach (var file in user.Files)
+        {
+            Attachments.Add(file);
+        }
+
+        Draft = user.Text;
+        _editing = user;
+        Message = null;
+        FocusMessageRequested?.Invoke(this, EventArgs.Empty);
+    }
+
+    /// <summary>Up arrow in an empty box: the last message back for editing. False: nothing to edit (the key does its usual work).</summary>
+    public bool EditLast()
+    {
+        if (IsStreaming || Draft.Length > 0 || LastUser is not { } user)
+        {
+            return false;
+        }
+
+        Edit(user);
+        return true;
+    }
 
     private bool CanSendSuggestion(string? text) => !IsStreaming && !IsUploading && !IsLoadingModels && SelectionError is null && Model.Trim().Length > 0;
 
     [RelayCommand(CanExecute = nameof(CanSendSuggestion))]
-    private Task SendSuggestionAsync(string? text) => string.IsNullOrWhiteSpace(text) ? Task.CompletedTask : SendTextAsync(text);
+    private Task SendSuggestionAsync(string? text) => string.IsNullOrWhiteSpace(text) ? Task.CompletedTask : SendTextAsync(text, [], null);
 
-    private async Task SendTextAsync(string text)
+    /// <summary>
+    /// Sends a message with its files. <paramref name="replace"/> (Try again, Edit): that message and everything after it
+    /// leave the list in one step, and the server drops them too when it had them (<c>replace_last</c>).
+    /// </summary>
+    private async Task SendTextAsync(string text, IReadOnlyList<AssistantAttachmentItem> files, AssistantUserItem? replace)
     {
         var conversation = ConversationId;
         text = text.Trim();
@@ -376,9 +540,16 @@ public sealed partial class AssistantPanelViewModel : ObservableObject
             message.SelectedDeviceIds.AddRange(_devices.SelectedDevices.Select(d => d.Id));
         }
 
-        message.Attachments.AddRange(Attachments.Select(a => new AssistantAttachment { FileId = a.FileId, Name = a.Name, Size = a.Size }));
-        var user = new AssistantUserItem(text, [.. Attachments.Select(a => a.Name)]);
-        var attached = Attachments.ToList();
+        message.Attachments.AddRange(files.Select(a => new AssistantAttachment { FileId = a.FileId, Name = a.Name, Size = a.Size }));
+        if (replace is not null && Items.IndexOf(replace) is var at and >= 0)
+        {
+            message.ReplaceLast = replace.Reached;
+            RemoveFrom(at);
+        }
+
+        _editing = null;
+        var user = new AssistantUserItem(text, [.. files]);
+        var attached = files.ToList();
         Items.Add(user);
         Attachments.Clear();
         Draft = string.Empty;
@@ -387,16 +558,19 @@ public sealed partial class AssistantPanelViewModel : ObservableObject
         var chat = new CancellationTokenSource();
         _chat = chat;
         IsStreaming = true;
+        JumpToLatest(); // a new message: the list goes to its end and follows
+        ShowThinking();
         try
         {
-            await foreach (var e in _api.AssistantChatAsync(message, chat.Token).ConfigureAwait(true))
+            try
             {
-                if (!ReferenceEquals(_chat, chat))
-                {
-                    break; // New chat or closed meanwhile
-                }
-
-                Apply(e);
+                await StreamAsync(message, user, chat).ConfigureAwait(true);
+            }
+            catch (RpcException ex) when (message.ReplaceLast && ex.StatusCode == StatusCode.FailedPrecondition && ex.Status.Detail == AssistantTexts.NothingToRetry
+                && ReferenceEquals(_chat, chat))
+            {
+                message.ReplaceLast = false; // the server forgot the conversation meanwhile (30 minutes): a new message
+                await StreamAsync(message, user, chat).ConfigureAwait(true);
             }
         }
         catch (OperationCanceledException) when (chat.IsCancellationRequested)
@@ -437,6 +611,7 @@ public sealed partial class AssistantPanelViewModel : ObservableObject
         {
             if (ReferenceEquals(_chat, chat))
             {
+                EndThinking();
                 FlushAnswer(); // the end: whatever is left shows once
                 _chat = null;
                 _answer = null;
@@ -447,9 +622,61 @@ public sealed partial class AssistantPanelViewModel : ObservableObject
         }
     }
 
+    private async Task StreamAsync(AssistantMessage message, AssistantUserItem user, CancellationTokenSource chat)
+    {
+        await foreach (var e in _api.AssistantChatAsync(message, chat.Token).ConfigureAwait(true))
+        {
+            if (!ReferenceEquals(_chat, chat))
+            {
+                break; // New chat or closed meanwhile
+            }
+
+            user.Reached = true;
+            Apply(e);
+        }
+    }
+
+    /// <summary>The entries from <paramref name="index"/> to the end leave the list in one step (Try again, Edit).</summary>
+    private void RemoveFrom(int index)
+    {
+        var gone = new HashSet<AssistantItem>(ReferenceEqualityComparer.Instance);
+        for (int i = index; i < Items.Count; i++)
+        {
+            gone.Add(Items[i]);
+            (Items[i] as IDisposable)?.Dispose();
+        }
+
+        Items.RemoveAll(gone.Contains);
+    }
+
+    private AssistantThinkingItem? _thinking;
+
+    private void ShowThinking()
+    {
+        _thinking = new AssistantThinkingItem();
+        Items.Add(_thinking);
+        IsThinking = true;
+    }
+
+    /// <summary>The answer's first event (or its end): Thinking goes.</summary>
+    private void EndThinking()
+    {
+        if (_thinking is { } thinking)
+        {
+            _thinking = null;
+            Items.Remove(thinking);
+            IsThinking = false;
+        }
+    }
+
     /// <summary>One event of the answer into the list: text grows the current answer part, everything else ends it.</summary>
     private void Apply(AssistantEvent e)
     {
+        if (e.KindCase != AssistantEvent.KindOneofCase.Notice)
+        {
+            EndThinking(); // a notice (where the data goes) comes before the answer: Thinking stays below it
+        }
+
         switch (e.KindCase)
         {
             case AssistantEvent.KindOneofCase.Text:
@@ -477,7 +704,14 @@ public sealed partial class AssistantPanelViewModel : ObservableObject
             case AssistantEvent.KindOneofCase.Notice:
                 if (_notices.Add(e.Notice))
                 {
-                    Add(new AssistantNoticeItem(e.Notice));
+                    if (_thinking is not null)
+                    {
+                        Items.Insert(Items.Count - 1, new AssistantNoticeItem(e.Notice));
+                    }
+                    else
+                    {
+                        Add(new AssistantNoticeItem(e.Notice));
+                    }
                 }
 
                 return;
@@ -488,7 +722,7 @@ public sealed partial class AssistantPanelViewModel : ObservableObject
                 }
                 else if (e.Done.Stopped)
                 {
-                    Add(new AssistantNoticeItem(AssistantTexts.Stopped));
+                    Add(new AssistantNoticeItem(AssistantTexts.Stopped, isStopped: true));
                 }
 
                 return;
@@ -656,6 +890,9 @@ public sealed partial class AssistantPanelViewModel : ObservableObject
     /// <summary>Why Attach file is off (10 files attached).</summary>
     public string? AttachTip => Attachments.Count >= AssistantTexts.MaxAttachments ? AssistantTexts.TooManyFiles : null;
 
+    /// <summary>The paperclip's tooltip: why it is off, else "Attach file".</summary>
+    public string AttachButtonTip => AttachTip ?? AssistantTexts.AttachFile;
+
     /// <summary>Attach file: the file picker, then the upload of the task dialogs (FileService.Upload, its limits and audit).</summary>
     [RelayCommand(CanExecute = nameof(CanAttach))]
     private async Task AttachFileAsync()
@@ -668,8 +905,8 @@ public sealed partial class AssistantPanelViewModel : ObservableObject
         await AttachAsync(path).ConfigureAwait(true);
     }
 
-    /// <summary>Uploads a local file and attaches it to the next message.</summary>
-    public async Task AttachAsync(string path)
+    /// <summary>Uploads a local file and attaches it to the next message. False: it failed, the reason shows below the box.</summary>
+    public async Task<bool> AttachAsync(string path)
     {
         IsUploading = true;
         Message = null;
@@ -677,6 +914,7 @@ public sealed partial class AssistantPanelViewModel : ObservableObject
         {
             var file = await _api.UploadFileAsync(path, null, CancellationToken.None).ConfigureAwait(true);
             Attachments.Add(new AssistantAttachmentItem(file.Id, file.Name, file.Size));
+            return true;
         }
         catch (RpcException ex)
         {
@@ -693,6 +931,84 @@ public sealed partial class AssistantPanelViewModel : ObservableObject
         finally
         {
             IsUploading = false;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Files dropped on the panel or pasted into the box: each attached like Attach file (the same upload and limits), one
+    /// after the other; folders are skipped. Beyond 10 files the rest stays out with "Attach at most 10 files.".
+    /// </summary>
+    public async Task AttachFilesAsync(IEnumerable<string> paths)
+    {
+        ArgumentNullException.ThrowIfNull(paths);
+        if (IsUploading)
+        {
+            ShowMessage(AssistantTexts.WaitForUpload, isError: true);
+            return;
+        }
+
+        foreach (var path in paths.Where(File.Exists).ToList())
+        {
+            if (Attachments.Count >= AssistantTexts.MaxAttachments)
+            {
+                ShowMessage(AssistantTexts.TooManyFiles, isError: true);
+                return;
+            }
+
+            if (!await AttachAsync(path).ConfigureAwait(true))
+            {
+                return;
+            }
+        }
+    }
+
+    /// <summary>
+    /// A picture pasted from the clipboard (no file): saved as "Pasted image N.png" in a folder of its own, attached like
+    /// Attach file, the local copy deleted again. The model gets its id, name and size like every file, never the picture.
+    /// </summary>
+    public async Task AttachPastedImageAsync(byte[] png, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(png);
+        if (IsUploading)
+        {
+            ShowMessage(AssistantTexts.WaitForUpload, isError: true);
+            return;
+        }
+
+        if (Attachments.Count >= AssistantTexts.MaxAttachments)
+        {
+            ShowMessage(AssistantTexts.TooManyFiles, isError: true);
+            return;
+        }
+
+        var folder = Path.Combine(Path.GetTempPath(), "oadm-paste-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            Directory.CreateDirectory(folder);
+            var path = Path.Combine(folder, AssistantTexts.PastedImage(++_pastedImages));
+            await File.WriteAllBytesAsync(path, png, ct).ConfigureAwait(true);
+            await AttachAsync(path).ConfigureAwait(true);
+        }
+        catch (IOException ex)
+        {
+            ShowMessage(ex.Message, isError: true);
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            ShowMessage(ex.Message, isError: true);
+        }
+        finally
+        {
+            try
+            {
+                Directory.Delete(folder, recursive: true);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                // the system cleans its temp folder
+            }
         }
     }
 
@@ -725,6 +1041,10 @@ public sealed partial class AssistantPanelViewModel : ObservableObject
         _flushTimer = null;
         _lastFlush = long.MinValue;
         _answer = null;
+        _thinking = null;
+        IsThinking = false;
+        _editing = null;
+        _pastedImages = 0;
         foreach (var item in Items.OfType<IDisposable>())
         {
             item.Dispose();
@@ -774,8 +1094,11 @@ public sealed partial class AssistantPanelViewModel : ObservableObject
         OnPropertyChanged(nameof(HasSelection));
         OnPropertyChanged(nameof(SelectionError));
         OnPropertyChanged(nameof(HasSelectionError));
+        OnPropertyChanged(nameof(ComposerError));
+        OnPropertyChanged(nameof(HasComposerError));
         OnPropertyChanged(nameof(SendTip));
         SendCommand.NotifyCanExecuteChanged();
         SendSuggestionCommand.NotifyCanExecuteChanged();
+        RetryCommand.NotifyCanExecuteChanged();
     }
 }

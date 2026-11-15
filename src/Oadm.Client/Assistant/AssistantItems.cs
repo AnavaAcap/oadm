@@ -10,17 +10,32 @@ using Oadm.Contracts.V1;
 namespace Oadm.Client.Assistant;
 
 /// <summary>One entry of the Assistant's conversation list (the panel's virtualized list picks a template per type).</summary>
-public abstract class AssistantItem : ObservableObject;
+public abstract partial class AssistantItem : ObservableObject
+{
+    /// <summary>The end of the last answer: Try again shows here (the last answer part, or its error or Stopped line).</summary>
+    [ObservableProperty] public partial bool ShowsRetry { get; internal set; }
+}
 
-/// <summary>The user's message, with the names of the attached files.</summary>
-public sealed class AssistantUserItem(string text, IReadOnlyList<string> files) : AssistantItem
+/// <summary>The user's message, with the attached files (sent again by Try again, back in the box by Edit).</summary>
+public sealed partial class AssistantUserItem(string text, IReadOnlyList<AssistantAttachmentItem> files) : AssistantItem
 {
     public string Text { get; } = text;
 
-    public string FilesText { get; } = string.Join(", ", files);
+    public IReadOnlyList<AssistantAttachmentItem> Files { get; } = files;
+
+    public string FilesText { get; } = string.Join(", ", files.Select(f => f.Name));
 
     public bool HasFiles => FilesText.Length > 0;
+
+    /// <summary>The server answered this message (it is in the server's conversation): Try again and Edit replace it there.</summary>
+    public bool Reached { get; internal set; }
+
+    /// <summary>The last message of the user while no answer streams: Edit shows on hover.</summary>
+    [ObservableProperty] public partial bool CanEdit { get; internal set; }
 }
+
+/// <summary>"Thinking" where the answer will appear, from Send until the answer's first event.</summary>
+public sealed class AssistantThinkingItem : AssistantItem;
 
 /// <summary>
 /// A part of the model's answer, as Markdown; grows while it streams. Pieces collect in a buffer (<see cref="Append"/>) and
@@ -58,11 +73,14 @@ public sealed class AssistantToolItem(string text, bool failed) : AssistantItem
 }
 
 /// <summary>A line of the panel itself: the notice where the data goes, Stopped, or an error (<c>done.error</c>, a refusal).</summary>
-public sealed class AssistantNoticeItem(string text, bool isError = false) : AssistantItem
+public sealed class AssistantNoticeItem(string text, bool isError = false, bool isStopped = false) : AssistantItem
 {
     public string Text { get; } = text;
 
     public bool IsError { get; } = isError;
+
+    /// <summary>The line after Stop.</summary>
+    public bool IsStopped { get; } = isStopped;
 }
 
 /// <summary>

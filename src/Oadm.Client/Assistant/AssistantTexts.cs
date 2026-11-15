@@ -29,6 +29,15 @@ public static class AssistantTexts
     public const string Uploading = "Uploading the file";
     public const string RemoveFile = "Remove file";
     public const string Enlarge = "Show larger";
+    public const string Thinking = "Thinking";
+    public const string TryAgain = "Try again";
+    public const string Edit = "Edit";
+    public const string GoToLatest = "Go to the latest";
+    public const string DropFiles = "Drop files to attach";
+    public const string NothingToRetry = Shared.NothingToRetry;
+
+    /// <summary>The name of a picture pasted from the clipboard: "Pasted image 2.png".</summary>
+    public static string PastedImage(int number) => string.Create(CultureInfo.InvariantCulture, $"Pasted image {number}.png");
 
     // The columns of a device table in the chat.
     public const string ColumnName = "Name";

@@ -34,7 +34,7 @@ namespace Oadm.Client.Tests;
 /// </summary>
 public sealed class AssistantTests
 {
-    private static UserSession Session(bool admin, params string[] permissions)
+    internal static UserSession Session(bool admin, params string[] permissions)
     {
         var session = new UserSession();
         var user = new UserInfo
@@ -50,7 +50,7 @@ public sealed class AssistantTests
         return session;
     }
 
-    private static async Task<AssistantPanelViewModel> PanelAsync(FakeOadmApi api, DevicesFixture? f = null, UserSession? session = null, IDialogService? dialogs = null,
+    internal static async Task<AssistantPanelViewModel> PanelAsync(FakeOadmApi api, DevicesFixture? f = null, UserSession? session = null, IDialogService? dialogs = null,
         IClipboardService? clipboard = null, Oadm.Client.Infrastructure.IClientSettingsStore? settings = null)
     {
         var availability = new AssistantAvailability();
@@ -61,7 +61,7 @@ public sealed class AssistantTests
         return panel;
     }
 
-    private static async IAsyncEnumerable<AssistantEvent> Script(IEnumerable<AssistantEvent> events, [EnumeratorCancellation] CancellationToken ct = default)
+    internal static async IAsyncEnumerable<AssistantEvent> Script(IEnumerable<AssistantEvent> events, [EnumeratorCancellation] CancellationToken ct = default)
     {
         foreach (var e in events)
         {
@@ -79,10 +79,10 @@ public sealed class AssistantTests
         return table;
     }
 
-    private static Device[] Devices(int count) =>
+    internal static Device[] Devices(int count) =>
         [.. Enumerable.Range(1, count).Select(i => TestSupport.Device(Guid.NewGuid().ToString(), $"ACCC8E{i:X6}", $"10.0.{i / 250}.{i % 250 + 1}", i % 2 == 0 ? "P3265-LVE" : "M3086-V"))];
 
-    private static byte[] Jpeg() => FakeOadmApi.TestPicture(320, 180, "10.0.0.48", "P3265-LVE", DateTimeOffset.UnixEpoch, 7);
+    internal static byte[] Jpeg() => FakeOadmApi.TestPicture(320, 180, "10.0.0.48", "P3265-LVE", DateTimeOffset.UnixEpoch, 7);
 
     [Fact]
     public async Task StreamingEventsBuildTextToolLinesTablesPicturesCardsAndErrors()
@@ -726,7 +726,7 @@ public sealed class AssistantTests
             var view = window.GetVisualDescendants().OfType<AssistantPanelView>().Single();
             var texts = VisibleTexts(window);
             Assert.All(AssistantTexts.Suggestions, s => Assert.Contains(s, texts));
-            Assert.Contains("primary", view.FindControl<Button>("Send")!.Classes);
+            Assert.DoesNotContain("quiet", view.FindControl<Button>("Send")!.Classes); // the accent send arrow
             Assert.False(view.FindControl<Button>("Send")!.IsEffectivelyEnabled); // nothing written yet
             Save(window, outDir, "assistant-panel-empty.png");
 
@@ -773,7 +773,7 @@ public sealed class AssistantTests
             Pump();
             var preview = panel.Items.OfType<AssistantPreviewItem>().Single();
             Assert.Contains("Restart", VisibleTexts(window));
-            Assert.DoesNotContain("primary", view.FindControl<Button>("Send")!.Classes); // Run is the main button now
+            Assert.Contains("quiet", view.FindControl<Button>("Send")!.Classes); // Run is the main button now
             Assert.Single(window.GetVisualDescendants().OfType<Button>(), b => b.IsEffectivelyVisible && b.Classes.Contains("primary"));
             Save(window, outDir, "assistant-panel-preview.png");
 
@@ -925,23 +925,23 @@ public sealed class AssistantTests
         Assert.True(done);
     }
 
-    private static Window PanelWindow(AssistantPanelViewModel panel)
+    internal static Window PanelWindow(AssistantPanelViewModel panel)
     {
         var host = new Border { Classes = { "sidePanel", "open" }, Child = new Border { Classes = { "sidePanelContent" }, Child = new AssistantPanelView { DataContext = panel } } };
         return new Window { Width = 640, Height = 900, Content = new Border { Padding = new Avalonia.Thickness(16), Child = host } };
     }
 
-    private static List<string?> VisibleTexts(Window window) =>
+    internal static List<string?> VisibleTexts(Window window) =>
         [.. window.GetVisualDescendants().OfType<TextBlock>().Where(t => t.IsEffectivelyVisible).Select(t => t.Text)];
 
-    private static void Pump()
+    internal static void Pump()
     {
         Dispatcher.UIThread.RunJobs();
         AvaloniaHeadlessPlatform.ForceRenderTimerTick();
         Dispatcher.UIThread.RunJobs();
     }
 
-    private static void Save(Window window, string? outDir, string name)
+    internal static void Save(Window window, string? outDir, string name)
     {
         var frame = window.CaptureRenderedFrame();
         Assert.NotNull(frame);
