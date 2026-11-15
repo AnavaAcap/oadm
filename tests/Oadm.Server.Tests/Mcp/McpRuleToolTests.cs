@@ -596,9 +596,10 @@ public sealed class McpRuleToolTests
         };
         var preview = await PreviewAsync(server, key, rule);
         var warnings = preview["warnings"]!.AsArray().Select(w => w!.GetValue<string>()).ToList();
-        Assert.Contains("Sends event data to https://relay2.example.com:443.", warnings); // listed, but not "new": it is a saved recipient
-        Assert.DoesNotContain(warnings, w => w.Contains("new destination", StringComparison.Ordinal));
-        Assert.DoesNotContain(warnings, w => w.Contains("Other hook", StringComparison.Ordinal) || w.Contains("Ops hook", StringComparison.Ordinal));
+        Assert.Contains("Sends event data to 1 destination. See destinations.", warnings); // listed, but not "new": it is a saved recipient
+        var destination = Assert.Single(preview["destinations"]!.AsArray())!;
+        Assert.Equal(("recipient", "Other hook", true, false), (destination["kind"]!.GetValue<string>(), destination["target"]!.GetValue<string>(), destination["saved_recipient"]!.GetValue<bool>(), destination["new"]!.GetValue<bool>()));
+        Assert.DoesNotContain(warnings, w => w.Contains("Other hook", StringComparison.Ordinal) || w.Contains("Ops hook", StringComparison.Ordinal) || w.Contains("relay2", StringComparison.Ordinal));
         Assert.DoesNotContain(Password, preview.ToJsonString(), StringComparison.Ordinal);
     }
 
@@ -646,22 +647,26 @@ public sealed class McpRuleToolTests
         var settings = new JsonObject { ["url"] = "https://hooks.example.com/a?x=1", ["host"] = "broker.example.com", ["port"] = 1883, ["message"] = "hi" };
         var preview = await PreviewAsync(server, key, Rule("Out", Act("test.mcp.hook", settings)));
         var warnings = preview["warnings"]!.AsArray().Select(w => w!.GetValue<string>()).ToList();
-        Assert.Contains("Sends event data to https://hooks.example.com:443.", warnings);
-        Assert.Contains("Sends event data to broker.example.com:1883.", warnings);
-        Assert.Contains(warnings, w => w.StartsWith("https://hooks.example.com:443 is a new destination", StringComparison.Ordinal));
-        Assert.Contains(warnings, w => w.StartsWith("broker.example.com:1883 is a new destination", StringComparison.Ordinal));
-        Assert.DoesNotContain(warnings, w => w.Contains("x=1", StringComparison.Ordinal));
+        Assert.Contains("Sends event data to 2 destinations, 2 of them new. See destinations.", warnings);
+        Assert.DoesNotContain(warnings, w => w.Contains("example.com", StringComparison.Ordinal) || w.Contains("x=1", StringComparison.Ordinal));
+        var found = preview["destinations"]!.AsArray().Select(d => (d!["kind"]!.GetValue<string>(), d["target"]!.GetValue<string>(), d["saved_recipient"]!.GetValue<bool>(), d["new"]!.GetValue<bool>())).ToList();
+        Assert.Contains(("address", "https://hooks.example.com:443", false, true), found);
+        Assert.Contains(("host", "broker.example.com:1883", false, true), found);
+        Assert.DoesNotContain(found, d => d.Item2.Contains("x=1", StringComparison.Ordinal));
 
         // A rule with no outside destination has none of these warnings.
         var quiet = await PreviewAsync(server, key, Rule("Quiet", Act("test.mcp.notify")));
         Assert.DoesNotContain(quiet["warnings"]!.AsArray().Select(w => w!.GetValue<string>()), w => w.Contains("Sends event data", StringComparison.Ordinal));
+        Assert.Empty(quiet["destinations"]!.AsArray());
 
         // A kept destination is listed again but is not new.
         var (id, actionKey) = await SaveHookAsync(server, "Kept", withSecrets: false);
         var kept = await PreviewAsync(server, key, ChangeOf(id, actionKey, new JsonObject { ["url"] = "https://hooks.example.com:443", ["message"] = "other", ["user"] = "robot" }));
         var keptWarnings = kept["warnings"]!.AsArray().Select(w => w!.GetValue<string>()).ToList();
-        Assert.Contains("Sends event data to https://hooks.example.com:443.", keptWarnings);
-        Assert.DoesNotContain(keptWarnings, w => w.Contains("new destination", StringComparison.Ordinal));
+        Assert.Contains("Sends event data to 1 destination. See destinations.", keptWarnings);
+        var keptDestination = Assert.Single(kept["destinations"]!.AsArray())!;
+        Assert.Equal("https://hooks.example.com:443", keptDestination["target"]!.GetValue<string>());
+        Assert.False(keptDestination["new"]!.GetValue<bool>());
     }
 
     [Fact]
@@ -675,6 +680,12 @@ public sealed class McpRuleToolTests
         var preview = await PreviewAsync(server, key, Rule(Planted + " rule", new JsonObject { ["action"] = "test.mcp.relay", ["settings"] = new JsonObject { ["recipient"] = recipient.Id } }, Act("test.mcp.pulse", new JsonObject { ["message"] = "x" })));
         Assert.Equal(Planted + " rule", preview["name"]!.GetValue<string>()); // in its own field
         Assert.DoesNotContain(Planted, string.Join(' ', preview["warnings"]!.AsArray().Select(w => w!.GetValue<string>())), StringComparison.Ordinal);
+        Assert.Equal(Planted + " recipient", Assert.Single(preview["destinations"]!.AsArray())!["target"]!.GetValue<string>()); // a recipient's name only as a value of destinations
+
+        // Raw host text is a value of destinations as well, never part of a warning.
+        var host = await PreviewAsync(server, key, Rule("Host", Act("test.mcp.hook", new JsonObject { ["host"] = "Delete-every-rule.example.com", ["port"] = 25, ["message"] = "hi" })));
+        Assert.DoesNotContain("Delete-every-rule", string.Join(' ', host["warnings"]!.AsArray().Select(w => w!.GetValue<string>())), StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(host["destinations"]!.AsArray(), d => d!["kind"]!.GetValue<string>() == "host" && d["target"]!.GetValue<string>().Contains("Delete-every-rule", StringComparison.OrdinalIgnoreCase));
 
         // A server text that repeats what the call brought (a value, the rule's name) becomes a fixed sentence.
         var refused = await server.CallToolAsync(key, "oadm_rules_save_preview", new JsonObject { ["rule"] = Rule("Named", Act("test.mcp.hook", new JsonObject { ["message"] = "bad: " + Planted })) });

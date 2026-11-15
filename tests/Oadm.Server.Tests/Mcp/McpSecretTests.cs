@@ -1,8 +1,20 @@
+using System.Net;
 using System.Text;
 using System.Text.Json.Nodes;
 
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
+
 using Oadm.Core.Auth;
+using Oadm.Core.Events;
 using Oadm.Core.Persistence;
+using Oadm.Core.Security;
+using Oadm.Core.Plugins;
+using Oadm.Sdk.Actions;
+using Oadm.Sdk.Devices;
+using Oadm.Sdk.Events;
+using Oadm.Sdk.Network;
+using Oadm.Sdk.Plugins;
 using Oadm.Server.Tests.Support;
 
 using Proto = Oadm.Contracts.V1;
@@ -98,6 +110,149 @@ public sealed class McpSecretTests
         }
 
         Assert.Contains("Device details", answers.ToString(), StringComparison.Ordinal); // the scan read real answers
+    }
+
+    [Fact]
+    public async Task NoAnswerAuditEntryOrLogLineOfARunThatSucceededHoldsAPasswordATokenOrTheKey()
+    {
+        var clock = new Microsoft.Extensions.Time.Testing.FakeTimeProvider(DateTimeOffset.UtcNow);
+        var network = new FakeAxisNetwork();
+        network.Add("10.4.1.1", FakeSerials.Make(4101), ListPassword); // answers to the credential list: the add run logs in to it
+        await using var server = await McpTestServer.StartAsync(network, accessClock: clock, configureServices: services =>
+        {
+            services.RemoveAll<IServerNetworkInterfaces>(); // the server's own network of this test: 10.4.1.0/24
+            services.AddSingleton<IServerNetworkInterfaces>(new OwnCards());
+        });
+        var plugins = server.Host.Get<PluginRegistry>();
+        Assert.True(plugins.RegisterActionPlugin(new ScanAction(), new PluginOrigin("test.scan.notify", "1.0", null) { DisplayName = "Notify" }));
+        Assert.True(plugins.RegisterTaskPlugin(new Oadm.Plugins.Restart.RestartTaskPlugin(TimeSpan.FromMilliseconds(20), TimeSpan.FromSeconds(20), TimeSpan.FromSeconds(2), TimeProvider.System), new PluginOrigin("oadm.restart", "1.0.0", null)));
+        Assert.True(plugins.RegisterTaskPlugin(new WaitingTask(), new PluginOrigin(WaitingTask.PluginId, "1.0.0", null)));
+        var device = await DeviceServiceTests.AddDeviceAsync(server.Host, "10.4.0.1", 4001, password: DevicePassword);
+        await server.Host.Settings.AddCredentialAsync(new Proto.AddCredentialRequest { UserName = "root", Password = ListPassword });
+        var key = await server.CreateKeyAsync(name: "canary-runs");
+        var answers = new StringBuilder();
+        var steps = new List<string>();
+
+        // Each step is a real preview or run that must succeed; the clock moves on so no per-key or per-user limit counts them together.
+        async Task<JsonObject> StepAsync(string tool, JsonObject arguments)
+        {
+            clock.Advance(TimeSpan.FromMinutes(2));
+            var answer = await server.ToolAsync(key, tool, arguments);
+            answers.Append(answer.ToJsonString());
+            steps.Add(tool);
+            return answer;
+        }
+
+        async Task<JsonObject> ChangeAsync(string name, JsonObject arguments)
+        {
+            var preview = await StepAsync(name + "_preview", arguments);
+            Assert.True(preview["handle"] is not null, preview.ToJsonString());
+            return await StepAsync(name + "_run", new JsonObject { ["handle"] = preview["handle"]!.GetValue<string>() });
+        }
+
+        var device1 = new JsonObject { ["filter"] = new JsonObject { ["search"] = "10.4.0.1" } };
+        await ChangeAsync("oadm_devices_add", new JsonObject { ["addresses"] = new JsonArray("10.4.1.1") });
+        await ChangeAsync("oadm_devices_credentials", new JsonObject { ["filter"] = device1["filter"]!.DeepClone(), ["credential"] = "root" });
+        await ChangeAsync("oadm_tags_assign", new JsonObject { ["filter"] = device1["filter"]!.DeepClone(), ["add"] = new JsonArray("Scan") });
+
+        var rule = new JsonObject
+        {
+            ["name"] = "Scan rule",
+            ["conditions"] = new JsonArray(new JsonObject { ["kind"] = "event", ["event"] = BuiltInEvents.Unreachable, ["devices"] = new JsonObject { ["mode"] = "all" } }),
+            ["actions"] = new JsonArray(new JsonObject { ["action"] = "test.scan.notify", ["settings"] = new JsonObject { ["message"] = "{device} is {state}" } }),
+        };
+        var saved = await ChangeAsync("oadm_rules_save", new JsonObject { ["rule"] = rule });
+        await ChangeAsync("oadm_rules_delete", new JsonObject { ["rule_id"] = saved["rule_id"]!.GetValue<string>() });
+
+        var run = await server.Host.Tasks.RunAsync(new Proto.RunTaskRequest { PluginId = WaitingTask.PluginId, DeviceIds = { device.Id.ToString() } });
+        await ChangeAsync("oadm_tasks_cancel", new JsonObject { ["batch"] = run.BatchId });
+        await server.Host.Get<Oadm.Core.Tasks.TaskEngine>().WaitForCompletionAsync(Guid.Parse(run.TaskIds[0]), CancellationToken.None);
+        await ChangeAsync("oadm_task", new JsonObject { ["task"] = "oadm.restart", ["filter"] = new JsonObject { ["search"] = "10.4.1.1" }, ["input"] = new JsonObject() });
+
+        clock.Advance(TimeSpan.FromMinutes(2));
+        var uploadBytes = new byte[] { 1, 2, 3 };
+        var link = await server.ToolAsync(key, "oadm_files_upload_link", new JsonObject { ["name"] = "scan.bin", ["size"] = uploadBytes.Length });
+        var linkUrl = new Uri(link["url"]!.GetValue<string>());
+        using (var client = server.Http())
+        using (var put = new HttpRequestMessage(HttpMethod.Put, linkUrl.PathAndQuery) { Content = new ByteArrayContent(uploadBytes) })
+        {
+            put.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", key);
+            using var sent = await client.SendAsync(put);
+            Assert.Equal(System.Net.HttpStatusCode.OK, sent.StatusCode);
+            var fileId = JsonNode.Parse(await sent.Content.ReadAsStringAsync())!["file_id"]!.GetValue<string>();
+            await ChangeAsync("oadm_files_delete", new JsonObject { ["file_ids"] = new JsonArray(fileId) });
+        }
+
+        Assert.Equal(
+            ["oadm_devices_add_preview", "oadm_devices_add_run", "oadm_devices_credentials_preview", "oadm_devices_credentials_run", "oadm_tags_assign_preview", "oadm_tags_assign_run",
+                "oadm_rules_save_preview", "oadm_rules_save_run", "oadm_rules_delete_preview", "oadm_rules_delete_run", "oadm_tasks_cancel_preview", "oadm_tasks_cancel_run",
+                "oadm_task_preview", "oadm_task_run", "oadm_files_delete_preview", "oadm_files_delete_run"],
+            steps);
+
+        var audit = (await server.Host.Audit.ListAsync(new Proto.ListAuditRequest())).Entries
+            .Select(e => string.Join('|', e.UserName, e.Action, e.Target, e.Detail, e.ClientAddress)).ToList();
+        var logs = ReadLogs(server.Host.Get<OadmPaths>().LogsDirectory);
+
+        // The runs really did their work (the scan read answers of runs that succeeded, not refusals).
+        Assert.Contains(audit, e => e.Contains("canary-runs", StringComparison.Ordinal));
+        Assert.Contains("\"added\":1", answers.ToString(), StringComparison.Ordinal);
+
+        var token = linkUrl.AbsolutePath[(linkUrl.AbsolutePath.LastIndexOf('/') + 1)..];
+        string[] secrets = [DevicePassword, ListPassword, server.Host.AdminToken, key, AuthTokenStore.HashOf(key), key["oadm_".Length..], AuthTokenStore.HashOf(key)];
+        foreach (var secret in secrets)
+        {
+            Assert.DoesNotContain(secret, answers.ToString(), StringComparison.Ordinal);
+            Assert.DoesNotContain(audit, e => e.Contains(secret, StringComparison.Ordinal));
+            Assert.DoesNotContain(secret, logs, StringComparison.Ordinal);
+        }
+
+        // The upload token is in the link answer by design; the audit and the server log never hold it.
+        Assert.DoesNotContain(audit, e => e.Contains(token, StringComparison.Ordinal));
+        Assert.DoesNotContain(token, logs, StringComparison.Ordinal);
+    }
+
+    private sealed class OwnCards : IServerNetworkInterfaces
+    {
+        public IReadOnlyList<ServerNetworkInterface> List()
+        {
+            var ip = IPAddress.Parse("10.4.1.254");
+            return [new ServerNetworkInterface("eth0", "eth0", "eth0", [ip], true, false) { PrefixLengths = new Dictionary<IPAddress, int> { [ip] = 24 } }];
+        }
+    }
+
+    private sealed class ScanAction : IActionPlugin
+    {
+        public string Id => "test.scan.notify";
+
+        public string DisplayName => "Notify";
+
+        public string? IconKey => null;
+
+        public bool NeedsDevice => false;
+
+        public IReadOnlyList<ActionField> Fields { get; } = [ActionField.Text("message", "Message", required: true)];
+
+        public Task ExecuteAsync(IActionContext ctx, ActionInvocation invocation, CancellationToken ct) => Task.CompletedTask;
+    }
+
+    /// <summary>A task that waits until it is cancelled (no timing: it never ends by itself).</summary>
+    private sealed class WaitingTask : ITaskPlugin
+    {
+        public const string PluginId = "test.scan.waiting";
+
+        public string Id => PluginId;
+
+        public string DisplayName => "Waits";
+
+        public string? IconKey => null;
+
+        public bool ShowInToolbar => false;
+
+        public bool RequiresDialog => false;
+
+        public bool CanRun(IDeviceInfo device) => true;
+
+        public Task ExecuteAsync(ITaskExecutionContext ctx, IDeviceInfo device, string? payloadJson, CancellationToken ct) => Task.Delay(Timeout.Infinite, ct);
     }
 
     private static string ReadLogs(string directory)

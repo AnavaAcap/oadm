@@ -152,12 +152,14 @@ public sealed class AiAgentsTests
 
             await card.TurnOnCommand.ExecuteAsync(null);
             Assert.True(card.HasConnections);
-            Assert.Equal(["Claude Code", ".mcp.json", "Claude Desktop", "VS Code"], card.Connections.Select(c => c.Title));
+            Assert.Equal(["Claude Code", ".mcp.json", "VS Code"], card.Connections.Select(c => c.Title));
             var code = card.Connections[0].Text;
             Assert.Equal("claude mcp add --transport http oadm https://oadm-server.local:5082/mcp --header \"Authorization: Bearer ${OADM_KEY}\"", code);
             Assert.All(card.Connections, c => Assert.Contains("https://oadm-server.local:5082/mcp", c.Text, StringComparison.Ordinal));
-            Assert.Contains("\"password\": true", card.Connections[3].Text, StringComparison.Ordinal);
-            Assert.Contains("\"servers\"", card.Connections[3].Text, StringComparison.Ordinal);
+            Assert.Contains("\"password\": true", card.Connections[2].Text, StringComparison.Ordinal);
+            Assert.Contains("\"servers\"", card.Connections[2].Text, StringComparison.Ordinal);
+            Assert.All(card.Connections, c => Assert.DoesNotContain("npx", c.Text, StringComparison.OrdinalIgnoreCase));
+            Assert.All(card.Connections, c => Assert.DoesNotContain("mcp-remote", c.Text, StringComparison.OrdinalIgnoreCase));
             Assert.All(card.Connections, c => Assert.DoesNotContain("oadm_", c.Text, StringComparison.Ordinal)); // never a key
 
             await card.CopyCommand.ExecuteAsync(card.Connections[0]);
@@ -176,7 +178,7 @@ public sealed class AiAgentsTests
             Pump();
             Assert.True(view.FindControl<Control>("ConnectAgent")!.IsEffectivelyVisible);
             Assert.True(view.FindControl<Button>("McpDownloadSkill")!.IsEffectivelyVisible);
-            Assert.Equal(4, view.GetVisualDescendants().OfType<Oadm.Sdk.Client.Controls.CodeView>().Count(c => c.IsEffectivelyVisible));
+            Assert.Equal(3, view.GetVisualDescendants().OfType<Oadm.Sdk.Client.Controls.CodeView>().Count(c => c.IsEffectivelyVisible));
             var texts = view.GetVisualDescendants().OfType<TextBlock>().Where(t => t.IsEffectivelyVisible).Select(t => t.Text).ToList();
             Assert.Contains("Connect an agent", texts);
             Save(window, outDir, "client-page-settings-ai-agents-connect.png");

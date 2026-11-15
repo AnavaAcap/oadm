@@ -17,7 +17,7 @@ public sealed record AgentConnection(string Title, string Hint, string Text)
 /// <summary>
 /// The client configurations of the Settings card AI agents (docs/spec/mcp.md "Connect an agent") for this server's address
 /// and port. The access key is never in them: Claude Code and the <c>.mcp.json</c> read it from the variable
-/// <c>OADM_KEY</c>, VS Code asks for it (<c>password</c> input), Claude Desktop reads it from its own setting.
+/// <c>OADM_KEY</c>, VS Code asks for it (<c>password</c> input). Claude Desktop is not listed: no bridge has been tested against this server.
 /// </summary>
 public static class AgentConnections
 {
@@ -58,21 +58,6 @@ public static class AgentConnections
                       "type": "http",
                       "url": "{{url}}",
                       "headers": { "Authorization": "Bearer ${{{KeyVariable}}}" }
-                    }
-                  }
-                }
-                """),
-            new("Claude Desktop", "In claude_desktop_config.json. Replace the two placeholders.",
-                $$"""
-                {
-                  "mcpServers": {
-                    "oadm": {
-                      "command": "npx",
-                      "args": ["-y", "mcp-remote", "{{url}}", "--header", "Authorization:${OADM_AUTH}"],
-                      "env": {
-                        "OADM_AUTH": "Bearer <access key>",
-                        "NODE_EXTRA_CA_CERTS": "<path of oadm-ca.pem>"
-                      }
                     }
                   }
                 }
