@@ -158,7 +158,7 @@ public sealed class HeadlessSmokeTests
             Assert.All(vm.NavItems.Take(3), n => Assert.Null(n.GroupTitle));
 
             // Fake mode is the administrator: every host page is in the bottom group of the rail.
-            Assert.Equal(["plugins", "users", "credentials", "logs", "settings", "about"], vm.BottomNavItems.Select(n => n.Key).ToArray());
+            Assert.Equal(["plugins", "users", "credentials", "logs", "ai", "settings", "about"], vm.BottomNavItems.Select(n => n.Key).ToArray());
             var pageTitles = new Dictionary<string, string>
             {
                 ["users"] = "Who can log in, which devices they reach and what each role may do.",
@@ -166,6 +166,7 @@ public sealed class HeadlessSmokeTests
                 ["plugins"] = "A plugin that is off shows no page, menu entry or toolbar button.",
                 ["settings"] = "Polling", // a card title: the cards are closed by default
                 ["about"] = "Version and licenses.",
+                ["ai"] = Oadm.Client.Settings.AiAgentsViewModel.PageSubtitle,
             };
             foreach (NavItemViewModel item in vm.NavItems.Concat(vm.BottomNavItems).ToList())
             {

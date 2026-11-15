@@ -9,7 +9,7 @@ Each entry is one short line in plain words (what the user gets, not how); no ne
 
 ### Added
 
-- MCP server: agents such as Claude Code work with your devices and tasks through access keys, set up in Settings, AI.
+- MCP server: agents such as Claude Code work with your devices and tasks through access keys, set up on the new page MCP & Assistant.
 - Tasks: a run with settings the task does not accept starts no task and says why.
 - Audit log: adding devices is recorded, also by an agent.
 - Assistant: chat with an AI model about your devices in OADM; it prepares changes and you press Run.

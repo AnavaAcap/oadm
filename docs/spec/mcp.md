@@ -1,6 +1,6 @@
 # MCP server
 
-Status: **all four stages built** (stage 1: the endpoint, the Settings card AI with its section MCP, the PKI policy MCP
+Status: **all four stages built** (stage 1: the endpoint, the card MCP of the rail page MCP & Assistant, the PKI policy MCP
 server, access keys and the read tools; stage 2: the SDK members for tasks, `ValidatePayload` in `TaskService.Run`, the task catalog,
 preview and run, the schemas of the bundled tasks without secrets, cancel, file links; stage 3: device actions, tags,
 sites, compliance, event rules, plugin tools; stage 4: the skill, Connect an agent, the website pages; see the "as built"
@@ -9,8 +9,8 @@ sections). Not offered on purpose: see "Open points".
 Part of the OADM spec (`CLAUDE.md` "Feature specs"): read it before you change this area, update it in the same change.
 
 An AI agent (Claude Code, VS Code, any MCP client) can do through MCP what a user can do in the client, with the role,
-device group, checks and audit log of its access key. "MCP" is the name of this feature in the UI (the Settings card AI,
-section MCP; the PKI policy MCP server). The MCP server is part of the OADM server (core, free,
+device group, checks and audit log of its access key. "MCP" is the name of this feature in the UI (the rail page MCP & Assistant, card
+MCP; the PKI policy MCP server). The MCP server is part of the OADM server (core, free,
 Apache-2.0), off by default. Plugins add their own tools through the SDK, so a new plugin is usable by agents without a
 host change.
 
@@ -65,7 +65,7 @@ filter, preview/run handles and caller rules.
 - Streamable HTTP, MCP revision 2026-07-28 (stateless: no session id, no `initialize`), one endpoint `POST /mcp` on its own
   port (default **TCP 5082**), Kestrel in the server process, official C# SDK `ModelContextProtocol.AspNetCore` 2.x
   (`WithHttpTransport` stateless, `MapMcp`). No stdio, no SSE GET stream, no sampling, no MCP logging (deprecated).
-- **Off by default.** Settings card **AI**, section **MCP** (GUI only; a later section Assistant may follow below it): Turn
+- **Off by default.** Rail page **MCP & Assistant** (above Permissions, every user; administrators change it), card **MCP** (GUI only; the card Assistant stands right of it): Turn
   on, Port, Listen on (the interfaces that are up with an address other than IPv6 link-local, and the loopback;
   `McpListener.Interfaces`), the certificate, **Connect an agent** (see below), **Download
   skill**, **Access keys** (administrators). Off: the port is closed.
@@ -89,7 +89,7 @@ filter, preview/run handles and caller rules.
 Decision 2026-11-15 (redesign): a key is an identity of its own, made by an administrator, never a login of the user who
 made it. There is no Read only flag and no permission "Use AI agents": the key's role decides what an agent may do.
 
-- **Administrators only**, on the Settings card **AI**, section **MCP**, part **Access keys** (`AccessKeyService`, every
+- **Administrators only**, on the page **MCP & Assistant**, card **MCP**, part **Access keys** (`AccessKeyService`, every
   method `AccessRule.Admin`). **Create access key** opens a dialog (`Settings/AccessKeyFormWindow`): Name (1..64 letters,
   digits, spaces, `-`, `_` and `.`, unique on the server, case-insensitive), Role (any role of the role list), Devices
   (All devices or one device group; an Administrator key always has all devices, the field is disabled with "Administrators
@@ -111,7 +111,7 @@ made it. There is no Read only flag and no permission "Use AI agents": the key's
   refusal names the keys ("The access key Lobby-bot has the role Agents. Delete the key first.", the same for a device
   group), like a role that users have.
 - The agent sends `Authorization: Bearer <key>`. Missing or ended key: HTTP 401 with "The access key is not valid. An
-  administrator creates a new one in OADM under Settings, AI."; not allowed: the tool is not listed, and a call answers
+  administrator creates a new one in OADM on the page MCP & Assistant."; not allowed: the tool is not listed, and a call answers
   `isError` with `AccessPolicy.DeniedMessage`.
 - Audit: every change, upload and download an agent causes as "MCP <key name>"; "Created access key" (the name; role,
   devices and the end in the detail) and "Deleted access key" by the administrator who did it; every failed key as "Access
@@ -306,7 +306,7 @@ The website gets a user page (Administration > MCP server, `admin/mcp-server`, n
   `Auth/AccessKeyGrpcService`, `Devices/DeviceSearch` (`DeviceService.Search`: the filter, the sort and the page on the
   server); core `AccessKeyStore` (table AccessKeys, migration `AgentAccessKeys`, which replaced the first design's rows of
   `AuthTokens` of migration `AccessKeys`); PKI `PolicyKinds.McpServer` (shown as "MCP server"), `PkiServerCertificates`;
-  SDK 0.13.0 `IServerCertificates`, `HostServers.Mcp`; client `Settings/AiAgentsCardView` (the card AI, section MCP),
+  SDK 0.13.0 `IServerCertificates`, `HostServers.Mcp`; client `Settings/AiPageView` (the page MCP & Assistant, card MCP),
   `Settings/AccessKeysViewModel` (the list), `Settings/AccessKeyFormWindow` and `AccessKeyFormViewModel` (Create access key).
   Contracts `mcp.proto` (`McpService`, `AccessKeyService`) and `Mcp/McpTexts` (the card's texts, server and client).
 - **Origin**: a request with an `Origin` passes only when it is the request's own scheme, host and port and the host is a
@@ -347,7 +347,7 @@ The website gets a user page (Administration > MCP server, `admin/mcp-server`, n
   sort's key and id (`DeviceService.Search` `after_key`, `after_id`), tasks newest first by their start and id, the audit
   log by its entry id (`AuditService.List` `before_id`), the server log by the line's time and how many lines of that
   millisecond were shown (its lines have no id; `ServerLogService.List` `not_after`).
-- **Card** (AI, section MCP): setting `Mcp` (on, port 1025 to 65535, Listen on), audited "Changed MCP server"; every user
+- **Card** (MCP on the page MCP & Assistant): setting `Mcp` (on, port 1025 to 65535, Listen on), audited "Changed MCP server"; every user
   sees the state and downloads the CA certificate (`oadm-ca.pem`, the issuers of the server's certificate). Off, PKI is not
   asked and the certificate line says "Turn on gets it from the PKI policy MCP server."; the host loads the certificate only while it is
   on (`IServerCertificates.LoadAsync`), and PKI's first load gives a policy without one its own "MCP Server Certificate"

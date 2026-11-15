@@ -14,13 +14,13 @@ devices, so you decide what each agent may do. The agent never sees a password.
 
 The MCP server is part of the OADM server. It is off until an administrator turns it on.
 
-<Image src={settings} alt="The card AI in Settings, section MCP: port, Listen on, the certificate, the status Running on port 5082, Connect an agent and the access keys" class="screen" />
+<Image src={settings} alt="The page MCP & Assistant, card MCP: port, Listen on, the certificate, the status Running on port 5082, Connect an agent and the access keys" class="screen" />
 
 ## Turn it on
 
 <Steps>
 
-1. Open **Settings**, the card **AI**, section **MCP**.
+1. Open the page **MCP & Assistant** in the rail, the card **MCP**.
 2. Choose the **Port** (default 5082) and **Listen on**, the interface the agents reach the server on.
 3. Click **Turn on**. The status next to the buttons shows **Running on port 5082**.
 
@@ -40,7 +40,7 @@ Only administrators create and delete access keys.
 
 <Steps>
 
-1. In **Settings**, card **AI**, section **MCP**, click **Create access key** next to **Access keys**.
+1. On the page **MCP & Assistant**, card **MCP**, click **Create access key** next to **Access keys**.
 2. Enter a **Name** for the agent (letters, digits, spaces, `-`, `_` and `.`).
 3. Choose the **Role**. The role decides what the agent may do: a role like Viewer gives an agent that only looks.
 4. Choose the **Devices**: **All devices** or one [device group](../device-groups/). A key with the
@@ -138,7 +138,7 @@ answer is larger than 32 KB. An agent asks for a summary first and narrows with 
 |---|---|
 | **PKI is not running. The server log says why.** | Open the Logs page and look for the PKI error. |
 | **Port 5082 cannot be opened** | Another program uses the port. Choose another port and save. |
-| The agent says **The access key is not valid. An administrator creates a new one in OADM under Settings, AI.** | The key is wrong, deleted or has ended. Create a new one. |
+| The agent says **The access key is not valid. An administrator creates a new one in OADM on the page MCP & Assistant.** | The key is wrong, deleted or has ended. Create a new one. |
 | The agent does not trust the server | Trust the CA once: **Download CA certificate** on the card. |
 | The agent has no tool for something | The key's role does not have the permission, or the plugin is off. Check the role on the Permissions page. |
 | **The access key Lobby-bot has the role Agents. Delete the key first.** | A key uses the role or device group you want to delete. Delete the key first. |

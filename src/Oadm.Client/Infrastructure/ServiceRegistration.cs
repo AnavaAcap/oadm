@@ -174,7 +174,7 @@ public static class ServiceRegistration
         services.AddSingleton<Assistant.AssistantAvailability>();
         services.AddSingleton(sp => new Assistant.AssistantSettingsViewModel(
             sp.GetRequiredService<IOadmApi>(), sp.GetRequiredService<UserSession>(), sp.GetRequiredService<Assistant.AssistantAvailability>()));
-        services.AddSingleton<AiAgentsViewModel>(); // the rail page AI: the cards MCP (docs/spec/mcp.md) and Assistant
+        services.AddSingleton<AiAgentsViewModel>(); // the rail page MCP & Assistant: the cards MCP (docs/spec/mcp.md) and Assistant
         services.AddSingleton<SettingsViewModel>();
         services.AddSingleton<CredentialsViewModel>();
         services.AddSingleton<LogsViewModel>();

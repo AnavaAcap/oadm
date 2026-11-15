@@ -51,9 +51,10 @@ tests render light with `OADM_TEST_APPEARANCE=Light` (client tests).
   `CorePluginGroups.RailOrder`), Reporting (Snapshot report; System report
   has no page), Maintenance (Edge Recording Export, Edge storage), Integrations, Utilities (Web View), Extensions (default,
   third-party)): only groups with pages appear, the server's order inside a group; expanded rail = a small grey header (`TextBlock.navGroup`) above
-  each group (in the lighter accent color), collapsed = a separator at each group start; the pages scroll when they do not fit. Pinned bottom, top to bottom: Plugins with a divider below it (it changes what the whole client offers), Permissions,
-  Credentials (these three Admin only: hidden for operators, follow the session role live), Logs, Settings, About (icons
-  `plugin`, `users`, `key`, `logs`, `settings`, `info`), then the expand toggle. The logged-in user (an initial avatar and
+  each group (in the lighter accent color), collapsed = a separator at each group start; the pages scroll when they do not fit. Pinned bottom, top to bottom: Plugins with a divider below it (it changes what the whole client offers), Permissions, Credentials
+  (these three Admin only: hidden for operators, follow the session role live), Logs, MCP & Assistant (every user: the cards
+  MCP and Assistant, administrators change them; between Logs and Settings, alphabetical there), Settings, About (icons
+  `plugin`, `users`, `key`, `logs`, `sparkles`, `settings`, `info`), then the expand toggle. The logged-in user (an initial avatar and
   the name, `Button.titleUser`, opens "Your role") and Log out (icon-only `ui:ToolbarButton`) sit at the right of the title
   bar, left of them MyAxis (icon `cloud`, [myaxis.md](myaxis.md); its warning dot is the theme's
   `Ellipse.problemDot.corner`) and Help ([help.md](help.md)), both icon-only `ui:ToolbarButton`s, next to the system window buttons (`Oadm.Theme.Shell.TitleBarLayout` keeps clear of them: `ContentMargin`, or `ContentMarginWithoutMaximize` for the OADM Site Node app; title bars use the theme style `Border.titleBar`: right on Windows and Linux, left on

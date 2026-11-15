@@ -7,13 +7,13 @@
              xmlns:a="using:Oadm.Client.Assistant"
              x:Class="Oadm.Client.Settings.AiPageView"
              x:DataType="settings:AiAgentsViewModel">
-  <!-- Rail page AI, every user (docs/spec/mcp.md, docs/spec/assistant.md "Settings"): the card MCP left, the card Assistant
+  <!-- Rail page MCP & Assistant, every user (docs/spec/mcp.md, docs/spec/assistant.md "Settings"): the card MCP left, the card Assistant
        right (stacked on a narrow page, AiPageView.axaml.cs).
        Administrators turn the MCP server on and set the port and interface (Save); the certificate is the one the PKI policy
        MCP server picks. The status sits left of the buttons it reports on, like the EST server's. Access keys (administrators
        only), then Connect an agent: one compact row per client. -->
   <Grid RowDefinitions="Auto,*">
-    <c:PageTitleBar Grid.Row="0" Title="AI" Subtitle="{x:Static settings:AiAgentsViewModel.PageSubtitle}" Margin="0,0,0,16" />
+    <c:PageTitleBar Grid.Row="0" Title="{x:Static settings:AiAgentsViewModel.PageTitle}" Subtitle="{x:Static settings:AiAgentsViewModel.PageSubtitle}" Margin="0,0,0,16" />
     <ScrollViewer Grid.Row="1">
     <Grid x:Name="Columns" ColumnDefinitions="*,16,*" RowDefinitions="Auto,Auto" VerticalAlignment="Top">
     <Border Grid.Column="0" Classes="card" VerticalAlignment="Top">

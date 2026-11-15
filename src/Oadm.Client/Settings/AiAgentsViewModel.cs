@@ -18,14 +18,17 @@ using Oadm.Sdk.Network;
 namespace Oadm.Client.Settings;
 
 /// <summary>
-/// The rail page AI, card MCP (docs/spec/mcp.md "Transport and certificate"), and its card Assistant: MCP is off by default; Turn on,
+/// The rail page MCP &amp; Assistant, card MCP (docs/spec/mcp.md "Transport and certificate"), and its card Assistant: MCP is off by default; Turn on,
 /// Port and Listen on for administrators (Save), the certificate the PKI policy MCP server picks, and Download CA certificate
 /// for the agent's computer. Without PKI: "PKI is not running. The server log says why." and no Turn on. Every user sees the state.
 /// </summary>
 public sealed partial class AiAgentsViewModel : ValidatingViewModel
 {
-    /// <summary>The key of the rail page AI.</summary>
+    /// <summary>The key of the rail page MCP &amp; Assistant.</summary>
     public const string PageKey = "ai";
+
+    /// <summary>The rail entry and title of the page.</summary>
+    public const string PageTitle = "MCP & Assistant";
     public const string Intro = "AI agents such as Claude Code connect to OADM over MCP with an access key.";
     public const string PageSubtitle = "Agents and the Assistant work with your devices.";
     public const string ChooseCertificate = McpTexts.CertificateOnTurnOn;

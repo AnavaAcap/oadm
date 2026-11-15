@@ -155,7 +155,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
             }
         };
 
-        _aiItem = ai is null ? null : new NavItemViewModel(Settings.AiAgentsViewModel.PageKey, "AI", "sparkles", ai);
+        _aiItem = ai is null ? null : new NavItemViewModel(Settings.AiAgentsViewModel.PageKey, Settings.AiAgentsViewModel.PageTitle, "sparkles", ai);
         _usersItem = new NavItemViewModel(HostPages.Users, "Permissions", "users", users);
         _credentialsItem = new NavItemViewModel(HostPages.Credentials, "Credentials", "key", credentials);
         _pluginsItem = pluginList is null ? null : new NavItemViewModel(HostPages.Plugins, "Plugins", "plugin", pluginList);
@@ -573,12 +573,12 @@ public sealed partial class MainWindowViewModel : ObservableObject
     private void SyncBottomNavItems()
     {
         // Plugins first, with a divider below it: turning plugins on and off changes what the whole client offers.
-        // AI above Permissions: every user sees it (administrators change it), so it also stands above Logs for the others.
+        // MCP & Assistant between Logs and Settings (alphabetical there); every user sees it, administrators change it.
         NavItemViewModel[] aiItems = _aiItem is null ? [] : [_aiItem];
-        NavItemViewModel[] adminItems = _pluginsItem is null ? [.. aiItems, _usersItem, _credentialsItem] : [_pluginsItem, .. aiItems, _usersItem, _credentialsItem];
+        NavItemViewModel[] adminItems = _pluginsItem is null ? [_usersItem, _credentialsItem] : [_pluginsItem, _usersItem, _credentialsItem];
         NavItemViewModel[] wanted = Session.IsAdmin
-            ? [.. adminItems, _logsItem, _settingsItem, _aboutItem]
-            : [.. aiItems, _logsItem, _settingsItem, _aboutItem];
+            ? [.. adminItems, _logsItem, .. aiItems, _settingsItem, _aboutItem]
+            : [_logsItem, .. aiItems, _settingsItem, _aboutItem];
         if (BottomNavItems.SequenceEqual(wanted))
         {
             return;

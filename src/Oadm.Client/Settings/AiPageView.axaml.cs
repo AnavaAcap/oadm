@@ -3,7 +3,7 @@ using Avalonia.Controls;
 
 namespace Oadm.Client.Settings;
 
-/// <summary>The rail page AI (see <see cref="AiAgentsViewModel"/>): the card MCP left, the card Assistant right.</summary>
+/// <summary>The rail page MCP &amp; Assistant (see <see cref="AiAgentsViewModel"/>): the card MCP left, the card Assistant right.</summary>
 public partial class AiPageView : UserControl
 {
     /// <summary>

@@ -346,7 +346,7 @@ used again.
   "Signed in to MyAxis"; FAILED_PRECONDITION "MyAxis did not accept the sign-in. Try again."; UNAVAILABLE "MyAxis could
   not be reached. Check the server's internet access."), `SignOut` (deletes it, audited "Signed out of MyAxis" when there
   was one; always succeeds). The session never comes back in an answer.
-- **`McpService`** (`mcp.proto`, `docs/spec/mcp.md`, the Settings card AI, section MCP): `Get` (signed in: on, port, Listen on,
+- **`McpService`** (`mcp.proto`, `docs/spec/mcp.md`, the page MCP & Assistant, card MCP): `Get` (signed in: on, port, Listen on,
   running, the status text, PKI there, the certificate and its names; the interfaces for the Administrator role only),
   `Set` (Admin, all devices; audited "Changed MCP server" with what changed; INVALID_ARGUMENT for a port outside 1025 to
   65535 or an unknown interface, FAILED_PRECONDITION "PKI is not running. The server log says why."), `GetCaCertificate` (signed

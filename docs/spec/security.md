@@ -87,8 +87,8 @@ AuthTokens, AuditEntries) and `Roles`; client `Shell/AppShell`, `LoginViewModel`
   on gRPC, 401 on MCP). Audited: every change an agent causes, "Uploaded file" and "Downloaded file" as "MCP <key name>";
   "Created access key" (the name; role, devices and the end in the detail) and "Deleted access key" by the administrator;
   "Access key refused" ("MCP <key name>" when its row is still there, else "Unknown access key" or "No access key"; one
-  entry per address and key a minute with the count). `AccessKeyService` (`mcp.proto`): Administrator only (the Settings
-  card AI, section MCP).
+  entry per address and key a minute with the count). `AccessKeyService` (`mcp.proto`): Administrator only (the page MCP & Assistant,
+  card MCP).
   `AuthMaintenanceHostedService` removes expired sessions and old audit entries hourly. A new password or a disabled user
   ends the sessions; a new role applies to the next call (`AuthTokenStore.SetRole`). An expired session ends like a
   logout (`SessionsEnded` for its token, when its next use finds it expired or in the hourly cleanup): its streams, plugin
