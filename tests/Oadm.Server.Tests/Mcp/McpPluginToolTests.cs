@@ -294,8 +294,8 @@ public sealed class McpPluginToolTests
         return server;
     }
 
-    /// <summary>The page of the user docs that lists every tool an agent can be offered (website/src/content/docs/tools/mcp-server/tools.mdx).</summary>
-    private static readonly string ToolsPage = Oadm.Tests.Shared.TestRepository.Path("website", "src", "content", "docs", "tools", "mcp-server", "tools.mdx");
+    /// <summary>The page of the user docs that lists every tool an agent can be offered (website/src/content/docs/admin/mcp-server/tools.mdx).</summary>
+    private static readonly string ToolsPage = Oadm.Tests.Shared.TestRepository.Path("website", "src", "content", "docs", "admin", "mcp-server", "tools.mdx");
 
     [Fact]
     public async Task TheToolsPageOfTheDocsListsEveryToolAsTheServerOffersIt()

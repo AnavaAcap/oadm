@@ -18,8 +18,10 @@ export default defineConfig({
 	redirects: {
 		'/admin/sites': '/sites/overview/',
 		'/tools/vision-center/nodes': '/tools/vision-center/objects/',
-		'/tools/ai-agents': '/tools/mcp-server/',
-		'/tools/ai-agents/tools': '/tools/mcp-server/tools/',
+		'/tools/ai-agents': '/admin/mcp-server/',
+		'/tools/ai-agents/tools': '/admin/mcp-server/tools/',
+		'/tools/mcp-server': '/admin/mcp-server/',
+		'/tools/mcp-server/tools': '/admin/mcp-server/tools/',
 		...offlineRedirects,
 	},
 	// The developer tutorials show the sample plugins of samples/ (outside website/) as they are: allow reading them.
@@ -167,14 +169,6 @@ export default defineConfig({
 						{ label: 'Image Health Dashboard', slug: 'tools/image-health-dashboard' },
 						{ label: 'Live View', slug: 'tools/live-view' },
 						{ label: 'Load test', slug: 'tools/load-test' },
-						{
-							label: 'MCP server',
-							collapsed: true,
-							items: [
-								{ label: 'Overview', slug: 'tools/mcp-server' },
-								{ label: 'MCP tools', slug: 'tools/mcp-server/tools' },
-							],
-						},
 						{ label: 'Metadata Monitor', slug: 'tools/metadata-monitor' },
 						{ label: 'NTP server', slug: 'tools/ntp-server' },
 						{ label: 'PKI', slug: 'tools/pki' },
@@ -220,6 +214,14 @@ export default defineConfig({
 					items: [
 						{ label: 'Device groups', slug: 'admin/device-groups' },
 						{ label: 'Logs and troubleshooting', slug: 'admin/troubleshooting' },
+						{
+							label: 'MCP server',
+							collapsed: true,
+							items: [
+								{ label: 'Overview', slug: 'admin/mcp-server' },
+								{ label: 'MCP tools', slug: 'admin/mcp-server/tools' },
+							],
+						},
 						{ label: 'Ports, data and backup', slug: 'admin/ports-and-data' },
 						{ label: 'Settings', slug: 'admin/settings' },
 						{ label: 'Turn plugins on or off', slug: 'admin/plugins' },

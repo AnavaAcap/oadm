@@ -26,7 +26,7 @@ The MCP server is part of the OADM server. It is off until an administrator turn
 
 </Steps>
 
-Agents connect over HTTPS. The certificate comes from the **MCP server** policy of the [PKI](../pki/) page, and the
+Agents connect over HTTPS. The certificate comes from the **MCP server** policy of the [PKI](../../tools/pki/) page, and the
 first **Turn on** makes its own certificate, **MCP Server Certificate**. It also names `localhost`, for an agent on the
 server's own computer. You can choose another one in that policy. When
 PKI is not running, the card says "PKI is not running. The server log says why." On Windows the installed server opens
@@ -43,7 +43,7 @@ Only administrators create and delete access keys.
 1. In **Settings**, card **AI**, section **MCP**, click **Create access key** next to **Access keys**.
 2. Enter a **Name** for the agent (letters, digits, spaces, `-`, `_` and `.`).
 3. Choose the **Role**. The role decides what the agent may do: a role like Viewer gives an agent that only looks.
-4. Choose the **Devices**: **All devices** or one [device group](../../admin/device-groups/). A key with the
+4. Choose the **Devices**: **All devices** or one [device group](../device-groups/). A key with the
    Administrator role always has all devices.
 5. Choose when it **Expires** (30, 90 or 365 days) and click **Create**.
 6. Click the copy button next to the new key and keep it where the agent can read it.
@@ -103,7 +103,7 @@ Every tool with what it does: [MCP tools](./tools/).
 - Add and remove tags, read sites and compliance results, and create, change or delete event rules.
 - Read PKI certificates and create one, and read the NTP server, DHCP server and Hardening scan pages. Other plugins can
   bring their own tools, shown only while the plugin is on.
-- Run commands of the [VAPIX Commander](../vapix-commander/) library and saved commands on many devices, for settings
+- Run commands of the [VAPIX Commander](../../tools/vapix-commander/) library and saved commands on many devices, for settings
   no task covers (image, video, I/O, PTZ, storage and more). Not offered: dangerous commands, commands with a password or
   a file, and changes OADM's own tasks make. A value that looks like a password in an answer shows as `***`.
 - Upload files, such as a firmware file, without the file passing through the agent.
