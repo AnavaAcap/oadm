@@ -118,6 +118,11 @@ Every tool with what it does: [MCP tools](./tools/).
   no task covers (image, video, I/O, PTZ, storage and more). Not offered: dangerous commands, commands with a password or
   a file, and changes OADM's own tasks make. A value that looks like a password in an answer shows as `***`.
 - Upload files, such as a firmware file, without the file passing through the agent.
+- Fetch files OADM makes: the device list and compliance results as CSV, a task's result, a recording, the snapshot
+  report, a certificate (never its key) and the hardening results. The agent gets a one-time download link and saves the
+  file from its shell; the file never passes through the agent. Never a backup.
+- Set a password a change needs without the agent seeing it: the agent gives you a command, you run it in your own
+  terminal and type the password there. It goes straight to OADM and is used once.
 
 Every change has two steps. The agent asks OADM for a **preview** that checks everything and writes nothing. It answers
 what would run, on which devices, what is skipped and why, and any warning. Only after you agree does the agent run it,
@@ -128,8 +133,9 @@ it. The audit log names the key: "MCP Lobby-bot".
 
 ## What agents cannot do
 
-- Read or set passwords, private keys, license keys or tokens. A task that needs a new password is not offered: set the
-  password in OADM.
+- Read passwords, private keys, license keys or tokens, or get one through the chat. A password you type into the
+  agent's command goes to OADM only. A task whose password has no such command yet is not offered: set the password in
+  OADM.
 - Change users, roles, device groups, access keys, the license, plugins or the server settings, restore a backup or
   delete all devices or tasks.
 - Show live video.
