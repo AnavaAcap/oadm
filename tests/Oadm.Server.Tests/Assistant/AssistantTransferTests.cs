@@ -103,6 +103,47 @@ public sealed class AssistantTransferTests
         Assert.Equal(2, audit.Count(e => e.Action == AuditActions.FileDownloaded && e.Target == file.Name));
     }
 
+    [Fact]
+    public async Task ANewAccessKeyIsACardWhoseCopyFetchesItOnceAndTheModelNeverSeesIt()
+    {
+        await using var server = await AssistantTestServer.StartAsync();
+        server.Model.Call(("oadm_access_keys_create_preview", AssistantTestServer.Args("""{"name":"Desk","role":"Administrator"}"""))).Say("Press Run to create it.");
+
+        var events = await server.ChatAsync("Make an access key for the desk agent");
+        var card = Assert.Single(events, e => e.KindCase == Proto.AssistantEvent.KindOneofCase.Preview).Preview;
+        Assert.Contains(card.Details, d => d == "Creates the access key: Desk");
+        Assert.Contains(card.Warnings, w => w.Contains("The new key has the role Administrator and all devices", StringComparison.Ordinal));
+
+        var reply = await server.Service().RunAsync(new Proto.AssistantRunRequest { ConversationId = "chat-1", Handle = card.Handle });
+        Assert.Equal("Access key Desk", reply.Secret.Title);
+        var key = Encoding.UTF8.GetString(await DownloadAsync(server.Service(), "chat-1", reply.Secret.FileRef));
+        Assert.StartsWith(AccessKeyStore.Prefix, key, StringComparison.Ordinal);
+        Assert.NotNull(await server.Host.Get<AccessKeyStore>().ValidateAsync(key, CancellationToken.None));
+
+        // Copy fetches it once; another chat or user never.
+        var twice = await Assert.ThrowsAsync<RpcException>(() => DownloadAsync(server.Service(), "chat-1", reply.Secret.FileRef));
+        Assert.Equal(StatusCode.NotFound, twice.StatusCode);
+        Assert.Equal(OneTimeSecret.Taken, twice.Status.Detail);
+
+        server.Model.Say("Done.");
+        var next = await server.ChatAsync("Thanks");
+        foreach (var part in new[] { key, key[AccessKeyStore.Prefix.Length..], reply.Secret.FileRef })
+        {
+            foreach (var request in server.Model.Requests)
+            {
+                Assert.DoesNotContain(part, request.AllText(), StringComparison.Ordinal);
+            }
+
+            Assert.DoesNotContain(part, string.Concat(events.Concat(next).Select(e => e.ToString())), StringComparison.Ordinal);
+            Assert.DoesNotContain(part, McpSecretTests.ReadLogs(server.Host.Get<OadmPaths>().LogsDirectory), StringComparison.Ordinal);
+        }
+
+        Assert.Contains(AccessKeyTools.CardNote, server.Model.Requests[^1].AllText(), StringComparison.Ordinal);
+        var audit = (await server.Host.Audit.ListAsync(new Proto.ListAuditRequest())).Entries;
+        Assert.DoesNotContain(audit, e => string.Join('|', e.Target, e.Detail).Contains(key, StringComparison.Ordinal));
+        Assert.Contains(audit, e => e.Action == AuditActions.AccessKeyCreated && e.Target == "Desk");
+    }
+
     private static async Task<byte[]> DownloadAsync(Proto.AssistantService.AssistantServiceClient client, string chat, string fileRef)
     {
         using var call = client.Download(new Proto.AssistantDownloadRequest { ConversationId = chat, FileRef = fileRef });

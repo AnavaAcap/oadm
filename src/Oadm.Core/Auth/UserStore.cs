@@ -35,6 +35,20 @@ public sealed class UserStore(IDbContextFactory<OadmDbContext> dbFactory, Passwo
     public const int MaxUserNameLength = 64;
     public const int MaxPasswordLength = 256;
 
+    /// <summary>The refusals that keep a caller from locking themselves out (the Users page and the AI agents say the same).</summary>
+    public const string OwnRoleOrState = "You cannot change the role or state of your own account.";
+
+    /// <inheritdoc cref="OwnRoleOrState"/>
+    public const string OwnAccount = "You cannot delete your own account.";
+
+    public const string UnknownUser = "The user does not exist (any more).";
+
+    /// <summary>"anna is the last enabled administrator. Add or enable another administrator first."</summary>
+    public static string LastAdministrator(string userName) => $"{userName} is the last enabled administrator. Add or enable another administrator first.";
+
+    /// <summary>"A user named anna exists already."</summary>
+    public static string NameTaken(string userName) => $"A user named {userName} exists already.";
+
     private readonly SemaphoreSlim _write = new(1, 1);
     private volatile bool _hasUsers;
     private readonly System.Collections.Concurrent.ConcurrentDictionary<Guid, (long Version, UserRecord? User)> _byId = new();
@@ -194,7 +208,7 @@ public sealed class UserStore(IDbContextFactory<OadmDbContext> dbFactory, Passwo
             var normalized = Normalize(name);
             if (await db.Users.AnyAsync(u => u.NormalizedName == normalized, ct).ConfigureAwait(false))
             {
-                throw new AuthException(AuthError.InvalidArgument, $"A user named {name} exists already.");
+                throw new AuthException(AuthError.InvalidArgument, NameTaken(name));
             }
 
             var entity = new UserEntity
@@ -250,7 +264,7 @@ public sealed class UserStore(IDbContextFactory<OadmDbContext> dbFactory, Passwo
         {
             await using var db = await dbFactory.CreateDbContextAsync(ct).ConfigureAwait(false);
             var user = await db.Users.FirstOrDefaultAsync(u => u.Id == id, ct).ConfigureAwait(false)
-                ?? throw new AuthException(AuthError.NotFound, "The user does not exist (any more).");
+                ?? throw new AuthException(AuthError.NotFound, UnknownUser);
             var changes = new List<string>();
             var roleChanges = roleId is { } newRole && newRole != user.RoleId;
             if (roleChanges && !await db.Roles.AnyAsync(r => r.Id == roleId!.Value, ct).ConfigureAwait(false))
@@ -261,7 +275,7 @@ public sealed class UserStore(IDbContextFactory<OadmDbContext> dbFactory, Passwo
             var stateChanges = disabled is { } newState && newState != user.Disabled;
             if ((roleChanges || stateChanges) && actorId == user.Id)
             {
-                throw new AuthException(AuthError.Precondition, "You cannot change the role or state of your own account.");
+                throw new AuthException(AuthError.Precondition, OwnRoleOrState);
             }
 
             if ((roleChanges && !BuiltInRoles.IsAdministrator(roleId!.Value)) || (stateChanges && disabled == true))
@@ -374,10 +388,10 @@ public sealed class UserStore(IDbContextFactory<OadmDbContext> dbFactory, Passwo
         {
             await using var db = await dbFactory.CreateDbContextAsync(ct).ConfigureAwait(false);
             var user = await db.Users.FirstOrDefaultAsync(u => u.Id == id, ct).ConfigureAwait(false)
-                ?? throw new AuthException(AuthError.NotFound, "The user does not exist (any more).");
+                ?? throw new AuthException(AuthError.NotFound, UnknownUser);
             if (actorId == user.Id)
             {
-                throw new AuthException(AuthError.Precondition, "You cannot delete your own account.");
+                throw new AuthException(AuthError.Precondition, OwnAccount);
             }
 
             await RequireAnotherEnabledAdminAsync(db, user, ct).ConfigureAwait(false);
@@ -439,7 +453,7 @@ public sealed class UserStore(IDbContextFactory<OadmDbContext> dbFactory, Passwo
         var admin = BuiltInRoles.AdministratorId;
         if (!await db.Users.AnyAsync(u => u.Id != user.Id && u.RoleId == admin && !u.Disabled, ct).ConfigureAwait(false))
         {
-            throw new AuthException(AuthError.Precondition, $"{user.UserName} is the last enabled administrator. Add or enable another administrator first.");
+            throw new AuthException(AuthError.Precondition, LastAdministrator(user.UserName));
         }
     }
 }

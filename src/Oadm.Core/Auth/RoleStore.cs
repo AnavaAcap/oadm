@@ -63,6 +63,23 @@ public sealed partial class RoleStore(IDbContextFactory<OadmDbContext> dbFactory
     public const int MaxCustomRoles = 50;
     public const int MaxStartPageLength = 200;
 
+    /// <summary>The refusals of the roles (the Permissions page and the AI agents say the same).</summary>
+    public const string AdministratorFixed = "The Administrator role always has every permission and cannot change.";
+
+    /// <inheritdoc cref="AdministratorFixed"/>
+    public const string TooManyRoles = "OADM keeps at most 50 roles of your own. Delete one first.";
+
+    /// <summary>"A role named Agents exists already."</summary>
+    public static string NameTaken(string name) => $"A role named {name} exists already.";
+
+    /// <summary>"Operator is built in and cannot be deleted."</summary>
+    public static string BuiltIn(string name) => $"{name} is built in and cannot be deleted.";
+
+    /// <summary>"1 user has the role Agents. Give that user another role first."</summary>
+    public static string InUse(string name, int users) => users == 1
+        ? $"1 user has the role {name}. Give that user another role first."
+        : string.Create(System.Globalization.CultureInfo.InvariantCulture, $"{users} users have the role {name}. Give them another role first.");
+
     private readonly SemaphoreSlim _write = new(1, 1);
     private volatile Snapshot? _snapshot;
     private PermissionCatalog _catalog = PermissionCatalog.HostOnly;
@@ -251,7 +268,7 @@ public sealed partial class RoleStore(IDbContextFactory<OadmDbContext> dbFactory
                         || (change.Description?.Trim() ?? string.Empty) != admin.Description
                         || change.Permissions is { Count: > 0 })
                     {
-                        throw new AuthException(AuthError.Precondition, "The Administrator role always has every permission and cannot change.");
+                        throw new AuthException(AuthError.Precondition, AdministratorFixed);
                     }
 
                     if (change.Version != 0 && change.Version != VersionOf(admin))
@@ -287,7 +304,7 @@ public sealed partial class RoleStore(IDbContextFactory<OadmDbContext> dbFactory
                 {
                     if (roles.Count(r => r.Kind == RoleKind.Custom) >= MaxCustomRoles)
                     {
-                        throw new AuthException(AuthError.InvalidArgument, $"OADM keeps at most {MaxCustomRoles} roles of your own. Delete one first.");
+                        throw new AuthException(AuthError.InvalidArgument, TooManyRoles);
                     }
 
                     role = new RoleEntity
@@ -308,7 +325,7 @@ public sealed partial class RoleStore(IDbContextFactory<OadmDbContext> dbFactory
                         ?? throw new AuthException(AuthError.NotFound, "The role does not exist (any more).");
                     if (role.Kind == RoleKind.Administrator)
                     {
-                        throw new AuthException(AuthError.Precondition, "The Administrator role always has every permission and cannot change.");
+                        throw new AuthException(AuthError.Precondition, AdministratorFixed);
                     }
 
                     if (change.Version != 0 && change.Version != VersionOf(role))
@@ -323,7 +340,7 @@ public sealed partial class RoleStore(IDbContextFactory<OadmDbContext> dbFactory
                 var normalized = name.ToUpperInvariant();
                 if (roles.Any(r => r.Id != role.Id && r.NormalizedName == normalized))
                 {
-                    throw new AuthException(AuthError.InvalidArgument, $"A role named {name} exists already.");
+                    throw new AuthException(AuthError.InvalidArgument, NameTaken(name));
                 }
 
                 // Keys the catalog does not know (a plugin that is not loaded) stay as they were.
@@ -385,15 +402,13 @@ public sealed partial class RoleStore(IDbContextFactory<OadmDbContext> dbFactory
                 ?? throw new AuthException(AuthError.NotFound, "The role does not exist (any more).");
             if (role.Kind != RoleKind.Custom)
             {
-                throw new AuthException(AuthError.Precondition, $"{role.Name} is built in and cannot be deleted.");
+                throw new AuthException(AuthError.Precondition, BuiltIn(role.Name));
             }
 
             var users = await db.Users.CountAsync(u => u.RoleId == id, ct).ConfigureAwait(false);
             if (users > 0)
             {
-                throw new AuthException(AuthError.Precondition, users == 1
-                    ? $"1 user has the role {role.Name}. Give that user another role first."
-                    : $"{users} users have the role {role.Name}. Give them another role first.");
+                throw new AuthException(AuthError.Precondition, InUse(role.Name, users));
             }
 
             // An access key keeps its role like a user (docs/spec/mcp.md "Access keys"): refused, naming the keys.

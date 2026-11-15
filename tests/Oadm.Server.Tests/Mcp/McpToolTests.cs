@@ -6,6 +6,7 @@ using Oadm.Core.Devices;
 using Oadm.Core.Persistence;
 using Oadm.Core.Plugins;
 using Oadm.Plugins.Restart;
+using Oadm.Server.Auth;
 using Oadm.Server.Mcp;
 using Oadm.Server.Tools;
 using Oadm.Server.Tests.Support;
@@ -33,21 +34,21 @@ public sealed partial class McpToolTests
     ];
 
     /// <summary>The tools of the areas stage 3 (tags, sites, compliance, event rules, the event log): <see cref="McpAreaToolTests"/>.</summary>
-    private static readonly string[] AreaTools = [.. McpAreaToolTests.ToolNames, .. McpHostActionTests.ToolNames];
+    private static readonly string[] AreaTools = [.. McpAreaToolTests.ToolNames, .. McpHostActionTests.ToolNames, .. McpAccessToolTests.ToolNames];
 
     /// <summary>The tools that change something (rule 2: each with its preview).</summary>
     private static readonly string[] WriteTools =
     [
         "oadm_devices_add_run", "oadm_devices_credentials_run", "oadm_devices_refresh_run", "oadm_devices_remove_run", "oadm_files_delete_run",
         "oadm_files_upload_link", "oadm_task_run", "oadm_tasks_cancel_run",
-        .. McpAreaToolTests.RunTools, .. McpHostActionTests.RunTools,
+        .. McpAreaToolTests.RunTools, .. McpHostActionTests.RunTools, .. McpAccessToolTests.RunTools,
     ];
 
     /// <summary>The runs that replace, stop or remove something (<c>destructiveHint</c>): a task run, a cancel, a file delete, credentials, a removal, tag removal, a replaced or deleted rule. Add only adds, Refresh only reads again.</summary>
     private static readonly string[] DestructiveTools =
     [
         "oadm_devices_credentials_run", "oadm_devices_remove_run", "oadm_files_delete_run", "oadm_task_run", "oadm_tasks_cancel_run",
-        .. McpAreaToolTests.RunTools, .. McpHostActionTests.RunTools.Except(McpHostActionTests.AddingRuns),
+        .. McpAreaToolTests.RunTools, .. McpHostActionTests.RunTools.Except(McpHostActionTests.AddingRuns), .. McpAccessToolTests.RunTools.Except(McpAccessToolTests.AddingRuns),
     ];
 
     /// <summary>Previews that act outside OADM (the add scan): no plain read, so not announced as one.</summary>
@@ -137,12 +138,13 @@ public sealed partial class McpToolTests
     ];
 
     /// <summary>The gRPC methods the tools of the areas call (<see cref="McpAreaToolTests.Methods"/>).</summary>
-    private static readonly string[] AreaMethods = [.. McpAreaToolTests.Methods, .. McpHostActionTests.Methods];
+    private static readonly string[] AreaMethods = [.. McpAreaToolTests.Methods, .. McpHostActionTests.Methods, .. McpAccessToolTests.Methods];
 
     [Fact]
-    public async Task NoToolReachesUsersRolesDeviceGroupsAccessKeysLicensePluginsSettingsChangesBackupsOrResets()
+    public async Task NoToolReachesLicensePluginsSettingsChangesBackupsOrResetsAndAccessOnlyThroughItsAdministratorTools()
     {
-        // Rule 5: an agent can never raise rights; these stay GUI only (docs/spec/mcp.md "Not over MCP").
+        // Rule 5: these stay GUI only (docs/spec/mcp.md "Not over MCP"). Users, roles, device groups and access keys are
+        // Administrator-only tools since the decision of 2026-11-15 (McpAccessToolTests): only these methods of those services.
         await using var server = await McpTestServer.StartAsync(turnOn: false);
         var tools = server.Host.Get<ToolRegistry>().All;
         Assert.Equal(Stage1Tools.Length + AreaTools.Length, tools.Count);
@@ -152,9 +154,14 @@ public sealed partial class McpToolTests
 
         string[] guiOnly =
         [
-            "UserService", "RoleService", "DeviceGroupService", "AccessKeyService", "LicenseService", "PluginService", "McpService",
-            "BackupService", "UpdateService", "SupportService",
+            "LicenseService", "PluginService", "McpService", "BackupService", "UpdateService", "SupportService",
         ];
+        string[] access = ["UserService", "RoleService", "DeviceGroupService", "AccessKeyService"];
+        Assert.Equal(McpAccessToolTests.Methods.Order(StringComparer.Ordinal),
+            methods.Where(m => access.Any(s => m.StartsWith("/oadm.v1." + s + "/", StringComparison.Ordinal))).Order(StringComparer.Ordinal));
+        Assert.All(tools.Where(t => t.Methods.Any(m => access.Any(s => m.StartsWith("/oadm.v1." + s + "/", StringComparison.Ordinal)))),
+            t => Assert.All(t.Methods.Where(m => access.Any(s => m.StartsWith("/oadm.v1." + s + "/", StringComparison.Ordinal))),
+                m => Assert.Equal(AccessRule.Admin, AccessPolicy.For(m))));
         // License, plugins and MCP: only the reads of oadm_server_status (what every signed-in user sees), never a change.
         // The version check reads what the new version dialog shows (decision 2026-11-15); Install now stays in OADM.
         string[] readsOfGuiServices = ["/oadm.v1.LicenseService/GetLicense", "/oadm.v1.PluginService/ListPackages", "/oadm.v1.McpService/Get", "/oadm.v1.UpdateService/Get"];

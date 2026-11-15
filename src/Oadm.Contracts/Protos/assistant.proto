@@ -185,6 +185,17 @@ message AssistantRunReply {
   string batch_id = 1;
   int32 task_count = 2;
   repeated string task_ids = 3;            // the card follows them in the client's task store
+  // A secret the run made (a new access key, docs/spec/mcp.md "Access keys"): the panel shows a card with Copy, which fetches
+  // it once through Download (file_ref). Never part of the conversation or sent to the model; unset for most runs.
+  AssistantSecretCard secret = 4;
+}
+
+// A secret to copy once (a new access key): its card's title and the reference Copy fetches with Download (NOT_FOUND after the
+// first fetch: "This access key was fetched already. ...").
+message AssistantSecretCard {
+  string title = 1;                        // "Access key Lobby-bot"
+  string file_ref = 2;
+  string expires_utc = 3;                  // ISO 8601; the reference ends then (10 minutes)
 }
 
 message AssistantSettings {

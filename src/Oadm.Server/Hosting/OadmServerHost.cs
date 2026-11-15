@@ -226,6 +226,11 @@ public static partial class OadmServerHost
                     .. Tools.TaskChangeTools.Create(sp.GetRequiredService<Tools.ToolHandles>()),
                     .. Tools.LiveViewTools.Create(sp.GetRequiredService<Tools.ToolHandles>()),
                     .. Tools.HostActionTools.Create(sp.GetRequiredService<Tools.ToolHandles>()),
+                    .. Tools.UserTools.Create(cursors, sp.GetRequiredService<Tools.ToolHandles>()),
+                    .. Tools.RoleTools.Create(cursors, sp.GetRequiredService<Tools.ToolHandles>()),
+                    .. Tools.DeviceGroupTools.Create(cursors, sp.GetRequiredService<Tools.ToolHandles>()),
+                    .. Tools.AccessKeyTools.Create(cursors, sp.GetRequiredService<Tools.ToolHandles>(), sp.GetRequiredService<TimeProvider>(),
+                        sp.GetRequiredService<Core.Security.CredentialProtector>()),
                     .. Tools.DeviceChangeTools.Create(sp.GetRequiredService<Tools.ToolHandles>(), sp.GetRequiredService<TimeProvider>()),
                     .. Tools.SettingsTools.Create(),
                     Tools.ServerStatusTool.Create(call => call.CallAsync<Mcp.McpGrpcService, Oadm.Contracts.V1.Empty, Oadm.Contracts.V1.McpState>(

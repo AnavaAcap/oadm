@@ -125,6 +125,12 @@ internal sealed record ToolCall(ToolCaller Caller, JsonElement Arguments, InProc
     /// <summary>A run that starts tasks sets their ids here (<see cref="ToolResult.TaskIds"/>): the assistant's card follows them.</summary>
     public IReadOnlyList<string>? TaskIds { get; set; }
 
+    /// <summary>
+    /// A run that made a secret (a new access key) offers it here once (<see cref="ToolResult.SecretFile"/>): never in the JSON,
+    /// so it never reaches a model; the assistant shows it as a card with Copy.
+    /// </summary>
+    public ToolSecretFile? SecretFile { get; set; }
+
     /// <summary>A gRPC method of the server as the caller's user.</summary>
     public Task<TResponse> CallAsync<TService, TRequest, TResponse>(string path, TRequest request, Func<TService, TRequest, ServerCallContext, Task<TResponse>> call)
         where TService : class =>
@@ -160,6 +166,9 @@ internal sealed record ToolResult(JsonObject? Answer, string? Error, IReadOnlyLi
 
     /// <summary>The tasks a run started, in device order; null for most tools (never in the JSON: it grows with the devices).</summary>
     public IReadOnlyList<string>? TaskIds { get; init; }
+
+    /// <summary>A secret the run made, offered once (never in the JSON); null for most tools.</summary>
+    public ToolSecretFile? SecretFile { get; init; }
 
     public static ToolResult Ok(JsonObject answer) => new(answer, null, []);
 
@@ -260,7 +269,7 @@ internal sealed class ToolRegistry
             args = SelectionTools.Apply(caller, args); // "selection": true is the caller's selected devices
             var call = new ToolCall(caller, args, _calls, ct) { Tool = tool.Name, SecretStore = _secrets, SecretValues = secretValues ?? new Dictionary<string, string>() };
             var answer = await tool.Run(call).ConfigureAwait(false);
-            return ToolResult.Ok(answer) with { Image = call.Image, TaskIds = call.TaskIds };
+            return ToolResult.Ok(answer) with { Image = call.Image, TaskIds = call.TaskIds, SecretFile = call.SecretFile };
         }
         catch (ToolException ex)
         {
