@@ -26,7 +26,7 @@ namespace Oadm.Server.Tests.Mcp;
 
 /// <summary>
 /// The real server with its MCP server on an in-memory test server (no network): a fake PKI offers a self-signed certificate
-/// for the policy MCP server, the administrator turns MCP on through McpService, users get access keys through
+/// for the policy AI agents, the administrator turns MCP on through McpService, users get access keys through
 /// AccessKeyService. <see cref="PostAsync"/> sends one JSON-RPC request with the headers of revision 2026-07-28;
 /// <see cref="ConnectAsync"/> connects the official C# client.
 /// </summary>
@@ -326,6 +326,7 @@ internal sealed class FakeServerCertificates : IServerCertificates, IDisposable
 {
     private readonly X509Certificate2 _ca;
     private readonly X509Certificate2 _leaf;
+    private readonly byte[] _leafPfx;
 
     public FakeServerCertificates()
     {
@@ -340,7 +341,8 @@ internal sealed class FakeServerCertificates : IServerCertificates, IDisposable
         request.CertificateExtensions.Add(names.Build());
         using var signed = request.Create(_ca, DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow.AddYears(1), [1, 2, 3, 4]);
         using var withKey = signed.CopyWithPrivateKey(key);
-        _leaf = X509CertificateLoader.LoadPkcs12(withKey.Export(X509ContentType.Pfx), null);
+        _leafPfx = withKey.Export(X509ContentType.Pfx);
+        _leaf = X509CertificateLoader.LoadPkcs12(_leafPfx, null);
     }
 
     /// <summary>Set: the policy has no usable certificate.</summary>
@@ -360,7 +362,7 @@ internal sealed class FakeServerCertificates : IServerCertificates, IDisposable
     public Task<HostServerCertificate> LoadAsync(string server, CancellationToken ct) =>
         Interlocked.Increment(ref _loads) > 0 && Problem is { } problem
             ? Task.FromResult(new HostServerCertificate([], problem))
-            : Task.FromResult(new HostServerCertificate([X509CertificateLoader.LoadPkcs12(_leaf.Export(X509ContentType.Pfx), null), X509CertificateLoader.LoadCertificate(_ca.RawData)], null));
+            : Task.FromResult(new HostServerCertificate([X509CertificateLoader.LoadPkcs12(_leafPfx, null), X509CertificateLoader.LoadCertificate(_ca.RawData)], null));
 
     public void Dispose()
     {
