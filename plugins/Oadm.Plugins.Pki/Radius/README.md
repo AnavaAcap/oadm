@@ -56,3 +56,8 @@ Apache-2.0), also for `plugins/Oadm.Plugins.Pki.Client/Radius`.
 The read-only tool `oadm_radius_log` (`Tools/RadiusTools.cs`, docs/spec/mcp.md "Plugins"): the state and the log of the
 caller's devices, newest first, paged, with a result filter on top of the log's own search; never a shared secret or a
 certificate; while the server is off its state only. Tests: `ToolTests`.
+
+The page's actions (`Tools/RadiusPageTools.cs`, `PluginPageTools`, decision 2026-11-15), each with the rights of its page
+method: `oadm_radius_sessions` (the Sessions tab of the caller's devices, newest first, paged; no sessions while the server is
+off) and `oadm_radius_log_delete_preview` / `_run` (Delete log: Administrator, "manage", users with all devices, the run
+audited; an empty log is refused, "The log is empty."). Tests: `PageToolTests`.

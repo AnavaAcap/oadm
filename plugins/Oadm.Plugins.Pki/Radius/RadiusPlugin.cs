@@ -153,16 +153,18 @@ public sealed class RadiusPlugin : ICorePlugin, IEventSource, IAsyncDisposable
     /// policies are PKI's ("Manage the certificate authority").
     /// </summary>
     /// <summary>The log tool (docs/spec/mcp.md "Plugins"): the state and the log of the caller's devices, read only like the Log tab.</summary>
-    public IReadOnlyList<PluginTool> Tools => RadiusTools.All;
+    public IReadOnlyList<PluginTool> Tools { get; } = [.. RadiusTools.All, .. RadiusPageTools.Set.Tools];
 
-    public UserRole RequiredRole(string method) => method is ServerSwitchMethods.Get or RadiusMethods.GetState or RadiusMethods.ListSwitches
+    public UserRole RequiredRole(string method) => RoleOf(RadiusPageTools.Set.RulesMethodOf(method));
+
+    private static UserRole RoleOf(string method) => method is ServerSwitchMethods.Get or RadiusMethods.GetState or RadiusMethods.ListSwitches
         or RadiusMethods.ListSessions or RadiusMethods.ListLog or RadiusMethods.GetLogCertificate or RadiusMethods.ListSites
         || method == RadiusTools.Log.Method
         ? UserRole.Operator
         : UserRole.Admin;
 
     /// <summary>Generate only makes a random text: not audited.</summary>
-    public bool IsAudited(string method) => RequiredRole(method) == UserRole.Admin && method is not RadiusMethods.GenerateSecret;
+    public bool IsAudited(string method) => RequiredRole(method) == UserRole.Admin && method is not RadiusMethods.GenerateSecret && !PluginTool.IsPreviewMethod(method);
 
     public IReadOnlyList<PermissionDefinition> Permissions { get; } =
     [
@@ -174,7 +176,9 @@ public sealed class RadiusPlugin : ICorePlugin, IEventSource, IAsyncDisposable
     /// Switches and Delete all are for users with all devices; users limited to a group read the page with the Sessions and
     /// Log rows of their devices.
     /// </summary>
-    public bool RequiresAllDevices(string method) => ServerSwitchMethods.IsChange(method) || method is RadiusMethods.SaveSettings or RadiusMethods.SaveSwitch or RadiusMethods.GenerateSecret
+    public bool RequiresAllDevices(string method) => AllDevicesOnly(RadiusPageTools.Set.RulesMethodOf(method));
+
+    private static bool AllDevicesOnly(string method) => ServerSwitchMethods.IsChange(method) || method is RadiusMethods.SaveSettings or RadiusMethods.SaveSwitch or RadiusMethods.GenerateSecret
         or RadiusMethods.DeleteSwitch or RadiusMethods.DeleteLog;
 
     /// <summary>The page backend with the user's call: rows of devices are filtered to the caller's devices.</summary>
@@ -195,6 +199,11 @@ public sealed class RadiusPlugin : ICorePlugin, IEventSource, IAsyncDisposable
                 ServerSwitchMethods.TurnOff => await server.TurnOffAsync(ct).ConfigureAwait(false),
                 _ => server.State,
             });
+        }
+
+        if (RadiusPageTools.Set.Handles(method))
+        {
+            return await RadiusPageTools.Set.InvokeAsync(this, caller, method, payloadJson, ct).ConfigureAwait(false);
         }
 
         if (method == RadiusTools.Log.Method && Service is null)

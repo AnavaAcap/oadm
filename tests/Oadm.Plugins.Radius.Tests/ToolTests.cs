@@ -26,7 +26,7 @@ public sealed class ToolTests
 
         harness.Tick();
         ICorePlugin core = harness.Plugin;
-        Assert.Equal("log", Assert.Single(core.Tools).Name);
+        Assert.Equal(["log", "sessions", "log_delete"], core.Tools.Select(t => t.Name));
         Assert.Equal(UserRole.Operator, core.RequiredRole(RadiusTools.Log.Method));
         Assert.False(core.IsAudited(RadiusTools.Log.Method));
 
