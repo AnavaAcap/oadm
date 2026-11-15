@@ -10,15 +10,15 @@
         ShowInTaskbar="False"
         WindowDecorations="BorderOnly">
   <!-- Access keys of MCP (administrators, docs/spec/mcp.md "Access keys"), opened by the button Access keys of the card MCP:
-       the list; Create access key opens the form that shows the key once; Delete asks first and ends the key at once. -->
+       one card (like Waiting devices): the toolbar, the list; Create access key opens the form that shows the key once; Delete asks first and ends the key at once. -->
   <Grid RowDefinitions="Auto,*,Auto">
     <ui:DialogTitleBar Grid.Row="0" Text="{x:Static settings:AccessKeyWords.Title}" />
 
-    <Border Grid.Row="1" Classes="dialogBody">
+    <Border Grid.Row="1" Classes="card" Margin="16,0">
       <Grid RowDefinitions="Auto,Auto,Auto,*,Auto">
-        <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,8">
+        <ui:ToolbarOverflowPanel Grid.Row="0" Spacing="4" Margin="0,0,0,10">
           <ui:ToolbarButton x:Name="CreateAccessKey" Text="{x:Static settings:AccessKeyWords.Create}" IconKey="add" Command="{Binding CreateCommand}" />
-        </StackPanel>
+        </ui:ToolbarOverflowPanel>
         <ui:ProgressRow Grid.Row="1" Text="Reading the access keys" IsVisible="{Binding IsLoading}" />
         <TextBlock Grid.Row="2" Classes="secondary" Text="{x:Static settings:AccessKeyWords.Empty}" TextWrapping="Wrap" IsVisible="{Binding IsEmpty}" />
         <DataGrid Grid.Row="3" x:Name="KeysGrid" ItemsSource="{Binding Keys}" IsReadOnly="True" CanUserSortColumns="True" CanUserReorderColumns="False"
