@@ -23,17 +23,32 @@
         <ui:CardHeader Grid.Row="0" Title="{Binding PackageTitle}" Description="{Binding PackageDetails}" />
         <ui:FileRow Grid.Row="1" Margin="0,0,0,10" FileName="{Binding PackageFileName}" Details="{Binding PackageFileDetails}" Error="{Binding PackageError}" Command="{Binding PickPackageCommand}" />
         <!-- The package per device group: only when OADM cannot decide for a group, or a mapping file of the package decides -->
-        <DataGrid Grid.Row="2" Margin="0,0,0,10" MaxHeight="190" ItemsSource="{Binding Groups}" IsReadOnly="True" SelectionMode="Single" CanUserReorderColumns="False" IsVisible="{Binding ShowGroups}">
+        <DataGrid Grid.Row="2" Classes="wrapRows" Margin="0,0,0,10" MaxHeight="200" ItemsSource="{Binding Groups}" IsReadOnly="True" SelectionMode="Single" CanUserReorderColumns="False" IsVisible="{Binding ShowGroups}">
           <DataGrid.Columns>
-            <DataGridTextColumn Header="Devices" Binding="{Binding Label}" Width="*" x:DataType="vm:PackageGroupRow" />
-            <DataGridTemplateColumn Header="Package" Width="210">
+            <DataGridTemplateColumn Header="Devices" Width="*" SortMemberPath="Label">
               <DataGridTemplateColumn.CellTemplate>
                 <DataTemplate x:DataType="vm:PackageGroupRow">
-                  <ComboBox Margin="6,4" HorizontalAlignment="Stretch" ItemsSource="{Binding Choices}" SelectedItem="{Binding SelectedChoice}" IsEnabled="{Binding IsChoosable}" PlaceholderText="Choose file" />
+                  <TextBlock Classes="cellText" Text="{Binding Label}" ToolTip.Tip="{Binding Label}" />
                 </DataTemplate>
               </DataGridTemplateColumn.CellTemplate>
             </DataGridTemplateColumn>
-            <DataGridTextColumn Header="Decided by" Binding="{Binding Source}" Width="130" x:DataType="vm:PackageGroupRow" />
+            <DataGridTemplateColumn Header="Package" Width="200" SortMemberPath="SelectedChoice">
+              <DataGridTemplateColumn.CellTemplate>
+                <DataTemplate x:DataType="vm:PackageGroupRow">
+                  <Panel>
+                    <ComboBox Margin="6,4" HorizontalAlignment="Stretch" ItemsSource="{Binding Choices}" SelectedItem="{Binding SelectedChoice}" PlaceholderText="Choose file" IsVisible="{Binding IsChoosable}" />
+                    <TextBlock Classes="cellText" Text="{Binding SelectedChoice}" ToolTip.Tip="{Binding SelectedChoice}" IsVisible="{Binding !IsChoosable}" />
+                  </Panel>
+                </DataTemplate>
+              </DataGridTemplateColumn.CellTemplate>
+            </DataGridTemplateColumn>
+            <DataGridTemplateColumn Header="Decided by" Width="110" SortMemberPath="Source">
+              <DataGridTemplateColumn.CellTemplate>
+                <DataTemplate x:DataType="vm:PackageGroupRow">
+                  <TextBlock Classes="cellText" Text="{Binding Source}" />
+                </DataTemplate>
+              </DataGridTemplateColumn.CellTemplate>
+            </DataGridTemplateColumn>
           </DataGrid.Columns>
         </DataGrid>
         <DataGrid Grid.Row="3" Classes="wrapRows" ItemsSource="{Binding Compatibility}" IsReadOnly="True" SelectionMode="Single" CanUserReorderColumns="False" IsVisible="{Binding HasPackage}">
