@@ -257,14 +257,21 @@ The four tasks are offered to AI agents through the host's task tools (`oadm_tas
 
 | Task | Input | Checks (field errors) | Plan |
 |---|---|---|---|
-| Configure devices | `settings` (name, value), `actionRules`, `schedules`, `streamProfiles` (the dialog's models) | `ConfigurePayload.Check`: the payload rules with their texts at `settings[i].name` ...; device addresses (`AddressNote`), secret names ("Set the password in OADM.") and values with line breaks or over 4,096 characters refused | runs where `CanRun`; a per-device value (host name, device names) skips every device of a run of several (`PerDeviceNote`); warnings: dangerous parameters with their reason, "Each device checks the values ...", rules and profiles of the same name are replaced |
+| Configure devices | `settings` (name, value), `actionRules`, `schedules`, `streamProfiles` (the dialog's models) | `ConfigurePayload.Check`: the payload rules with their texts at `settings[i].name` ...; device addresses (`AddressNote`) and values with line breaks or over 4,096 characters refused; a secret name's value is entered by the user (`SecretsOf`, an empty one "Enter the password.", at most 8: "Set at most 8 passwords in one run.") | runs where `CanRun`; a per-device value (host name, device names) skips every device of a run of several (`PerDeviceNote`); warnings: dangerous parameters with their reason, "Each device checks the values ...", rules and profiles of the same name are replaced, "Sets <names> with the values the user enters." |
 | Create configuration file | `parameters` (names; a name ending in a dot is a group), `actionRules`, `streamProfiles` (names) | "Check what to save", a name twice or empty, a secret name | runs where `CanRun` |
 | Export configuration | none (`{}`) | any field: "The export takes no settings." | runs where `CanRun` |
 | Import configuration | `fileId`, `fileName`, `sections` (area keys, `connection` included) | `ImportPayload.Check`: file, "Choose at least one settings area", unknown areas, no ZIP | the uploaded file read like the task reads it: other model, a broken or removed file skip with the dialog's texts; warnings: the settings are replaced, connection settings can make the devices unreachable, the identity stays; the file's name and SHA-256 |
 
 - **Agent form.** Configure devices reads `settings` and `actionRules` (the dialog sends `parameters` and `rules`), so the
-  task knows an agent's payload (`ConfigurePayload.FromAgent`) and skips a password parameter of the device's definitions
-  whatever its name ("Set the password in OADM."). Import without `files` (`ImportPayload.ForEveryDevice`) gives the one
+  task knows an agent's payload (`ConfigurePayload.FromAgent`).
+- **Passwords of agents** (docs/spec/mcp.md "Secrets"). The agent sends a setting or an action parameter whose name says
+  pass, secret or community (`SecretNames`) with an empty value; `ConfigurePayload.SecretsOf` makes a slot of each
+  (`setting_<i>` at `settings[i].value`, `rule_<i>_parameter_<j>` at `actionRules[i].action.parameters[j].value`, label
+  "password for <name>", at most 64 characters), the user enters the value through the secret link or the Assistant's card,
+  and the run's payload has it (in memory only, masked in steps and logs). The host refuses an agent's own value there and
+  checks an entered one with `ValidatePayload` at once. `Check(json, requireSecrets: false)` is the plan's check before the
+  values exist. A password parameter of the device's definitions whose name is no secret name is still skipped ("Set the
+  password in OADM."): that value would be the agent's own. Import without `files` (`ImportPayload.ForEveryDevice`) gives the one
   `.json` to every device of the run; each device checks the model again.
 - **Permissions** as in the dialogs: `dangerous` for the parameters of `DangerousParameters`, `connection` for the area
   `connection`.
@@ -272,10 +279,10 @@ The four tasks are offered to AI agents through the host's task tools (`oadm_tas
   is the task's result in its log (`TaskFileResult`: a line with name, size and SHA-256, then the text in parts of 1,900
   characters; a file of more than 400 parts gets the line only). Create configuration file never writes a password or a
   secret value of an action into the file.
-- **Open (TODO hooks).** `TODO(secret-handle)` in `ConfigurePayload.Check` and `ConfigureDevicesTask`: passwords through a
-  secret handle once the secret channel exists. `TODO(download-link)` in `TaskFileResult`: the file as a download link.
+- **Open (TODO hooks).** `TODO(download-link)` in `TaskFileResult`: the file as a download link.
 - Tests: `AgentTaskInputTests` (schemas through the host's exporter, field errors, plans, permissions, no request on an
-  invalid input, the API refusal, the password parameter skipped, the files in the log, the agent's import), and the
+  invalid input, the API refusal, the password parameter skipped, the entered password written and never shown, the
+  secrets' slots and plan, the files in the log, the agent's import), host `McpAgentTaskSecretTests`, and the
   dialog tests check the dialogs' payloads against `ValidatePayload`.
 
 ## Tools

@@ -430,8 +430,9 @@ public sealed record ConfigurePayload
     /// <summary>
     /// Reads and checks the payload of the dialog or of an agent (<see cref="ConfigureMcpPayload"/>): the problems of the first
     /// check that fails, each at its JSON field (<c>settings[2].name</c>), with the texts <see cref="Parse"/> throws. The agent's
-    /// form also refuses device addresses (<see cref="DangerousParameters.AddressNote"/>), secret values
-    /// (<see cref="SetPasswordInOadm"/>) and values no parameter takes. Reads only the payload, never a device.
+    /// form also refuses device addresses (<see cref="DangerousParameters.AddressNote"/>) and values no parameter takes; a
+    /// secret's value is the person's (<see cref="SecretsOf"/>), an empty one is refused ("Enter the password."). Reads only
+    /// the payload, never a device.
     /// </summary>
     public static (ConfigurePayload? Payload, IReadOnlyList<PayloadError> Errors) Check(string? json) => Check(json, requireSecrets: true);
 
