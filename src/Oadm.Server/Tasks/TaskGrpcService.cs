@@ -258,6 +258,43 @@ public sealed partial class TaskGrpcService(
         }
     }
 
+    /// <summary>The most secrets one run takes (the secret channel's slots of one preview).</summary>
+    public const int MaxSecrets = 8;
+
+    /// <summary>The secrets a run of the payload needs (<see cref="Sdk.Plugins.ITaskPlugin.SecretsOf"/>); a plugin's failing answer refuses the plan.</summary>
+    internal IReadOnlyList<Sdk.Tasks.TaskSecret> SecretsOf(Sdk.Plugins.ITaskPlugin plugin, string? payload)
+    {
+        IReadOnlyList<Sdk.Tasks.TaskSecret> secrets;
+        try
+        {
+            secrets = plugin.SecretsOf(payload) ?? [];
+        }
+#pragma warning disable CA1031 // A plugin's failing answer refuses the plan, it never breaks the server.
+        catch (Exception ex)
+#pragma warning restore CA1031
+        {
+            LogPayloadCheckFailed(ex, plugin.Id);
+            throw GrpcGuard.InvalidArgument(PayloadUnreadable);
+        }
+
+        if (secrets.Count > MaxSecrets
+            || secrets.Any(s => !SecretName().IsMatch(s.Name ?? string.Empty) || string.IsNullOrWhiteSpace(s.Label) || s.Label.Length > 64 || string.IsNullOrWhiteSpace(s.Field))
+            || secrets.Select(s => s.Name).Distinct(StringComparer.Ordinal).Count() != secrets.Count)
+        {
+            throw GrpcGuard.InvalidArgument(PayloadUnreadable); // fail closed: the run could not get its secrets
+        }
+
+        return secrets;
+    }
+
+    /// <summary>True when <paramref name="field"/> is <paramref name="secret"/> or inside it ("password", "settings[2].value").</summary>
+    internal static bool IsField(string? field, string secret) =>
+        field is not null && (string.Equals(field, secret, StringComparison.Ordinal)
+            || (field.StartsWith(secret, StringComparison.Ordinal) && field.Length > secret.Length && field[secret.Length] is '.' or '['));
+
+    [System.Text.RegularExpressions.GeneratedRegex("^[a-z][a-z0-9]*(_[a-z0-9]+)*$", System.Text.RegularExpressions.RegexOptions.CultureInvariant)]
+    private static partial System.Text.RegularExpressions.Regex SecretName();
+
     /// <summary>
     /// What a Run of the payload would do on the filter's devices, nothing written (docs/spec/grpc.md): the checks of Run, the
     /// payload's field errors (then nothing else), else the devices to run in address order, the skipped ones by reason, the
@@ -278,6 +315,17 @@ public sealed partial class TaskGrpcService(
         var view = await views.ForAsync(context).ConfigureAwait(false);
         var reply = new Proto.TaskPlanReply();
         var errors = PayloadErrors(task.Plugin, payload, engine.CallFor(view, TaskCaller.Of(caller)));
+        if (request.CheckOnly)
+        {
+            reply.Errors.AddRange(errors.Select(e => new Proto.PayloadFieldError { Field = e.Field, Message = e.Message }));
+            return reply;
+        }
+
+        // The secrets the person enters later (ITaskPlugin.SecretsOf): their fields are empty now, so their errors wait for
+        // the check of the entered value and for Run.
+        var secrets = SecretsOf(task.Plugin, payload);
+        reply.Secrets.AddRange(secrets.Select(s => new Proto.TaskSecretSlot { Name = s.Name, Label = s.Label, Field = s.Field }));
+        errors = [.. errors.Where(e => !secrets.Any(s => IsField(e.Field, s.Field)))];
         if (errors.Count > 0)
         {
             reply.Errors.AddRange(errors.Select(e => new Proto.PayloadFieldError { Field = e.Field, Message = e.Message }));

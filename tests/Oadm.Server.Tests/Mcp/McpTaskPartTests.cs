@@ -95,7 +95,8 @@ public sealed class McpTaskPartTests
 
         // A password (users, install certificates) or a new trust anchor on the devices (install CA certificates: the dialog
         // shows each one to the person) stays in OADM.
-        string[] notOffered = [UsersTaskPlugin.PluginId, PkiTaskIds.Install, PkiTaskIds.InstallCa];
+        string[] notOffered = [PkiTaskIds.Install, PkiTaskIds.InstallCa];
+        Assert.Contains(UsersTaskPlugin.PluginId, tasks); // its password comes through the secret channel
         Assert.All(notOffered, id => Assert.DoesNotContain(id, tasks));
         Assert.All(notOffered, id => Assert.Null(TaskPayloadSchemas.Of(server.Host.Get<PluginRegistry>().TryGetTaskPlugin(id, out var plugin) ? plugin.Plugin : throw new InvalidOperationException(id))));
 

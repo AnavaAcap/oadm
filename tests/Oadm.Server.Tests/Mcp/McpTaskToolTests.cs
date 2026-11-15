@@ -49,7 +49,7 @@ public sealed class McpTaskToolTests
         var tasks = catalog["tasks"]!.AsArray().Select(t => t!.AsObject()).ToDictionary(t => t["task"]!.GetValue<string>());
         Assert.Contains(RestartTaskPlugin.PluginId, tasks.Keys);
         Assert.Contains(DateTimeTaskPlugin.PluginId, tasks.Keys);
-        Assert.DoesNotContain(UsersTaskPlugin.PluginId, tasks.Keys); // its password is a secret (rule 4)
+        Assert.Contains(UsersTaskPlugin.PluginId, tasks.Keys); // its password comes through the secret channel (rule 4)
         var restart = tasks[RestartTaskPlugin.PluginId];
         Assert.Equal(1, restart["can_run"]!.GetValue<int>());
         Assert.Equal(1, Assert.Single(restart["cannot_run"]!.AsArray())!["count"]!.GetValue<int>());
@@ -58,10 +58,8 @@ public sealed class McpTaskToolTests
         Assert.Equal(["Ntp", "ServerTime", "Manual"], schema["properties"]!["mode"]!["enum"]!.AsArray().Select(v => v!.GetValue<string>()));
         Assert.Equal(5, schema["properties"]!["ntp"]!["properties"]!["servers"]!["maxItems"]!.GetValue<int>());
 
-        var users = await server.CallToolAsync(key, "oadm_tasks_catalog", new JsonObject { ["task"] = UsersTaskPlugin.PluginId });
-        Assert.True(users["isError"]!.GetValue<bool>());
-        Assert.Contains(TaskRunTools.NotOffered, users["content"]![0]!["text"]!.GetValue<string>(), StringComparison.Ordinal);
-        Assert.Null(TaskPayloadSchemas.Of(new UsersTaskPlugin()));
+        // The secret is no input: the person enters it (docs/spec/mcp.md "Secrets").
+        Assert.DoesNotContain("password", TaskPayloadSchemas.Of(new UsersTaskPlugin())!["properties"]!.AsObject().Select(p => p.Key));
     }
 
     [Fact]

@@ -302,3 +302,59 @@ public static class PluginToolErrors
         }.ToJsonString();
     }
 }
+
+/// <summary>
+/// A secret the run of a plugin tool's change needs (SDK 0.13.0, docs/spec/mcp.md "Secrets"): a password, a passphrase, a key.
+/// The caller never sends it as an argument: the preview names it in its answer's <see cref="PluginToolSecrets.Property"/>
+/// (a <see cref="PluginToolPlan"/> sets <see cref="PluginToolPlan.SecretsNeeded"/>), the person enters the value in their own
+/// shell or the assistant's card, and the host hands it to the run (and to a check of the value) in the payload's
+/// <see cref="PluginToolSecrets.ValuesProperty"/>. Never echo a value in an answer, an audit detail or a log line.
+/// </summary>
+/// <param name="Name">Lower case words with underscores ("password", "pkcs12_password").</param>
+/// <param name="Label">What the person is asked for, in lower case ("password", "PKCS#12 password", "license key").</param>
+public sealed record PluginToolSecret(
+    [property: System.Text.Json.Serialization.JsonPropertyName("name")] string Name,
+    [property: System.Text.Json.Serialization.JsonPropertyName("label")] string Label);
+
+/// <summary>The secrets of a plugin tool's change (<see cref="PluginToolSecret"/>) as the host passes them.</summary>
+public static class PluginToolSecrets
+{
+    /// <summary>The property of a preview's answer that names the secrets the run needs (a list of <see cref="PluginToolSecret"/>); the host takes it out.</summary>
+    public const string Property = "secrets_needed";
+
+    /// <summary>The property of the payload that holds the values by name: all of them for the run, one when the host checks a value the person entered.</summary>
+    public const string ValuesProperty = "secrets";
+
+    /// <summary>
+    /// The secret values of a payload by name; empty for a preview, all of the preview's for a run, the one value being checked
+    /// when the host asks the preview method whether an entered value fits (answer a field error at <c>secrets.&lt;name&gt;</c>).
+    /// </summary>
+    public static IReadOnlyDictionary<string, string> Of(string? payloadJson)
+    {
+        var values = new Dictionary<string, string>(StringComparer.Ordinal);
+        if (string.IsNullOrWhiteSpace(payloadJson))
+        {
+            return values;
+        }
+
+        try
+        {
+            if (JsonNode.Parse(payloadJson) is JsonObject payload && payload[ValuesProperty] is JsonObject secrets)
+            {
+                foreach (var (name, value) in secrets)
+                {
+                    if (value is JsonValue text && text.TryGetValue<string>(out var secret))
+                    {
+                        values[name] = secret;
+                    }
+                }
+            }
+        }
+        catch (JsonException)
+        {
+            // no secrets
+        }
+
+        return values;
+    }
+}

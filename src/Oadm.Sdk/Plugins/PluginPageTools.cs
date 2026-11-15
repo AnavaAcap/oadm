@@ -178,7 +178,7 @@ public sealed class PluginPageTools<TOwner>(JsonSerializerOptions? json = null)
     private string Serialize<T>(T value) => JsonSerializer.Serialize(value, Json);
 
     private static PluginToolInput<TArgs> Input<TArgs>(object args, string? payloadJson) =>
-        new((TArgs)args, PluginToolDevices.Of(payloadJson), PluginToolPage.Of(payloadJson));
+        new((TArgs)args, PluginToolDevices.Of(payloadJson), PluginToolPage.Of(payloadJson)) { Secrets = PluginToolSecrets.Of(payloadJson) };
 
     private sealed record Entry(PluginTool Tool, string PageMethod, Type ArgsType, Func<TOwner, ICallContext, object, string?, bool, CancellationToken, Task<string>> Handle);
 }
@@ -187,7 +187,17 @@ public sealed class PluginPageTools<TOwner>(JsonSerializerOptions? json = null)
 /// <param name="Args">The arguments, read and checked against their validation attributes.</param>
 /// <param name="Devices">The devices of a tool with <see cref="PluginTool.DeviceFilter"/> (none for another tool). Look each id up with the caller.</param>
 /// <param name="Page">The page of a tool with <see cref="PluginTool.Paged"/> (the first page for another tool).</param>
-public sealed record PluginToolInput<TArgs>(TArgs Args, PluginToolDevices Devices, PluginToolPage Page);
+public sealed record PluginToolInput<TArgs>(TArgs Args, PluginToolDevices Devices, PluginToolPage Page)
+{
+    /// <summary>
+    /// The secrets the person entered (<see cref="PluginToolPlan.SecretsNeeded"/>): none in a preview, all of them in the run,
+    /// the one being checked when the host asks the check whether an entered value fits (refuse it at <c>secrets.&lt;name&gt;</c>).
+    /// </summary>
+    public IReadOnlyDictionary<string, string> Secrets { get; init; } = new Dictionary<string, string>();
+
+    /// <summary>The secret <paramref name="name"/>; null when this call has none (a preview).</summary>
+    public string? Secret(string name) => Secrets.TryGetValue(name, out var value) ? value : null;
+}
 
 /// <summary>
 /// Invalid arguments of a tool of <see cref="PluginPageTools{TOwner}"/>: one entry per field (its JSON name, nested with dots) with
@@ -234,4 +244,12 @@ public sealed class PluginToolInputException : ArgumentException
 /// <param name="Unit">What they are: one word in the singular ("reader", "pipeline", "lease", "device").</param>
 public abstract record PluginToolPlan(
     [property: Description("How many things the run changes.")] int WillChange,
-    [property: Description("What they are, in the singular.")] string Unit);
+    [property: Description("What they are, in the singular.")] string Unit)
+{
+    /// <summary>
+    /// The secrets the run needs (SDK 0.13.0, <see cref="PluginToolSecret"/>); null or empty: none. The host takes them out of
+    /// the answer and asks the person for them; the run reads them with <see cref="PluginToolInput{TArgs}.Secret"/>.
+    /// </summary>
+    [System.Text.Json.Serialization.JsonPropertyName(PluginToolSecrets.Property)]
+    public IReadOnlyList<PluginToolSecret>? SecretsNeeded { get; init; }
+}

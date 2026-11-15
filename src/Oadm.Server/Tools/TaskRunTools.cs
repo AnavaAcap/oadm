@@ -49,6 +49,9 @@ internal static class TaskRunTools
     public const int ShownDevices = 20;
 
     public const string NotOffered = "This task is not offered over MCP. Run it in OADM.";
+
+    /// <summary>The refusal of a value an agent put where the person enters a secret (a password parameter's value).</summary>
+    public const string SecretFromUser = "Leave this empty. The user enters it through the secret link.";
     public const string NothingToRun = "No device of the filter would get this task.";
 
     /// <summary>The refusal for a role that may run no task: its agent gets no task or file tool (cancel stays).</summary>
@@ -137,6 +140,7 @@ internal static class TaskRunTools
                 ], "name", "sha256"))),
                 P("handle", OrNull(Out("string", "Pass it to oadm_task_run; null when nothing would run."))),
                 P("expires", OrNull(Out("string", "When the handle ends (UTC)."))),
+                .. ToolSecretAnswers.OutputProperties(),
             ], "task", "task_name", "devices", "will_run", "first", "skipped", "warnings", "files", "handle", "expires"),
             [PlanPath, PluginsPath, DeviceTools.SearchPath],
             call => PreviewAsync(call, handles));
@@ -331,13 +335,23 @@ internal static class TaskRunTools
             }
         }
 
+        // An agent never sends a secret: where the person enters one, the input holds nothing.
+        var given = JsonNode.Parse(payload);
+        if (plan.Secrets.Where(s => TaskSecretPaths.Get(given, s.Field) is { } value && !IsEmpty(value)).Select(s => s.Field).ToList() is { Count: > 0 } sent)
+        {
+            throw new ToolException(ToolAnswers.FieldsMessage, [.. sent.Select(f => new ToolFieldError(Join("input", f), SecretFromUser))]);
+        }
+
         string? handle = null;
         if (plan.RunDeviceIds.Count > 0)
         {
-            handle = handles.AddRun(call.Caller.BindingKey, new PlannedRun(task, [.. plan.RunDeviceIds], payload, plan.TaskName));
+            handle = handles.AddRun(call.Caller.BindingKey, new PlannedRun(task, [.. plan.RunDeviceIds], payload, plan.TaskName)
+            {
+                Secrets = [.. plan.Secrets.Select(s => new TaskSecretField(s.Name, s.Field))],
+            });
         }
 
-        return new JsonObject
+        var answer = new JsonObject
         {
             ["task"] = task,
             ["task_name"] = plan.TaskName,
@@ -350,6 +364,30 @@ internal static class TaskRunTools
             ["handle"] = handle,
             ["expires"] = handle is null ? null : Time(handles.EndOfNew()),
         };
+        if (handle is not null && plan.Secrets.Count > 0)
+        {
+            // One slot per secret; a value the person enters is checked at once with the plugin's rules (Plan, check_only).
+            var caller = call.Caller;
+            var calls = call.Calls;
+            ToolSecretAnswers.Declare(call, answer, handle, "oadm_task_run", [.. plan.Secrets.Select(s => new ToolSecretSlot(s.Name, s.Label, ToolSecrets.MaxBytes)
+            {
+                Check = (value, ct) => CheckSecretAsync(calls, caller, task, payload, s.Field, value, ct),
+            })]);
+        }
+
+        return answer;
+    }
+
+    private static bool IsEmpty(JsonNode value) =>
+        value.GetValueKind() is JsonValueKind.Null || (value.GetValueKind() == JsonValueKind.String && value.GetValue<string>().Length == 0);
+
+    /// <summary>The plugin's refusal of <paramref name="value"/> at <paramref name="field"/>, in memory only; null when it fits.</summary>
+    private static async Task<string?> CheckSecretAsync(InProcessCalls calls, ToolCaller caller, string task, string payload, string field, string value, CancellationToken ct)
+    {
+        var filled = TaskSecretPaths.With(payload, [(field, value)]);
+        var reply = await calls.CallAsync<TaskGrpcService, Proto.PlanTaskRequest, Proto.TaskPlanReply>(caller.User, PlanPath,
+            new Proto.PlanTaskRequest { PluginId = task, PayloadJson = filled, CheckOnly = true }, (s, r, c) => s.Plan(r, c), ct).ConfigureAwait(false);
+        return reply.Errors.FirstOrDefault(e => TaskGrpcService.IsField(e.Field, field))?.Message;
     }
 
     private static async Task<JsonObject> RunAsync(ToolCall call, ToolHandles handles)
@@ -359,7 +397,20 @@ internal static class TaskRunTools
 
         // Run checks everything again as for the client: the role and the run's permissions, the devices still in the view,
         // the payload by the plugin's rules; each task checks its device before the first write.
-        var request = new Proto.RunTaskRequest { PluginId = run.PluginId, PayloadJson = run.PayloadJson ?? string.Empty };
+        // The secrets the person entered go into the payload here, for this run only (in memory, like every payload).
+        var payload = run.PayloadJson ?? string.Empty;
+        if (run.Secrets.Count > 0)
+        {
+            var values = run.Secrets.Select(s => (s.Field, Value: call.Secret(s.Name))).ToList();
+            if (values.Any(v => v.Value is null))
+            {
+                throw new ToolException(ToolHandles.Ended, [new ToolFieldError("handle", ToolHandles.Ended)]); // the registry hands every value
+            }
+
+            payload = TaskSecretPaths.With(payload, [.. values.Select(v => (v.Field, v.Value!))]);
+        }
+
+        var request = new Proto.RunTaskRequest { PluginId = run.PluginId, PayloadJson = payload };
         request.DeviceIds.AddRange(run.DeviceIds);
         var reply = await call.CallAsync<TaskGrpcService, Proto.RunTaskRequest, Proto.RunTaskReply>(RunPath, request, (s, r, c) => s.Run(r, c)).ConfigureAwait(false);
         call.TaskIds = [.. reply.TaskIds];
@@ -503,4 +554,112 @@ internal static class TaskRunTools
     private static string Join(string parent, string field) => field.Length == 0 ? parent : parent + "." + field;
 
     private static string Time(DateTimeOffset time) => time.UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", CultureInfo.InvariantCulture);
+}
+
+/// <summary>
+/// The fields of a task payload a secret goes to (<see cref="Sdk.Tasks.TaskSecret.Field"/>): JSON names with dots and list
+/// positions ("password", "settings[2].value"). Reads and sets texts in memory; never logs a value.
+/// </summary>
+internal static class TaskSecretPaths
+{
+    /// <summary>The node at <paramref name="field"/>; null when the payload has none there.</summary>
+    public static JsonNode? Get(JsonNode? root, string field)
+    {
+        var parts = Parts(field);
+        if (parts.Count == 0)
+        {
+            return null;
+        }
+
+        var node = root;
+        foreach (var part in parts)
+        {
+            node = part switch
+            {
+                string name when node is JsonObject o => o[name],
+                int index when node is JsonArray a && index < a.Count => a[index],
+                _ => null,
+            };
+            if (node is null)
+            {
+                return null;
+            }
+        }
+
+        return node;
+    }
+
+    /// <summary>
+    /// <paramref name="payloadJson"/> with each value set as a text at its field (objects on the way are made; a list position
+    /// must exist). A field that cannot be set refuses the run: its secret would be lost.
+    /// </summary>
+    public static string With(string payloadJson, IReadOnlyList<(string Field, string Value)> values)
+    {
+        var root = (string.IsNullOrWhiteSpace(payloadJson) ? null : JsonNode.Parse(payloadJson)) ?? new JsonObject();
+        foreach (var (field, value) in values)
+        {
+            var parts = Parts(field);
+            if (parts.Count == 0)
+            {
+                throw new ToolException(TaskGrpcService.PayloadUnreadable);
+            }
+
+            var node = root;
+            for (var i = 0; i < parts.Count - 1; i++)
+            {
+                node = (parts[i], node) switch
+                {
+                    (string name, JsonObject o) => o[name] ??= parts[i + 1] is string ? new JsonObject() : throw new ToolException(TaskGrpcService.PayloadUnreadable),
+                    (int index, JsonArray a) when index < a.Count && a[index] is { } item => item,
+                    _ => throw new ToolException(TaskGrpcService.PayloadUnreadable),
+                };
+            }
+
+            switch (parts[^1], node)
+            {
+                case (string name, JsonObject o):
+                    o[name] = value;
+                    break;
+                case (int index, JsonArray a) when index < a.Count:
+                    a[index] = value;
+                    break;
+                default:
+                    throw new ToolException(TaskGrpcService.PayloadUnreadable);
+            }
+        }
+
+        return root.ToJsonString();
+    }
+
+    /// <summary>"settings[2].value" as "settings", 2, "value"; empty for a field that cannot be read.</summary>
+    private static List<object> Parts(string field)
+    {
+        var parts = new List<object>();
+        foreach (var segment in (field ?? string.Empty).Split('.'))
+        {
+            var bracket = segment.IndexOf('[', StringComparison.Ordinal);
+            var name = bracket < 0 ? segment : segment[..bracket];
+            if (name.Length == 0)
+            {
+                return [];
+            }
+
+            parts.Add(name);
+            var rest = bracket < 0 ? string.Empty : segment[bracket..];
+            while (rest.Length > 0)
+            {
+                var end = rest.IndexOf(']', StringComparison.Ordinal);
+                if (rest[0] != '[' || end < 0
+                    || !int.TryParse(rest.AsSpan(1, end - 1), System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var index))
+                {
+                    return [];
+                }
+
+                parts.Add(index);
+                rest = rest[(end + 1)..];
+            }
+        }
+
+        return parts;
+    }
 }

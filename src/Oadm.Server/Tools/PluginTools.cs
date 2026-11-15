@@ -23,7 +23,11 @@ using Proto = Oadm.Contracts.V1;
 namespace Oadm.Server.Tools;
 
 /// <summary>What the preview of a plugin's change fixed for its run: the plugin, its run method and the arguments (in memory only).</summary>
-internal sealed record PlannedPluginRun(string PluginId, string Method, string PayloadJson);
+internal sealed record PlannedPluginRun(string PluginId, string Method, string PayloadJson)
+{
+    /// <summary>The names of the secrets the person enters for the run (<see cref="PluginToolSecret"/>; never a value).</summary>
+    public IReadOnlyList<string> Secrets { get; init; } = [];
+}
 
 /// <summary>
 /// The tools of the core plugins (docs/spec/mcp.md "Plugins"): every running plugin's <see cref="ICorePlugin.Tools"/> in the one
@@ -175,6 +179,18 @@ internal sealed partial class PluginTools(PluginRegistry registry, CorePluginHos
 
         properties["handle"] = Out("string", "Pass it to " + name + "_run (once, 10 minutes).");
         properties["expires"] = Out("string", "When the handle ends (UTC).");
+
+        // The secrets a plan names (PluginToolPlan.SecretsNeeded) never reach the caller as such: the host asks the person.
+        properties.Remove(PluginToolSecrets.Property);
+        if (preview["required"] is JsonArray named && named.FirstOrDefault(r => r?.GetValue<string>() == PluginToolSecrets.Property) is { } entry)
+        {
+            named.Remove(entry);
+        }
+
+        foreach (var (key, value) in ToolSecretAnswers.OutputProperties())
+        {
+            properties[key] = value;
+        }
         if (preview["required"] is JsonArray required)
         {
             required.Add("handle");
@@ -219,7 +235,8 @@ internal sealed partial class PluginTools(PluginRegistry registry, CorePluginHos
         JsonObject? schema;
         if (type is not null)
         {
-            schema = TaskPayloadSchemas.Build(type, options);
+            // A plugin tool never takes a secret as an argument (its plan names it: PluginToolPlan.SecretsNeeded).
+            schema = TaskPayloadSchemas.HasSecrets(type) ? null : TaskPayloadSchemas.Build(type, options);
         }
         else if (!string.IsNullOrWhiteSpace(text))
         {
@@ -404,7 +421,7 @@ internal sealed partial class PluginTools(PluginRegistry registry, CorePluginHos
     private async Task<JsonObject> ReadAsync(ToolCall call, ICorePlugin plugin, PluginTool tool, string toolName)
     {
         var query = ToolCursors.QueryOf(call.Arguments);
-        var payload = PayloadOf(call, tool, toolName, query);
+        var payload = WithoutSecrets(PayloadOf(call, tool, toolName, query));
         if (tool.DeviceFilter)
         {
             payload = await WithDevicesAsync(call, payload).ConfigureAwait(false);
@@ -432,7 +449,7 @@ internal sealed partial class PluginTools(PluginRegistry registry, CorePluginHos
 
     private async Task<JsonObject> PreviewAsync(ToolCall call, ICorePlugin plugin, PluginTool tool, string runTool)
     {
-        var payload = call.Arguments.GetRawText();
+        var payload = WithoutSecrets(call.Arguments.GetRawText()); // a caller never sends a secret
         if (tool.DeviceFilter)
         {
             payload = await WithDevicesAsync(call, payload).ConfigureAwait(false); // the run gets the devices the preview planned
@@ -444,9 +461,103 @@ internal sealed partial class PluginTools(PluginRegistry registry, CorePluginHos
             answer = WithOffer(call, plugin.Id, answer);
         }
 
-        answer["handle"] = handles.AddChange(call.Caller.BindingKey, new PlannedChange(runTool, new PlannedPluginRun(plugin.Id, tool.RunMethod, payload)));
+        var secrets = SecretsOf(answer);
+        var handle = handles.AddChange(call.Caller.BindingKey, new PlannedChange(runTool, new PlannedPluginRun(plugin.Id, tool.RunMethod, payload)
+        {
+            Secrets = [.. secrets.Select(s => s.Name)],
+        }));
+        answer["handle"] = handle;
         answer["expires"] = handles.EndOfNew().UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", CultureInfo.InvariantCulture);
+        if (secrets.Count > 0)
+        {
+            // A value the person enters is checked at once by the preview method with that one value (a field error at secrets.<name>).
+            var caller = call.Caller;
+            var calls = call.Calls;
+            var pluginId = plugin.Id;
+            var previewMethod = tool.PreviewMethod;
+            ToolSecretAnswers.Declare(call, answer, handle, runTool, [.. secrets.Select(s => new ToolSecretSlot(s.Name, s.Label, ToolSecrets.MaxBytes)
+            {
+                Check = (value, ct) => CheckSecretAsync(calls, caller, pluginId, previewMethod, payload, s.Name, value, ct),
+            })]);
+        }
+
         return Sized(answer);
+    }
+
+    /// <summary>The most secrets one plan names (the secret channel's slots of one preview).</summary>
+    public const int MaxSecrets = ToolSecrets.MaxSlots;
+
+    /// <summary>
+    /// The secrets a preview's answer names (<see cref="PluginToolSecrets.Property"/>), taken out of it. A list the host cannot
+    /// use (too many, a name that is no slot name, the same name twice) refuses the preview: its run could not get its secrets.
+    /// </summary>
+    private static List<PluginToolSecret> SecretsOf(JsonObject answer)
+    {
+        var node = answer[PluginToolSecrets.Property];
+        answer.Remove(PluginToolSecrets.Property);
+        var secrets = new List<PluginToolSecret>();
+        foreach (var item in node as JsonArray ?? [])
+        {
+            if (item is JsonObject entry && entry["name"] is JsonValue name && name.TryGetValue<string>(out var text) && NamePattern.IsMatch(text)
+                && entry["label"] is JsonValue label && label.TryGetValue<string>(out var words) && words.Trim().Length is > 0 and <= 64)
+            {
+                secrets.Add(new PluginToolSecret(text, words.Trim()));
+            }
+            else
+            {
+                throw new ToolException(PluginFailed);
+            }
+        }
+
+        return secrets.Count > MaxSecrets || secrets.Select(s => s.Name).Distinct(StringComparer.Ordinal).Count() != secrets.Count ? throw new ToolException(PluginFailed) : secrets;
+    }
+
+    /// <summary>The payload without <see cref="PluginToolSecrets.ValuesProperty"/>: only the host puts secrets there, for a run or a check.</summary>
+    private static string WithoutSecrets(string payload)
+    {
+        if (JsonNode.Parse(payload) is JsonObject node && node.ContainsKey(PluginToolSecrets.ValuesProperty))
+        {
+            node.Remove(PluginToolSecrets.ValuesProperty);
+            return node.ToJsonString();
+        }
+
+        return payload;
+    }
+
+    private static string WithSecrets(string payload, IReadOnlyDictionary<string, string> values)
+    {
+        var node = JsonNode.Parse(payload) as JsonObject ?? [];
+        var secrets = new JsonObject();
+        foreach (var (name, value) in values)
+        {
+            secrets[name] = value;
+        }
+
+        node[PluginToolSecrets.ValuesProperty] = secrets;
+        return node.ToJsonString();
+    }
+
+    /// <summary>The preview method's refusal of an entered value (a field error at <c>secrets.&lt;name&gt;</c>), in memory only; null when it fits.</summary>
+    private static async Task<string?> CheckSecretAsync(InProcessCalls calls, ToolCaller caller, string pluginId, string method, string payload, string name, string value, CancellationToken ct)
+    {
+        try
+        {
+            var reply = await calls.CallAsync<PluginGrpcService, Proto.InvokeRequest, Proto.InvokeReply>(caller.User, InvokePath,
+                new Proto.InvokeRequest { PluginId = pluginId, Method = method, PayloadJson = WithSecrets(payload, new Dictionary<string, string> { [name] = value }) },
+                (s, r, c) => s.Invoke(r, c), ct).ConfigureAwait(false);
+            return JsonNode.Parse(string.IsNullOrWhiteSpace(reply.PayloadJson) ? "{}" : reply.PayloadJson) is JsonObject answer
+                && answer.Count == 1 && answer["errors"] is JsonArray errors
+                ? errors.OfType<JsonObject>().FirstOrDefault(e => e["field"]?.GetValue<string>() == PluginToolSecrets.ValuesProperty + "." + name)?["error"]?.GetValue<string>()
+                : null;
+        }
+        catch (RpcException)
+        {
+            return null; // the run checks it again
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
     }
 
     private async Task<JsonObject> RunAsync(ToolCall call, ICorePlugin plugin, PluginTool tool, string runTool)
@@ -458,8 +569,21 @@ internal sealed partial class PluginTools(PluginRegistry registry, CorePluginHos
             throw new ToolException(PreviewEnded, [new ToolFieldError("handle", PreviewEnded)]);
         }
 
+        // The secrets the person entered go into the payload here, for this run only (in memory).
+        var payload = plan.PayloadJson;
+        if (plan.Secrets.Count > 0)
+        {
+            var values = plan.Secrets.ToDictionary(n => n, call.Secret, StringComparer.Ordinal);
+            if (values.Values.Any(v => v is null))
+            {
+                throw new ToolException(PreviewEnded, [new ToolFieldError("handle", PreviewEnded)]); // the registry hands every value
+            }
+
+            payload = WithSecrets(payload, values.ToDictionary(v => v.Key, v => v.Value!, StringComparer.Ordinal));
+        }
+
         // The plugin checks everything again, as for its page: the role, the permission, the device group, the input.
-        var answer = await InvokeAsync(call, plan.PluginId, plan.Method, plan.PayloadJson).ConfigureAwait(false);
+        var answer = await InvokeAsync(call, plan.PluginId, plan.Method, payload).ConfigureAwait(false);
         return Sized(tool.ReturnsFile ? WithOffer(call, plan.PluginId, answer) : answer);
     }
 
