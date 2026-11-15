@@ -366,7 +366,9 @@ used again.
   the chat streams; RESOURCE_EXHAUSTED "The assistant reached today's limit. It works again tomorrow."): text pieces, tool
   lines, preview cards, pictures, tables, a notice once, then `done` with the tokens and the error in plain words ("This
   model cannot use tools. Choose another one." when the chosen model refuses the tools). The model may change between
-  messages; the chat stays. `ListModels`: the provider's models (cached 10 minutes, waits at most 2 s), `editable` when it
+  messages; the chat stays. `replace_last` (Try again, Edit): the server drops the conversation's last user message and
+  everything after it before it adds this one; FAILED_PRECONDITION "There is nothing to try again." when it has none.
+  `ListModels`: the provider's models (cached 10 minutes, waits at most 2 s), `editable` when it
   offers none, `suggested` (`claude-opus-5-5` for Anthropic when listed, else the first).
   `Stop` ends the answer that streams (`done.stopped`), `End` forgets the chat, both always succeed. `Run` (the chat's
   preview handle, once): the run tool of the preview as the caller; NOT_FOUND "This preview has ended. Ask again." for a

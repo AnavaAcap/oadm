@@ -51,11 +51,25 @@ shows the chat.
   cameras"). Devices outside the caller's group are dropped as usual.
 - **Files.** **Attach file** in the panel uploads through `FileService.Upload` (the same upload as the task dialogs, its
   limits and audit); the message carries the file's id, name and size, never its content. The model uses the id in a task
-  preview (firmware, ACAP). The file is deleted with the other uploads as usual, not when the chat ends.
+  preview (firmware, ACAP). The file is deleted with the other uploads as usual, not when the chat ends. Files dropped on
+  the panel or pasted into the message box attach the same way (folders are skipped, at most 10 files).
+- **A pasted picture** (a bitmap on the clipboard, no file) becomes a PNG upload "Pasted image N.png" like any file; it
+  is never sent to the model as a picture (the model gets its id, name and size only).
 
 ## What the panel shows
 
+- **Thinking**: right after Send, a small ring and "Thinking" where the answer will appear, until the answer's first
+  event (text, tool line, card, picture, table) or its end; the notice where the data goes shows above it.
 - The model's answer streams as Markdown (paragraphs, lists, bold, code, tables), with **Copy** on every answer.
+- **Try again** (icon, next to Copy) under the end of the last answer, also on its error or "Stopped." line: the last
+  message again with its files, in place of its answer. **Edit** (icon, on hover left of the last message, or Up arrow in
+  the empty box) puts that message and its files back into the box; sending it replaces that exchange, emptying the box
+  drops the edit. Both send `replace_last`: the server drops its last user message and everything after it (only when
+  the server had that message; a message refused before it was answered is sent as a new one, and so is one the server
+  no longer has: "There is nothing to try again."). The replaced entries leave the list in one step.
+- **Scrolling**: the list follows new content only while the user is at its end (within 40 px); scrolled up it stays and
+  a round **Go to the latest** button (arrow down) floats above the message box; it goes to the end and follows again. A
+  new message always goes to the end. One scroll per burst of changes.
 - **Tool lines**: one short line per tool call ("Looking at devices", "Checking 812 devices for the upgrade").
 - **Preview cards** with **Run** and **Cancel**; several previews in one answer show one card each. After Run the card
   follows its tasks live (running, done, failed, from the task stream the client already has) and links to the tasks pane.
@@ -106,9 +120,17 @@ Administrators only; changes audited ("Changed assistant").
 
 - A title bar button (next to Help, icon chat) opens the panel **Assistant** on the right, over every page; it stays open
   while the user moves between pages. Hidden when the assistant is off or the role lacks the permission.
-- Bottom: the message box (Enter sends, Shift+Enter a new line), **Attach file**, the selection count ("12 devices
-  selected", nothing without a selection), **Send** / **Stop**.
-- **Model** (decision 2026-11-15: chosen only in the panel, by each user): a picker next to Send with the provider's
+- Bottom: the message box like the chat apps, one rounded box (`Border.composer`, the input colours, the accent border
+  while it has the focus): the attached files as chips on top, the text (one line at first, grows to 200 px, then
+  scrolls), and a row with **Attach file** (paperclip icon), the model picker and the round send arrow (`Button.send`,
+  tooltip Send, dimmed while empty) that turns into a round **Stop** while an answer streams. While a preview card waits
+  for Run, the send arrow is not the accent (`Button.send.quiet`): Run is the panel's one accent button. Below the box:
+  its problem in red (the selection limit, "Choose a model.", the server's refusal of the model), a message ("Copied.",
+  an upload's problem) and the selection count ("12 devices selected", nothing without a selection).
+- Files dragged over the panel show "Drop files to attach" over it.
+- Keys: Enter sends, Shift+Enter a new line, Escape stops an answer that streams (focus in the panel), Up arrow in the
+  empty box edits the last message.
+- **Model** (decision 2026-11-15: chosen only in the panel, by each user): a picker in the box's row with the provider's
   models (`ListModels`; editable when the provider offers no list, e.g. some OpenAI-compatible servers). The choice is
   kept per user on that client (client settings); first time: the provider's first model, for Anthropic
   `claude-opus-5-5` when listed. Every message carries the model; changing it keeps the conversation. A model that
@@ -140,6 +162,10 @@ context.
 - `oadm_docs_search` finds a known page.
 - Headless panel tests with screenshots (empty with suggestions, an answer with a table and a picture, a preview card
   before and after Run); the settings card's validation below the fields.
+- The chat-app panel (`AssistantChatUxTests`): Thinking until the first event, following only at the end and Go to the
+  latest, Try again and Edit with `replace_last` and the old entries gone in one step, dropped and pasted files with the
+  limit, Escape and Up arrow, and screenshots of the message box (empty, thinking, answer, streaming, scrolled up, drop,
+  attachments). Server: `replace_last` drops the last exchange and needs one.
 
 ## Open points
 
