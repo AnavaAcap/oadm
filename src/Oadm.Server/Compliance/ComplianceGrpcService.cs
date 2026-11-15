@@ -152,9 +152,64 @@ public sealed class ComplianceGrpcService(ComplianceService compliance, DeviceVi
         };
     }
 
-    public override async Task<Proto.ComplianceCheckSummary> SaveCheck(Proto.ComplianceCheckDetail request, ServerCallContext context)
+    /// <summary>One check's results of the devices of a filter in the caller's view, a page in device id order.</summary>
+    public override async Task<Proto.ComplianceResultPage> ListResults(Proto.ListComplianceResultsRequest request, ServerCallContext context)
     {
-        var summary = request.Summary ?? throw GrpcGuard.InvalidArgument("The check is missing.");
+        var ct = context.CancellationToken;
+        var id = GrpcGuard.ParseId(request.CheckId, "check id");
+        var view = await views.ForAsync(context).ConfigureAwait(false);
+        IReadOnlySet<Guid>? only = await VisibleAsync(view, ct).ConfigureAwait(false);
+        if (request.Filter is { } filter && !filter.Equals(new Proto.DeviceFilter()))
+        {
+            try
+            {
+                only = (await Devices.DeviceSearch.MatchesAsync(view, filter, facts.Now(), withApis: false, ct).ConfigureAwait(false)).Select(d => d.Id).ToHashSet();
+            }
+            catch (ArgumentException ex)
+            {
+                throw GrpcGuard.InvalidArgument(ex.Message);
+            }
+        }
+
+        _ = Find(view, id); // a check the caller does not see answers NOT_FOUND
+
+        var outcomes = request.Outcomes.Select(o => (ComplianceOutcome)(int)o).ToHashSet();
+        var results = Engine.ResultsOf(id, outcomes, only);
+        Guid? after = string.IsNullOrEmpty(request.AfterDeviceId) ? null : GrpcGuard.ParseId(request.AfterDeviceId, "device id");
+        var limit = request.Limit switch { <= 0 => 50, > 500 => 500, _ => request.Limit };
+        var page = new Proto.ComplianceResultPage { Total = results.Count };
+        page.Results.AddRange(results.Where(r => after is null || r.DeviceId.CompareTo(after.Value) > 0).Take(limit).Select(ToProto));
+        return page;
+    }
+
+    /// <summary>The checks of <see cref="SaveCheck"/> without saving: the check as it would be saved, no results.</summary>
+    public override async Task<Proto.ComplianceCheckSummary> PlanCheck(Proto.ComplianceCheckDetail request, ServerCallContext context)
+    {
+        var check = CheckOf(request, out var summary);
+        var caller = AuthInterceptor.CallerOf(context);
+        var view = await views.ForAsync(context).ConfigureAwait(false);
+        try
+        {
+            var (planned, _) = await compliance.SaveAsync(check, view, Mapping.OwnerMapping.FromProto(summary.Owner), caller.IsAdmin, context.CancellationToken, checkOnly: true).ConfigureAwait(false);
+            return ToProto(Engine.StateOfUnsaved(planned), Owners, await VisibleAsync(view, context.CancellationToken).ConfigureAwait(false));
+        }
+        catch (KeyNotFoundException ex)
+        {
+            throw GrpcGuard.NotFound(ex.Message);
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            throw new RpcException(new Status(StatusCode.PermissionDenied, ex.Message));
+        }
+        catch (ComplianceValidationException ex)
+        {
+            throw GrpcGuard.InvalidArgument(ex.Message);
+        }
+    }
+
+    private static ComplianceCheck CheckOf(Proto.ComplianceCheckDetail request, out Proto.ComplianceCheckSummary summary)
+    {
+        summary = request.Summary ?? throw GrpcGuard.InvalidArgument("The check is missing.");
         JsonObject settings;
         try
         {
@@ -166,7 +221,7 @@ public sealed class ComplianceGrpcService(ComplianceService compliance, DeviceVi
             throw GrpcGuard.InvalidArgument("The settings are not valid: " + ex.Message);
         }
 
-        var check = new ComplianceCheck
+        return new ComplianceCheck
         {
             Id = string.IsNullOrEmpty(summary.Id) ? Guid.Empty : GrpcGuard.ParseId(summary.Id, "check id"),
             Name = summary.Name,
@@ -178,6 +233,11 @@ public sealed class ComplianceGrpcService(ComplianceService compliance, DeviceVi
             Enabled = summary.Enabled,
             Version = summary.Version,
         };
+    }
+
+    public override async Task<Proto.ComplianceCheckSummary> SaveCheck(Proto.ComplianceCheckDetail request, ServerCallContext context)
+    {
+        var check = CheckOf(request, out var summary);
         var caller = AuthInterceptor.CallerOf(context);
         var view = await views.ForAsync(context).ConfigureAwait(false);
         try

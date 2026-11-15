@@ -87,7 +87,7 @@ public sealed class AddDevicesScopeTests
 
         foreach (var call in new Func<Task>[]
         {
-            async () => await tags.Discovery.StartZeroConfAsync(new Proto.Empty()),
+            async () => await tags.Discovery.StartZeroConfAsync(new Proto.ZeroConfRequest()),
             async () => await tags.Discovery.StartRangeScanAsync(new Proto.RangeScanRequest { From = "192.168.0.20", To = "192.168.0.20" }),
             async () => await tags.Discovery.ProbeAddressAsync(new Proto.ProbeAddressRequest { Address = "192.168.0.20" }),
             async () => await tags.Waiting.AddAsync(new Proto.AddWaitingRequest { Lines = { new Proto.WaitingLine { Address = "192.168.0.20" } } }),

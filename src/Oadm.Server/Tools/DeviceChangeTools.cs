@@ -52,6 +52,7 @@ internal static class DeviceChangeTools
     public static readonly string StoredCredentialsPath = InProcessCalls.PathOf(Proto.DeviceService.Descriptor, "SetStoredCredentials");
     public static readonly string ListCredentialsPath = InProcessCalls.PathOf(Proto.SettingsService.Descriptor, "ListCredentials");
     public static readonly string StartRangePath = InProcessCalls.PathOf(Proto.DiscoveryService.Descriptor, "StartRangeScan");
+    public static readonly string StartZeroConfPath = InProcessCalls.PathOf(Proto.DiscoveryService.Descriptor, "StartZeroConf");
     public static readonly string ProbePath = InProcessCalls.PathOf(Proto.DiscoveryService.Descriptor, "ProbeAddress");
     public static readonly string WatchPath = InProcessCalls.PathOf(Proto.DiscoveryService.Descriptor, "WatchDiscovered");
     public static readonly string StopScanPath = InProcessCalls.PathOf(Proto.DiscoveryService.Descriptor, "StopScan");
@@ -65,15 +66,20 @@ internal static class DeviceChangeTools
     public const int ShownRows = 20;
 
     /// <summary>Addresses of one add at most (each is probed on its own).</summary>
-    public const int MaxAddresses = 100;
+    public const int MaxAddresses = 1000;
 
     /// <summary>Devices one add run logs in to and adds at most (the first by address; look again for the rest).</summary>
     public const int MaxAddedPerRun = 200;
+
+    public const string ExactlyOne = "Pass exactly one of discovery, range, addresses or try_waiting.";
 
     public const string PlainAddress = "Enter a plain IP address, without a host name, scheme or port.";
 
     /// <summary>Addresses probed at the same time.</summary>
     public const int ProbeParallelism = 8;
+
+    /// <summary>Addresses of a list probed at the same time by a preview (a short first contact each, like the import of a file).</summary>
+    public const int ListParallelism = 32;
 
     /// <summary>How long an add preview waits for the scan, and an add run for its logins; then it stops and says so.</summary>
     public static readonly TimeSpan ScanWait = TimeSpan.FromSeconds(90);
@@ -190,7 +196,7 @@ internal static class DeviceChangeTools
         yield return new OadmTool(
             "oadm_devices_add_preview",
             "Preview an add",
-            "Looks for Axis devices in a network range or at IP addresses of the server's own networks or of connected sites. It sends no login and stores nothing. Then call oadm_devices_add_run with the handle: it logs in with the credential list and adds.",
+            "Looks for Axis devices with Discovery, in a network range or at IP addresses of the server's own networks or of connected sites. It sends no login and stores nothing. Then call oadm_devices_add_run with the handle: it logs in with the credential list and adds.",
             Object(null,
             [
                 P("range", Object("A range of IPv4 addresses to scan, at most 65,536, inside one network of the server or of a connected site.",
@@ -199,12 +205,13 @@ internal static class DeviceChangeTools
                     P("to", Text("The last address.", 15, "ipv4", minLength: 7)),
                 ], "from", "to")),
                 P("addresses", List("IP addresses to look at, inside a network of the server or of a connected site. No host name, scheme or port.", Text("An IP address.", 45, minLength: 3), MaxAddresses)),
+                P("discovery", Flag("Find the devices that announce themselves on the server's networks and at connected sites (Discovery of the add page).")),
                 P("try_waiting", Flag("Try the devices on the waiting list now instead of looking for new ones.")),
                 P("keep_waiting", Flag("With addresses: keep those that do not answer on the waiting list. OADM adds them once they answer.")),
-                P("use_dns_names", Flag("Add the devices of a range by their DNS name when they have one, else by address.")),
+                P("use_dns_names", Flag("Add the devices of a range or of Discovery by their DNS name when they have one, else by address.")),
             ]),
             AddPreviewOutput(),
-            [StartRangePath, ProbePath, WatchPath, StopScanPath, EndPath, WaitingListPath, CommitPath, WaitingAddPath, WaitingTryPath],
+            [StartRangePath, StartZeroConfPath, ProbePath, WatchPath, StopScanPath, EndPath, WaitingListPath, CommitPath, WaitingAddPath, WaitingTryPath],
             call => AddPreviewAsync(call, handles, time))
         {
             ActsOutside = true, // it sends packets to the network: not announced as a read, counted as a change
@@ -404,7 +411,7 @@ internal static class DeviceChangeTools
 
     private static JsonObject AddPreviewOutput() => OutObject(null,
     [
-        P("source", Choice("What was looked at.", ["range", "addresses", "waiting"])),
+        P("source", Choice("What was looked at.", ["discovery", "range", "addresses", "waiting"])),
         P("complete", Out("boolean", "The check finished in time; false: it was stopped and more may be found.")),
         P("found", Out("integer", "Devices that answered (or waiting entries).")),
         P("will_try", Out("integer", "Devices the run logs in to with the credential list and adds when a login works (at most 200). For the waiting list: entries it tries now.")),
@@ -430,7 +437,7 @@ internal static class DeviceChangeTools
     /// The discovery session can still write after the watch ended (its own threads), so writes are locked and
     /// <see cref="Devices"/> answers a copy: a caller never enumerates a dictionary that changes under it.
     /// </remarks>
-    private sealed class Watched : IServerStreamWriter<Proto.DiscoveredDevice>
+    private sealed class Watched(Action? onFinished = null) : IServerStreamWriter<Proto.DiscoveredDevice>
     {
         private readonly Lock _gate = new();
         private readonly Dictionary<string, Proto.DiscoveredDevice> _devices = new(StringComparer.Ordinal);
@@ -459,6 +466,7 @@ internal static class DeviceChangeTools
             if (message.ScanFinished)
             {
                 _finished = true;
+                onFinished?.Invoke(); // Discovery keeps its session open: the watch ends when the scan finished
             }
 
             if (!string.IsNullOrEmpty(message.DiscoveredId))
@@ -495,7 +503,8 @@ internal static class DeviceChangeTools
         var tryWaiting = call.Flag("try_waiting") == true;
         var keepWaiting = call.Flag("keep_waiting") == true;
         var useDns = call.Flag("use_dns_names") == true;
-        CheckAddInput(range, addresses, tryWaiting, keepWaiting);
+        var discovery = call.Flag("discovery") == true;
+        CheckAddInput(range, addresses, tryWaiting, keepWaiting, discovery);
 
         if (tryWaiting)
         {
@@ -509,6 +518,36 @@ internal static class DeviceChangeTools
         var scanning = call with { Ct = linked.Token };
         var found = new List<Found>();
         var notAnswering = new List<string>();
+
+        if (discovery)
+        {
+            var session = await call.CallAsync<DiscoveryGrpcService, Proto.ZeroConfRequest, Proto.DiscoverySession>(StartZeroConfPath,
+                new Proto.ZeroConfRequest { NoLogins = true }, (s, r, c) => s.StartZeroConf(r, c)).ConfigureAwait(false);
+            using var finished = CancellationTokenSource.CreateLinkedTokenSource(linked.Token);
+            var watched = new Watched(finished.Cancel);
+            try
+            {
+                await (call with { Ct = finished.Token }).CallAsync<DiscoveryGrpcService, Proto.DiscoverySession, Watched>(WatchPath, new Proto.DiscoverySession { SessionId = session.SessionId },
+                    async (s, r, c) =>
+                    {
+                        await s.WatchDiscovered(r, watched, c).ConfigureAwait(false);
+                        return watched;
+                    }).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (!call.Ct.IsCancellationRequested)
+            {
+                // the scan finished (or its time ran out): what was found so far is the answer
+            }
+            finally
+            {
+                // The preview only looked: the session ends now, nothing of it stays for the run.
+                await call.CallAsync<DiscoveryGrpcService, Proto.DiscoverySession, Proto.Empty>(EndPath, new Proto.DiscoverySession { SessionId = session.SessionId }, (s, r, c) => s.End(r, c)).ConfigureAwait(false);
+            }
+
+            call.Ct.ThrowIfCancellationRequested();
+            var done = watched.Finished && !bound.IsCancellationRequested;
+            return AnswerAdd(call, handles, "discovery", done, [new Found(session.SessionId, null, watched)], [], keepWaiting: false, useDns);
+        }
 
         if (range is { } fromTo)
         {
@@ -528,12 +567,12 @@ internal static class DeviceChangeTools
         {
             var results = new Found?[addresses.Count];
             var outside = new string?[addresses.Count];
-            await Parallel.ForEachAsync(Enumerable.Range(0, addresses.Count), new ParallelOptions { MaxDegreeOfParallelism = ProbeParallelism, CancellationToken = call.Ct }, async (i, ct) =>
+            await Parallel.ForEachAsync(Enumerable.Range(0, addresses.Count), new ParallelOptions { MaxDegreeOfParallelism = ListParallelism, CancellationToken = call.Ct }, async (i, ct) =>
             {
                 try
                 {
                     var session = await call.CallAsync<DiscoveryGrpcService, Proto.ProbeAddressRequest, Proto.DiscoverySession>(ProbePath,
-                        new Proto.ProbeAddressRequest { Address = addresses[i], OwnNetworksOnly = true, NoLogins = true }, (s, r, c) => s.ProbeAddress(r, c)).ConfigureAwait(false);
+                        new Proto.ProbeAddressRequest { Address = addresses[i], OwnNetworksOnly = true, NoLogins = true, ImportLine = true }, (s, r, c) => s.ProbeAddress(r, c)).ConfigureAwait(false);
                     results[i] = new Found(session.SessionId, addresses[i], await WatchAsync(scanning, session.SessionId).ConfigureAwait(false));
                 }
                 catch (RpcException ex) when (ex.StatusCode == StatusCode.InvalidArgument)
@@ -576,13 +615,13 @@ internal static class DeviceChangeTools
         return AnswerAdd(call, handles, range is null ? "addresses" : "range", complete, found, notAnswering, keepWaiting, useDns);
     }
 
-    private static void CheckAddInput(System.Text.Json.JsonElement? range, IReadOnlyList<string> addresses, bool tryWaiting, bool keepWaiting)
+    private static void CheckAddInput(System.Text.Json.JsonElement? range, IReadOnlyList<string> addresses, bool tryWaiting, bool keepWaiting, bool discovery)
     {
         var errors = new List<ToolFieldError>();
-        var chosen = (range is null ? 0 : 1) + (addresses.Count > 0 ? 1 : 0) + (tryWaiting ? 1 : 0);
+        var chosen = (range is null ? 0 : 1) + (addresses.Count > 0 ? 1 : 0) + (tryWaiting ? 1 : 0) + (discovery ? 1 : 0);
         if (chosen != 1)
         {
-            errors.Add(new ToolFieldError("range", "Pass exactly one of range, addresses or try_waiting."));
+            errors.Add(new ToolFieldError("range", ExactlyOne));
         }
 
         if (keepWaiting && addresses.Count == 0)

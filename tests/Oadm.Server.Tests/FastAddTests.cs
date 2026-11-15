@@ -265,7 +265,7 @@ public sealed class FastAddTests
     public async Task StopScanEndsAZeroConfScanAndKeepsTheSession()
     {
         await using var host = await TestServerHost.StartAsync();
-        var session = await host.Discovery.StartZeroConfAsync(new Proto.Empty());
+        var session = await host.Discovery.StartZeroConfAsync(new Proto.ZeroConfRequest());
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
         using var call = host.Discovery.WatchDiscovered(session, cancellationToken: cts.Token);
 

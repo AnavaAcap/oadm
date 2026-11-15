@@ -135,7 +135,7 @@ public sealed class SiteDiscoveryTests
         await using var host = await StartAsync(sites, network);
         var discovery = new Proto.DiscoveryService.DiscoveryServiceClient(host.Invoker);
 
-        var scan = await discovery.StartZeroConfAsync(new Proto.Empty());
+        var scan = await discovery.StartZeroConfAsync(new Proto.ZeroConfRequest());
         await Eventually.TrueAsync(() => host.Get<CoreDiscoveryService>().GetDevices(scan.SessionId).Any(d => d.Model is not null), "the device of site A");
         await discovery.StopScanAsync(scan);
         var zeroConf = await WatchAsync(discovery, scan.SessionId);

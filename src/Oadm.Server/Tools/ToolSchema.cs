@@ -42,6 +42,10 @@ internal static class ToolSchema
         return schema;
     }
 
+    /// <summary>A number that may have decimals (a zoom, a position), within its bounds.</summary>
+    public static JsonObject Decimal(string description, double minimum, double maximum) =>
+        new() { ["type"] = "number", ["description"] = description, ["minimum"] = minimum, ["maximum"] = maximum };
+
     public static JsonObject Flag(string description) => new() { ["type"] = "boolean", ["description"] = description };
 
     public static JsonObject List(string description, JsonObject items, int maxItems) =>
@@ -235,14 +239,14 @@ internal static class ToolSchema
             case "integer" or "number":
                 if (value.ValueKind != JsonValueKind.Number || (type == "integer" && !value.TryGetInt64(out _)))
                 {
-                    errors.Add(new(field, ToolInputTexts.WholeNumber(schema)));
+                    errors.Add(new(field, type == "number" ? ToolInputTexts.NumberIn(schema) : ToolInputTexts.WholeNumber(schema)));
                     return;
                 }
 
                 var number = value.GetDouble();
                 if (number < (Bound(schema, "minimum") ?? double.MinValue) || number > (Bound(schema, "maximum") ?? double.MaxValue))
                 {
-                    errors.Add(new(field, ToolInputTexts.WholeNumber(schema)));
+                    errors.Add(new(field, type == "number" ? ToolInputTexts.NumberIn(schema) : ToolInputTexts.WholeNumber(schema)));
                 }
 
                 return;
@@ -334,6 +338,9 @@ internal static class ToolInputTexts
 
     public static string WholeNumber(JsonObject schema) =>
         string.Create(CultureInfo.InvariantCulture, $"Enter a whole number from {Number(schema, "minimum"):N0} to {Number(schema, "maximum"):N0}.");
+
+    public static string NumberIn(JsonObject schema) =>
+        string.Create(CultureInfo.InvariantCulture, $"Enter a number from {Number(schema, "minimum"):0.###} to {Number(schema, "maximum"):0.###}.");
 
     private static double Number(JsonObject schema, string name) =>
         schema[name] is JsonValue value && double.TryParse(value.ToJsonString(), NumberStyles.Float, CultureInfo.InvariantCulture, out var number) ? number : 0;

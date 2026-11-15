@@ -203,6 +203,40 @@ public sealed class EventRulesService(EventCatalog catalog, RuleStore store, Rec
     }
 
     /// <summary>
+    /// The checks of <see cref="SaveRecipientAsync"/> without saving (the tools' preview): the recipient as it would be saved,
+    /// without passwords. Throws as the save does.
+    /// </summary>
+    public async Task<RecipientModel> CheckRecipientAsync(Guid? id, string name, string typeId, JsonObject settings, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(settings);
+        var type = Catalog.FindRecipientType(typeId) ?? throw new RecipientValidationException("Choose a type.");
+        StoredRecipient? current = null;
+        IReadOnlyList<string> stored = [];
+        if (id is { } known)
+        {
+            current = await recipients.GetAsync(known, ct).ConfigureAwait(false) ?? throw new KeyNotFoundException(RecipientType.NotFoundText);
+            stored = RecipientStore.ForClient(current).StoredSecretFields;
+        }
+
+        var error = RecipientChecks.Errors(type, settings, stored).FirstOrDefault();
+        if (error.Value is not null)
+        {
+            throw new RecipientValidationException(error.Key, error.Value);
+        }
+
+        await RecipientChecks.CheckAgainstStoredAsync(type.Type.Fields, settings, current, Certificates?.Invoke(), ct).ConfigureAwait(false);
+        await recipients.CheckAsync(id, name, type.Id, ct).ConfigureAwait(false);
+        var usedBy = id is { } existing ? RecipientUse.ByRecipient(await store.ListAsync(ct).ConfigureAwait(false), [existing]).GetValueOrDefault(existing) ?? [] : [];
+        var values = (JsonObject)settings.DeepClone();
+        foreach (var field in type.Type.Fields.Where(f => f.Type == Oadm.Sdk.Actions.ActionFieldType.Password))
+        {
+            values.Remove(field.Key);
+        }
+
+        return new RecipientModel(id ?? Guid.Empty, name.Trim(), type.Id, values, stored, TargetOf(type.Id, settings), usedBy);
+    }
+
+    /// <summary>
     /// Deletes a recipient no rule uses. Returns it, null when unknown; throws <see cref="InvalidOperationException"/> with the
     /// rule names while a rule uses it.
     /// </summary>

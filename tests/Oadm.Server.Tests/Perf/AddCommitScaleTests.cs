@@ -28,7 +28,7 @@ public sealed class AddCommitScaleTests(ITestOutputHelper output)
         var backend = new ManyDevices(count);
         await using var host = await TestServerHost.StartAsync(configureServices: s => s.AddSingleton<IDiscoveryBackend>(backend));
         await ServerScale.SeedDevicesAsync(host, count); // the same serials: every selected device is managed already
-        var session = (await host.Discovery.StartZeroConfAsync(new Proto.Empty())).SessionId;
+        var session = (await host.Discovery.StartZeroConfAsync(new Proto.ZeroConfRequest())).SessionId;
         var request = new Proto.CommitRequest { SessionId = session };
         request.DiscoveredIds.AddRange(backend.Ids);
 

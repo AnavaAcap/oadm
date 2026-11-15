@@ -124,6 +124,127 @@ internal static class AssistantCards
                 Add(details, "Cancels", Count(count, "task"));
                 card.Destructive = true;
                 break;
+            case "oadm_tasks_delete_preview":
+                (count, unit) = (Number(answer["will_delete"]) ?? 0, "task");
+                Add(details, "Deletes from the task history", Count(count, "task"));
+                if (Number(answer["running"]) is > 0 and var running)
+                {
+                    Add(details, "Cancels first", Count(running, "task"));
+                }
+
+                card.Destructive = true;
+                break;
+            case "oadm_tasks_delete_all_preview":
+                (count, unit) = (Number(answer["will_delete"]) ?? 0, "task");
+                Add(details, "Deletes the whole task history", Count(count, "task"));
+                card.Destructive = true;
+                break;
+            case "oadm_tags_update_preview":
+                Add(details, "Tag", Text(answer["tag"]));
+                Add(details, "New name", Text(answer["new_name"]) is { } renamed && renamed != Text(answer["tag"]) ? renamed : null);
+                Add(details, "Color", Text(answer["color"]));
+                Add(details, "Used by device groups", Joined(answer["device_groups"]));
+                break;
+            case "oadm_tags_delete_preview":
+                Add(details, "Deletes the tag", Text(answer["tag"]));
+                Add(details, "Used by device groups", Joined(answer["device_groups"]));
+                card.Destructive = true;
+                break;
+            case "oadm_waiting_remove_preview":
+                (count, unit) = (Number(answer["will_remove"]) ?? 0, "address");
+                Add(details, "Removes from the waiting list", Count(count, unit));
+                foreach (var entry in (answer["first"] as JsonArray ?? []).OfType<JsonObject>())
+                {
+                    Add(details, "Address", Text(entry["address"]));
+                }
+
+                card.Destructive = true;
+                break;
+            case "oadm_rules_enable_preview":
+                Add(details, Flag(answer["enabled"]) == true ? "Turns on the rule" : "Turns off the rule", Text(answer["name"]));
+                Add(details, "Watches", Text(answer["watches"]));
+                Add(details, "Does", Text(answer["does"]));
+                (count, unit) = (1, "rule");
+                break;
+            case "oadm_rules_duplicate_preview":
+                Add(details, "Copies the rule", Text(answer["name"]));
+                Add(details, "Copy", Text(answer["copy_name"]) + ", off");
+                (count, unit) = (1, "rule");
+                break;
+            case "oadm_rules_test_action_preview":
+                Add(details, "Rule", Text(answer["name"]));
+                Add(details, "Sends once now", Text(answer["action"]));
+                Add(details, "Sends to", Joined(answer["sends_to"]));
+                (count, unit) = (1, "action");
+                break;
+            case "oadm_events_clear_log_preview":
+                (count, unit) = (Number(answer["will_delete"]) ?? 0, "entry");
+                Add(details, "Deletes from the event log", Count(count, unit));
+                card.Destructive = true;
+                break;
+            case "oadm_recipients_save_preview":
+                Add(details, Text(answer["change"]) == "create" ? "Creates the recipient" : "Changes the recipient", Text(answer["name"]));
+                Add(details, "Type", Text(answer["type"]));
+                Add(details, "Sends to", Text(answer["target"]));
+                Add(details, "Used by", Joined(answer["used_by"]));
+                (count, unit) = (1, "recipient");
+                break;
+            case "oadm_recipients_delete_preview":
+                Add(details, "Deletes the recipient", Text(answer["name"]));
+                Add(details, "Sends to", Text(answer["target"]));
+                (count, unit) = (1, "recipient");
+                card.Destructive = true;
+                break;
+            case "oadm_recipients_test_preview":
+                Add(details, "Tests the recipient", Text(answer["name"]));
+                Add(details, "Sends to", Text(answer["target"]));
+                (count, unit) = (1, "recipient");
+                break;
+            case "oadm_compliance_enable_preview":
+                Add(details, Flag(answer["enabled"]) == true ? "Turns on" : "Turns off", "Compliance for the server");
+                (count, unit) = (Number(answer["checks_on"]) ?? 0, "check");
+                card.Destructive = Flag(answer["enabled"]) != true;
+                break;
+            case "oadm_compliance_check_save_preview":
+                Add(details, Text(answer["change"]) == "create" ? "Creates the check" : "Changes the check", Text(answer["name"]));
+                Add(details, "Kind", Text(answer["kind"]));
+                Add(details, "Asks for", Text(answer["setting"]));
+                Add(details, "Severity", Text(answer["severity"]));
+                Add(details, "State", Flag(answer["enabled"]) == true ? "on" : "off");
+                (count, unit) = (1, "check");
+                break;
+            case "oadm_compliance_check_delete_preview":
+                Add(details, "Deletes the check", Text(answer["name"]));
+                (count, unit) = (1, "check");
+                card.Destructive = true;
+                break;
+            case "oadm_compliance_check_enable_preview":
+                Add(details, Flag(answer["enabled"]) == true ? "Turns on the check" : "Turns off the check", Text(answer["name"]));
+                (count, unit) = (1, "check");
+                break;
+            case "oadm_compliance_check_now_preview":
+                Add(details, "Checks again now", Joined(answer["checks"]));
+                (count, unit) = (Number(answer["devices"]) ?? 0, "device");
+                break;
+            case "oadm_sites_rename_preview":
+                Add(details, "Renames the site", Text(answer["name"]));
+                Add(details, "New name", Text(answer["new_name"]));
+                (count, unit) = (1, "site");
+                break;
+            case "oadm_devices_optics_preview":
+            case "oadm_devices_ptz_preview":
+                Add(details, "Moves", Text(answer["change"]));
+                (count, unit) = (1, "device");
+                break;
+            case "oadm_devices_rtsp_port_preview":
+                Add(details, "RTSP port now", Number(answer["port_now"])?.ToString(CultureInfo.InvariantCulture) ?? "different");
+                Add(details, "RTSP port after the run", Number(answer["port"])?.ToString(CultureInfo.InvariantCulture));
+                break;
+            case "oadm_vulnerabilities_update_preview":
+                Add(details, "Fetches", "the newest list of Axis vulnerabilities");
+                Add(details, "List of", Text(answer["updated"]));
+                (count, unit) = (1, "list");
+                break;
             default:
                 // A plugin's preview: its plain fields, one level deep (the PKI certificate, a VAPIX Commander command).
                 foreach (var (name, value) in answer)
@@ -175,9 +296,16 @@ internal static class AssistantCards
         return card;
     }
 
-    /// <summary>"3 devices", "1 rule".</summary>
+    /// <summary>"3 devices", "1 rule", "2 entries", "4 addresses".</summary>
     public static string Count(int count, string unit) =>
-        string.Create(CultureInfo.InvariantCulture, $"{count:N0} {unit}{(count == 1 ? string.Empty : "s")}");
+        string.Create(CultureInfo.InvariantCulture, $"{count:N0} {(count == 1 ? unit : PluralOf(unit))}");
+
+    private static string PluralOf(string unit) =>
+        unit.EndsWith('y') ? unit[..^1] + "ies" : unit.EndsWith('s') ? unit + "es" : unit + "s";
+
+    /// <summary>A list of texts of an answer joined, null when empty.</summary>
+    private static string? Joined(JsonNode? list) =>
+        list is JsonArray array && array.Count > 0 ? string.Join(", ", array.Select(Text).OfType<string>()) : null;
 
     /// <summary>"Ping: run" of a plugin's run tool becomes "Ping".</summary>
     public static string TitleOf(string runTitle) => runTitle.EndsWith(": run", StringComparison.Ordinal) ? runTitle[..^": run".Length] : runTitle;
