@@ -26,7 +26,7 @@ internal static class AssistantCards
     /// <summary>Fields of an answer the card shows elsewhere (or never).</summary>
     private static readonly HashSet<string> Shown = new(StringComparer.Ordinal)
     {
-        "handle", "expires", "note", "warnings", "skipped", "cannot", "first", "devices", "will_run", "will_change", "will_cancel", "will_try",
+        "handle", "expires", "note", "warnings", "skipped", "cannot", "first", "devices", "will_run", "will_change", "will_cancel", "will_try", "unit",
     };
 
     public static Proto.AssistantPreviewCard Build(OadmTool preview, OadmTool? run, string handle, JsonObject answer, JsonElement arguments)
@@ -147,6 +147,11 @@ internal static class AssistantCards
                 }
 
                 card.Destructive = run?.Destructive ?? false;
+                if (Text(answer["unit"]) is { Length: > 0 } pluginUnit && Number(answer["will_change"]) is { } pluginCount)
+                {
+                    (count, unit) = (pluginCount, pluginUnit); // a plan of PluginToolPlan: "1 reader", "3 leases"
+                }
+
                 break;
         }
 
