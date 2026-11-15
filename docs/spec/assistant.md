@@ -35,7 +35,7 @@ shows the chat.
   tool calls as short lines "Looking at devices…", preview cards; `Run(handle)`; `End`). Run goes through the same tool
   registry (the run tool of the preview), not through the model.
 
-## Settings (card **Assistant**, next to **AI agents**)
+## Settings (card **AI**, section **Assistant**, below the section **MCP**)
 
 Administrators only; changes audited.
 
