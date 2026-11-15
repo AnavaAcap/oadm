@@ -1,0 +1,199 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:ui="using:Oadm.Sdk.Client.Controls"
+             xmlns:c="using:Oadm.Client.Controls"
+             xmlns:a="using:Oadm.Client.Assistant"
+             x:Class="Oadm.Client.Assistant.AssistantPanelView"
+             x:DataType="a:AssistantPanelViewModel">
+  <!-- The Assistant panel (docs/spec/assistant.md "The panel"): title with New chat and Close, the conversation (a virtualized
+       list, one template per kind of entry), the start suggestions while it is empty, and at the bottom the attached files,
+       the message box (Enter sends, Shift+Enter a new line), the selection count, Attach file and Send / Stop. -->
+  <DockPanel>
+    <Grid DockPanel.Dock="Top" ColumnDefinitions="*,Auto,Auto" ColumnSpacing="4" Margin="0,0,0,12">
+      <TextBlock Classes="cardTitle" Text="{x:Static a:AssistantTexts.Title}" VerticalAlignment="Center" />
+      <ui:ToolbarButton Grid.Column="1" x:Name="NewChat" Text="{x:Static a:AssistantTexts.NewChat}" IconKey="edit" Command="{Binding NewChatCommand}"
+                        VerticalAlignment="Center" />
+      <Button Grid.Column="2" x:Name="ClosePanel" Classes="toolbar iconOnly" VerticalAlignment="Center" Command="{Binding CloseCommand}"
+              ToolTip.Tip="{x:Static a:AssistantTexts.Close}">
+        <ui:OadmIcon Data="{StaticResource Icon.close}" />
+      </Button>
+    </Grid>
+
+    <!-- Bottom: attached files, the message box with what goes along, the buttons. -->
+    <Border DockPanel.Dock="Bottom" Classes="chatComposer">
+      <StackPanel Spacing="8">
+        <ItemsControl x:Name="AttachmentList" ItemsSource="{Binding Attachments}" IsVisible="{Binding HasAttachments}">
+          <ItemsControl.ItemsPanel>
+            <ItemsPanelTemplate>
+              <WrapPanel ItemSpacing="6" LineSpacing="6" />
+            </ItemsPanelTemplate>
+          </ItemsControl.ItemsPanel>
+          <ItemsControl.ItemTemplate>
+            <DataTemplate x:DataType="a:AssistantAttachmentItem">
+              <Border Classes="chatChip">
+                <StackPanel Orientation="Horizontal" Spacing="6">
+                  <ui:OadmIcon Data="{StaticResource Icon.file}" />
+                  <TextBlock Text="{Binding Name}" VerticalAlignment="Center" MaxWidth="260" TextTrimming="CharacterEllipsis" />
+                  <TextBlock Classes="secondary" Text="{Binding SizeText}" VerticalAlignment="Center" />
+                  <Button Classes="toolbar iconOnly" ToolTip.Tip="{x:Static a:AssistantTexts.RemoveFile}"
+                          Command="{Binding $parent[a:AssistantPanelView].((a:AssistantPanelViewModel)DataContext).RemoveAttachmentCommand}" CommandParameter="{Binding}">
+                    <ui:OadmIcon Data="{StaticResource Icon.close}" />
+                  </Button>
+                </StackPanel>
+              </Border>
+            </DataTemplate>
+          </ItemsControl.ItemTemplate>
+        </ItemsControl>
+        <ui:ProgressRow Text="{x:Static a:AssistantTexts.Uploading}" IsVisible="{Binding IsUploading}" />
+        <!-- The selection that goes along: more than 10,000 devices, the message directly below the box. -->
+        <ui:FormField LabelAbove="True" Error="{Binding SelectionError}">
+          <TextBox x:Name="MessageBox" Text="{Binding Draft}" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="64" MaxHeight="200"
+                   MaxLength="{x:Static a:AssistantTexts.MaxMessageLength}" PlaceholderText="{x:Static a:AssistantTexts.Placeholder}" />
+        </ui:FormField>
+        <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
+          <TextBlock x:Name="SelectionCount" Classes="secondary" Text="{Binding SelectionText}" VerticalAlignment="Center" IsVisible="{Binding HasSelection}" />
+          <ui:ToolbarButton Grid.Column="1" x:Name="AttachFile" Text="{x:Static a:AssistantTexts.AttachFile}" IconKey="paperclip"
+                            Command="{Binding AttachFileCommand}" VerticalAlignment="Center"
+                            ToolTip.Tip="{Binding AttachTip}" ToolTip.ShowOnDisabled="True" />
+          <Panel Grid.Column="2">
+            <Button x:Name="Send" Classes.primary="{Binding !HasReadyPreview}" Classes.secondary="{Binding HasReadyPreview}"
+                    Command="{Binding SendCommand}" IsVisible="{Binding !IsStreaming}" ToolTip.Tip="{Binding SendTip}" ToolTip.ShowOnDisabled="True">
+              <ui:IconLabel Icon="{StaticResource Icon.send}" Text="{x:Static a:AssistantTexts.Send}" />
+            </Button>
+            <Button x:Name="Stop" Classes="secondary" Command="{Binding StopCommand}" IsVisible="{Binding IsStreaming}">
+              <ui:IconLabel Icon="{StaticResource Icon.stop}" Text="{x:Static a:AssistantTexts.Stop}" />
+            </Button>
+          </Panel>
+        </Grid>
+        <TextBlock Text="{Binding Message}" Classes="small" Classes.error="{Binding MessageIsError}" Classes.secondary="{Binding !MessageIsError}"
+                   TextWrapping="Wrap" IsVisible="{Binding Message, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+      </StackPanel>
+    </Border>
+
+    <Panel>
+      <!-- Empty: the four start suggestions, a click sends one. -->
+      <StackPanel x:Name="Suggestions" Spacing="8" VerticalAlignment="Bottom" Margin="0,0,0,12" IsVisible="{Binding IsEmpty}">
+        <ItemsControl ItemsSource="{x:Static a:AssistantTexts.Suggestions}">
+          <ItemsControl.ItemsPanel>
+            <ItemsPanelTemplate>
+              <StackPanel Spacing="8" />
+            </ItemsPanelTemplate>
+          </ItemsControl.ItemsPanel>
+          <ItemsControl.ItemTemplate>
+            <DataTemplate x:DataType="x:String">
+              <Button Classes="secondary" HorizontalAlignment="Left" Content="{Binding}"
+                      Command="{Binding $parent[a:AssistantPanelView].((a:AssistantPanelViewModel)DataContext).SendSuggestionCommand}" CommandParameter="{Binding}" />
+            </DataTemplate>
+          </ItemsControl.ItemTemplate>
+        </ItemsControl>
+      </StackPanel>
+
+      <ListBox x:Name="Conversation" Classes="readOnlyList" ItemsSource="{Binding Items}" IsVisible="{Binding !IsEmpty}"
+               ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+        <ListBox.ItemsPanel>
+          <ItemsPanelTemplate>
+            <VirtualizingStackPanel />
+          </ItemsPanelTemplate>
+        </ListBox.ItemsPanel>
+        <ListBox.DataTemplates>
+          <DataTemplate x:DataType="a:AssistantUserItem">
+            <Border Classes="chatUser" Margin="0,4,0,8">
+              <StackPanel Spacing="4">
+                <SelectableTextBlock Text="{Binding Text}" TextWrapping="Wrap" />
+                <ui:IconLabel Icon="{StaticResource Icon.paperclip}" Text="{Binding FilesText}" IsVisible="{Binding HasFiles}" />
+              </StackPanel>
+            </Border>
+          </DataTemplate>
+          <DataTemplate x:DataType="a:AssistantAnswerItem">
+            <StackPanel Spacing="2" Margin="0,0,0,8">
+              <c:MarkdownText Markdown="{Binding Text}" />
+              <Button Classes="toolbar iconOnly" HorizontalAlignment="Left" ToolTip.Tip="{x:Static a:AssistantTexts.Copy}"
+                      Command="{Binding $parent[a:AssistantPanelView].((a:AssistantPanelViewModel)DataContext).CopyCommand}" CommandParameter="{Binding}">
+                <ui:OadmIcon Data="{StaticResource Icon.copy}" />
+              </Button>
+            </StackPanel>
+          </DataTemplate>
+          <DataTemplate x:DataType="a:AssistantToolItem">
+            <StackPanel Orientation="Horizontal" Spacing="6" Margin="0,0,0,8">
+              <ui:OadmIcon Data="{StaticResource Icon.wrench}" />
+              <TextBlock Text="{Binding Text}" Classes.secondary="{Binding !Failed}" Classes.error="{Binding Failed}" VerticalAlignment="Center"
+                         TextWrapping="Wrap" />
+            </StackPanel>
+          </DataTemplate>
+          <DataTemplate x:DataType="a:AssistantNoticeItem">
+            <TextBlock Text="{Binding Text}" Classes.secondary="{Binding !IsError}" Classes.error="{Binding IsError}" TextWrapping="Wrap" Margin="0,0,0,8" />
+          </DataTemplate>
+          <DataTemplate x:DataType="a:AssistantPictureItem">
+            <StackPanel Spacing="4" Margin="0,0,0,8">
+              <Button Classes="picture" HorizontalAlignment="Left" ToolTip.Tip="{x:Static a:AssistantTexts.Enlarge}"
+                      Command="{Binding $parent[a:AssistantPanelView].((a:AssistantPanelViewModel)DataContext).EnlargeCommand}" CommandParameter="{Binding}">
+                <Border Classes="chatPicture">
+                  <Image Source="{Binding Picture}" Stretch="Uniform" />
+                </Border>
+              </Button>
+              <TextBlock Classes="secondary small" Text="{Binding DeviceName}" />
+            </StackPanel>
+          </DataTemplate>
+          <DataTemplate x:DataType="a:AssistantTableItem">
+            <StackPanel Spacing="4" Margin="0,0,0,8">
+              <DataGrid ItemsSource="{Binding Rows}" SelectedItem="{Binding SelectedRow, Mode=TwoWay}" IsReadOnly="True" SelectionMode="Single"
+                        CanUserReorderColumns="False" CanUserSortColumns="True" MaxHeight="300" HorizontalScrollBarVisibility="Disabled">
+                <DataGrid.Columns>
+                  <DataGridTextColumn Header="Name" Width="*" Binding="{Binding Name}" x:DataType="a:AssistantTableRow" />
+                  <DataGridTextColumn Header="Address" Width="110" Binding="{Binding Address}" x:DataType="a:AssistantTableRow" />
+                  <DataGridTextColumn Header="Model" Width="100" Binding="{Binding Model}" x:DataType="a:AssistantTableRow" />
+                  <DataGridTextColumn Header="Status" Width="100" Binding="{Binding Status}" x:DataType="a:AssistantTableRow" />
+                </DataGrid.Columns>
+              </DataGrid>
+              <StackPanel Orientation="Horizontal" Spacing="8" IsVisible="{Binding HasMore}">
+                <TextBlock Classes="secondary" Text="{Binding MoreText}" VerticalAlignment="Center" />
+                <Button Classes="link" Content="{x:Static a:AssistantTexts.SelectAllInGrid}"
+                        Command="{Binding $parent[a:AssistantPanelView].((a:AssistantPanelViewModel)DataContext).SelectAllCommand}" CommandParameter="{Binding}" />
+              </StackPanel>
+            </StackPanel>
+          </DataTemplate>
+          <DataTemplate x:DataType="a:AssistantPreviewItem">
+            <Border Classes="chatCard" Margin="0,0,0,8">
+              <StackPanel Spacing="8">
+                <StackPanel Spacing="2">
+                  <TextBlock Classes="sectionTitle" Text="{Binding Title}" TextWrapping="Wrap" />
+                  <TextBlock Classes="secondary" Text="{Binding CountText}" />
+                </StackPanel>
+                <TextBlock Text="{Binding DevicesText}" TextWrapping="Wrap" IsVisible="{Binding HasDevices}" />
+                <ItemsControl ItemsSource="{Binding Skipped}" IsVisible="{Binding HasSkipped}">
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="x:String">
+                      <TextBlock Classes="secondary" Text="{Binding StringFormat='Skipped: {0}'}" TextWrapping="Wrap" />
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+                <ItemsControl ItemsSource="{Binding Warnings}" IsVisible="{Binding HasWarnings}">
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="x:String">
+                      <StackPanel Orientation="Horizontal" Spacing="6">
+                        <ui:OadmIcon Data="{StaticResource Icon.triangleAlert}" />
+                        <TextBlock Classes="warning" Text="{Binding}" TextWrapping="Wrap" VerticalAlignment="Center" />
+                      </StackPanel>
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+                <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right" IsVisible="{Binding IsReady}">
+                  <Button Classes="secondary" Content="{x:Static a:AssistantTexts.Cancel}"
+                          Command="{Binding $parent[a:AssistantPanelView].((a:AssistantPanelViewModel)DataContext).CancelPreviewCommand}" CommandParameter="{Binding}" />
+                  <Button Classes="primary" Content="{x:Static a:AssistantTexts.Run}"
+                          Command="{Binding $parent[a:AssistantPanelView].((a:AssistantPanelViewModel)DataContext).RunPreviewCommand}" CommandParameter="{Binding}" />
+                </StackPanel>
+                <DockPanel IsVisible="{Binding HasStatus}">
+                  <Button DockPanel.Dock="Right" Classes="link" Content="{x:Static a:AssistantTexts.ShowTasks}" IsVisible="{Binding IsStarted}"
+                          Command="{Binding $parent[a:AssistantPanelView].((a:AssistantPanelViewModel)DataContext).ShowTasksCommand}" />
+                  <ui:StatusChip HorizontalAlignment="Left" Text="{Binding StatusText}" IsAccent="{Binding IsActive}" IsOk="{Binding IsDone}"
+                                 IsError="{Binding HasFailed}" MaxLines="2" />
+                </DockPanel>
+              </StackPanel>
+            </Border>
+          </DataTemplate>
+        </ListBox.DataTemplates>
+      </ListBox>
+    </Panel>
+  </DockPanel>
+</UserControl>

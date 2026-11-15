@@ -113,6 +113,10 @@
   <StreamGeometry x:Key="Icon.zap">M13 2L3 14h9l-1 8l10 -12h-9l1 -8z</StreamGeometry>
   <StreamGeometry x:Key="Icon.flame">M8.5 14.5a2.5 2.5 0 0 0 2.5 -2.5c0 -1.38 -0.5 -2 -1 -3c-1.07 -2.14 -0.22 -4.05 2 -6c0.5 2.5 2 4.9 4 6.5c2 1.6 3 3.5 3 5.5a7 7 0 1 1 -14 0c0 -1.15 0.43 -2.29 1 -3a2.5 2.5 0 0 0 2.5 2.5z</StreamGeometry>
   <StreamGeometry x:Key="Icon.bell">M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3 -2 3 -9z M10.3 21a1.94 1.94 0 0 0 3.4 0</StreamGeometry>
+  <!-- Lucide "message-square": the Assistant (title bar) -->
+  <StreamGeometry x:Key="Icon.chat">M21 15a2 2 0 0 1 -2 2H7l-4 4V5a2 2 0 0 1 2 -2h14a2 2 0 0 1 2 2z</StreamGeometry>
+  <!-- Lucide "paperclip": Attach file (Assistant) -->
+  <StreamGeometry x:Key="Icon.paperclip">M21.44 11.05l-9.19 9.19a6 6 0 0 1 -8.49 -8.49l8.57 -8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1 -2.83 -2.83l8.49 -8.48</StreamGeometry>
   <StreamGeometry x:Key="Icon.help">M2 12a10 10 0 1 0 20 0a10 10 0 1 0 -20 0z M9.09 9a3 3 0 0 1 5.83 1c0 2 -3 3 -3 3 M12 17h0.01</StreamGeometry>
   <!-- Lucide "cloud": the MyAxis account on axis.com (title bar) -->
   <StreamGeometry x:Key="Icon.cloud">M17.5 19H9a7 7 0 1 1 6.71 -9h1.79a4.5 4.5 0 1 1 0 9z</StreamGeometry>

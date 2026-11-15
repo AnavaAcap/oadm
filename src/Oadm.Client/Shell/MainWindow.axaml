@@ -14,6 +14,7 @@
         xmlns:sites="using:Oadm.Client.Sites"
         xmlns:settings="using:Oadm.Client.Settings"
         xmlns:myaxis="using:Oadm.Client.MyAxis"
+        xmlns:assistant="using:Oadm.Client.Assistant"
         mc:Ignorable="d" d:DesignWidth="1440" d:DesignHeight="900"
         x:Class="Oadm.Client.Shell.MainWindow"
         x:DataType="shell:MainWindowViewModel"
@@ -71,6 +72,11 @@
         <!-- "User": clicks reach these buttons instead of moving the window. -->
         <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center" Margin="0,0,0,0"
                     chrome:WindowDecorationProperties.ElementRole="User">
+          <!-- Assistant (left of MyAxis and Help, which stay next to the user): opens and closes the chat panel right of every page; hidden while it is off or the role may not use it -->
+          <ui:ToolbarButton x:Name="TitleAssistant" Text="{x:Static assistant:AssistantTexts.Title}" IconKey="chat" IsIconOnly="True"
+                            Classes.active="{Binding Assistant.IsOpen, FallbackValue=False}"
+                            IsVisible="{Binding Assistant.IsAvailable, FallbackValue=False}"
+                            Command="{Binding Assistant.ToggleCommand, FallbackValue={x:Null}}" />
           <!-- MyAxis: sign in on Axis's page in a window; signed in, a small panel with Sign out. A warning dot when
                axis.com ended the sign-in. -->
           <Panel x:Name="TitleMyAxisHost" IsVisible="{Binding MyAxis.IsAvailable, FallbackValue=False}">
@@ -178,7 +184,7 @@
 
       <!-- Page; the connection banner shows only while the server is unreachable, the key banner after the
            server replaced its master key until dismissed -->
-      <Grid Grid.Column="1" RowDefinitions="Auto,Auto,*" Margin="{StaticResource Oadm.PagePadding}">
+      <Grid Grid.Column="1" RowDefinitions="Auto,Auto,*" ColumnDefinitions="*,Auto" Margin="{StaticResource Oadm.PagePadding}">
         <Border Grid.Row="0" Classes="banner" Classes.connecting="{Binding Connection.IsConnecting}" Margin="0,0,0,12"
                 IsVisible="{Binding !Connection.IsConnected}">
           <TextBlock Text="{Binding Connection.StatusText}" />
@@ -200,7 +206,21 @@
           </Border>
         </StackPanel>
         <ContentControl Grid.Row="2" Content="{Binding CurrentPage}" />
+        <!-- The Assistant panel (docs/spec/assistant.md): right of every page, it stays open while the user moves between pages. -->
+        <Border x:Name="AssistantPanel" Grid.Column="1" Grid.RowSpan="3" Classes="sidePanel" Classes.open="{Binding Assistant.IsOpen, FallbackValue=False}"
+                IsVisible="{Binding Assistant, Converter={x:Static ObjectConverters.IsNotNull}}">
+          <Border Classes="sidePanelContent">
+            <assistant:AssistantPanelView DataContext="{Binding Assistant}" />
+          </Border>
+        </Border>
       </Grid>
     </Grid>
+    <!-- A picture of the Assistant shown larger over the whole window; a click closes it. -->
+    <Border x:Name="AssistantPicture" Grid.RowSpan="2" Classes="pictureOverlay"
+            IsVisible="{Binding Assistant.Enlarged, Converter={x:Static ObjectConverters.IsNotNull}, FallbackValue=False}">
+      <Button Classes="picture" Command="{Binding Assistant.CloseEnlargedCommand, FallbackValue={x:Null}}" ToolTip.Tip="{x:Static assistant:AssistantTexts.Close}">
+        <Image Source="{Binding Assistant.Enlarged.Picture, FallbackValue={x:Null}}" Stretch="Uniform" />
+      </Button>
+    </Border>
   </Grid>
 </Window>

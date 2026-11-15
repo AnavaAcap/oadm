@@ -295,6 +295,7 @@ public partial class DevicesView : UserControl
             _viewModel.TagGrouping.Rows.CollectionChanged -= OnGroupRowsChanged;
             _viewModel.FilteredDevices.CollectionChanged -= OnFilteredRowsChanged;
             _viewModel.Compliance.ChecksChanged -= OnComplianceChecksChanged;
+            _viewModel.SelectRequested -= OnSelectRequested;
             _viewModel = null;
         }
 
@@ -313,8 +314,37 @@ public partial class DevicesView : UserControl
             _liveView.PropertyChanged += OnLiveViewPropertyChanged;
             ApplyLiveViewColumns();
             vm.Compliance.ChecksChanged += OnComplianceChecksChanged;
+            vm.SelectRequested += OnSelectRequested;
             ApplyComplianceColumns();
             ApplySiteColumn();
+        }
+    }
+
+    /// <summary>
+    /// The view model asks for these rows to be selected (the Assistant's tables): the selection comes off and these go on in
+    /// one step (a tag row of each in group mode), with the ring for a large one; the first one scrolls into view.
+    /// </summary>
+    private void OnSelectRequested(object? sender, IReadOnlyList<DeviceRowViewModel> rows)
+    {
+        var paused = GridSelection.Pause(DeviceGrid);
+        DeviceGrid.SelectedItems.Clear();
+        var selection = new TakenSelection(DeviceGrid, [.. rows], paused);
+        void PutBack()
+        {
+            selection.PutBack(GridRows);
+            if (rows.Count > 0)
+            {
+                DeviceGrid.ScrollIntoView(DeviceGrid.SelectedItem ?? rows[0], null);
+            }
+        }
+
+        if (rows.Count >= LargeSelection)
+        {
+            _ = RunBusyAsync("Selecting", PutBack);
+        }
+        else
+        {
+            PutBack();
         }
     }
 

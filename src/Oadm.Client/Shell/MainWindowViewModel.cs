@@ -67,9 +67,11 @@ public sealed partial class MainWindowViewModel : ObservableObject
         Sites.SitesViewModel? sites = null,
         IUiDispatcher? ui = null,
         Func<HelpWindowViewModel>? help = null,
-        MyAxis.MyAxisAccount? myAxis = null)
+        MyAxis.MyAxisAccount? myAxis = null,
+        Assistant.AssistantPanelViewModel? assistant = null)
     {
         MyAxis = myAxis;
+        Assistant = assistant;
         _liveVideo = liveVideo;
         _help = help;
         _ui = ui;
@@ -176,6 +178,16 @@ public sealed partial class MainWindowViewModel : ObservableObject
         }
 
         devices.OpenInWebViewRequested += (_, deviceId) => OpenInWebView(deviceId);
+        if (assistant is not null)
+        {
+            // A table row, Select all in the grid, Show tasks of the panel: the Devices page (the panel stays open).
+            assistant.ShowDevicesRequested += (_, _) =>
+            {
+                _pendingStartPage = null;
+                OpenItem(_devicesItem);
+            };
+        }
+
         OpenItem(_devicesItem);
     }
 
@@ -187,6 +199,9 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
     /// <summary>The user's MyAxis sign-in (title bar button left of Help); null: none in this client.</summary>
     public MyAxis.MyAxisAccount? MyAxis { get; }
+
+    /// <summary>The Assistant panel (title bar button next to Help, the panel right of every page); null: none in this client.</summary>
+    public Assistant.AssistantPanelViewModel? Assistant { get; }
 
     /// <summary>First letter of the user name, upper case: the avatar at the bottom of the rail.</summary>
     public string UserInitial => string.IsNullOrEmpty(Session.UserName)
@@ -393,6 +408,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         Devices.LiveView.CloseCommand.Execute(null);
         ClosePluginWindowsRequested?.Invoke(this, null);
         CloseHelp();
+        Assistant?.Close(); // the chat is forgotten (End on the server)
         ApplyKeyNotice(null); // the banners are the last server's, for the last user's role
         ApplyRolesNotice(null);
         _pendingStartPage = null;

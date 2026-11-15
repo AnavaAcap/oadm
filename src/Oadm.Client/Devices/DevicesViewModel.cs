@@ -488,6 +488,37 @@ public sealed partial class DevicesViewModel : ObservableObject
     /// <summary>The tooltip of the address link of a device at a site.</summary>
     public string SiteWebInterfaceTip => SiteWebViewTexts.Tip(WebViewAccess);
 
+    /// <summary>
+    /// The devices to select in the grid (the Assistant's tables, docs/spec/assistant.md): the view selects their rows in one
+    /// step (<see cref="SelectRequested"/>). A search that hides some of them is cleared first. Without a view (tests) the
+    /// selection is set directly. Unknown ids are left out.
+    /// </summary>
+    public void SelectInGrid(IEnumerable<string> deviceIds)
+    {
+        ArgumentNullException.ThrowIfNull(deviceIds);
+        var rows = deviceIds.Select(_store.Find).OfType<DeviceRowViewModel>().Distinct().ToList();
+        if (HasSearch)
+        {
+            var shown = FilteredDevices.ToHashSet();
+            if (rows.Any(r => !shown.Contains(r)))
+            {
+                SearchText = "";
+            }
+        }
+
+        if (SelectRequested is { } select)
+        {
+            select(this, rows);
+        }
+        else
+        {
+            SelectedDevices.ReplaceAll(rows);
+        }
+    }
+
+    /// <summary>The rows <see cref="SelectInGrid"/> asks the view to select (all others unselected).</summary>
+    public event EventHandler<IReadOnlyList<DeviceRowViewModel>>? SelectRequested;
+
     /// <summary>A device at a site asks for its web interface: the shell opens it in Web View.</summary>
     public event EventHandler<string>? OpenInWebViewRequested;
 
