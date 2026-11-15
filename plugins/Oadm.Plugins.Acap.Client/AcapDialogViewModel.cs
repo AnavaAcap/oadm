@@ -69,6 +69,9 @@ public sealed partial class DeviceCompatibilityRow(DeviceChoice device) : Observ
     /// <summary>Install, upgrade, reinstall or downgrade on a compatible device; null otherwise.</summary>
     public InstallKind? Kind { get; set; }
 
+    /// <summary>The dialog's read of the device (null while not read or not checked here).</summary>
+    public ListApplicationsResult? State { get; set; }
+
     /// <summary>With several packages: the architecture of the one this device gets ("aarch64"); null otherwise.</summary>
     public string? PackageArchitecture { get; set; }
 
@@ -265,7 +268,7 @@ public sealed partial class AcapDialogViewModel : ObservableObject, IDisposable
     /// <summary>Several packages, one per architecture.</summary>
     public bool HasSeveralPackages => _packages.Count > 1;
 
-    public string PackageTitle => Package is null ? "Install or upgrade" : $"{Package.DisplayName} {Package.Version}";
+    public string PackageTitle => Package is null ? "Install or upgrade" : $"{Package.DisplayName} {AcapCompatibility.VersionsText(_packages)}";
 
     public string PackageDetails => Package is null
         ? string.Empty
@@ -274,9 +277,10 @@ public sealed partial class AcapDialogViewModel : ObservableObject, IDisposable
             $"Package {Package.AppName}",
             Package.Vendor is { Length: > 0 } v ? $"Vendor {v}" : null,
             HasSeveralPackages
-                ? $"Architecture {string.Join(", ", _packages.Select(p => p.Architecture))}"
+                ? $"Architecture {string.Join(", ", _packages.Select(p => AcapCompatibility.IsArchitectureIndependent(p.Architecture) ? "any" : p.Architecture).Distinct(StringComparer.OrdinalIgnoreCase))}"
                 : $"Architecture {(AcapCompatibility.IsArchitectureIndependent(Package.Architecture) ? "any" : Package.Architecture)}",
-            Package.CompatibleOsVersions.Count > 0 ? $"AXIS OS {string.Join(", ", Package.CompatibleOsVersions)}" : null,
+            !HasSeveralPackages && Package.CompatibleOsVersions.Count > 0 ? $"AXIS OS {string.Join(", ", Package.CompatibleOsVersions)}" : null,
+            HasMappingFile ? MappingFact : null,
             ManifestOf(Package) is { } manifest ? $"Manifest {manifest}" : null,
             Package.RunsAsRoot ? "Runs as root" : null,
         }.Where(p => p is not null));
@@ -464,6 +468,11 @@ public sealed partial class AcapDialogViewModel : ObservableObject, IDisposable
         }
 
         _packages = [];
+        _names = [];
+        _rules = [];
+        _chosen.Clear();
+        Groups = [];
+        UnchosenCount = 0;
         _fileName = EapPackageFiles.Describe(paths, null);
         PackagePath = paths[0];
         OnPropertyChanged(nameof(PackageFileName));
@@ -480,18 +489,21 @@ public sealed partial class AcapDialogViewModel : ObservableObject, IDisposable
                 _fileName = _files.Label;
                 OnPropertyChanged(nameof(PackageFileName));
                 var files = _files.Paths;
+                var names = _files.Names;
                 var read = new List<(string FileName, EapManifest Package)>(files.Count);
                 var several = files.Count > 1;
                 PackageFileDetails = Oadm.Sdk.Formatting.ByteSize.Text(files.Sum(p => new FileInfo(p).Length));
-                foreach (var path in files)
+                for (var i = 0; i < files.Count; i++)
                 {
+                    var path = files[i];
+                    var name = i < names.Count ? names[i] : Path.GetFileName(path);
                     try
                     {
-                        read.Add((Path.GetFileName(path), await Task.Run(() => EapReader.ReadAsync(path, CancellationToken.None)).ConfigureAwait(true)));
+                        read.Add((name, await Task.Run(() => EapReader.ReadAsync(path, CancellationToken.None)).ConfigureAwait(true)));
                     }
                     catch (Exception ex) when (several && ex is InvalidEapException or IOException or UnauthorizedAccessException)
                     {
-                        throw new InvalidEapException(Path.GetFileName(path) + ": " + ex.Message, ex);
+                        throw new InvalidEapException(name + ": " + ex.Message, ex);
                     }
                 }
 
@@ -501,6 +513,10 @@ public sealed partial class AcapDialogViewModel : ObservableObject, IDisposable
                 }
                 else
                 {
+                    // The vendor's mapping file of a ZIP: its rows name the .eap files of the pick.
+                    var rules = _files.RulesJson is { } json ? AcapPackageRules.Parse(json, [.. read.Select(r => r.FileName)]) : [];
+                    _names = [.. read.Select(r => r.FileName)];
+                    _rules = rules;
                     _packages = [.. read.Select(r => r.Package)];
                     Package = _packages[0];
                 }
@@ -561,8 +577,6 @@ public sealed partial class AcapDialogViewModel : ObservableObject, IDisposable
     private async Task CheckCompatibilityAsync()
     {
         var package = Package;
-        var packages = _packages;
-        var allowDowngrade = AllowDowngrade;
         CompatibleCount = 0;
         CheckedCount = 0;
         if (package is null)
@@ -597,43 +611,28 @@ public sealed partial class AcapDialogViewModel : ObservableObject, IDisposable
         Compatibility = rows;
         OnPropertyChanged(nameof(CompatibilitySummary));
 
+        // The groups from the cached facts at once (the table shows before the reads), again with the reads below.
+        ApplyChoices();
         using var slots = new SemaphoreSlim(MaxParallelQueries);
-        await Task.WhenAll(sample.Select(i => CheckRowAsync(rows[i], packages, allowDowngrade, slots))).ConfigureAwait(true);
+        await Task.WhenAll(sample.Select(i => CheckRowAsync(rows[i], slots))).ConfigureAwait(true);
 
         if (!ReferenceEquals(package, Package) || !ReferenceEquals(rows, Compatibility))
         {
             return;
         }
 
-        var compatible = 0;
-        foreach (var i in sample)
-        {
-            compatible += rows[i].IsOk ? 1 : 0;
-        }
-
+        // Each group gets its build, the same choice the task makes again before uploading (the shared AcapBuildChooser).
+        ApplyChoices();
         CheckedCount = sample.Count;
-        CompatibleCount = compatible;
         OnPropertyChanged(nameof(CompatibilitySummary));
     }
 
-    private async Task CheckRowAsync(DeviceCompatibilityRow row, IReadOnlyList<EapManifest> packages, bool allowDowngrade, SemaphoreSlim slots)
+    private async Task CheckRowAsync(DeviceCompatibilityRow row, SemaphoreSlim slots)
     {
         await slots.WaitAsync().ConfigureAwait(true);
         try
         {
-            var state = await QueryAsync(row.Device.Device).ConfigureAwait(true);
-
-            // Several packages: the one of the device's architecture, the same choice the task makes again before uploading
-            // (the shared preview, also the Applications page's).
-            var preview = AcapCompatibility.Preview(packages, state.Device, state.Applications, allowDowngrade);
-            row.PackageArchitecture = preview.PackageArchitecture;
-            row.IsOk = preview.IsOk;
-            row.Kind = preview.Kind;
-            row.IsWarning = preview.IsWarning;
-            row.IsError = preview.IsError;
-            row.Result = preview.Result;
-            row.Verdict = preview.Verdict;
-            row.Details = preview.Details;
+            row.State = await QueryAsync(row.Device.Device).ConfigureAwait(true);
         }
 #pragma warning disable CA1031 // Shown per device.
         catch (Exception ex)
@@ -682,12 +681,14 @@ public sealed partial class AcapDialogViewModel : ObservableObject, IDisposable
         return kinds.Count == 1 ? kinds[0] : null;
     }
 
-    private bool CanInstall() => Package is not null && CompatibleCount > 0 && !IsBusy;
+    /// <summary>A package, a device that can install it, and a file for every group OADM cannot decide.</summary>
+    private bool CanInstall() => Package is not null && UnchosenCount == 0 && CompatibleCount > 0 && !IsBusy;
 
     /// <summary>Why Install is disabled (its tooltip); the package's own error stays at the file row.</summary>
     public string? InstallBlockedReason =>
         IsBusy ? null
         : Package is null ? PackageError ?? "Choose an ACAP package (.eap or .zip)."
+        : UnchosenReason is { } choose ? choose
         : CompatibleCount == 0 ? "None of the selected devices can install this package (see Result)."
         : null;
 
@@ -729,14 +730,17 @@ public sealed partial class AcapDialogViewModel : ObservableObject, IDisposable
 
             finished = true;
             UploadProgress = 100;
+            var (rules, mapping) = PayloadChoices(files);
             Complete(new AcapPayload
             {
                 Action = AcapAction.Install,
                 FileId = files[0].FileId,
                 Sha256 = files[0].Sha256,
                 Files = files.Count > 1 ? files : null,
+                Rules = files.Count > 1 ? rules : null,
+                Mapping = mapping,
                 Application = package.AppName,
-                Version = package.Version,
+                Version = packages.Select(p => p.Version).Distinct(StringComparer.OrdinalIgnoreCase).Count() == 1 ? package.Version : null,
                 AllowDowngrade = AllowDowngrade,
                 StartAfterInstall = StartAfterInstall,
                 AppDisplayName = package.DisplayName,

@@ -35,6 +35,15 @@ public sealed record TaskPlan(IReadOnlyList<TaskPlanDevice> Devices)
     public IReadOnlyList<TaskPlanFile> Files { get; init; } = [];
 
     /// <summary>
+    /// Problems the plan found in the payload with the uploads (an unreadable file, a choice only the user can make), each at
+    /// its JSON field like <see cref="ITaskPlugin.ValidatePayload"/>: the preview then answers only these. Empty without.
+    /// </summary>
+    public IReadOnlyList<PayloadError> Errors { get; init; } = [];
+
+    /// <summary>What the run does, in plain lines ("P3265-V, AXIS OS 12.11.77, aarch64 (4 devices): app_aarch64.eap"); empty without.</summary>
+    public IReadOnlyList<string> Details { get; init; } = [];
+
+    /// <summary>
     /// The plan of <see cref="ITaskPlugin.CanRun"/>: a device it cannot run on is skipped with
     /// <see cref="ITaskPlugin.NotSupportedReason"/> (or <see cref="TaskSupportReasons.Default"/>).
     /// </summary>

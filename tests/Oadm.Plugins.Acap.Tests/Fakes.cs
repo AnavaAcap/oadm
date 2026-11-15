@@ -25,6 +25,8 @@ internal sealed class FakeDevice : IDeviceInfo
     public DeviceCategory Category { get; init; } = DeviceCategory.Camera;
     public bool HasVideo => DeviceCategories.HasVideo(Category);
     public IReadOnlyList<DeviceApi> Apis { get; init; } = [new("application", "1.0"), new("packagemanager", "1.4")];
+    public string? Architecture { get; init; } = "aarch64";
+    public string? Soc { get; init; } = "Axis Artpec-8";
 }
 
 /// <summary>An Axis device with the Application API, kept in memory. Records every write.</summary>
@@ -32,6 +34,8 @@ internal sealed class FakeAcapDevice : IVapixClient
 {
     public string Architecture { get; set; } = "aarch64";
     public string Firmware { get; set; } = "12.11.77";
+    public string Model { get; set; } = "P3265-V";
+    public string? Soc { get; set; } = "Axis Artpec-8";
     public string EmbeddedDevelopment { get; set; } = "2.18";
     public bool? AllowUnsigned { get; set; } = true;
     public List<DeviceApi> Apis { get; } = [new("application", "1.0"), new("packagemanager", "1.4"), new("basic-device-info", "1.3")];
@@ -72,7 +76,7 @@ internal sealed class FakeAcapDevice : IVapixClient
     public string? UploadedApplicationId { get; set; }
 
     public Task<BasicDeviceInfo> GetBasicDeviceInfoAsync(CancellationToken ct) =>
-        Task.FromResult(new BasicDeviceInfo("B8A44F631339", "P3265-V", "AXIS P3265-V", "AXIS P3265-V Dome Camera", Firmware, "931.11", Architecture, "Dome Camera"));
+        Task.FromResult(new BasicDeviceInfo("B8A44F631339", Model, "AXIS " + Model, "AXIS " + Model + " Dome Camera", Firmware, "931.11", Architecture, "Dome Camera", Soc));
 
     public Task<IReadOnlyDictionary<string, string>> ListParametersAsync(IEnumerable<string> groups, CancellationToken ct) =>
         Task.FromResult<IReadOnlyDictionary<string, string>>(new Dictionary<string, string> { ["Properties.EmbeddedDevelopment.Version"] = EmbeddedDevelopment });

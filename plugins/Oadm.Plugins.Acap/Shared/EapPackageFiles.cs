@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.IO.Compression;
+using System.Runtime.CompilerServices;
 
 namespace Oadm.Plugins.Acap;
 
@@ -14,10 +15,10 @@ namespace Oadm.Plugins.Acap;
 public sealed class EapPackageFiles : IDisposable
 {
     /// <summary>Largest unpacked total of one pick: the default size limit of one upload (<c>ServerSettings.DefaultUploadsMaxMegabytes</c>).</summary>
-    public const long MaxUnpackedBytes = 2048L * 1024 * 1024;
+    public const long MaxUnpackedBytes = EapZip.MaxBytes;
 
     /// <summary>A ZIP with more entries than this is refused: no package of one application needs them.</summary>
-    public const int MaxZipEntries = 10_000;
+    public const int MaxZipEntries = EapZip.MaxEntries;
 
     /// <summary>Longest file name kept from a ZIP (without the extension).</summary>
     public const int MaxNameLength = 120;
@@ -36,7 +37,7 @@ public sealed class EapPackageFiles : IDisposable
     public const string PickerFilter = "ACAP packages (*.eap, *.zip)";
 
     /// <summary>The tooltip of the choose button.</summary>
-    public const string ChooseHint = "One .eap per architecture, or a ZIP";
+    public const string ChooseHint = "The .eap files of one application, or a ZIP";
 
     /// <summary>The progress row while a ZIP is unpacked.</summary>
     public const string Unpacking = "Unpacking the ZIP file";
@@ -75,6 +76,12 @@ public sealed class EapPackageFiles : IDisposable
 
     /// <summary>The .eap files of the current pick, in the order of the pick: empty after <see cref="Clear"/>.</summary>
     public IReadOnlyList<string> Paths { get; private set; } = [];
+
+    /// <summary>The file names of <see cref="Paths"/> as the user and a mapping file know them (the name in the ZIP).</summary>
+    public IReadOnlyList<string> Names { get; private set; } = [];
+
+    /// <summary>The <c>oadm-packages.json</c> of a ZIP of the pick (at most 64 KB, not read yet), null without one.</summary>
+    public byte[]? RulesJson { get; private set; }
 
     /// <summary>The text of the file row for the current pick, see <see cref="Describe"/>.</summary>
     public string? Label { get; private set; }
@@ -162,6 +169,7 @@ public sealed class EapPackageFiles : IDisposable
         if (!HasZip(picked))
         {
             Paths = [.. picked];
+            Names = [.. picked.Select(Path.GetFileName).OfType<string>()];
             Label = Describe(picked, null);
             return;
         }
@@ -175,8 +183,10 @@ public sealed class EapPackageFiles : IDisposable
         using var stop = CancellationTokenSource.CreateLinkedTokenSource(ct, _stop.Token);
         try
         {
-            var paths = await Task.Run(() => UnpackAsync(picked, folder, progress, stop.Token), stop.Token).ConfigureAwait(false);
+            var (paths, names, rules) = await Task.Run(() => UnpackAsync(picked, folder, progress, stop.Token), stop.Token).ConfigureAwait(false);
             Paths = paths;
+            Names = names;
+            RulesJson = rules;
             Label = Describe(picked, paths.Count);
         }
         catch
@@ -210,6 +220,8 @@ public sealed class EapPackageFiles : IDisposable
         }
 
         Paths = [];
+        Names = [];
+        RulesJson = null;
         Label = null;
         if (folder is not null)
         {
@@ -245,14 +257,7 @@ public sealed class EapPackageFiles : IDisposable
     /// An entry that holds a package: a file ending in .eap, except the resource copies macOS adds to a ZIP
     /// (<c>__MACOSX/._app.eap</c>), which only look like packages.
     /// </summary>
-    internal static bool IsPackageEntry(string entryName)
-    {
-        var segments = entryName.Replace('\\', '/').Split('/');
-        var name = segments[^1];
-        return name.EndsWith(Eap, StringComparison.OrdinalIgnoreCase)
-            && !name.StartsWith("._", StringComparison.Ordinal)
-            && !segments.Contains("__MACOSX", StringComparer.OrdinalIgnoreCase);
-    }
+    internal static bool IsPackageEntry(string entryName) => EapZip.IsPackageEntry(entryName);
 
     /// <summary>
     /// The file name to write an entry to. An entry's name is never a path: only its last segment counts, every character a
@@ -294,12 +299,7 @@ public sealed class EapPackageFiles : IDisposable
         }
     }
 
-    private static string Count(int files) =>
-        string.Create(CultureInfo.InvariantCulture, $"{files} {(files == 1 ? "file" : "files")}");
-
-    private static string Broken(string zip) => $"{zip} is damaged or not a ZIP file.";
-
-    private static string TooLarge(string zip) => $"{zip} is too large to unpack.";
+    private static string Count(int files) => EapZip.Count(files);
 
     private static void CreatePrivateFolder(string folder)
     {
@@ -314,15 +314,16 @@ public sealed class EapPackageFiles : IDisposable
         }
     }
 
-    private async Task<IReadOnlyList<string>> UnpackAsync(IReadOnlyList<string> picked, string folder, IProgress<double>? progress, CancellationToken ct)
+    private async Task<(IReadOnlyList<string> Paths, IReadOnlyList<string> Names, byte[]? Rules)> UnpackAsync(IReadOnlyList<string> picked, string folder, IProgress<double>? progress, CancellationToken ct)
     {
         var archives = new List<ZipArchive>();
         var current = string.Empty;
         try
         {
-            // First every ZIP is opened and counted, so a refusal writes nothing.
+            // First every ZIP is opened and checked by the shared rules (EapZip.Select), so a refusal writes nothing.
             var plan = new List<(string? Loose, string Zip, ZipArchiveEntry? Entry)>();
             long declared = 0;
+            (string Zip, ZipArchiveEntry Entry)? rules = null;
             foreach (var path in picked)
             {
                 if (!IsZip(path))
@@ -334,37 +335,17 @@ public sealed class EapPackageFiles : IDisposable
                 current = Path.GetFileName(path);
                 var zip = await ZipFile.OpenReadAsync(path, ct).ConfigureAwait(false);
                 archives.Add(zip);
-                if (zip.Entries.Count > MaxEntries)
+                var selection = EapZip.Select(zip, current, MaxBytes, MaxEntries, declared);
+                declared += selection.Declared;
+                plan.AddRange(selection.Packages.Select(e => ((string?)null, current, (ZipArchiveEntry?)e)));
+                if (selection.Rules is { } found)
                 {
-                    throw new InvalidEapException($"{current} has too many files.");
-                }
-
-                var found = 0;
-                foreach (var entry in zip.Entries)
-                {
-                    if (!IsPackageEntry(entry.FullName))
+                    if (rules is not null)
                     {
-                        continue;
+                        throw new InvalidEapException($"The ZIP files have more than one {AcapPackageRules.FileName}.");
                     }
 
-                    if (entry.IsEncrypted)
-                    {
-                        throw new InvalidEapException($"{current} is password protected.");
-                    }
-
-                    if (entry.Length > MaxBytes - declared)
-                    {
-                        throw new InvalidEapException(TooLarge(current));
-                    }
-
-                    declared += entry.Length;
-                    found++;
-                    plan.Add((null, current, entry));
-                }
-
-                if (found == 0)
-                {
-                    throw new InvalidEapException($"{current} has no .eap files.");
+                    rules = (current, found);
                 }
             }
 
@@ -375,8 +356,9 @@ public sealed class EapPackageFiles : IDisposable
 
             CreatePrivateFolder(folder);
             var paths = new List<string>(plan.Count);
+            var names = new List<string>(plan.Count);
             var buffer = new byte[81920];
-            long written = 0;
+            var budget = new StrongBox<long>(MaxBytes);
             var percent = -1L;
             for (var i = 0; i < plan.Count; i++)
             {
@@ -384,6 +366,7 @@ public sealed class EapPackageFiles : IDisposable
                 if (entry is null)
                 {
                     paths.Add(loose!);
+                    names.Add(Path.GetFileName(loose!));
                     continue;
                 }
 
@@ -392,8 +375,7 @@ public sealed class EapPackageFiles : IDisposable
                 var target = Path.Combine(folder, i.ToString(CultureInfo.InvariantCulture));
                 Directory.CreateDirectory(target);
                 var file = Path.Combine(target, SafeFileName(entry.FullName));
-                long size = 0;
-                var source = await entry.OpenAsync(ct).ConfigureAwait(false);
+                var source = await EapZip.OpenAsync(entry, zipName, budget, ct).ConfigureAwait(false);
                 await using (source.ConfigureAwait(false))
                 {
                     var output = new FileStream(file, FileMode.CreateNew, FileAccess.Write, FileShare.None, 81920, useAsync: true);
@@ -402,15 +384,8 @@ public sealed class EapPackageFiles : IDisposable
                         int read;
                         while ((read = await source.ReadAsync(buffer, ct).ConfigureAwait(false)) > 0)
                         {
-                            written += read;
-                            if (written > MaxBytes)
-                            {
-                                throw new InvalidEapException(TooLarge(zipName));
-                            }
-
                             await output.WriteAsync(buffer.AsMemory(0, read), ct).ConfigureAwait(false);
-                            size += read;
-                            var done = Math.Min(100, written * 100 / Math.Max(1, declared));
+                            var done = Math.Min(100, (MaxBytes - budget.Value) * 100 / Math.Max(1, declared));
                             if (done != percent)
                             {
                                 percent = done;
@@ -420,19 +395,22 @@ public sealed class EapPackageFiles : IDisposable
                     }
                 }
 
-                if (size != entry.Length)
-                {
-                    throw new InvalidEapException(Broken(zipName));
-                }
-
                 paths.Add(file);
+                names.Add(EapZip.NameOf(entry));
             }
 
-            return paths;
+            byte[]? rulesJson = null;
+            if (rules is { } r)
+            {
+                current = r.Zip;
+                rulesJson = await EapZip.ReadRulesAsync(r.Entry, r.Zip, ct).ConfigureAwait(false);
+            }
+
+            return (paths, names, rulesJson);
         }
         catch (Exception ex) when (ex is InvalidDataException or NotSupportedException)
         {
-            throw new InvalidEapException(Broken(current), ex);
+            throw new InvalidEapException(EapZip.Broken(current), ex);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {

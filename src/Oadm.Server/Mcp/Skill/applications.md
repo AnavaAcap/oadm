@@ -12,3 +12,18 @@ Use it for "which applications run where?" and to change them.
    `oadm_task_preview` (`action` `settings` with `application` and `values` by setting name). Only after the user agrees.
    A password setting goes in `passwords` by name (never in `values`); a license key is installed with `installLicense`
    on one device. The user enters both through the secret command of the preview (see "Passwords").
+
+## Install from a vendor's ZIP
+
+1. Upload the ZIP as it is with `oadm_files_upload_link` (a ZIP the user attached in the Assistant already has its file
+   id). Never unpack it yourself.
+2. `oadm_task_preview` with task `oadm.acap`, `action` `install` and `zipFileId`. OADM reads the `.eap` builds in it and,
+   when the vendor added one, its `oadm-packages.json`, and answers per group of devices which file it gets in `details`;
+   devices without a fitting build are in `skipped`.
+3. When two builds fit a group equally the preview answers an error at `mapping` naming the group and the files. Ask the
+   user which file, then preview again with `mapping`: `[{"axisOs": "12.11.77", "architecture": "aarch64", "model":
+   "P3265-V", "file": "lpr_2.6_aarch64.eap"}]`. Never choose for the user.
+4. Show the user the plan per group, the files with their SHA-256 and the warnings. The user runs it; then
+   `oadm_task_run` with the handle.
+
+Loose `.eap` files work the same with `files` (each an upload's `fileId`); `mapping` then names the file ids.

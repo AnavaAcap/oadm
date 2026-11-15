@@ -253,7 +253,9 @@ public Task<TaskPlan> PlanAsync(string? payloadJson, IReadOnlyList<IDeviceInfo> 
 - `ValidatePayload` holds the dialog's rules, field by field (the payload's JSON names, dots for nested fields). The server
   calls it before every run, also for the client: an invalid payload starts no task. Use it in your dialog too.
 - `PlanAsync` says per device whether the run changes it or why not, from the cached data only (no device request). The
-  default uses `CanRun` and `NotSupportedReason`.
+  default uses `CanRun` and `NotSupportedReason`. The overload with `IUploadedFiles` may read the uploads: name them in
+  `TaskPlan.Files`, answer a problem only they show in `TaskPlan.Errors` (per field, like `ValidatePayload`) and say what
+  the run does in `TaskPlan.Details` (plain lines, such as the package each group of devices gets).
 - Mark a password or key with `[Secret]` (`[Secret(Label = "passphrase")]` names what the person is asked for). The
   host leaves it out of the agent's schema: a secret never goes through an AI model. The person types it into their own
   shell or the assistant's card, the host checks it at once with your `ValidatePayload` (the error at that field) and puts

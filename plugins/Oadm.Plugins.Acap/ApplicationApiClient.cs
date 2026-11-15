@@ -86,6 +86,9 @@ public sealed class ApplicationApiClient(IVapixClient vapix)
         {
             Architecture = info.Architecture,
             FirmwareVersion = info.Version,
+            Model = string.IsNullOrWhiteSpace(info.ProdNbr) ? null : info.ProdNbr,
+            ShortName = info.ProdShortName,
+            Soc = info.Soc,
             EmbeddedDevelopmentVersion = await TryGetEmbeddedDevelopmentVersionAsync(ct).ConfigureAwait(false),
             AllowUnsigned = await TryGetAllowUnsignedAsync(ct).ConfigureAwait(false),
         };

@@ -149,6 +149,7 @@ message TaskPlanReply {
   repeated string warnings = 6;
   repeated PlanFile files = 7;            // the uploaded files the run would use (name and SHA-256 from the upload store)
   repeated TaskSecretSlot secrets = 8;    // the secrets the run needs; the payload's errors at their fields are left out
+  repeated string details = 9;            // what the run does in plain lines (the build of each device group), from the plan
 }
 message PlanFile {
   string name = 1;

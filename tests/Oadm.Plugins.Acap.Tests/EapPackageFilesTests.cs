@@ -153,7 +153,7 @@ public sealed class EapPackageFilesTests : IDisposable
         Assert.Equal("hello.zip  ·  2 files", vm.PackageFileName);
         Assert.True(vm.HasSeveralPackages);
         Assert.Equal(["aarch64", "armv7hf"], vm.Packages.Select(p => p.Architecture));
-        Assert.Equal("aarch64 build", vm.Compatibility[0].Details);
+        Assert.Equal("hello_aarch64.eap", vm.Compatibility[0].Details);
 
         string? closed = null;
         vm.CloseRequested += (_, payload) => closed = payload;
@@ -251,27 +251,36 @@ public sealed class EapPackageFilesTests : IDisposable
     }
 
     [Fact]
-    public async Task Two_entries_of_the_same_name_do_not_overwrite_each_other()
+    public async Task Two_entries_of_the_same_name_are_refused_a_mapping_could_not_tell_them_apart()
     {
-        var one = Package("aarch64");
-        var two = Package("armv7hf");
-        var zip = Zip("hello.zip", ("arm64/hello.eap", one), ("arm32/hello.eap", two));
+        var zip = Zip("hello.zip", ("arm64/hello.eap", Package("aarch64")), ("arm32/hello.eap", Package("armv7hf")));
         using var files = Files();
 
-        await files.PickAsync([zip], null, CancellationToken.None);
+        var refused = await Assert.ThrowsAsync<InvalidEapException>(() => files.PickAsync([zip], null, CancellationToken.None));
 
-        Assert.Equal(2, files.Paths.Count);
-        Assert.NotEqual(files.Paths[0], files.Paths[1]);
-        Assert.Equal(one, await File.ReadAllBytesAsync(files.Paths[0]));
-        Assert.Equal(two, await File.ReadAllBytesAsync(files.Paths[1]));
+        Assert.Equal("hello.zip has two files named hello.eap.", refused.Message);
+        Assert.Empty(files.Paths);
     }
 
     [Theory]
-    [InlineData("../../evil.eap", "evil.eap")]
-    [InlineData("..\\..\\evil.eap", "evil.eap")]
-    [InlineData("/etc/evil.eap", "evil.eap")]
-    [InlineData("C:\\Windows\\evil.eap", "evil.eap")]
-    [InlineData("C:evil.eap", "C_evil.eap")]
+    [InlineData("../../evil.eap")]
+    [InlineData("..\\..\\evil.eap")]
+    [InlineData("/etc/evil.eap")]
+    [InlineData("C:\\Windows\\evil.eap")]
+    [InlineData("C:evil.eap")]
+    public async Task An_entry_name_with_a_path_outside_the_ZIP_refuses_the_ZIP(string entry)
+    {
+        var victim = Path.Combine(_dir, "evil.eap");
+        var zip = Zip("hello.zip", (entry, Package()));
+        using var files = Files();
+
+        var refused = await Assert.ThrowsAsync<InvalidEapException>(() => files.PickAsync([zip], null, CancellationToken.None));
+
+        Assert.Equal("hello.zip has a file with a path outside the ZIP.", refused.Message);
+        Assert.False(File.Exists(victim));
+    }
+
+    [Theory]
     [InlineData("hello.eap:stream.eap", "hello.eap_stream.eap")]
     [InlineData("a<b>c|d?e*f\".eap", "a_b_c_d_e_f_.eap")]
     [InlineData("con.eap", "package.eap")]

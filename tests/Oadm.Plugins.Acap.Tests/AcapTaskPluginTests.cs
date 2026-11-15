@@ -88,7 +88,7 @@ public sealed class AcapTaskPluginTests
     public async Task Invalid_payloads_fail_without_touching_the_device(string? payload)
     {
         var (device, ctx, _) = Setup();
-        await Assert.ThrowsAsync<ArgumentException>(() => Run(ctx, payload));
+        await Assert.ThrowsAnyAsync<ArgumentException>(() => Run(ctx, payload));
         Assert.Empty(device.Requests);
         Assert.Equal(0, device.ApiListCalls);
     }
@@ -408,8 +408,8 @@ public sealed class AcapTaskPluginTests
     public async Task The_plan_of_an_install_names_each_uploaded_package_with_its_hash_and_warns_that_it_runs_on_the_devices()
     {
         var (_, _, files) = Setup();
-        var first = files.Add("hello_1_0_0_aarch64.eap", [1, 2, 3]);
-        var second = files.Add("hello_1_0_0_armv7hf.eap", [4, 5, 6]);
+        var first = files.Add("hello_1_0_0_aarch64.eap", EapBuilder.FromManifest(EapBuilder.Manifest(version: "1.0.0", architecture: "aarch64")));
+        var second = files.Add("hello_1_0_0_armv7hf.eap", EapBuilder.FromManifest(EapBuilder.Manifest(version: "1.0.0", architecture: "armv7hf")));
         IReadOnlyList<IDeviceInfo> devices = [new FakeDevice()];
         var payload = new AcapPayload { Action = AcapAction.Install, Files = [new AcapPackageFile(first.Id, null, "aarch64"), new AcapPackageFile(second.Id, null, "armv7hf")] }.ToJson();
 

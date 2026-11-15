@@ -59,6 +59,12 @@ internal static class AssistantCards
                     Add(details, "File", Text(file["name"]));
                 }
 
+                // What the plan says per group, such as the package each group of devices gets.
+                foreach (var line in (answer["details"] as JsonArray ?? []).Select(Text).OfType<string>().Where(l => l.Length > 0))
+                {
+                    details.Add(Cut(line.ReplaceLineEndings(" ")));
+                }
+
                 break;
             case "oadm_rules_save_preview":
                 Add(details, "Rule", Text(answer["name"]));

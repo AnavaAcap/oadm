@@ -721,8 +721,9 @@ import, `/config/rest/$export`, `$import`, like its web interface), **Configure 
 
 `plugins/Oadm.Plugins.Acap` (+ `.Client`), id `oadm.acap`, always on, context menu (Applications) **Applications
 (ACAP)**: lists the installed applications, starts, stops and removes them (remove confirmed) and installs or upgrades
-an uploaded `.eap` on all selected devices (classic Application API 1.x; several `.eap` files of one application and
-version at once, one per architecture, each device gets its own; also a ZIP of them, unpacked on the client), installs license key files (with the package or on
+an uploaded `.eap` on all selected devices (classic Application API 1.x; several builds of one application at once, per
+architecture and AXIS OS track, each device group gets its own; also a vendor's ZIP of them with an optional mapping
+file `oadm-packages.json`), installs license key files (with the package or on
 their own, matched by the MAC address in the key), and changes the settings an application registered (action
 `settings`, started from the Applications page, `docs/spec/app-management.md`). Compliance check type **Application running**
 (`ApplicationRunningCheck`, `docs/spec/compliance.md`): the application is installed / running, optionally at least a
@@ -732,12 +733,16 @@ version and a valid license; the choices are read from one device.
   architecture, an AXIS OS outside the package's range (without a range: below its schema minimum), root apps on AXIS OS 12+ and a
   downgrade without the explicit option; a license key is sent only to the device whose MAC address it names, for the
   installed application's id and not expired (a device without a key: Done with warnings, nothing sent); activation with
-  a license code is not offered (the device has no API for it, its web page asks Axis online). Several packages: same
-  application and version, one per architecture, refused in the dialog before any upload otherwise; the task picks the
-  file again from a fresh basicdeviceinfo, a device without one is Done with warnings "No package for armv7hf.", nothing
-  changed. A ZIP stays on the client: `EapPackageFiles` unpacks its `.eap` files into a private temp folder with limits
-  (16 files, 2 GB, counted while writing), entry names are never paths, then the checks and the upload of loose files run
-  unchanged (`docs/spec/app-management.md` "A ZIP of packages"). Change settings: every name must be a setting of the installed application and every value fit its type and
+  a license code is not offered (the device has no API for it, its web page asks Axis online). Several builds: one
+  application, at most 16 files; one pure function (`AcapBuildChooser`) picks the build per device group in the dialog,
+  the plan and the task (a person's or agent's choice, then the mapping file's rows, then automatic: architecture and
+  AXIS OS range fit, the newest version, the narrower range); a choice never overrides the architecture and AXIS OS
+  checks; a group two builds fit equally is never decided by OADM (the dialog's table, `mapping` for agents; Install
+  disabled until chosen); the task picks again from a fresh basicdeviceinfo, a device without a build is Done with
+  warnings "No package for armv7hf.", nothing changed. A ZIP follows the shared rules of `EapZip` (only `.eap` and
+  `oadm-packages.json`, no path outside the ZIP, no duplicate names, 16 files, 2 GB, 10,000 entries, a ratio limit,
+  counted while reading): the client unpacks it to a private temp folder, the server (agents, `zipFileId`) reads it as a
+  stream and never writes it to disk (`docs/spec/app-management.md` "Several builds per install", "A ZIP of packages"). Change settings: every name must be a setting of the installed application and every value fit its type and
   range before the one write, read back afterwards (passwords never read back); setting values never appear in a log,
   step text, task name or the audit log. AI agents change settings through the task tools and never send a password: a
   value in `values` for a setting the application declares as a password, or whose name points to a secret, is refused

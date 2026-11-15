@@ -260,10 +260,13 @@ public sealed record RunItem
     public string? LicenseApplicationId { get; init; }
 }
 
-/// <summary>Install: the uploaded packages (one, or one per architecture) of one application and version, and the options.</summary>
+/// <summary>Install: the uploaded packages (one, or several builds) of one application, the mapping rows of the package, and the options.</summary>
 public sealed record AppInstall
 {
     public IReadOnlyList<AcapPackageFile> Files { get; init; } = [];
+
+    /// <summary>The rows of the package's mapping file, each naming a file id of <see cref="Files"/>; null without.</summary>
+    public IReadOnlyList<AcapPackageRule>? Rules { get; init; }
 
     public string? Version { get; init; }
 

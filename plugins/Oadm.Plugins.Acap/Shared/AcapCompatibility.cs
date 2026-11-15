@@ -51,6 +51,12 @@ public sealed record AcapInstallPreview(
     string Details,
     string? PackageArchitecture)
 {
+    /// <summary>How the build was found.</summary>
+    public AcapBuildChoice? Choice { get; init; }
+
+    /// <summary>Several builds fit equally: a person or an agent chooses one.</summary>
+    public bool IsUnclear => Choice?.IsUnclear == true;
+
     /// <summary>Install, upgrade, reinstall or downgrade on a compatible device; null otherwise.</summary>
     public InstallKind? Kind => IsOk ? Report?.Kind : null;
 
@@ -123,37 +129,70 @@ public static class AcapCompatibility
     }
 
     /// <summary>
-    /// The install preview of one device (the Applications dialog's and the Applications page's row): the package of the
-    /// device's architecture (<see cref="ChoosePackage"/>), then <see cref="Check"/> against the installed applications.
+    /// The install preview of one device from its own read (the Applications page's row): the build of the device's group
+    /// (<see cref="AcapBuildChooser.Choose"/>), then <see cref="Check"/> against the installed applications. Without names the
+    /// builds are called "aarch64 build".
     /// </summary>
-    public static AcapInstallPreview Preview(IReadOnlyList<EapManifest> packages, AcapDeviceFacts device, IReadOnlyList<InstalledApplication> applications, bool allowDowngrade)
+    public static AcapInstallPreview Preview(IReadOnlyList<EapManifest> packages, AcapDeviceFacts device, IReadOnlyList<InstalledApplication> applications, bool allowDowngrade,
+        IReadOnlyList<string>? names = null, IReadOnlyList<AcapPackageRule>? rules = null, IReadOnlyList<AcapPackageMapping>? mapping = null)
     {
         ArgumentNullException.ThrowIfNull(packages);
         ArgumentNullException.ThrowIfNull(device);
-        ArgumentNullException.ThrowIfNull(applications);
-        var index = ChoosePackage([.. packages.Select(p => p.Architecture)], device.Architecture);
-        if (index < 0)
+        var builds = Builds(packages, names);
+        return Preview(builds, AcapBuildChooser.Choose(builds, AcapDeviceGroup.Of(device), rules, mapping), device, applications, allowDowngrade);
+    }
+
+    /// <summary>The builds of packages before an upload: key and name are the file name, or "aarch64 build" without names.</summary>
+    public static IReadOnlyList<AcapBuild> Builds(IReadOnlyList<EapManifest> packages, IReadOnlyList<string>? names = null)
+    {
+        ArgumentNullException.ThrowIfNull(packages);
+        return [.. packages.Select((p, i) =>
         {
-            var none = NoPackageFor(device.Architecture);
-            return new AcapInstallPreview(-1, null, IsOk: false, IsWarning: true, IsError: false, "No package", none, none, null);
+            var name = names is not null && i < names.Count ? names[i]
+                : (IsArchitectureIndependent(p.Architecture) ? "any architecture" : p.Architecture) + " build";
+            return new AcapBuild(name, name, p);
+        })];
+    }
+
+    /// <summary>The install preview of one device for the build its group gets (<see cref="AcapBuildChooser.Choose"/>).</summary>
+    public static AcapInstallPreview Preview(IReadOnlyList<AcapBuild> builds, AcapBuildChoice choice, AcapDeviceFacts device, IReadOnlyList<InstalledApplication> applications, bool allowDowngrade)
+    {
+        ArgumentNullException.ThrowIfNull(builds);
+        ArgumentNullException.ThrowIfNull(choice);
+        ArgumentNullException.ThrowIfNull(device);
+        ArgumentNullException.ThrowIfNull(applications);
+        if (choice.IsUnclear)
+        {
+            var reason = choice.Reason ?? AcapBuildChooser.SeveralFit(choice.Candidates.Select(i => builds[i].Name));
+            return new AcapInstallPreview(-1, null, IsOk: false, IsWarning: true, IsError: false, ChoosePackageVerdict, reason, reason, null) { Choice = choice };
         }
 
-        var package = packages[index];
-        var architecture = packages.Count > 1 ? package.Architecture : null;
+        if (!choice.IsChosen)
+        {
+            var none = choice.Reason ?? NoPackageFor(device.Architecture);
+            return new AcapInstallPreview(-1, null, IsOk: false, IsWarning: true, IsError: false, "No package", none, none, null) { Choice = choice };
+        }
+
+        var build = builds[choice.Index];
+        var package = build.Package;
+        var name = builds.Count > 1 ? build.Name : null;
         var installed = applications.FirstOrDefault(a => string.Equals(a.Name, package.AppName, StringComparison.Ordinal));
         var report = Check(package, device, installed, allowDowngrade, applications);
         var details = string.Join(" ", report.IsCompatible ? report.Warnings : report.Problems);
         return new AcapInstallPreview(
-            index,
+            choice.Index,
             report,
             report.IsCompatible,
             report.IsCompatible && (report.Warnings.Count > 0 || report.Kind == InstallKind.Downgrade),
             !report.IsCompatible,
             report.IsCompatible ? report.KindText : "Not compatible",
             report.Summary,
-            architecture is { } arch ? (details.Length == 0 ? $"{arch} build" : $"{arch} build. {details}") : details,
-            architecture);
+            name is { } n ? (details.Length == 0 ? n : $"{n}. {details}") : details,
+            builds.Count > 1 ? package.Architecture : null) { Choice = choice };
     }
+
+    /// <summary>The verdict of a device whose package a person chooses in the table.</summary>
+    public const string ChoosePackageVerdict = "Choose package";
 
     /// <summary>True when the package runs on any architecture (no native code).</summary>
     public static bool IsArchitectureIndependent(string? architecture) =>
@@ -165,41 +204,13 @@ public static class AcapCompatibility
     public static string NoPackageFor(string? deviceArchitecture) =>
         string.IsNullOrWhiteSpace(deviceArchitecture) ? "No package for this device: its architecture is unknown." : $"No package for {deviceArchitecture.Trim()}.";
 
-    /// <summary>
-    /// The package for a device among several of one application (one per architecture): a single package is always used
-    /// (its checks say whether it fits), else the one of the device's architecture; -1 when none fits.
-    /// </summary>
-    public static int ChoosePackage(IReadOnlyList<string?> packageArchitectures, string? deviceArchitecture)
-    {
-        ArgumentNullException.ThrowIfNull(packageArchitectures);
-        if (packageArchitectures.Count <= 1)
-        {
-            return packageArchitectures.Count - 1;
-        }
-
-        if (string.IsNullOrWhiteSpace(deviceArchitecture))
-        {
-            return -1;
-        }
-
-        var device = NormalizeArchitecture(deviceArchitecture);
-        for (var i = 0; i < packageArchitectures.Count; i++)
-        {
-            if (packageArchitectures[i] is { } arch && !IsArchitectureIndependent(arch) && NormalizeArchitecture(arch) == device)
-            {
-                return i;
-            }
-        }
-
-        return -1;
-    }
-
     /// <summary>The refusal of more files than one install takes.</summary>
     public static string TooManyFiles { get; } = string.Create(CultureInfo.InvariantCulture, $"Choose at most {AcapPayload.MaxFiles} files.");
 
     /// <summary>
-    /// Why several packages cannot be installed together, null when they can: every package names the same application and
-    /// version, each a different architecture, and a package for any architecture stands alone. Checked before any upload.
+    /// Why several packages cannot be installed together, null when they can: every package names the same application and no
+    /// two files have the same name (a mapping names them). Several builds per architecture, also of other versions, and a
+    /// package for any architecture are fine: each device group gets one (<see cref="AcapBuildChooser"/>). Checked before any upload.
     /// </summary>
     public static string? CheckPackageSet(IReadOnlyList<(string FileName, EapManifest Package)> packages)
     {
@@ -215,7 +226,7 @@ public static class AcapCompatibility
         }
 
         var first = packages[0].Package;
-        var seen = new HashSet<string>(StringComparer.Ordinal);
+        var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var (file, package) in packages)
         {
             if (!string.Equals(package.AppName, first.AppName, StringComparison.Ordinal))
@@ -223,25 +234,29 @@ public static class AcapCompatibility
                 return $"{file} is another application ({package.DisplayName}). Choose the files of one application.";
             }
 
-            if (CompareVersions(package.Version, first.Version) != 0)
+            if (!names.Add(file))
             {
-                return $"{file} is version {package.Version}, not {first.Version}. Choose the files of one version.";
-            }
-
-            if (IsArchitectureIndependent(package.Architecture))
-            {
-                return $"{file} fits every architecture. Choose it on its own.";
-            }
-
-            var arch = NormalizeArchitecture(package.Architecture!);
-            if (!seen.Add(arch))
-            {
-                return $"Two files are for {arch}. Choose one file per architecture.";
+                return $"Two files are named {file}. Rename one of them.";
             }
         }
 
         return null;
     }
+
+    /// <summary>"1.2.0" for one version, "1.2.0 and 1.1.4" for builds of several (newest first).</summary>
+    public static string VersionsText(IEnumerable<EapManifest> packages)
+    {
+        ArgumentNullException.ThrowIfNull(packages);
+        var versions = packages.Select(p => p.Version).Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderByDescending(v => v, Comparer<string>.Create(CompareVersions)).ToList();
+        return versions.Count <= 1 ? versions.FirstOrDefault() ?? string.Empty : string.Join(", ", versions[..^1]) + " and " + versions[^1];
+    }
+
+    /// <summary>The version starts with a number ("12.11.77", "10.12").</summary>
+    public static bool HasNumericVersion(string? version) => NumericPrefix(version).Count > 0;
+
+    /// <summary>The leading numeric components of a version.</summary>
+    internal static List<int> NumericParts(string? version) => NumericPrefix(version);
 
     /// <summary>Normalizes architecture names (arm64 = aarch64, armhf = armv7hf).</summary>
     public static string NormalizeArchitecture(string architecture)
