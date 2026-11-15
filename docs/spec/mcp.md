@@ -4,7 +4,9 @@ Status: **all four stages built** (stage 1: the endpoint, the card MCP of the ra
 server, access keys and the read tools; stage 2: the SDK members for tasks, `ValidatePayload` in `TaskService.Run`, the task catalog,
 preview and run, the schemas of the bundled tasks without secrets, cancel, file links; stage 3: device actions, tags,
 sites, compliance, event rules, plugin tools; stage 4: the skill, Connect an agent, the website pages; see the "as built"
-sections), and the host actions of "everything a user can do" (decision 2026-11-15, stage 1: see "Host actions as built").
+sections), the host actions of "everything a user can do" (decision 2026-11-15, stage 1: see "Host actions as built"), and
+every secret through the secret channel (decision 2026-11-15: the tasks, the plugin pages and the host's logins,
+recipients and credential list; see "Secrets").
 Not offered on purpose: see "Not over MCP" and "Open points".
 
 Part of the OADM spec (`CLAUDE.md` "Feature specs"): read it before you change this area, update it in the same change.
@@ -486,6 +488,8 @@ New default interface members (SDK minor version up, `docs/spec/plugins.md`):
   a task keeps a result file for its user ("Files"); older hosts and system tasks throw `NotSupportedException`.
 - `PluginTool.ReturnsFile` and `PluginToolFile(Method, PayloadJson, FileName, ContentType, Size)`: a plugin tool hands out
   one of its downloads as a file ("Files"); the JSON names of `PluginToolFile` are fixed.
+- `PluginTool.TakesUpload` (`MaxUploadBytes`, 1 MB): the input's `file_id` is one of the caller's uploads; the host reads it
+  (`TaskEngine.FilesOf` the caller) and hands the plugin `file_base64` and `file_name`. The file never passes the model.
 
 ## Skill
 
@@ -630,7 +634,8 @@ The website gets a user page (Administration > MCP server, `admin/mcp-server`, n
   (`PayloadError` per JSON field), `PlanAsync` (`TaskPlan`, `TaskPlanDevice`, default `TaskPlan.ByCanRun`), `SecretAttribute`.
   The host's `Tasks/TaskPayloadSchemas` exports the schema once per type: objects without other properties, the attributes'
   bounds, the host's bounds for a text, number or list without one (4,096 characters, the 32-bit range, 100,000 items); no
-  schema (not offered) for a secret, a value of any type, a reference or a type the exporter cannot describe.
+  schema (not offered) for a value of any type, a reference or a type the exporter cannot describe; a `[Secret]` property is
+  left out of the schema (2026-11-15, "Secrets").
 - **gRPC** (docs/spec/grpc.md): `TaskService.Run` asks `ValidatePayload` before any task starts (INVALID_ARGUMENT with the
   first text, trailer `oadm-field`; a check that throws refuses the run) and answers `batch_id`; `TaskService.Plan` (the
   preview: the checks of Run, the field errors, the filter resolved in the caller's view in address order, per device run
@@ -652,8 +657,8 @@ The website gets a user page (Administration > MCP server, `admin/mcp-server`, n
   audited as "MCP <key name>" (the key's caller name). Changes per key: 10 a minute (429 "Too many changes with this access key. Wait a
   minute.", Retry-After 60; counted on `Mcp-Method` tools/call and `Mcp-Name` of a tool that starts tasks).
 - **Offered tasks**: Restart and Use OADM NTP server (no settings), Date and time (`DateTimePayload` with its
-  descriptions, `PayloadValidator` at the payload's fields; the year is left to the device as in the task). Users has a
-  `[Secret]` password and is not offered. Also offered: Upgrade AXIS OS (uploaded files only, factory default, allow
+  descriptions, `PayloadValidator` at the payload's fields; the year is left to the device as in the task). Users takes its
+  password through the secret channel. Also offered: Upgrade AXIS OS (uploaded files only, factory default, allow
   downgrade; `PlanAsync` is `FirmwareCompatibility.ChooseFor` from the cached model and version; no online download, which
   needs the user's MyAxis sign-in), Network settings, Assign IP address, Applications (install, remove, start, stop),
   Enable and Disable HTTPS, Enable and Disable IEEE 802.1X, Renew certificates. The dialogs and
@@ -700,8 +705,14 @@ The website gets a user page (Administration > MCP server, `admin/mcp-server`, n
     payload answers null and stays page only.
   - Secrets (decision 2026-11-15): every password, passphrase or key of a task goes through the secret channel ("Secrets":
     `ITaskPlugin.SecretsOf`, the preview's slots, the value checked when entered and put into the run's payload only).
-  - Not offered (fail closed): Install certificates (secrets), Install CA certificates (a new trust anchor on the devices:
-    the dialog shows each certificate to the person).
+  - Users (the password a slot of Add and of a password change, "password"; the dialog's rules at their fields and the
+    base rule checked when entered; each device checks its own passphrase policy before the write; a device whose stored
+    login is the user changed or removed is skipped, "OADM uses this account on the device."), Install certificates (files
+    by device from upload links; the PKCS#12 password a slot "PKCS#12 password" unless `withoutPassword`; the task refuses
+    a certificate that does not name its device before any write; HTTP devices skipped unless `sendKeysOverHttp` with the
+    dialog's warning; no clock question), Install CA certificates (the plan's warnings: "The devices will trust every
+    certificate these CAs issue. Check each CA before you run it.", then each CA with name, issued to and by, valid until
+    and SHA-256, for the person to confirm).
 - **Tasks and files**: `oadm_tasks_cancel_preview`/`_run` (a batch or up to 200 task ids; counts what stops and what
   cannot; only the caller's devices; one cancel takes at most 200 tasks and runs at most 60 s, `more_after_this` and
   `left` say to preview again); a task preview names each uploaded file it uses with its SHA-256 (`files`), and an
@@ -765,6 +776,11 @@ The website gets a user page (Administration > MCP server, `admin/mcp-server`, n
   call) and hands the plugin at most 500 ids by address and the total. A tool with `TaskPlugin` is listed only for a role
   with a permission of that task of the same package. Bundled: `oadm_pki_certificates`, `oadm_pki_policies`,
   `oadm_pki_certificate_create_preview`/`_run` (the PKI page's own create check, no key material in any answer),
+  `oadm_pki_certificate_import_preview`/`_run(file_id)` (a certificate, or a PKCS#12 file with its key, from an upload link;
+  its password a slot "PKCS#12 password" only when the file does not open without one, a wrong one refused when entered;
+  the page's checks with `dryRun`), `oadm_pki_certificate_sign_preview`/`_run(request, use, policy_id)` (the CSR as PEM
+  text with its line breaks as spaces; the run answers the certificate as a file reference); both Administrator with
+  Manage the certificate authority, all devices, audited like the page,
   `oadm_ntp_status`, `oadm_dhcp_status`, `oadm_dhcp_leases`, `oadm_hardening_results`, and the settings reads of Device
   configuration `oadm_config_parameters` (a setting by a word of its name or label, or exact names: the devices grouped
   by value), `oadm_config_action_rules` and `oadm_config_stream_profiles` (grouped by rule or profile name), read with
@@ -869,6 +885,8 @@ unit, the key fields, red Run for deletes and removals) and a short status line 
   of an upload; until then it stays in OADM. Compliance password and file fields stay in OADM until a kind has one (no
   bundled kind has, and the compliance store does not encrypt settings).
 - A VAPIX Commander command treats every password field as required; an optional one cannot be left empty over MCP.
+- Install certificates checks its PKCS#12 password on each device (a wrong one fails "Nothing was changed" before any
+  write), not when it is entered: `ValidatePayload` cannot read uploads.
 - The client's task details have no Save for a task's result file yet (agents and the assistant have it).
 - The skills extension is declared without fields; when its schema settles, `McpSkill` may list the skill there too.
 

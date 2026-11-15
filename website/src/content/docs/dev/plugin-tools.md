@@ -148,6 +148,8 @@ it in their own shell or in the assistant's card:
 - A tool without `PluginPageTools` puts `secrets_needed` (`PluginToolSecrets.Property`, a list of `PluginToolSecret`) into
   its preview's answer and reads the values with `PluginToolSecrets.Of(payloadJson)`.
 - Never put a value into an answer, an audit detail, a log line or a stored setting in clear (`ctx.Secrets`).
+- A tool that reads a file the caller uploaded sets `TakesUpload` and names `file_id` in its input: the host reads the
+  caller's upload (at most 1 MB) and hands you `file_base64` and `file_name`.
 
 ## Files
 
