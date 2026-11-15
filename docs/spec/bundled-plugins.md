@@ -642,6 +642,12 @@ import, `/config/rest/$export`, `$import`, like its web interface), **Configure 
   ADM files are read and written byte for byte (format 3, known from files only, ADM is never decompiled), passwords in
   them like ADM; password values never reach a log or an error text. **Create configuration file** is a dialog for one
   device, never a task.
+- MCP and Assistant ([mcp.md](mcp.md)): the read-only tools `oadm_config_parameters`, `oadm_config_action_rules` and
+  `oadm_config_stream_profiles` of the package's core plugin without a page (`Tools/DeviceConfigToolsPlugin`). Rules that
+  must hold: read only, with the dialog's read code (`DeviceSettingsReader`), never a second VAPIX implementation; only
+  devices of the caller's view; Configure devices' permissions (`configure` or `dangerous`); passwords, secrets,
+  community strings and tokens are never answered; bounded (8 devices at a time, 40 s, then the rest counts as not read;
+  at most 20 rows, about 30 KB).
 - Device groups: the source device of Configure devices and Create configuration file is read with the user's query
   (only devices of the user's view); configuration files stay on the client (an import uploads its file for its own
   run), so the server keeps no shared file with saved passwords that a group user could use.

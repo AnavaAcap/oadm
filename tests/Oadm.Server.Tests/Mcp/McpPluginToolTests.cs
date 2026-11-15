@@ -281,6 +281,9 @@ public sealed class McpPluginToolTests
         registry.RegisterCorePlugin(new DhcpServerPlugin(), new PluginOrigin(DhcpServerPluginInfo.PluginId, "1.0.0", null) { DisplayName = "DHCP server" });
         registry.RegisterCorePlugin(new HardeningScanPlugin(), new PluginOrigin(HardeningScanPluginInfo.PluginId, "1.0.0", null) { DisplayName = "Hardening scan" });
         registry.RegisterCorePlugin(new Oadm.Plugins.VapixCommander.VapixCommanderPlugin(), new PluginOrigin(Oadm.Plugins.VapixCommander.VapixCommanderPlugin.PluginId, "1.0.0", null) { DisplayName = "VAPIX Commander" });
+        var deviceConfig = new PluginOrigin(Oadm.Plugins.DeviceConfig.DeviceConfigIds.PackageId, "1.0.0", null) { DisplayName = "Device configuration", AlwaysOn = true };
+        registry.RegisterCorePlugin(new Oadm.Plugins.DeviceConfig.Tools.DeviceConfigToolsPlugin(), deviceConfig);
+        registry.RegisterTaskPlugin(new Oadm.Plugins.DeviceConfig.Configure.ConfigureDevicesTask(), deviceConfig);
         await server.Host.Get<PluginActivation>().LoadAsync(CancellationToken.None);
         await server.Host.Get<RoleStore>().SyncCatalogAsync(PermissionCatalog.Build(registry), CancellationToken.None);
         await server.Host.Get<CorePluginHost>().StartAllAsync(CancellationToken.None);
@@ -359,6 +362,7 @@ public sealed class McpPluginToolTests
                 "dhcp" => "DHCP server",
                 "hardening" => "Hardening scan",
                 "vapix" => "VAPIX Commander",
+                "config" => "Device configuration",
                 _ => char.ToUpperInvariant(word[0]) + word[1..],
             };
         }
@@ -368,7 +372,7 @@ public sealed class McpPluginToolTests
             : name.EndsWith("_run", StringComparison.Ordinal) ? "Run (changes)"
             : tool["annotations"]?["readOnlyHint"]?.GetValue<bool>() == true ? "Read" : "Change";
 
-        var order = new[] { "Server", "Devices", "Tasks", "Files", "Tags", "Sites", "Compliance", "Event rules", "Logs", "PKI", "NTP server", "DHCP server", "Hardening scan", "VAPIX Commander" };
+        var order = new[] { "Server", "Devices", "Tasks", "Files", "Tags", "Sites", "Compliance", "Event rules", "Logs", "PKI", "NTP server", "DHCP server", "Hardening scan", "VAPIX Commander", "Device configuration" };
         var text = new System.Text.StringBuilder();
         foreach (var line in Intro)
         {
@@ -401,6 +405,7 @@ public sealed class McpPluginToolTests
                      "oadm_pki_certificates", "oadm_pki_policies", "oadm_pki_certificate_create_preview", "oadm_pki_certificate_create_run",
                      "oadm_ntp_status", "oadm_dhcp_status", "oadm_dhcp_leases", "oadm_hardening_results",
                      "oadm_vapix_commands", "oadm_vapix_command_preview", "oadm_vapix_command_run",
+                     "oadm_config_parameters", "oadm_config_action_rules", "oadm_config_stream_profiles",
                  })
         {
             Assert.Contains(expected, names);
@@ -492,7 +497,134 @@ public sealed class McpPluginToolTests
         Assert.DoesNotContain("oadm_pki_certificate_create_preview", viewerTools);
     }
 
+    [Fact]
+    public async Task AToolOnChosenDevicesGetsTheIdsOfTheFilterInTheCallersViewAndFollowsTheTasksPermissions()
+    {
+        await using var server = await McpTestServer.StartAsync();
+        var registry = server.Host.Get<PluginRegistry>();
+        var origin = new PluginOrigin(EchoPlugin.PluginId, "1.0.0", null) { DisplayName = "Echo", MinSdkVersion = SdkInfo.Version };
+        registry.RegisterCorePlugin(new EchoPlugin(EchoTask.TaskId), origin);
+        registry.RegisterTaskPlugin(new EchoTask(), origin);
+        registry.RegisterCorePlugin(new EchoPlugin(EchoTask.TaskId, "tests.foreign", "foreign"), new PluginOrigin("tests.foreign", "1.0.0", null) { DisplayName = "Foreign", MinSdkVersion = SdkInfo.Version });
+        await server.Host.Get<PluginActivation>().LoadAsync(CancellationToken.None);
+        await server.Host.Get<RoleStore>().SyncCatalogAsync(PermissionCatalog.Build(registry), CancellationToken.None);
+        await server.Host.Get<CorePluginHost>().StartAllAsync(CancellationToken.None);
+        var lobby1 = await GroupCallers.DeviceAsync(server.Host, 1, "Lobby");
+        var lobby2 = await GroupCallers.DeviceAsync(server.Host, 2, "Lobby");
+        var other = await GroupCallers.DeviceAsync(server.Host, 3);
+
+        var key = await server.CreateKeyAsync();
+        var names = await server.ToolNamesAsync(key);
+        Assert.Contains("oadm_echo_devices", names);
+        Assert.DoesNotContain("oadm_foreign_devices", names); // a task of another package never opens a tool (fail closed)
+        var reply = await server.PostAsync(key, McpTestServer.Request("tools/list"));
+        var input = reply.Body!["result"]!["tools"]!.AsArray().Single(t => t!["name"]!.GetValue<string>() == "oadm_echo_devices")!["inputSchema"]!["properties"]!.AsObject();
+        Assert.True(input.ContainsKey("filter") && !input.ContainsKey("device_ids"));
+
+        // The filter becomes ids, by address; the plugin never sees the filter.
+        var tagged = await server.ToolAsync(key, "oadm_echo_devices", new JsonObject { ["filter"] = new JsonObject { ["tags"] = new JsonArray("Lobby") } });
+        Assert.Equal([lobby1.Id.ToString(), lobby2.Id.ToString()], tagged["device_ids"]!.AsArray().Select(i => i!.GetValue<string>()));
+        Assert.Equal(2, tagged["devices_total"]!.GetValue<int>());
+        Assert.False(tagged["had_filter"]!.GetValue<bool>());
+        Assert.Equal(3, (await server.ToolAsync(key, "oadm_echo_devices"))["devices_total"]!.GetValue<int>());
+
+        // A user of a device group gets only the group's devices; an id outside it refuses the call.
+        var group = await GroupCallers.ForTagAsync(server.Host, "tech", "Lobby");
+        var groupKey = await server.CreateKeyAsync(group.Invoker, name: "group");
+        var seen = await server.ToolAsync(groupKey, "oadm_echo_devices");
+        Assert.Equal(2, seen["devices_total"]!.GetValue<int>());
+        Assert.DoesNotContain(other.Id.ToString(), seen.ToJsonString(), StringComparison.Ordinal);
+        var outside = await server.CallToolAsync(groupKey, "oadm_echo_devices", new JsonObject { ["filter"] = new JsonObject { ["ids"] = new JsonArray(other.Id.ToString()) } });
+        Assert.True(outside["isError"]!.GetValue<bool>());
+
+        // Without a permission of the task the tool is not listed; with one it is.
+        var roles = new Proto.RoleService.RoleServiceClient(server.Host.Invoker);
+        var saved = await roles.SaveRolesAsync(new Proto.SaveRolesRequest { Roles = { new Proto.RoleChange { Name = "Look", Permissions = { } } } });
+        var role = saved.Roles.Single(r => r.Name == "Look");
+        var lookKey = await server.CreateKeyAsync(await server.Host.InvokerForRoleAsync("look1", Guid.Parse(role.Id)), name: "look");
+        Assert.DoesNotContain("oadm_echo_devices", await server.ToolNamesAsync(lookKey));
+        var denied = await server.CallToolAsync(lookKey, "oadm_echo_devices");
+        Assert.Contains("Your role does not allow:", ErrorText(denied), StringComparison.Ordinal);
+        await roles.SaveRolesAsync(new Proto.SaveRolesRequest { Roles = { new Proto.RoleChange { Id = role.Id, Name = "Look", Permissions = { PermissionKeys.Task(EchoTask.TaskId, "look") }} } });
+        Assert.Contains("oadm_echo_devices", await server.ToolNamesAsync(lookKey));
+    }
+
+    [Fact]
+    public async Task TheSettingsToolsOfDeviceConfigurationAnswerAFilterWithoutDevices()
+    {
+        await using var server = await StartBundledAsync();
+        var key = await server.CreateKeyAsync();
+        var answer = await server.ToolAsync(key, "oadm_config_parameters", new JsonObject { ["search"] = "capture frequency", ["filter"] = new JsonObject { ["search"] = "no-such-device" } });
+        Assert.Equal((0, 0, 0), (answer["devices"]!.GetValue<int>(), answer["read"]!.GetValue<int>(), answer["not_read"]!.GetValue<int>()));
+        Assert.Empty(answer["parameters"]!.AsArray());
+        var invalid = await server.CallToolAsync(key, "oadm_config_parameters", new JsonObject { ["search"] = "ca" });
+        Assert.True(invalid["isError"]!.GetValue<bool>());
+        Assert.Contains("search", ErrorText(invalid), StringComparison.Ordinal);
+    }
+
     // ---- the test plugins ----
+
+    /// <summary>A task with one permission: the tool of <see cref="EchoPlugin"/> follows it.</summary>
+    private sealed class EchoTask : ITaskPlugin
+    {
+        public const string TaskId = "tests.echo.task";
+
+        public string Id => TaskId;
+
+        public string DisplayName => "Echo";
+
+        public string? IconKey => null;
+
+        public bool ShowInToolbar => false;
+
+        public bool RequiresDialog => true;
+
+        public IReadOnlyList<PermissionDefinition> Permissions { get; } = [new("look", "Look", "Look at devices.")];
+
+        public bool CanRun(Oadm.Sdk.Devices.IDeviceInfo device) => true;
+
+        public Task ExecuteAsync(ITaskExecutionContext ctx, Oadm.Sdk.Devices.IDeviceInfo device, string? payloadJson, CancellationToken ct) => Task.CompletedTask;
+    }
+
+    /// <summary>A tool on chosen devices that answers what the host handed it.</summary>
+    private sealed class EchoPlugin(string taskId, string id = EchoPlugin.PluginId, string area = "echo") : ICorePlugin
+    {
+        public const string PluginId = "tests.echo";
+
+        private static readonly JsonSerializerOptions Json = PluginTool.CreateJsonOptions();
+
+        public string Id => id;
+
+        public string DisplayName => "Echo";
+
+        public string? IconKey => null;
+
+        public bool HasPage => false;
+
+        public string? ToolArea => area;
+
+        public IReadOnlyList<ITaskPlugin> TaskPlugins { get; } = [];
+
+        public IReadOnlyList<PluginTool> Tools { get; } =
+        [
+            new("devices", "Echo devices", "Answers the devices it got.") { InputType = typeof(NoArgs), OutputType = typeof(EchoAnswer), JsonOptions = Json, DeviceFilter = true, TaskPlugin = taskId },
+        ];
+
+        public Task StartAsync(ICorePluginContext ctx, CancellationToken ct) => Task.CompletedTask;
+
+        public Task StopAsync(CancellationToken ct) => Task.CompletedTask;
+
+        public Task<string?> InvokeAsync(string method, string? payloadJson, CancellationToken ct) => throw new InvalidOperationException("old overload");
+
+        public Task<string?> InvokeAsync(ICallContext caller, string method, string? payloadJson, CancellationToken ct)
+        {
+            var devices = PluginToolDevices.Of(payloadJson);
+            var hadFilter = JsonNode.Parse(payloadJson ?? "{}")!.AsObject().ContainsKey("filter");
+            return Task.FromResult<string?>(JsonSerializer.Serialize(new EchoAnswer([.. devices.Ids.Select(i => i.ToString())], devices.Total, hadFilter), Json));
+        }
+    }
+
+    private sealed record EchoAnswer(IReadOnlyList<string> DeviceIds, int DevicesTotal, bool HadFilter);
 
     /// <summary>A plugin with notes: a paged list, a create and a delete as previews and runs, and a few odd tools.</summary>
     private sealed class NotesPlugin : ICorePlugin

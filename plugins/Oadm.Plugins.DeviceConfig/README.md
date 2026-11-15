@@ -1,6 +1,6 @@
 # Device configuration (`oadm.device-config`)
 
-Task plugins (+ `.Client`), always on. Four context menu entries under **Maintenance**, like ADM's configuration
+Task plugins (+ `.Client`) and the read-only [tools](#tools) for the Assistant and agents, always on. Four context menu entries under **Maintenance**, like ADM's configuration
 handling. Rules: [Bundled plugins](../../docs/spec/bundled-plugins.md#device-configuration).
 
 - **Export configuration**: save the configuration of the selected devices to files (AXIS OS 12.5 or later).
@@ -249,9 +249,38 @@ reported "1 already there" (schedule), "1 replaced" (rule, its old action remove
 added nothing. The cleanup removed rule, action, schedule and profile and set the parameter back; everything was exactly
 as before. 15 s for both runs and the cleanup.
 
+## Tools
+
+Read-only tools for the Assistant and MCP agents ([MCP server](../../docs/spec/mcp.md) "Plugins"), for the settings
+questions of installers ("which cameras have capture frequency 50 Hz"). They belong to the package's core plugin without a
+page (`Tools/DeviceConfigToolsPlugin`, id `oadm.device-config`, area `config`), so they follow the package (always on).
+
+| Tool | Input | Answer |
+|---|---|---|
+| `oadm_config_parameters` | `search` (a word of the name or the label, any case: "capture frequency" finds `ImageSource.I0.CaptureFrequency` and its label "Capture frequency") or `names` (exact, at most 20, `root.` optional), `filter` | per setting its name, label, the values with device count and up to 5 devices each (`60Hz` / "60 Hz": 6, `50Hz` / "50 Hz": 1, 10.0.0.24), the devices without it |
+| `oadm_config_action_rules` | `name`, `event` (contains, any case), `filter` | rules grouped by name, event and action: event and conditions in the words of the Action rules tab, the action, its settings, schedules, devices with the rule and how many have it off; devices without rules |
+| `oadm_config_stream_profiles` | `name` (contains), `filter` | profiles by name: description, parameters (resolution, fps, codec), whether they differ, the devices; devices without profiles, devices without video |
+
+- **The dialog's reads.** `DeviceSettingsReader` (the code of the `read` query): `ReadParametersAsync` reads only the
+  top-level groups of exact names, and for a search only the groups of the matching names when the definitions of the model
+  and AXIS OS are cached, else the whole tree once (the cache then serves the next devices); `ReadRulesAsync`,
+  `ReadStreamProfilesAsync`. Like the dialog, only configurable parameters (writable, not internal or hidden).
+- **Devices.** The host resolves the device filter in the caller's view (`PluginTool.DeviceFilter`, at most 500 devices by
+  address); the plugin looks every id up again with the caller. `ToolDeviceReads`: 8 devices at a time, 40 s in all; what
+  is not read by then (and devices beyond the 500) is `not_read`. Devices that cannot be read are `failed`, grouped by
+  reason (the shared status and device texts, no request for a status that refuses).
+- **Secrets.** Password parameters and names with pass, secret or community (`SecretNames`) are never answered, not even
+  their names; action settings with those words or "token" are left out. The note says so.
+- **Size.** At most 20 settings, rules or profiles, 10 values a setting, 5 devices a value, 5 reasons; about 30 KB at most
+  (rows are left out from the end, the totals count them). One record type per device list: the host offers no schema that
+  repeats a type.
+- **Rights.** `PluginTool.TaskPlugin` = Configure devices: listed only for a role with `configure` or `dangerous`, like the
+  dialog's reads; a page call is refused by the plugin itself without them.
+- Tests: `ConfigToolsTests`.
+
 ## Code
 
-- `plugins/Oadm.Plugins.DeviceConfig` (four task plugins, no core plugin): `ExportConfigTask` (dialog only, query
+- `plugins/Oadm.Plugins.DeviceConfig` (four task plugins and the core plugin of the tools, `Tools/`): `ExportConfigTask` (dialog only, query
   `export`), `ImportConfigTask`, `ConfigApi` (export, discover, import, error texts), `ConfigCompare` (verify);
   `Configure/`: `ConfigureDevicesTask` + `CreateConfigFileTask` (dialog only), `ParamDefinitionsReader`, `ActionEngineApi`
   (the shared `plugins/Shared/ActionEngine` SOAP engine of the Action Rule Editor, mapped to the ADM file models),
@@ -326,6 +355,9 @@ own run): the server keeps no shared file with saved passwords. Tests: server `D
   configuration file); Perf the device limit of 20 AXIS OS versions (20 reads); headless screenshots
   `device-config-configure.png`, `-configure-rules.png`, `-configure-overview.png`, `device-config-create-file.png`;
   read-only `ConfigureHardwareTests` (every dev camera answers the read query).
+- Tools (`ConfigToolsTests`, against `ConfigureCamera`): grouping by value, the label and name search, exact names reading
+  one group, secrets never answered, the caller's view, unreadable devices by reason, the time budget (`FakeTimeProvider`),
+  the answer size at 500 devices, rules and profiles grouped, the rights, schemas the host offers.
 - Opt-in `ImportHardwareWriteTests` (`Category=HardwareWrite`, `OADM_CONFIG_WRITE_URL` / `_USER` / `_PASSWORD`) and
   `ConfigureHardwareWriteTests`: see the device answers above.
 

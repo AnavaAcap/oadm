@@ -131,6 +131,14 @@ and runs after the user agreed.
 | `oadm_vapix_command_run` | Run (changes) | Applies the plan of oadm_vapix_command_preview, which checks everything again. |
 | `oadm_vapix_commands` | Read | Lists the VAPIX Commander commands an agent may run, with their fields. Run one with oadm_vapix_command_preview. |
 
+## Device configuration
+
+| Tool | Kind | What it does |
+| --- | --- | --- |
+| `oadm_config_action_rules` | Read | Reads the action rules of devices: name, on or off, the event and the action, grouped by rule with the devices that have it. |
+| `oadm_config_parameters` | Read | Reads the value of a setting on many devices and groups the devices by value, e.g. capture frequency or capture mode. Find the setting by a word of its name or label, or by its exact parameter name. |
+| `oadm_config_stream_profiles` | Read | Reads the stream profiles of devices (name, description, resolution, frame rate, codec), grouped by profile name with the devices that have it. |
+
 ## Docs
 
 | Tool | Kind | What it does |

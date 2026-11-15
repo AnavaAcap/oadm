@@ -203,7 +203,7 @@ passage, from the index the server is built with, `Assistant/DocsIndex`; no gRPC
 Core plugins and task plugins bring their tools through the SDK; the host prefixes them `oadm_<plugin area>_` and lists
 them only while the plugin is on and the role has its permission. Bundled plugins get tools for their pages (e.g. PKI
 certificate list and Create certificate, NTP and DHCP status and leases, Hardening scan results, VAPIX Commander commands
-and their run). A task plugin without a payload schema is not offered over MCP (fail closed).
+and their run, Device configuration's settings, action rules and stream profiles of many devices). A task plugin without a payload schema is not offered over MCP (fail closed).
 
 **VAPIX Commander** (`oadm_vapix_commands`, `oadm_vapix_command_preview` / `_run`, `CommanderTools`): only library and saved
 commands by id (`library:<id>`, `saved:<id>`), never a request of the agent's own. Not offered: a dangerous command
@@ -468,9 +468,16 @@ The website gets a user page (Administration > MCP server, `admin/mcp-server`, n
   defaults to the plugin id without `oadm.`). The host names them `oadm_<area>_<name>`, refuses a name that a host tool
   has, leaves out a tool without a strict schema, lists them only while the plugin is on and the caller has the tool's
   permission and the plugin's method rules, calls `PluginService.Invoke` in process with the caller, refuses an answer over
-  32 KB and never shows a plugin's exception text. Bundled: `oadm_pki_certificates`, `oadm_pki_policies`,
+  32 KB and never shows a plugin's exception text. A tool with `DeviceFilter` takes the device filter of the device tools
+  (with the selection); the host resolves it with `DeviceService.Search` in the caller's view (an id outside refuses the
+  call) and hands the plugin at most 500 ids by address and the total. A tool with `TaskPlugin` is listed only for a role
+  with a permission of that task of the same package. Bundled: `oadm_pki_certificates`, `oadm_pki_policies`,
   `oadm_pki_certificate_create_preview`/`_run` (the PKI page's own create check, no key material in any answer),
-  `oadm_ntp_status`, `oadm_dhcp_status`, `oadm_dhcp_leases`, `oadm_hardening_results`.
+  `oadm_ntp_status`, `oadm_dhcp_status`, `oadm_dhcp_leases`, `oadm_hardening_results`, and the settings reads of Device
+  configuration `oadm_config_parameters` (a setting by a word of its name or label, or exact names: the devices grouped
+  by value), `oadm_config_action_rules` and `oadm_config_stream_profiles` (grouped by rule or profile name), read with
+  the Configure devices dialog's code, 8 devices at a time within 40 s (the rest counted as not read), no secret value,
+  Configure devices' permissions.
 - **gRPC** (docs/spec/grpc.md): `DeviceService.Resolve`, `DeviceService.SetStoredCredentials`, `LiveViewService.GetSnapshot`,
   `TagService.PlanDeviceTags`, `ComplianceService.Summarize`, `EventService.CheckRule`, `ListEventLogRequest.before_id` and
   `skip_total`; each with its `AccessPolicy` rule and, when it takes device ids, its device group canary case.
