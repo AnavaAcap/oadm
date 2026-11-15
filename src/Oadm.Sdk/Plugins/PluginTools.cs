@@ -82,6 +82,24 @@ public sealed record PluginTool(string Name, string Title, string Description)
     /// </summary>
     public bool Paged { get; init; }
 
+    /// <summary>Devices a tool with <see cref="DeviceFilter"/> gets at most (the first by address; <see cref="PluginToolDevices.Total"/> says how many matched).</summary>
+    public const int MaxDevices = 500;
+
+    /// <summary>
+    /// The tool works on devices the caller chooses: the host adds <c>filter</c> (the device filter of the host's device tools,
+    /// with the assistant's selection) to the input, finds the matching devices of the caller's view (at most
+    /// <see cref="MaxDevices"/>, by address) and hands the plugin <c>device_ids</c> and <c>devices_total</c> instead of the filter
+    /// (read them with <see cref="PluginToolDevices.Of"/>). The input type has no property of these names.
+    /// </summary>
+    public bool DeviceFilter { get; init; }
+
+    /// <summary>
+    /// The id of a task plugin of the same package whose dialog reads what this tool reads: the host lists the tool only for a
+    /// caller with at least one permission of that task, like the reads of its dialog (<c>TaskService.Query</c>). A page call
+    /// reaches the method without this check, so the plugin checks it again with <see cref="ICallContext.Has"/>. Null: none.
+    /// </summary>
+    public string? TaskPlugin { get; init; }
+
     /// <summary>
     /// New serializer options in the style of the host's own tools: names in snake_case ("next_cursor"), enums by their snake_case
     /// name, nulls written, names read in any case. Keep them in a static field of the plugin (<see cref="PluginJson.CreateOptions"/>).
@@ -189,6 +207,50 @@ public sealed record PluginToolPage(int Limit, string? After)
 
     /// <inheritdoc />
     public override string ToString() => string.Create(CultureInfo.InvariantCulture, $"{Limit} after {After ?? "start"}");
+}
+
+/// <summary>
+/// The devices of a tool with <see cref="PluginTool.DeviceFilter"/> as the host hands them to the plugin: the ids of the caller's
+/// devices that match the filter (at most <see cref="PluginTool.MaxDevices"/>) and how many matched.
+/// </summary>
+/// <param name="Ids">The devices, in the order of their address. Look each one up with the call's <c>Devices</c>: never trust an id.</param>
+/// <param name="Total">How many devices matched; more than <see cref="Ids"/> when the filter matched more than the host hands over.</param>
+public sealed record PluginToolDevices(IReadOnlyList<Guid> Ids, int Total)
+{
+    /// <summary>Devices that matched but are not in <see cref="Ids"/>.</summary>
+    public int Left => Math.Max(0, Total - Ids.Count);
+
+    /// <summary>The devices of a payload; none for a payload without them.</summary>
+    public static PluginToolDevices Of(string? payloadJson)
+    {
+        var ids = new List<Guid>();
+        var seen = new HashSet<Guid>();
+        var total = 0;
+        if (!string.IsNullOrWhiteSpace(payloadJson))
+        {
+            try
+            {
+                if (JsonNode.Parse(payloadJson) is JsonObject payload)
+                {
+                    foreach (var item in payload["device_ids"] as JsonArray ?? [])
+                    {
+                        if (item is JsonValue value && value.TryGetValue<string>(out var text) && Guid.TryParse(text, out var id) && seen.Add(id))
+                        {
+                            ids.Add(id);
+                        }
+                    }
+
+                    total = payload["devices_total"] is JsonValue count && count.TryGetValue<int>(out var n) ? n : ids.Count;
+                }
+            }
+            catch (JsonException)
+            {
+                // no devices
+            }
+        }
+
+        return new PluginToolDevices(ids, Math.Max(total, ids.Count));
+    }
 }
 
 /// <summary>

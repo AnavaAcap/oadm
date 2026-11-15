@@ -137,10 +137,17 @@ internal sealed partial class PluginTools(PluginRegistry registry, CorePluginHos
             RenameNext(output);
         }
 
+        string[] methods = [InvokePath];
+        if (tool.DeviceFilter)
+        {
+            input = WithFilter(input);
+            methods = [InvokePath, DeviceTools.SearchPath];
+        }
+
         var idempotent = tool.Idempotent ?? !tool.Changes;
         if (!tool.Changes)
         {
-            yield return new OadmTool(name, tool.Title, tool.Description, input, output, [InvokePath], call => ReadAsync(call, plugin, tool, name))
+            yield return new OadmTool(name, tool.Title, tool.Description, input, output, methods, call => ReadAsync(call, plugin, tool, name))
             {
                 Gate = caller => GateOf(registered, tool, tool.Method, caller),
             };
@@ -171,7 +178,7 @@ internal sealed partial class PluginTools(PluginRegistry registry, CorePluginHos
             tool.Description + " Nothing is changed. Call " + runName + " with the handle to apply it.",
             input,
             preview,
-            [InvokePath],
+            methods,
             call => PreviewAsync(call, plugin, tool, runName))
         {
             Gate = caller => GateOf(registered, tool, tool.PreviewMethod, caller),
@@ -238,6 +245,40 @@ internal sealed partial class PluginTools(PluginRegistry registry, CorePluginHos
         return input;
     }
 
+    /// <summary>The input of a tool on chosen devices: the host's device filter as <c>filter</c> (the plugin sees <c>device_ids</c> and <c>devices_total</c>).</summary>
+    private static JsonObject WithFilter(JsonObject input)
+    {
+        var properties = input["properties"] as JsonObject ?? [];
+        if (properties.ContainsKey("filter") || properties.ContainsKey("device_ids") || properties.ContainsKey("devices_total"))
+        {
+            throw new InvalidOperationException("the input of a tool with a device filter names filter, device_ids or devices_total");
+        }
+
+        properties["filter"] = DeviceTools.Filter();
+        input["properties"] = properties;
+        return input;
+    }
+
+    /// <summary>
+    /// The payload of a tool on chosen devices: <c>filter</c> found in the caller's view by <c>DeviceService.Search</c> (sorted by
+    /// address, at most <see cref="PluginTool.MaxDevices"/>) becomes <c>device_ids</c> and <c>devices_total</c>. An id outside the view
+    /// refuses the call there (fail closed); the plugin looks every id up again with the caller.
+    /// </summary>
+    private static async Task<string> WithDevicesAsync(ToolCall call, string payload)
+    {
+        var reply = await DeviceTools.SearchAsync(call, new Proto.SearchDevicesRequest
+        {
+            Filter = DeviceTools.FilterOf(call.Element("filter")),
+            Sort = "address",
+            Limit = PluginTool.MaxDevices,
+        }).ConfigureAwait(false);
+        var answer = JsonNode.Parse(payload) as JsonObject ?? [];
+        answer.Remove("filter");
+        answer["device_ids"] = new JsonArray([.. reply.Devices.Select(d => (JsonNode)JsonValue.Create(d.Id)!)]);
+        answer["devices_total"] = reply.Total;
+        return answer.ToJsonString();
+    }
+
     /// <summary>The answer of a list names <c>next</c>; the caller reads <c>next_cursor</c> (the host signs the key into a cursor).</summary>
     private static void RenameNext(JsonObject output)
     {
@@ -285,6 +326,22 @@ internal sealed partial class PluginTools(PluginRegistry registry, CorePluginHos
             }
         }
 
+        if (tool.TaskPlugin is { } taskId)
+        {
+            // The reads of the task's dialog: any permission of the task, of a task of the same package only (fail closed).
+            if (!registry.TryGetTaskPlugin(taskId, out var task)
+                || !string.Equals(task.Origin.PackageId, current.Origin.PackageId, StringComparison.OrdinalIgnoreCase))
+            {
+                return Off;
+            }
+
+            var keys = PermissionCatalog.TaskKeys(task.Plugin);
+            if (!keys.Any(user.Has))
+            {
+                return roles.Catalog.DeniedMessage(keys[0]);
+            }
+        }
+
         return null;
     }
 
@@ -306,6 +363,11 @@ internal sealed partial class PluginTools(PluginRegistry registry, CorePluginHos
     {
         var query = ToolCursors.QueryOf(call.Arguments);
         var payload = PayloadOf(call, tool, toolName, query);
+        if (tool.DeviceFilter)
+        {
+            payload = await WithDevicesAsync(call, payload).ConfigureAwait(false);
+        }
+
         var answer = await InvokeAsync(call, plugin.Id, tool.Method, payload).ConfigureAwait(false);
         if (tool.Paged && answer["next"] is JsonValue next && next.TryGetValue<string>(out var key) && key.Length > 0)
         {
@@ -324,6 +386,11 @@ internal sealed partial class PluginTools(PluginRegistry registry, CorePluginHos
     private async Task<JsonObject> PreviewAsync(ToolCall call, ICorePlugin plugin, PluginTool tool, string runTool)
     {
         var payload = call.Arguments.GetRawText();
+        if (tool.DeviceFilter)
+        {
+            payload = await WithDevicesAsync(call, payload).ConfigureAwait(false); // the run gets the devices the preview planned
+        }
+
         var answer = await InvokeAsync(call, plugin.Id, tool.PreviewMethod, payload).ConfigureAwait(false);
         answer["handle"] = handles.AddChange(call.Caller.BindingKey, new PlannedChange(runTool, new PlannedPluginRun(plugin.Id, tool.RunMethod, payload)));
         answer["expires"] = handles.EndOfNew().UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", CultureInfo.InvariantCulture);

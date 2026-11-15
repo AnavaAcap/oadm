@@ -647,9 +647,13 @@ box back with the error below the list (`PluginsViewModel.SwitchAsync`).
   `ICorePlugin.Tools` (`PluginTool`: name, title, description, input and output schema, read only or change, permission)
   and `ICorePlugin.ToolArea` (default: the plugin id without `oadm.`); the host calls `InvokeAsync` with the caller as
   `tool.<name>` and, for a change, `tool.<name>.preview` first (it never writes); `PluginToolPage` cuts a list to its limit
-  and about 24 KB, `PluginToolErrors` answers field errors. Nothing names MCP: the same tools serve any channel. Bundled:
-  PKI (`certificates`, `policies`, `certificate_create`), NTP server (`status`), DHCP server (`status`, `leases`), Hardening
-  scan (`results`).
+  and about 24 KB, `PluginToolErrors` answers field errors. `PluginTool.DeviceFilter`: the host adds its device filter to
+  the input and hands the plugin `device_ids` (the caller's view, by address, at most `PluginTool.MaxDevices` = 500) and
+  `devices_total` (`PluginToolDevices.Of`); `PluginTool.TaskPlugin`: listed only for a role with a permission of that
+  task of the same package (another package's task: never listed), the plugin checks it again for page calls. Nothing
+  names MCP: the same tools serve any channel. Bundled: PKI (`certificates`, `policies`, `certificate_create`), NTP server
+  (`status`), DHCP server (`status`, `leases`), Hardening scan (`results`), Device configuration (`parameters`,
+  `action_rules`, `stream_profiles`).
 - **Protected tags** (`ICorePluginContext.ProtectedTags`, `Oadm.Sdk.Devices.IProtectedTags.Protect(names, refusal)`;
   server `ProtectedTagRegistry`): a core plugin whose settings act on devices by tag names those tags; only users with all
   devices then add them to or remove them from devices (`docs/spec/tags.md` "Protected tags"). Each call replaces the
