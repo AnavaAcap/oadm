@@ -13,31 +13,16 @@ namespace Oadm.Core.Auth;
 public sealed record AuthSession(string TokenHash, Guid UserId, string UserName, Guid RoleId, DateTime ExpiresUtc, DeviceScope DeviceAccess)
 {
     public UserRole Role => BuiltInRoles.IsAdministrator(RoleId) ? UserRole.Admin : UserRole.Operator;
-
-    /// <summary>The name of the access key; null for a login session.</summary>
-    public string? AccessKeyName { get; init; }
-
-    /// <summary>An access key for reading only.</summary>
-    public bool ReadOnly { get; init; }
 }
 
-/// <summary>An access key as its user and the administrators see it (never the key or its hash).</summary>
-/// <param name="Id">An opaque id of the key for Delete (<see cref="AuthTokenStore.AccessKeyIdOf"/>).</param>
-public sealed record AccessKeyInfo(string Id, Guid UserId, string UserName, string Name, bool ReadOnly, DateTime CreatedUtc, DateTime ExpiresUtc, DateTime? LastUsedUtc);
-
-/// <summary>A key that did not work but whose row is still there (it ended): its user and name for the audit log.</summary>
-public sealed record AccessKeyOwner(string UserName, string Name);
-
 /// <summary>
-/// Login sessions and access keys (table AuthTokens). A token is 32 random bytes (base64url) handed to the client once; the
+/// Login sessions (table AuthTokens). A token is 32 random bytes (base64url) handed to the client once; the
 /// server keeps only its SHA-256. Sliding expiry: 8 hours, 30 days with "Remember me"; every use moves the expiry forward
 /// (written to the database at most once per minute per token). Valid sessions are cached in memory, so a call costs
 /// no database read; disabling or deleting a user or a new password revokes its sessions (<see cref="RevokeUserAsync"/>),
 /// a new role is taken over by them (<see cref="SetRole"/>). An open stream of a session counts as use
 /// (<see cref="HoldWhileStreaming"/>): the session does not expire while it has one (a Live View wall without clicks).
-/// Access keys (docs/spec/mcp.md "Access keys", kind <see cref="AuthTokenKind.AccessKey"/>) live in the same table and cache
-/// and end the same way (user disabled or deleted, new password); they have a fixed expiry, a name and Read only, and work
-/// only on the MCP server (<see cref="ValidateAccessKeyAsync"/>), never as a login session.
+/// Access keys of AI agents are no sessions: <see cref="AccessKeyStore"/> (table AccessKeys).
 /// </summary>
 public sealed class AuthTokenStore(IDbContextFactory<OadmDbContext> dbFactory, TimeProvider time)
 {
@@ -45,23 +30,7 @@ public sealed class AuthTokenStore(IDbContextFactory<OadmDbContext> dbFactory, T
     public static readonly TimeSpan RememberLifetime = TimeSpan.FromDays(30);
     private static readonly TimeSpan PersistEvery = TimeSpan.FromMinutes(1);
 
-    /// <summary>The start of every access key: an agent's configuration shows what the secret is.</summary>
-    public const string AccessKeyPrefix = "oadm_";
-
-    /// <summary>Longest name of an access key.</summary>
-    public const int MaxAccessKeyNameLength = 64;
-
-    /// <summary>Access keys per user (the credential list's limit; the spec names none).</summary>
-    public const int MaxAccessKeysPerUser = 20;
-
-    /// <summary>The lifetimes a user may choose for an access key, in days.</summary>
-    public static IReadOnlyList<int> AccessKeyDays { get; } = [30, 90, 365];
-
-    public const int DefaultAccessKeyDays = 90;
-
     private readonly ConcurrentDictionary<string, Cached> _cache = new(StringComparer.Ordinal);
-    // Creating keys one at a time: the name check and the limit see every key made before (a few a day; one gate is enough).
-    private static readonly SemaphoreSlim CreatingKeys = new(1, 1);
 
     // Open streams per session (token hash); guarded by itself.
     private readonly Dictionary<string, int> _streaming = new(StringComparer.Ordinal);
@@ -97,7 +66,7 @@ public sealed class AuthTokenStore(IDbContextFactory<OadmDbContext> dbFactory, T
         return token;
     }
 
-    /// <summary>The session of a token, or null when it is unknown, expired, revoked, an access key or its user is disabled.</summary>
+    /// <summary>The session of a token, or null when it is unknown, expired, revoked or its user is disabled (an access key is no session).</summary>
     public async Task<AuthSession?> ValidateAsync(string? token, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(token) || token.Length > 256)
@@ -109,176 +78,11 @@ public sealed class AuthTokenStore(IDbContextFactory<OadmDbContext> dbFactory, T
     }
 
     /// <summary>The session of a token hash (a second check of a call that is already authorized).</summary>
-    public Task<AuthSession?> ValidateHashAsync(string tokenHash, CancellationToken ct) => ValidateKindAsync(tokenHash, AuthTokenKind.Session, ct);
-
-    /// <summary>
-    /// The user behind an access key (<see cref="AuthSession.AccessKeyName"/>, <see cref="AuthSession.ReadOnly"/>), or null
-    /// when it is no access key (a session token too), unknown, ended, deleted or its user is disabled. The role and the
-    /// devices are the user's of now. The last use is stored at most once a minute.
-    /// </summary>
-    public async Task<AuthSession?> ValidateAccessKeyAsync(string? key, CancellationToken ct)
-    {
-        if (!IsAccessKeyShaped(key))
-        {
-            return null;
-        }
-
-        return await ValidateKindAsync(HashOf(key), AuthTokenKind.AccessKey, ct).ConfigureAwait(false);
-    }
-
-    /// <summary>
-    /// The user and name of a key that did not validate but whose row is still there (it ended and the hourly cleanup has not
-    /// run yet, or its user is disabled); null for a key OADM does not know.
-    /// </summary>
-    public async Task<AccessKeyOwner?> OwnerOfRefusedKeyAsync(string? key, CancellationToken ct)
-    {
-        if (!IsAccessKeyShaped(key))
-        {
-            return null;
-        }
-
-        var hash = HashOf(key);
-        await using var db = await dbFactory.CreateDbContextAsync(ct).ConfigureAwait(false);
-        var row = await (from t in db.AuthTokens.AsNoTracking()
-                         join u in db.Users.AsNoTracking() on t.UserId equals u.Id
-                         where t.TokenHash == hash && t.Kind == AuthTokenKind.AccessKey
-                         select new { u.UserName, t.Name }).FirstOrDefaultAsync(ct).ConfigureAwait(false);
-        return row is null ? null : new AccessKeyOwner(row.UserName, row.Name);
-    }
-
-    /// <summary>
-    /// A new access key of the user <paramref name="userId"/>; returns the key (only now in clear text: OADM keeps its SHA-256 only) and
-    /// what the lists show. <see cref="ArgumentException"/> with the text for the field (the name, the days), or
-    /// <see cref="InvalidOperationException"/> at <see cref="MaxAccessKeysPerUser"/> keys.
-    /// </summary>
-    public async Task<(string Key, AccessKeyInfo Info)> CreateAccessKeyAsync(Guid userId, string userName, string? name, int days, bool readOnly, string clientAddress, CancellationToken ct)
-    {
-        ArgumentNullException.ThrowIfNull(userName);
-        ArgumentNullException.ThrowIfNull(clientAddress);
-        var clean = AccessKeyNameError(name) is { } nameError ? throw new ArgumentException(nameError) : name!.Trim();
-        if (!AccessKeyDays.Contains(days))
-        {
-            throw new ArgumentException(AccessKeyTexts.ChooseDays);
-        }
-
-        await CreatingKeys.WaitAsync(ct).ConfigureAwait(false);
-        try
-        {
-            await using var db = await dbFactory.CreateDbContextAsync(ct).ConfigureAwait(false);
-            var names = await db.AuthTokens.AsNoTracking().Where(t => t.UserId == userId && t.Kind == AuthTokenKind.AccessKey)
-                .Select(t => t.Name).ToListAsync(ct).ConfigureAwait(false);
-            if (names.Contains(clean, StringComparer.OrdinalIgnoreCase))
-            {
-                throw new ArgumentException(AccessKeyTexts.NameTaken);
-            }
-
-            if (names.Count >= MaxAccessKeysPerUser)
-            {
-                throw new InvalidOperationException(AccessKeyTexts.TooMany);
-            }
-
-            var key = AccessKeyPrefix + Base64Url(RandomNumberGenerator.GetBytes(32));
-            var now = time.GetUtcNow().UtcDateTime;
-            var entity = new AuthTokenEntity
-            {
-                TokenHash = HashOf(key),
-                UserId = userId,
-                ClientAddress = clientAddress.Length > 64 ? clientAddress[..64] : clientAddress,
-                CreatedUtc = now,
-                ExpiresUtc = now.AddDays(days),
-                Kind = AuthTokenKind.AccessKey,
-                Name = clean,
-                ReadOnly = readOnly,
-            };
-            db.AuthTokens.Add(entity);
-            await db.SaveChangesAsync(ct).ConfigureAwait(false);
-            return (key, new AccessKeyInfo(AccessKeyIdOf(entity.TokenHash), userId, userName, clean, readOnly, now, entity.ExpiresUtc, null));
-        }
-        finally
-        {
-            CreatingKeys.Release();
-        }
-    }
-
-    /// <summary>The access keys of one user (null: of every user, for administrators), by user name, then the newest first.</summary>
-    public async Task<IReadOnlyList<AccessKeyInfo>> ListAccessKeysAsync(Guid? userId, CancellationToken ct)
-    {
-        await using var db = await dbFactory.CreateDbContextAsync(ct).ConfigureAwait(false);
-        var rows = await (from t in db.AuthTokens.AsNoTracking()
-                          join u in db.Users.AsNoTracking() on t.UserId equals u.Id
-                          where t.Kind == AuthTokenKind.AccessKey && (userId == null || t.UserId == userId)
-                          select new { t.TokenHash, t.UserId, u.UserName, t.Name, t.ReadOnly, t.CreatedUtc, t.ExpiresUtc, t.LastUsedUtc }).ToListAsync(ct).ConfigureAwait(false);
-        return [.. rows
-            .OrderBy(r => r.UserName, StringComparer.OrdinalIgnoreCase).ThenByDescending(r => r.CreatedUtc)
-            .Select(r => new AccessKeyInfo(AccessKeyIdOf(r.TokenHash), r.UserId, r.UserName, r.Name, r.ReadOnly, r.CreatedUtc, r.ExpiresUtc,
-                _cache.TryGetValue(r.TokenHash, out var cached) && cached.LastUsedUtc > r.LastUsedUtc ? cached.LastUsedUtc : r.LastUsedUtc))];
-    }
-
-    /// <summary>
-    /// Deletes the access key <paramref name="id"/> of <paramref name="userId"/> (null: of any user, for administrators) and
-    /// ends it at once; returns what was deleted, null for an unknown id (also a key of another user).
-    /// </summary>
-    public async Task<AccessKeyInfo?> DeleteAccessKeyAsync(string id, Guid? userId, CancellationToken ct)
-    {
-        ArgumentNullException.ThrowIfNull(id);
-        var keys = await ListAccessKeysAsync(userId, ct).ConfigureAwait(false);
-        if (keys.FirstOrDefault(k => string.Equals(k.Id, id, StringComparison.Ordinal)) is not { } info)
-        {
-            return null;
-        }
-
-        List<string> hashes;
-        await using (var db = await dbFactory.CreateDbContextAsync(ct).ConfigureAwait(false))
-        {
-            hashes = await db.AuthTokens.AsNoTracking().Where(t => t.Kind == AuthTokenKind.AccessKey && t.UserId == info.UserId)
-                .Select(t => t.TokenHash).ToListAsync(ct).ConfigureAwait(false);
-        }
-
-        if (hashes.FirstOrDefault(h => string.Equals(AccessKeyIdOf(h), id, StringComparison.Ordinal)) is not { } hash)
-        {
-            return null; // deleted meanwhile
-        }
-
-        await RevokeAsync(hash, ct).ConfigureAwait(false);
-        return info;
-    }
-
-    /// <summary>The opaque id of an access key (Delete in the lists): never the key or the hash OADM stores.</summary>
-    public static string AccessKeyIdOf(string tokenHash)
-    {
-        var bytes = SHA256.HashData(Encoding.UTF8.GetBytes("oadm access key " + (tokenHash ?? string.Empty)));
-        return Convert.ToHexStringLower(bytes.AsSpan(0, 16));
-    }
-
-    /// <summary>The refusal of a name below the Name field, null when it is fine.</summary>
-    public static string? AccessKeyNameError(string? name)
-    {
-        var clean = name?.Trim() ?? string.Empty;
-        return clean.Length == 0 ? AccessKeyTexts.EnterName
-            : clean.Length > MaxAccessKeyNameLength ? AccessKeyTexts.NameTooLong
-            : clean.Any(char.IsControl) ? AccessKeyTexts.NameControl
-            : clean.Any(c => !IsNameCharacter(c)) ? AccessKeyTexts.NameCharacters
-            : null;
-    }
-
-    /// <summary>Letters, digits, space, '-', '_' and '.': the characters a key name may hold (it ends up in the audit log and the task owner).</summary>
-    public static bool IsNameCharacter(char c) => char.IsLetterOrDigit(c) || c is ' ' or '-' or '_' or '.';
-
-    /// <summary>
-    /// <paramref name="name"/> with every other character replaced by '_' (keys made before the rule kept their names), for texts
-    /// that name the key in the audit log and in task owners.
-    /// </summary>
-    public static string CleanAccessKeyName(string? name) =>
-        new string([.. (name ?? string.Empty).Trim().Take(MaxAccessKeyNameLength).Select(c => IsNameCharacter(c) ? c : '_')]);
-
-    private static bool IsAccessKeyShaped([System.Diagnostics.CodeAnalysis.NotNullWhen(true)] string? key) =>
-        key is { Length: > 5 and <= 256 } && key.StartsWith(AccessKeyPrefix, StringComparison.Ordinal);
-
-    private async Task<AuthSession?> ValidateKindAsync(string hash, AuthTokenKind kind, CancellationToken ct)
+    public async Task<AuthSession?> ValidateHashAsync(string tokenHash, CancellationToken ct)
     {
         while (true)
         {
-            var (done, session) = await TryValidateAsync(hash, kind, ct).ConfigureAwait(false);
+            var (done, session) = await TryValidateAsync(tokenHash, ct).ConfigureAwait(false);
             if (done)
             {
                 return session;
@@ -290,55 +94,29 @@ public sealed class AuthTokenStore(IDbContextFactory<OadmDbContext> dbFactory, T
     /// One attempt; not done when a revoke or role change ran at the same time (the cache entry changed under it), so a
     /// revoked session or an old role never goes back into the cache.
     /// </summary>
-    private async Task<(bool Done, AuthSession? Session)> TryValidateAsync(string hash, AuthTokenKind kind, CancellationToken ct)
+    private async Task<(bool Done, AuthSession? Session)> TryValidateAsync(string hash, CancellationToken ct)
     {
         var now = time.GetUtcNow().UtcDateTime;
-        var wasCached = true;
         if (!_cache.TryGetValue(hash, out var cached))
         {
-            wasCached = false;
             var epoch = Interlocked.Read(ref _epoch);
             await using var db = await dbFactory.CreateDbContextAsync(ct).ConfigureAwait(false);
             var row = await (from t in db.AuthTokens.AsNoTracking()
                              join u in db.Users.AsNoTracking() on t.UserId equals u.Id
                              where t.TokenHash == hash && !u.Disabled
-                             select new { t.Remember, t.ExpiresUtc, t.Kind, t.Name, t.ReadOnly, t.LastUsedUtc, u.Id, u.UserName, u.RoleId, u.AllDevices, u.DeviceGroupId }).FirstOrDefaultAsync(ct).ConfigureAwait(false);
+                             select new { t.Remember, t.ExpiresUtc, u.Id, u.UserName, u.RoleId, u.AllDevices, u.DeviceGroupId }).FirstOrDefaultAsync(ct).ConfigureAwait(false);
             if (row is null)
             {
                 return (true, null);
             }
 
-            cached = new Cached(row.Id, row.UserName, row.RoleId, new DeviceScope(row.AllDevices, row.DeviceGroupId), row.Remember, row.ExpiresUtc, row.ExpiresUtc)
-            {
-                Kind = row.Kind,
-                Name = row.Name,
-                ReadOnly = row.ReadOnly,
-                LastUsedUtc = row.LastUsedUtc,
-                PersistedLastUsedUtc = row.LastUsedUtc,
-            };
+            cached = new Cached(row.Id, row.UserName, row.RoleId, new DeviceScope(row.AllDevices, row.DeviceGroupId), row.Remember, row.ExpiresUtc, row.ExpiresUtc);
             _cache[hash] = cached;
             if (Interlocked.Read(ref _epoch) != epoch)
             {
                 _cache.TryRemove(new KeyValuePair<string, Cached>(hash, cached));
                 return (false, null);
             }
-        }
-
-        if (cached.Kind != kind)
-        {
-            return (true, null); // a session token never works as an access key, nor an access key as a session
-        }
-
-        if (cached.ExpiresUtc <= now && kind == AuthTokenKind.AccessKey)
-        {
-            // An ended access key keeps its row until the hourly cleanup (DeleteExpiredAsync), so its refusals name the key's
-            // user and name in the audit log (OwnerOfRefusedKeyAsync); it never goes back into the cache.
-            if (_cache.TryRemove(hash, out _) && wasCached)
-            {
-                CallerContext.Raise(SessionsEnded, this, new EndedSessions(null, hash));
-            }
-
-            return (true, null);
         }
 
         if (cached.ExpiresUtc <= now && !IsStreaming(hash))
@@ -355,30 +133,6 @@ public sealed class AuthTokenStore(IDbContextFactory<OadmDbContext> dbFactory, T
         }
 
         var original = cached;
-        if (kind == AuthTokenKind.AccessKey)
-        {
-            // A fixed end; the last use in memory now, in the database at most once per minute.
-            cached = cached with { LastUsedUtc = now };
-            if (cached.PersistedLastUsedUtc is not { } persisted || now - persisted >= PersistEvery)
-            {
-                cached = cached with { PersistedLastUsedUtc = now };
-                await using var db = await dbFactory.CreateDbContextAsync(ct).ConfigureAwait(false);
-                await db.AuthTokens.Where(t => t.TokenHash == hash)
-                    .ExecuteUpdateAsync(s => s.SetProperty(t => t.LastUsedUtc, now), ct).ConfigureAwait(false);
-            }
-
-            if (!_cache.TryUpdate(hash, cached, original))
-            {
-                return (false, null);
-            }
-
-            return (true, new AuthSession(hash, cached.UserId, cached.UserName, cached.RoleId, cached.ExpiresUtc, cached.DeviceAccess)
-            {
-                AccessKeyName = cached.Name,
-                ReadOnly = cached.ReadOnly,
-            });
-        }
-
         // Sliding expiry: in memory now, in the database at most once per minute.
         var expires = now + Lifetime(cached.Remember);
         cached = cached with { ExpiresUtc = expires };
@@ -574,34 +328,7 @@ public sealed class AuthTokenStore(IDbContextFactory<OadmDbContext> dbFactory, T
         }
     }
 
-    private sealed record Cached(Guid UserId, string UserName, Guid RoleId, DeviceScope DeviceAccess, bool Remember, DateTime ExpiresUtc, DateTime PersistedExpiresUtc)
-    {
-        public AuthTokenKind Kind { get; init; }
-
-        public string Name { get; init; } = string.Empty;
-
-        public bool ReadOnly { get; init; }
-
-        public DateTime? LastUsedUtc { get; init; }
-
-        public DateTime? PersistedLastUsedUtc { get; init; }
-    }
-}
-
-/// <summary>The server's texts of access keys: the refusals the client shows below the field, the MCP server's 401.</summary>
-public static class AccessKeyTexts
-{
-    public const string EnterName = "Enter a name.";
-    public const string NameTooLong = "Use at most 64 characters.";
-    public const string NameControl = "The name cannot contain line breaks or tabs.";
-    public const string NameCharacters = "Use only letters, digits, spaces, - _ and . in the name.";
-    public const string NameTaken = "You already have an access key with this name.";
-    public const string ChooseDays = "Choose 30, 90 or 365 days.";
-    public const string TooMany = "Use at most 20 access keys. Delete one first.";
-    public const string NotFound = "The access key no longer exists.";
-
-    /// <summary>The answer of the MCP server to a missing or ended key (HTTP 401).</summary>
-    public const string NotValid = "The access key is not valid. Create a new one in OADM under Access keys.";
+    private sealed record Cached(Guid UserId, string UserName, Guid RoleId, DeviceScope DeviceAccess, bool Remember, DateTime ExpiresUtc, DateTime PersistedExpiresUtc);
 }
 
 /// <summary>Which sessions ended: every session of <see cref="UserId"/>, or the one of <see cref="TokenHash"/>.</summary>

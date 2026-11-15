@@ -192,7 +192,7 @@ public static partial class OadmServerHost
         services.AddHostedService<AuthMaintenanceHostedService>();
 
         // The tools (docs/spec/mcp.md "Tools and MCP"): one registry that calls the gRPC services in process as its caller and
-        // knows no channel. AI agents reach it through MCP: access keys and the MCP server on its own port (off by default).
+        // knows no channel. Agents reach it through MCP: access keys and the MCP server on its own port (off by default).
         services.AddSingleton<InProcessCalls>();
         services.AddSingleton<Tools.ToolCursors>();
         services.AddSingleton(sp => new Tools.ToolHandles(sp.GetRequiredService<TimeProvider>()));
@@ -216,14 +216,15 @@ public static partial class OadmServerHost
                     .. Tools.SettingsTools.Create(),
                     .. Tools.FileTools.Create(cursors, sp.GetRequiredService<Tools.ToolHandles>()),
                 ],
-                sp.GetRequiredService<InProcessCalls>(), roles,
+                sp.GetRequiredService<InProcessCalls>(),
                 [sp.GetRequiredService<Tools.PluginTools>()]); // the tools of the plugins that are on
         });
         services.AddSingleton<Mcp.McpAccess>();
         services.AddSingleton<Mcp.McpToolAdapter>();
         services.AddSingleton<Mcp.McpFiles>();
         services.AddSingleton(sp => new Mcp.McpListener(sp, sp.GetRequiredService<ServerSettingsStore>(), sp.GetRequiredService<PluginServiceRegistry>(),
-            sp.GetRequiredService<TimeProvider>(), sp.GetRequiredService<ILogger<Mcp.McpListener>>(), firewall: sp.GetService<Sdk.Network.IFirewallRules>()));
+            sp.GetRequiredService<TimeProvider>(), sp.GetRequiredService<ILogger<Mcp.McpListener>>(), interfaces: sp.GetService<Sdk.Network.IServerNetworkInterfaces>(),
+            firewall: sp.GetService<Sdk.Network.IFirewallRules>()));
 
         // Installed service (SYSTEM / root): admin-only folders, firewall rules of the NTP and DHCP plugins (Windows).
         var serviceMode = options.ServiceMode ?? ServiceHosting.IsRunningAsService();
@@ -517,6 +518,13 @@ public static partial class OadmServerHost
                 {
                     jobs.CancelSession(Core.Auth.SessionIds.Of(hash));
                 }
+            };
+
+            // An MCP access key that ends (deleted, expired, a restore) ends its jobs like a logout.
+            sp.GetRequiredService<Core.Auth.AccessKeyStore>().Ended += (_, ended) =>
+            {
+                jobs.CancelOwner(ended.Id);
+                jobs.CancelSession(Core.Auth.SessionIds.Of(ended.TokenHash));
             };
             return jobs;
         });
@@ -839,7 +847,7 @@ public static partial class OadmServerHost
         sp.GetRequiredService<PluginActivation>().FollowAddedPackages();
         registry.MarkStarted();
 
-        // 4e. AI agents: the MCP server's port opens when it is on and PKI gives it a certificate (it follows PKI from here).
+        // 4e. MCP: the MCP server's port opens when it is on and PKI gives it a certificate (it follows PKI from here).
         var mcp = sp.GetRequiredService<Mcp.McpListener>();
         registry.EnabledChanged += (_, _) => _ = mcp.ApplyInBackgroundAsync();
         await mcp.StartAsync(ct).ConfigureAwait(false);

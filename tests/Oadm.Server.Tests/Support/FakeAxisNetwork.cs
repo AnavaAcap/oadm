@@ -89,8 +89,23 @@ internal sealed class FakeAxisDevice
 
     private bool _basicChallenge;
 
-    /// <summary>Every request that carried credentials: URL scheme and user name, in order.</summary>
-    public List<(string Scheme, string User)> CredentialRequests { get; } = [];
+    private readonly List<(string Scheme, string User)> _credentialRequests = [];
+    private readonly Lock _credentialGate = new();
+
+    /// <summary>
+    /// Every request that carried credentials so far: URL scheme and user name, in order. A copy: the server may still send
+    /// requests (a refresh after an add) while a test reads it.
+    /// </summary>
+    public IReadOnlyList<(string Scheme, string User)> CredentialRequests
+    {
+        get
+        {
+            lock (_credentialGate)
+            {
+                return [.. _credentialRequests];
+            }
+        }
+    }
 
     /// <summary>Requests with a password in the URL query (must never happen).</summary>
     public int PasswordInUrl { get; private set; }
@@ -129,7 +144,10 @@ internal sealed class FakeAxisDevice
 
         if (credentials is not null)
         {
-            CredentialRequests.Add((request.RequestUri.Scheme, credentials.UserName));
+            lock (_credentialGate)
+            {
+                _credentialRequests.Add((request.RequestUri.Scheme, credentials.UserName));
+            }
         }
 
         var authorized = !NeedSetup && credentials is not null

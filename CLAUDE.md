@@ -24,6 +24,7 @@ Every rule here and in `docs/spec/` is agreed with the maintainer; change one on
 | Live video | RTSP (server, own client) relayed as encoded H.265/H.264 over gRPC, decoded in the client with FFmpeg (LGPL, bundled) |
 | Text recognition | ONNX Runtime with PaddleOCR models, in an optional plugin; DirectML (Windows x64), CUDA (Linux x64) or the CPU |
 | Event rule targets | MQTTnet (MQTT), the OPC Foundation .NET stack (OPC UA), our own Modbus TCP client, in plugins |
+| AI agents | ModelContextProtocol.AspNetCore (MCP, the official C# SDK) |
 | Embedded browser | `Avalonia.Controls.WebView` (MIT; WebView2, WKWebView, WPE WebKit / WebKitGTK of the OS), in the client host for the Web View plugin, Help and the MyAxis sign-in |
 
 Cross-platform is a day-one requirement: Windows, Linux, macOS. No Windows-only APIs
@@ -190,10 +191,12 @@ must never break.
 - **[MCP server](docs/spec/mcp.md)** (all four stages built: the endpoint, access keys, the read tools, tasks with
   preview and run, file links, device actions, tags, sites, compliance, event rules, plugin tools, the skill and Connect
   an agent):
-  AI agents do what a user can in the client, through the server's gRPC services in process with an access key (the
-  user's role and device group, `InProcessCalls`); the tools are one registry that knows nothing of MCP (`ToolRegistry`,
-  the caller a parameter, never the HTTP request; MCP is a thin adapter: transport, access keys, its own limits); off by default, own port (TCP 5082) with the certificate of the PKI
-  policy AI agents ("MCP" only in the config snippet and the docs); access keys stored only as SHA-256, never a session;
+  AI agents do what a user can in the client, through the server's gRPC services in process with an access key
+  (`InProcessCalls`); the tools are one registry that knows nothing of MCP (`ToolRegistry`,
+  the caller a parameter, never the HTTP request; MCP is a thin adapter: transport, access keys, its own limits); off by
+  default, own port (TCP 5082) with the certificate of the PKI policy MCP server; "MCP" is the feature's UI name (Settings
+  card AI, section MCP); access keys only by administrators there, each an identity of its own with a name, a role, its
+  devices (all or one group) and an end, audit user and task owner "MCP <name>", stored only as SHA-256, never a session;
   every change is preview then run; never all devices in a result (pages with the total and a sort-key cursor, logs with
   `more` instead of a total, answers at most 32 KB); no secrets over MCP; rights and settings GUI only.
 - **[Load test](docs/spec/load-test.md)** (core plugin `oadm.load-test`, off by default): a load test of the chosen

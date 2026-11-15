@@ -26,7 +26,7 @@ namespace Oadm.Server.Tests.Mcp;
 
 /// <summary>
 /// The real server with its MCP server on an in-memory test server (no network): a fake PKI offers a self-signed certificate
-/// for the policy MCP server, the administrator turns MCP on through McpService, users get access keys through
+/// for the policy MCP server, the administrator turns MCP on through McpService and makes access keys through
 /// AccessKeyService. <see cref="PostAsync"/> sends one JSON-RPC request with the headers of revision 2026-07-28;
 /// <see cref="ConnectAsync"/> connects the official C# client.
 /// </summary>
@@ -47,6 +47,8 @@ internal sealed class McpTestServer : IAsyncDisposable
 
     public McpListener Listener => Host.Get<McpListener>();
 
+    private int _unnamedKeys;
+
     public static async Task<McpTestServer> StartAsync(FakeAxisNetwork? network = null, bool turnOn = true, bool withPki = true, Action<IServiceCollection>? configureServices = null,
         Oadm.Sdk.Network.IFirewallRules? firewall = null, TimeProvider? accessClock = null)
     {
@@ -54,7 +56,8 @@ internal sealed class McpTestServer : IAsyncDisposable
         {
             services.RemoveAll<McpListener>();
             services.AddSingleton(sp => new McpListener(sp, sp.GetRequiredService<ServerSettingsStore>(), sp.GetRequiredService<PluginServiceRegistry>(),
-                sp.GetRequiredService<TimeProvider>(), sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<McpListener>>(), firewall: firewall)
+                sp.GetRequiredService<TimeProvider>(), sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<McpListener>>(),
+                interfaces: sp.GetService<Oadm.Sdk.Network.IServerNetworkInterfaces>(), firewall: firewall)
             {
                 ConfigureHost = b => b.WebHost.UseTestServer(),
             });
@@ -62,7 +65,7 @@ internal sealed class McpTestServer : IAsyncDisposable
             {
                 // The limits per second and minute count on this clock: a test that makes many calls moves it on.
                 services.RemoveAll<McpAccess>();
-                services.AddSingleton(sp => new McpAccess(sp.GetRequiredService<Oadm.Core.Auth.AuthTokenStore>(), sp.GetRequiredService<Oadm.Core.Auth.RoleStore>(),
+                services.AddSingleton(sp => new McpAccess(sp.GetRequiredService<Oadm.Core.Auth.AccessKeyStore>(), sp.GetRequiredService<Oadm.Core.Auth.RoleStore>(),
                     sp.GetRequiredService<Oadm.Core.DeviceGroups.DeviceViewFactory>(), sp.GetRequiredService<Oadm.Core.Auth.AccessEpochs>(), sp.GetRequiredService<Oadm.Core.Auth.AuditLog>(), accessClock));
                 services.RemoveAll<Oadm.Server.LiveView.SnapshotAudit>();
                 services.AddSingleton(sp => new Oadm.Server.LiveView.SnapshotAudit(sp.GetRequiredService<Oadm.Core.Auth.AuditLog>(), accessClock));
@@ -91,11 +94,30 @@ internal sealed class McpTestServer : IAsyncDisposable
     public async Task<Proto.McpState> SetAsync(bool enabled, int port = McpSettings.DefaultPort, string listenOn = "") =>
         await McpService().SetAsync(new Proto.McpSettings { Enabled = enabled, Port = port, ListenOn = listenOn });
 
-    /// <summary>A new access key of <paramref name="invoker"/>'s user (the administrator by default).</summary>
-    public async Task<string> CreateKeyAsync(CallInvoker? invoker = null, string name = "agent", bool readOnly = false, int days = 90)
+    /// <summary>
+    /// A new access key, made by the administrator: with the role and devices of <paramref name="invoker"/>'s user when one is
+    /// given (the user's role and device group), else <paramref name="roleId"/> (the Administrator role by default) and
+    /// <paramref name="groupId"/> (all devices by default).
+    /// </summary>
+    public async Task<string> CreateKeyAsync(CallInvoker? invoker = null, string? name = null, int days = 90, string? roleId = null, string? groupId = null)
     {
-        var reply = await new Proto.AccessKeyService.AccessKeyServiceClient(invoker ?? Host.Invoker)
-            .CreateAsync(new Proto.CreateAccessKeyRequest { Name = name, Days = days, ReadOnly = readOnly });
+        // Names are unique on the server: the first key without a name is "agent", later ones "agent2", "agent3" ...
+        name ??= Interlocked.Increment(ref _unnamedKeys) == 1 ? "agent" : "agent" + _unnamedKeys;
+        if (invoker is not null)
+        {
+            var me = await new Proto.AuthService.AuthServiceClient(invoker).MeAsync(new Proto.Empty());
+            roleId ??= me.RoleId;
+            groupId ??= string.IsNullOrEmpty(me.DeviceGroupId) ? null : me.DeviceGroupId;
+        }
+
+        var reply = await new Proto.AccessKeyService.AccessKeyServiceClient(Host.Invoker).CreateAsync(new Proto.CreateAccessKeyRequest
+        {
+            Name = name,
+            Days = days,
+            RoleId = roleId ?? Oadm.Core.Auth.BuiltInRoles.AdministratorId.ToString(),
+            AllDevices = groupId is null,
+            DeviceGroupId = groupId ?? string.Empty,
+        });
         return reply.Secret;
     }
 
@@ -326,6 +348,7 @@ internal sealed class FakeServerCertificates : IServerCertificates, IDisposable
 {
     private readonly X509Certificate2 _ca;
     private readonly X509Certificate2 _leaf;
+    private readonly byte[] _leafPfx;
 
     public FakeServerCertificates()
     {
@@ -340,7 +363,10 @@ internal sealed class FakeServerCertificates : IServerCertificates, IDisposable
         request.CertificateExtensions.Add(names.Build());
         using var signed = request.Create(_ca, DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow.AddYears(1), [1, 2, 3, 4]);
         using var withKey = signed.CopyWithPrivateKey(key);
-        _leaf = X509CertificateLoader.LoadPkcs12(withKey.Export(X509ContentType.Pfx), null);
+        // Kept as PKCS#12 bytes: Windows and macOS export a certificate again only when its key was loaded exportable, so every
+        // load hands out a new certificate made from these bytes (Linux allows either way).
+        _leafPfx = withKey.Export(X509ContentType.Pfx);
+        _leaf = X509CertificateLoader.LoadPkcs12(_leafPfx, null);
     }
 
     /// <summary>Set: the policy has no usable certificate.</summary>
@@ -360,7 +386,7 @@ internal sealed class FakeServerCertificates : IServerCertificates, IDisposable
     public Task<HostServerCertificate> LoadAsync(string server, CancellationToken ct) =>
         Interlocked.Increment(ref _loads) > 0 && Problem is { } problem
             ? Task.FromResult(new HostServerCertificate([], problem))
-            : Task.FromResult(new HostServerCertificate([X509CertificateLoader.LoadPkcs12(_leaf.Export(X509ContentType.Pfx), null), X509CertificateLoader.LoadCertificate(_ca.RawData)], null));
+            : Task.FromResult(new HostServerCertificate([X509CertificateLoader.LoadPkcs12(_leafPfx, null), X509CertificateLoader.LoadCertificate(_ca.RawData)], null));
 
     public void Dispose()
     {

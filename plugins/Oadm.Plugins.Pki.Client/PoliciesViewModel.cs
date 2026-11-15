@@ -1388,7 +1388,7 @@ public sealed partial class PolicyEditorViewModel : ValidatingViewModel
     {
         PolicyKinds.AllowCa => "e.g. OADM CA",
         PolicyKinds.EstServer => "e.g. EST server",
-        PolicyKinds.McpServer => "e.g. AI agents",
+        PolicyKinds.McpServer => "e.g. MCP server",
         PolicyKinds.Block => "e.g. Storage room",
         PolicyKinds.ExpiryWarning => "e.g. All devices",
         PolicyKinds.Dot1xServer => "e.g. 802.1X server",

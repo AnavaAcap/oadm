@@ -68,8 +68,6 @@ public static class HostPermissionKeys
     public const string EventsClearLog = "events.clearLog";
     /// <summary>Read the server's log on the Logs page.</summary>
     public const string LogsServer = "logs.server";
-    /// <summary>Create access keys and work through an AI agent (SDK 0.13.0; off for every built-in role but Administrator).</summary>
-    public const string McpUse = "mcp.use";
 }
 
 /// <summary>Keys of permissions: the format the host stores and checks.</summary>

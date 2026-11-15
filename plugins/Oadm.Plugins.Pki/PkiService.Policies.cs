@@ -82,13 +82,13 @@ public sealed partial class PkiService
         ];
     }
 
-    /// <summary>The owner of the policy AI agents' first start (<see cref="McpServerPolicies"/>).</summary>
+    /// <summary>The owner of the policy MCP server's first start (<see cref="McpServerPolicies"/>).</summary>
     public const string McpServerOwner = PkiPluginInfo.PluginId + ":mcp-server";
 
     /// <summary>
-    /// The policy AI agents (docs/spec/mcp.md "Transport and certificate"), once on a new server and on one updated from a
-    /// version without it: a system policy without a certificate (the server for AI agents is off by default; its first Turn
-    /// on gives it the shared server certificate, <see cref="EnsureServerCertificatesAsync"/>).
+    /// The policy MCP server (docs/spec/mcp.md "Transport and certificate"), once on a new server and on one updated from a
+    /// version without it: a system policy without a certificate (the MCP server is off by default; its first Turn
+    /// on gives it its own certificate, <see cref="EnsureMcpServerCertificateAsync"/>).
     /// </summary>
     public static IReadOnlyList<PkiPolicy> McpServerPolicies() => [new PkiPolicy { Name = PolicyLimits.McpServerName, Kind = PolicyKinds.McpServer }];
 

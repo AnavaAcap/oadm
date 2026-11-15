@@ -2,8 +2,8 @@ using Oadm.Core.Auth;
 
 namespace Oadm.Server.Auth;
 
-/// <summary>Hourly (first run one minute after start): audit log retention and expired sessions.</summary>
-public sealed partial class AuthMaintenanceHostedService(AuditLog audit, AuthTokenStore tokens, TimeProvider time, ILogger<AuthMaintenanceHostedService> logger) : BackgroundService
+/// <summary>Hourly (first run one minute after start): audit log retention, expired sessions and ended access keys.</summary>
+public sealed partial class AuthMaintenanceHostedService(AuditLog audit, AuthTokenStore tokens, AccessKeyStore keys, TimeProvider time, ILogger<AuthMaintenanceHostedService> logger) : BackgroundService
 {
     public static readonly TimeSpan FirstRun = TimeSpan.FromMinutes(1);
     public static readonly TimeSpan Interval = TimeSpan.FromHours(1);
@@ -30,7 +30,8 @@ public sealed partial class AuthMaintenanceHostedService(AuditLog audit, AuthTok
         try
         {
             var entries = await audit.ApplyRetentionAsync(ct).ConfigureAwait(false);
-            var sessions = await tokens.DeleteExpiredAsync(ct).ConfigureAwait(false);
+            var sessions = await tokens.DeleteExpiredAsync(ct).ConfigureAwait(false)
+                + await keys.DeleteExpiredAsync(ct).ConfigureAwait(false);
             if (entries + sessions > 0)
             {
                 LogCleaned(entries, sessions);
@@ -44,7 +45,7 @@ public sealed partial class AuthMaintenanceHostedService(AuditLog audit, AuthTok
         }
     }
 
-    [LoggerMessage(Level = LogLevel.Information, Message = "Removed {Entries} old audit entries and {Sessions} expired sessions")]
+    [LoggerMessage(Level = LogLevel.Information, Message = "Removed {Entries} old audit entries and {Sessions} expired sessions and access keys")]
     private partial void LogCleaned(int entries, int sessions);
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Audit and session cleanup failed")]

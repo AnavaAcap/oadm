@@ -29,7 +29,7 @@ public sealed partial class McpSkillTests
         "oadm_compliance_checks", "oadm_rules_list", "oadm_rules_get", "oadm_rules_save_preview", "oadm_rules_save_run",
         "oadm_rules_delete_preview", "oadm_rules_delete_run", "oadm_events_log", "oadm_pki_certificates",
         "oadm_pki_certificate_create_preview", "oadm_pki_certificate_create_run", "oadm_ntp_status", "oadm_dhcp_status",
-        "oadm_dhcp_leases", "oadm_hardening_results",
+        "oadm_dhcp_leases", "oadm_hardening_results", "oadm_vapix_commands", "oadm_vapix_command_preview", "oadm_vapix_command_run",
     ];
 
     private static readonly string[] Workflows = ["certificates.md", "health-check.md", "network-change.md", "rollout-axis-os.md"];
@@ -110,7 +110,7 @@ public sealed partial class McpSkillTests
     [Fact]
     public async Task EveryUserDownloadsTheSkillThroughTheCard()
     {
-        await using var server = await McpTestServer.StartAsync(turnOn: false); // also while AI agents are off
+        await using var server = await McpTestServer.StartAsync(turnOn: false); // also while the MCP server is off
         var operatorCalls = await server.Host.InvokerForUserAsync("op", Oadm.Sdk.Plugins.UserRole.Operator);
         foreach (var invoker in new[] { server.Host.Invoker, operatorCalls })
         {
@@ -127,7 +127,7 @@ public sealed partial class McpSkillTests
     public async Task TheFilesAreResourcesOfTheServerAndTheSkillsExtensionIsAnnounced()
     {
         await using var server = await McpTestServer.StartAsync();
-        var key = await server.CreateKeyAsync(readOnly: true); // the skill needs no right: any valid key reads it
+        var key = await server.CreateKeyAsync(); // the skill needs no right: any valid key reads it
         var listed = await server.PostAsync(key, McpTestServer.Request("resources/list"));
         Assert.Equal(200, listed.Status);
         var uris = listed.Body!["result"]!["resources"]!.AsArray().Select(r => r!["uri"]!.GetValue<string>()).ToList();

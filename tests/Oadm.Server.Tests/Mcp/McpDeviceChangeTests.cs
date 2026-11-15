@@ -223,7 +223,7 @@ public sealed class McpDeviceChangeTests
     }
 
     [Fact]
-    public async Task AnAgentAndAClientSessionOfOneUserShareTheLimitOfPictures()
+    public async Task AnAccessKeyHasALimitOfPicturesOfItsOwnApartFromTheUserWhoMadeIt()
     {
         var (server, _, _) = await StartWithClockAsync();
         await using var _ = server;
@@ -236,13 +236,13 @@ public sealed class McpDeviceChangeTests
             await live.GetSnapshotAsync(new Proto.SnapshotRequest { DeviceId = device.Id.ToString() });
         }
 
-        var refused = await server.PostAsync(key, McpTestServer.Request("tools/call", new JsonObject { ["name"] = "oadm_devices_snapshot", ["arguments"] = new JsonObject { ["device_id"] = device.Id.ToString() } }));
-        Assert.Equal(429, refused.Status); // the admin's key and the admin's session are one user
+        var answered = await server.PostAsync(key, McpTestServer.Request("tools/call", new JsonObject { ["name"] = "oadm_devices_snapshot", ["arguments"] = new JsonObject { ["device_id"] = device.Id.ToString() } }));
+        Assert.Equal(200, answered.Status); // the key is an identity of its own: the administrator's pictures are not its own
         await Assert.ThrowsAsync<Grpc.Core.RpcException>(async () => await live.GetSnapshotAsync(new Proto.SnapshotRequest { DeviceId = device.Id.ToString() }));
     }
 
     [Fact]
-    public async Task ADeviceGroupAnAgentsTagRunFillsIsAuditedUnderTheUserViaTheAccessKey()
+    public async Task ADeviceGroupAnAgentsTagRunFillsIsAuditedUnderTheAgentsName()
     {
         await using var server = await StartAsync();
         var device = await DeviceServiceTests.AddDeviceAsync(server.Host, "10.31.0.1", 5101);
@@ -253,7 +253,7 @@ public sealed class McpDeviceChangeTests
         await server.ToolAsync(key, "oadm_tags_assign_run", new JsonObject { ["handle"] = preview["handle"]!.GetValue<string>() });
 
         var entered = Assert.Single((await server.Host.Audit.ListAsync(new Proto.ListAuditRequest())).Entries, e => e.Action == Oadm.Core.DeviceGroups.DeviceGroupMembership.EnteredAction);
-        Assert.Equal(AuditActions.ViaAccessKey(TestServerHost.AdminUserName, "taggy"), entered.UserName);
+        Assert.Equal(Oadm.Core.Auth.AccessKeyStore.AgentNameOf("taggy"), entered.UserName);
         Assert.Contains(device.Serial, entered.Detail, StringComparison.Ordinal);
     }
 
@@ -270,7 +270,7 @@ public sealed class McpDeviceChangeTests
         Assert.Equal(1, run["added"]!.GetValue<int>());
 
         var entered = Assert.Single((await server.Host.Audit.ListAsync(new Proto.ListAuditRequest())).Entries, e => e.Action == Oadm.Core.DeviceGroups.DeviceGroupMembership.EnteredAction);
-        Assert.Equal(AuditActions.ViaAccessKey(TestServerHost.AdminUserName, "adder"), entered.UserName);
+        Assert.Equal(Oadm.Core.Auth.AccessKeyStore.AgentNameOf("adder"), entered.UserName);
     }
 
     // ---- snapshot ------------------------------------------------------------------------------------------------------
@@ -287,7 +287,7 @@ public sealed class McpDeviceChangeTests
 
         var entry = Assert.Single((await server.Host.Audit.ListAsync(new Proto.ListAuditRequest())).Entries, e => e.Action == AuditActions.SnapshotTaken);
         Assert.Equal("Took a snapshot", entry.Action);
-        Assert.EndsWith(" via access key snapper", entry.UserName, StringComparison.Ordinal);
+        Assert.Equal("MCP snapper", entry.UserName);
         Assert.Contains("10.30.0.9", entry.Target, StringComparison.Ordinal);
         Assert.DoesNotContain(key, entry.ToString(), StringComparison.Ordinal); // never the key
 
@@ -352,14 +352,14 @@ public sealed class McpDeviceChangeTests
 
         // A role without Live view does not list it.
         var roles = new Proto.RoleService.RoleServiceClient(server.Host.Invoker);
-        var saved = await roles.SaveRolesAsync(new Proto.SaveRolesRequest { Roles = { new Proto.RoleChange { Name = "Agents", Permissions = { HostPermissions.McpUse } } } });
+        var saved = await roles.SaveRolesAsync(new Proto.SaveRolesRequest { Roles = { new Proto.RoleChange { Name = "Agents", Permissions = { } } } });
         var role = Guid.Parse(saved.Roles.Single(r => r.Name == "Agents").Id);
         var agent = await server.CreateKeyAsync(await server.Host.InvokerForRoleAsync("agent1", role));
         Assert.DoesNotContain("oadm_devices_snapshot", await server.ToolNamesAsync(agent));
         var denied = await server.CallToolAsync(agent, "oadm_devices_snapshot", new JsonObject { ["device_id"] = inside.Id.ToString() });
         Assert.True(denied["isError"]!.GetValue<bool>());
         Assert.Contains("Your role does not allow:", TextOf(denied), StringComparison.Ordinal);
-        await roles.SaveRolesAsync(new Proto.SaveRolesRequest { Roles = { new Proto.RoleChange { Id = role.ToString(), Name = "Agents", Permissions = { HostPermissions.McpUse, HostPermissions.DevicesLiveView } } } });
+        await roles.SaveRolesAsync(new Proto.SaveRolesRequest { Roles = { new Proto.RoleChange { Id = role.ToString(), Name = "Agents", Permissions = { HostPermissions.DevicesLiveView } } } });
         Assert.Contains("oadm_devices_snapshot", await server.ToolNamesAsync(agent));
         Assert.Empty(camera.Snapshots);
 
@@ -442,7 +442,7 @@ public sealed class McpDeviceChangeTests
         Assert.Equal(2, run["devices"]!.GetValue<int>());
         Assert.Equal(["10.32.0.3"], (await ListAsync(server.Host)).Keys);
         var audit = (await server.Host.Audit.ListAsync(new Proto.ListAuditRequest())).Entries;
-        Assert.Contains(audit, e => e.Action == AuditActions.DevicesRemoved && e.UserName == AuditActions.ViaAccessKey(TestServerHost.AdminUserName, "agent"));
+        Assert.Contains(audit, e => e.Action == AuditActions.DevicesRemoved && e.UserName == Oadm.Core.Auth.AccessKeyStore.AgentNameOf("agent"));
         Assert.True((await server.CallToolAsync(key, "oadm_devices_remove_run", new JsonObject { ["handle"] = preview["handle"]!.GetValue<string>() }))["isError"]!.GetValue<bool>());
     }
 
@@ -518,7 +518,7 @@ public sealed class McpDeviceChangeTests
         }
 
         var audit = (await server.Host.Audit.ListAsync(new Proto.ListAuditRequest())).Entries;
-        Assert.Contains(audit, e => e.Action == AuditActions.DeviceCredentialsSet && e.UserName == AuditActions.ViaAccessKey(TestServerHost.AdminUserName, "agent"));
+        Assert.Contains(audit, e => e.Action == AuditActions.DeviceCredentialsSet && e.UserName == Oadm.Core.Auth.AccessKeyStore.AgentNameOf("agent"));
         Assert.All(answers, a => Assert.DoesNotContain(StoredPassword, a, StringComparison.Ordinal));
         Assert.All(answers, a => Assert.DoesNotContain("Second-pw-2", a, StringComparison.Ordinal));
 
@@ -530,12 +530,12 @@ public sealed class McpDeviceChangeTests
     }
 
     [Fact]
-    public async Task ARoleListsAChangeToolOnlyWhenItMayRunItAndAReadOnlyKeyListsNoRun()
+    public async Task ARoleListsAChangeToolOnlyWhenItMayRunItAndAViewerKeyListsNoRun()
     {
         await using var server = await StartAsync();
         await DeviceServiceTests.AddDeviceAsync(server.Host, "10.34.0.1", 5401);
         var roles = new Proto.RoleService.RoleServiceClient(server.Host.Invoker);
-        var saved = await roles.SaveRolesAsync(new Proto.SaveRolesRequest { Roles = { new Proto.RoleChange { Name = "Agents", Permissions = { HostPermissions.McpUse, HostPermissions.DevicesRefresh } } } });
+        var saved = await roles.SaveRolesAsync(new Proto.SaveRolesRequest { Roles = { new Proto.RoleChange { Name = "Agents", Permissions = { HostPermissions.DevicesRefresh } } } });
         var role = Guid.Parse(saved.Roles.Single(r => r.Name == "Agents").Id);
         var agent = await server.CreateKeyAsync(await server.Host.InvokerForRoleAsync("agent1", role));
         var names = await server.ToolNamesAsync(agent);
@@ -548,20 +548,12 @@ public sealed class McpDeviceChangeTests
         Assert.DoesNotContain("oadm_devices_credentials_run", names);
         Assert.DoesNotContain("oadm_devices_snapshot", names);
 
-        var readOnly = await server.CreateKeyAsync(name: "reader", readOnly: true);
-        var readNames = await server.ToolNamesAsync(readOnly);
-        foreach (var preview in new[] { "oadm_devices_refresh_preview", "oadm_devices_remove_preview", "oadm_devices_credentials_preview", "oadm_devices_snapshot", "oadm_settings_get" })
-        {
-            Assert.Contains(preview, readNames);
-        }
-
-        // The add preview sends packets to the network: a change for a Read only key (hidden and refused).
-        Assert.DoesNotContain("oadm_devices_add_preview", readNames);
+        // A key with the Viewer role is a look-only agent: it lists no change of devices and a run is refused by its role.
+        var viewer = await server.CreateKeyAsync(name: "reader", roleId: Oadm.Core.Auth.BuiltInRoles.ViewerId.ToString());
+        var readNames = await server.ToolNamesAsync(viewer);
+        Assert.Contains("oadm_settings_get", readNames);
+        Assert.DoesNotContain("oadm_devices_add_preview", readNames); // it sends packets to the network: listed only for who may add
         Assert.True(server.Host.Get<ToolRegistry>().All.Single(t => t.Name == "oadm_devices_add_preview").ActsOutside);
-        var refusedAdd = await server.CallToolAsync(readOnly, "oadm_devices_add_preview", new JsonObject { ["addresses"] = new JsonArray("10.9.0.1") });
-        Assert.True(refusedAdd["isError"]!.GetValue<bool>());
-        Assert.Contains(McpAccess.ReadOnlyKey, TextOf(refusedAdd), StringComparison.Ordinal);
-
         Assert.All(RunTools, run => Assert.DoesNotContain(run, readNames));
         var tools = server.Host.Get<ToolRegistry>().All.ToDictionary(t => t.Name, StringComparer.Ordinal);
         Assert.All(RunTools, run => Assert.False(tools[run].ReadsOnly));
@@ -569,9 +561,9 @@ public sealed class McpDeviceChangeTests
         Assert.False(tools["oadm_devices_add_run"].Destructive); // it only adds
         foreach (var run in RunTools)
         {
-            var refused = await server.CallToolAsync(readOnly, run, new JsonObject { ["handle"] = "x" });
+            var refused = await server.CallToolAsync(viewer, run, new JsonObject { ["handle"] = "x" });
             Assert.True(refused["isError"]!.GetValue<bool>());
-            Assert.Contains(McpAccess.ReadOnlyKey, TextOf(refused), StringComparison.Ordinal);
+            Assert.False(string.IsNullOrEmpty(TextOf(refused)));
         }
     }
 
@@ -625,6 +617,9 @@ public sealed class McpDeviceChangeTests
         Assert.Equal(("root", Password), (stored!.UserName, stored.Password));
         Assert.DoesNotContain(Password, run.ToJsonString(), StringComparison.Ordinal);
         Assert.DoesNotContain("other-password", run.ToJsonString(), StringComparison.Ordinal);
+        var entries = (await server.Host.Audit.ListAsync(new Proto.ListAuditRequest())).Entries;
+        Assert.Contains(entries, e => e.Action == AuditActions.DevicesAdded && e.Target == "10.9.0.1" && e.Detail == "1 device"
+            && e.UserName == Oadm.Core.Auth.AccessKeyStore.AgentNameOf("agent"));
         Assert.True((await server.CallToolAsync(key, "oadm_devices_add_run", new JsonObject { ["handle"] = handle }))["isError"]!.GetValue<bool>());
     }
 
@@ -751,7 +746,7 @@ public sealed class McpDeviceChangeTests
     {
         await using var server = await StartAsync();
         await server.Host.Settings.AddCredentialAsync(new Proto.AddCredentialRequest { UserName = "installer", Password = StoredPassword });
-        var key = await server.CreateKeyAsync(readOnly: true);
+        var key = await server.CreateKeyAsync();
         var settings = await server.Host.Settings.GetAsync(new Proto.Empty());
 
         var answer = await server.ToolAsync(key, "oadm_settings_get");

@@ -25,7 +25,8 @@ public IReadOnlyList<PluginTool> Tools { get; } =
 ```
 
 The host names it `oadm_<area>_<name>`: the area is the plugin id without `oadm.` (`ToolArea` changes it), the name is yours.
-Use lower case words with underscores, at most 64 characters in all. A tool that does not fit is left out and logged.
+Use lower case words with underscores, at most 40 characters for your name (`PluginTool.MaxNameLength`). A tool with a
+longer name is left out and logged.
 
 - `InputType` is the record of the arguments. The host writes its JSON Schema like it does for
   [task payloads](../tasks/#tasks-for-ai-agents): `[Description]` explains a property, `[MaxLength]` and `[Range]` bound it,
@@ -70,12 +71,12 @@ Set `Changes` and the host makes two tools, `<name>_preview` and `<name>_run`. I
 - `tool.<name>` does the change. The run tool takes only the handle of a preview, once, within 10 minutes, and calls it
   with the same arguments, so check everything again. Give `RunOutputType` for its answer.
 
-Set `Destructive` for a change that removes something. A Read only caller gets the previews and never the runs.
+Set `Destructive` for a change that removes something.
 
 ## Your duty
 
-The host trusts what you declare. A tool without `Changes`, and every `tool.<name>.preview`, is offered to Read only keys,
-so it must never write: not to OADM, not to a device, not to a file. Anything that writes is a change with a preview and a
+The host trusts what you declare. A tool without `Changes`, and every `tool.<name>.preview`, is announced as a read and
+offered with only the permission you name, so it must never write: not to OADM, not to a device, not to a file. Anything that writes is a change with a preview and a
 run. Never return a password, private key, license key or token, and keep texts from devices and users in their own
 fields, never in a message.
 

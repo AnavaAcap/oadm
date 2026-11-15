@@ -48,44 +48,6 @@ public sealed class InProcessCalls(IServiceProvider services, RoleStore roles, U
         return "/" + service.FullName + "/" + method;
     }
 
-    /// <summary>The refusal of a Read only access key for a method that is no read.</summary>
-    public const string ReadOnlyRefusal = "This access key is Read only.";
-
-    /// <summary>
-    /// The methods a Read only caller may call in process: the reads of the tools a Read only key lists (docs/spec/mcp.md "Access
-    /// keys"). Every other method, also one a tool lists only for its permission, is refused below the tool list.
-    /// </summary>
-    public static IReadOnlySet<string> ReadMethods { get; } = new HashSet<string>(StringComparer.Ordinal)
-    {
-        "/oadm.v1.AuthService/Me",
-        "/oadm.v1.SettingsService/Get",
-        "/oadm.v1.SettingsService/ListCredentials",
-        "/oadm.v1.DeviceService/Search",
-        "/oadm.v1.DeviceService/Resolve",
-        "/oadm.v1.LiveViewService/GetSnapshot",
-        "/oadm.v1.ComplianceService/Summarize",
-        "/oadm.v1.ComplianceService/ListChecks",
-        "/oadm.v1.ComplianceService/GetCatalog",
-        "/oadm.v1.EventService/ListRules",
-        "/oadm.v1.EventService/GetRule",
-        "/oadm.v1.EventService/CheckRule",
-        "/oadm.v1.EventService/GetCatalog",
-        "/oadm.v1.EventService/ListRecipients",
-        "/oadm.v1.EventService/ListLog",
-        "/oadm.v1.FileService/List",
-        "/oadm.v1.ServerLogService/List",
-        "/oadm.v1.AuditService/List",
-        "/oadm.v1.SiteService/ListSites",
-        "/oadm.v1.TagService/List",
-        "/oadm.v1.TagService/PlanDeviceTags",
-        "/oadm.v1.TaskService/List",
-        "/oadm.v1.TaskService/GetLog",
-        "/oadm.v1.TaskService/ListTaskPlugins",
-        "/oadm.v1.TaskService/Plan",
-        "/oadm.v1.WaitingDeviceService/List",
-        "/oadm.v1.PluginService/Invoke", // only the read methods of the plugin tools: PluginService.Invoke checks the method
-    };
-
     /// <summary>True when <paramref name="caller"/> may call the method <paramref name="path"/> (the interceptor's check).</summary>
     public static bool Allows(string path, AuthenticatedCaller caller) => AccessPolicy.Allows(AccessPolicy.For(path), caller);
 
@@ -113,11 +75,6 @@ public sealed class InProcessCalls(IServiceProvider services, RoleStore roles, U
         if (!AccessPolicy.Allows(rule, caller))
         {
             throw new RpcException(new Status(StatusCode.PermissionDenied, AccessPolicy.DeniedMessage(rule, roles.Catalog, caller)));
-        }
-
-        if (caller.ReadOnly && !ReadMethods.Contains(path))
-        {
-            throw new RpcException(new Status(StatusCode.PermissionDenied, ReadOnlyRefusal)); // below the tool list: Read only is the server's rule
         }
 
         var context = new InProcessCallContext(path, caller, ct);

@@ -35,7 +35,8 @@ public sealed partial class CanaryTests
         ["/oadm.v1.TagService/SetDeviceTags"] = async (c, id) =>
             await new Proto.TagService.TagServiceClient(c.Invoker).SetDeviceTagsAsync(new Proto.SetDeviceTagsRequest { DeviceIds = { c.Inside.ToString(), id.ToString() }, Add = { "Free" } }),
         ["/oadm.v1.TagService/PlanDeviceTags"] = async (c, id) =>
-            await new Proto.TagService.TagServiceClient(c.Invoker).PlanDeviceTagsAsync(new Proto.PlanDeviceTagsRequest { Filter = new Proto.DeviceFilter { Ids = { c.Inside.ToString(), id.ToString() } }, Add = { "Free" } }),
+            await c.InProcessAsync<Oadm.Server.Devices.TagGrpcService, Proto.PlanDeviceTagsRequest, Proto.PlanDeviceTagsReply>("/oadm.v1.TagService/PlanDeviceTags", // in process only: as the tools call it
+                new Proto.PlanDeviceTagsRequest { Filter = new Proto.DeviceFilter { Ids = { c.Inside.ToString(), id.ToString() } }, Add = { "Free" } }, (s, r, x) => s.PlanDeviceTags(r, x)),
         ["/oadm.v1.ComplianceService/Summarize"] = async (c, id) =>
             await new Proto.ComplianceService.ComplianceServiceClient(c.Invoker).SummarizeAsync(new Proto.SummarizeComplianceRequest { Filter = new Proto.DeviceFilter { Ids = { c.Inside.ToString(), id.ToString() } } }),
         ["/oadm.v1.ComplianceService/SaveCheck"] = async (c, id) =>
@@ -94,7 +95,8 @@ public sealed partial class CanaryTests
                 Filter = new Proto.DeviceFilter { Ids = { c.Inside.ToString(), id.ToString() } }, Limit = 10, WithApis = true, GroupBy = "status",
             }),
         ["/oadm.v1.DeviceService/Resolve"] = async (c, id) =>
-            await Devices(c).ResolveAsync(new Proto.ResolveDevicesRequest { Filter = new Proto.DeviceFilter { Ids = { c.Inside.ToString(), id.ToString() } }, Shown = 5 }),
+            await c.InProcessAsync<Oadm.Server.Devices.DeviceGrpcService, Proto.ResolveDevicesRequest, Proto.ResolveDevicesReply>("/oadm.v1.DeviceService/Resolve",
+                new Proto.ResolveDevicesRequest { Filter = new Proto.DeviceFilter { Ids = { c.Inside.ToString(), id.ToString() } }, Shown = 5 }, (s, r, x) => s.Resolve(r, x)),
         ["/oadm.v1.DeviceWebService/Open"] = async (c, id) =>
             await new Proto.DeviceWebService.DeviceWebServiceClient(c.Invoker).OpenAsync(new Proto.OpenDeviceWebRequest { DeviceId = id.ToString() }),
         ["/oadm.v1.DeviceWebService/Exchange"] = (c, id) => Inside(c, id, async () =>
@@ -134,11 +136,11 @@ public sealed partial class CanaryTests
                 DeviceIds = { id == c.Inside ? new[] { id.ToString() } : new[] { c.Inside.ToString(), id.ToString() } },
             }),
         ["/oadm.v1.TaskService/Plan"] = async (c, id) =>
-            await new Proto.TaskService.TaskServiceClient(c.Invoker).PlanAsync(new Proto.PlanTaskRequest
+            await c.InProcessAsync<Oadm.Server.Tasks.TaskGrpcService, Proto.PlanTaskRequest, Proto.TaskPlanReply>("/oadm.v1.TaskService/Plan", new Proto.PlanTaskRequest
             {
                 PluginId = CanaryTaskPlugin.PluginId,
                 Filter = new Proto.DeviceFilter { Ids = { c.Inside.ToString(), id.ToString() } },
-            }),
+            }, (s, r, x) => s.Plan(r, x)),
         ["/oadm.v1.TaskService/Query"] = async (c, id) =>
             await new Proto.TaskService.TaskServiceClient(c.Invoker).QueryAsync(new Proto.TaskQueryRequest
             {
@@ -394,12 +396,9 @@ public sealed partial class CanaryTests
         ["/oadm.v1.UpdateService/Watch"] = "the steps of a server update (version and step), no device",
         ["/oadm.v1.MyAxisService/SignIn"] = "the caller's own MyAxis sign-in, no device",
         ["/oadm.v1.MyAxisService/SignOut"] = "the caller's own MyAxis sign-in, no device",
-        ["/oadm.v1.McpService/Get"] = "the AI agents card: on, port, interface, the certificate's names, no device",
-        ["/oadm.v1.McpService/GetCaCertificate"] = "the CA certificates of the AI agents server, no device",
-        ["/oadm.v1.McpService/GetSkill"] = "the skill for AI agents as a ZIP, no device",
-        ["/oadm.v1.AccessKeyService/ListMine"] = "the caller's own access keys, no device",
-        ["/oadm.v1.AccessKeyService/Create"] = "an access key of the caller, no device",
-        ["/oadm.v1.AccessKeyService/Delete"] = "an access key of the caller, no device",
+        ["/oadm.v1.McpService/Get"] = "the MCP section of the card AI: on, port, interface, the certificate's names, no device",
+        ["/oadm.v1.McpService/GetCaCertificate"] = "the CA certificates of the MCP server, no device",
+        ["/oadm.v1.McpService/GetSkill"] = "the skill for agents as a ZIP, no device",
         ["/oadm.v1.AuthService/Login"] = "open: the session",
         ["/oadm.v1.AuthService/CreateFirstAdmin"] = "open: only while no user exists",
         ["/oadm.v1.AuthService/Logout"] = "the own session",
@@ -759,6 +758,22 @@ public sealed partial class CanaryTests
         /// <summary>Calls as the group user (a role with every permission).</summary>
         public CallInvoker Invoker { get; }
 
+        /// <summary>The group's user.</summary>
+        public GroupCaller User { get; init; } = null!;
+
+        /// <summary>
+        /// A method only the server's own tools call (in process only): called in process as the group's user, with the caller the
+        /// interceptor would make, so the device group applies as for the tools.
+        /// </summary>
+        public async Task<TResponse> InProcessAsync<TService, TRequest, TResponse>(string path, TRequest request, Func<TService, TRequest, ServerCallContext, Task<TResponse>> call)
+            where TService : class
+        {
+            var permissions = await Host.Get<RoleStore>().PermissionsOfAsync(User.RoleId, CancellationToken.None);
+            var devices = await Host.Get<Core.DeviceGroups.DeviceViewFactory>().CallerDevicesAsync(new DeviceScope(false, User.GroupId), CancellationToken.None);
+            var caller = new AuthenticatedCaller(User.UserId, User.UserName, User.RoleId, permissions, "127.0.0.1", "canary", "canary-session") { Devices = devices };
+            return await Host.Get<InProcessCalls>().CallAsync(caller, path, request, call, CancellationToken.None);
+        }
+
         /// <summary>The group user's device group (the tag "Inside").</summary>
         public Guid GroupId { get; }
 
@@ -826,7 +841,7 @@ public sealed partial class CanaryTests
             await host.Get<RoleStore>().SyncCatalogAsync(PermissionCatalog.Build(webView), CancellationToken.None);
 
             var user = await GroupCallers.ForTagAsync(host, "canary", "Inside");
-            return new Canary(host, user.Invoker, user.GroupId, inside.Id, outside.Id, outsideDevice, streams);
+            return new Canary(host, user.Invoker, user.GroupId, inside.Id, outside.Id, outsideDevice, streams) { User = user };
         }
 
         /// <summary>Adds one more device inside the view (calls that remove the device they get).</summary>

@@ -164,7 +164,7 @@ public sealed class RolloutTaskPlugin : ITaskPlugin
                     StopBecauseOfOtherDevice(ctx, owner, names.Skip(i), ct);
                 }
 
-                var error = await RunCommandAsync(ctx, payload.Commands[i], requests[i], names[i], compatibility[i], ct).ConfigureAwait(false);
+                var error = await RunCommandAsync(ctx, payload.Commands[i], requests[i], names[i], compatibility[i], payload.MaskSecrets, ct).ConfigureAwait(false);
                 if (error is null)
                 {
                     continue;
@@ -261,7 +261,7 @@ public sealed class RolloutTaskPlugin : ITaskPlugin
     }
 
     /// <summary>Runs one command step. Returns null on success, else the error text (the step is already Failed).</summary>
-    private static async Task<string?> RunCommandAsync(ITaskExecutionContext ctx, RolloutPayloadCommand item, Prepared prepared, string name, string? incompatible, CancellationToken ct)
+    private static async Task<string?> RunCommandAsync(ITaskExecutionContext ctx, RolloutPayloadCommand item, Prepared prepared, string name, string? incompatible, bool maskSecrets, CancellationToken ct)
     {
         using var step = ctx.BeginStep(name);
         if (incompatible is not null)
@@ -291,16 +291,17 @@ public sealed class RolloutTaskPlugin : ITaskPlugin
         }
 
         var status = outcome.StatusCode is { } code ? string.Create(CultureInfo.InvariantCulture, $"HTTP {code}") : "no answer";
+        var summary = maskSecrets ? SecretValues.Mask(outcome.Summary, outcome, item.Command) : outcome.Summary;
         if (outcome.Success)
         {
-            step.Complete(outcome.Summary);
-            ctx.Log(TaskLogLevel.Info, $"{name}: {request.Describe()} -> {status}, {outcome.Summary}");
+            step.Complete(summary);
+            ctx.Log(TaskLogLevel.Info, $"{name}: {request.Describe()} -> {status}, {summary}");
             return null;
         }
 
-        step.Fail(outcome.Summary);
-        ctx.Log(TaskLogLevel.Error, $"{name}: {request.Describe()} -> {status}, {outcome.Summary}");
-        return outcome.Summary;
+        step.Fail(summary);
+        ctx.Log(TaskLogLevel.Error, $"{name}: {request.Describe()} -> {status}, {summary}");
+        return summary;
     }
 
     /// <summary>Skips the remaining steps and ends the task as Cancelled (another device failed with "Stop on first error").</summary>
@@ -333,5 +334,68 @@ public sealed class VapixCommandException : Exception
     public VapixCommandException(string message, Exception innerException)
         : base(message, innerException)
     {
+    }
+}
+
+/// <summary>
+/// The values of an answer that are secrets (an SNMP community, a password, a passphrase, a key, a token): masked as *** in the
+/// text an AI agent reads (a run of <see cref="CommanderTools"/>). A labelled value is masked when its label or the parameter or
+/// path it comes from names a secret; a summary of free text has the secret values of the answer's parameters replaced, never
+/// a short or yes/no value (that would hide every setting).
+/// </summary>
+internal static class SecretValues
+{
+    private static readonly string[] Words = ["community", "password", "passwd", "passphrase", "secret", "psk", "token", "privatekey", "apikey", "credential"];
+
+    private static readonly HashSet<string> Plain = new(StringComparer.OrdinalIgnoreCase) { "yes", "no", "true", "false", "on", "off", "none", "enabled", "disabled" };
+
+    /// <summary>True when a name points to a secret ("SNMP.V1ReadCommunity", "MQTT.Password", "Read community").</summary>
+    public static bool IsSecretName(string? name)
+    {
+        if (string.IsNullOrEmpty(name))
+        {
+            return false;
+        }
+
+        var lower = name.Replace("_", string.Empty, StringComparison.Ordinal).Replace("-", string.Empty, StringComparison.Ordinal)
+            .Replace(" ", string.Empty, StringComparison.Ordinal).ToLowerInvariant();
+        return Words.Any(w => lower.Contains(w, StringComparison.Ordinal)) || lower.EndsWith("key", StringComparison.Ordinal);
+    }
+
+    /// <summary>The summary an agent reads: the labelled values with the secret ones as ***, else the text with the secret values replaced.</summary>
+    public static string Mask(string text, CommandOutcome outcome, CommandDefinition? command = null)
+    {
+        ArgumentNullException.ThrowIfNull(outcome);
+        var secretLabels = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var rule in command?.Response.Extract ?? [])
+        {
+            if (IsSecretName(rule.Label) || IsSecretName(rule.Param) || IsSecretName(rule.Path))
+            {
+                secretLabels.Add(rule.Label);
+            }
+        }
+
+        if (outcome.Values.Count > 0)
+        {
+            var labelled = string.Join(" · ", outcome.Values.Select(v => $"{v.Name}: {v.Value}"));
+            if (string.Equals(text, labelled, StringComparison.Ordinal))
+            {
+                return string.Join(" · ", outcome.Values.Select(v =>
+                    $"{v.Name}: {(secretLabels.Contains(v.Name) || IsSecretName(v.Name) ? "***" : v.Value)}"));
+            }
+        }
+
+        var secrets = outcome.Values.Where(v => secretLabels.Contains(v.Name) || IsSecretName(v.Name))
+            .Concat(outcome.Parameters.Where(p => IsSecretName(p.Name)))
+            .Select(v => v.Value)
+            .Where(v => v.Length >= 4 && !Plain.Contains(v))
+            .Distinct(StringComparer.Ordinal)
+            .OrderByDescending(v => v.Length); // a longer secret first, so a shorter one inside it never leaves a piece
+        foreach (var secret in secrets)
+        {
+            text = text.Replace(secret, "***", StringComparison.Ordinal);
+        }
+
+        return text;
     }
 }

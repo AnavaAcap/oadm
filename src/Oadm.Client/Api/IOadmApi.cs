@@ -405,7 +405,7 @@ public interface IOadmApi
     // LicenseService (Settings page, card License): every signed-in user reads; Import and Remove are Administrator only
     Task<ProLicenseState> GetLicenseAsync(CancellationToken ct) => throw new NotSupportedException("This connection has no license.");
 
-    /// <summary>The MCP server for AI agents (Settings card AI agents, docs/spec/mcp.md).</summary>
+    /// <summary>The MCP server (Settings card AI, section MCP, docs/spec/mcp.md).</summary>
     Task<McpState> GetMcpAsync(CancellationToken ct) => throw new NotSupportedException(NoAiAgents);
 
     /// <summary>Turn on or off, the port and Listen on (administrators).</summary>
@@ -417,17 +417,17 @@ public interface IOadmApi
     /// <summary>The skill for agents as a ZIP (docs/spec/mcp.md "Skill").</summary>
     Task<McpSkillZip> GetMcpSkillAsync(CancellationToken ct) => throw new NotSupportedException(NoAiAgents);
 
-    /// <summary>The caller's access keys, or with <paramref name="everyUser"/> every user's (administrators).</summary>
-    Task<IReadOnlyList<AccessKey>> ListAccessKeysAsync(bool everyUser, CancellationToken ct) => throw new NotSupportedException(NoAiAgents);
+    /// <summary>Every access key of the MCP server (administrators).</summary>
+    Task<IReadOnlyList<AccessKey>> ListAccessKeysAsync(CancellationToken ct) => throw new NotSupportedException(NoAiAgents);
 
-    /// <summary>A new access key of the caller; the reply holds the key once.</summary>
-    Task<CreatedAccessKey> CreateAccessKeyAsync(string name, int days, bool readsOnly, CancellationToken ct) => throw new NotSupportedException(NoAiAgents);
+    /// <summary>A new access key with its role and devices (administrators); the reply holds the key once.</summary>
+    Task<CreatedAccessKey> CreateAccessKeyAsync(CreateAccessKeyRequest request, CancellationToken ct) => throw new NotSupportedException(NoAiAgents);
 
-    /// <summary>Deletes an access key: the caller's own, or with <paramref name="anyUser"/> any user's (administrators); the list after it.</summary>
-    Task<IReadOnlyList<AccessKey>> DeleteAccessKeyAsync(string id, bool anyUser, CancellationToken ct) => throw new NotSupportedException(NoAiAgents);
+    /// <summary>Deletes an access key (administrators); the list after it.</summary>
+    Task<IReadOnlyList<AccessKey>> DeleteAccessKeyAsync(string id, CancellationToken ct) => throw new NotSupportedException(NoAiAgents);
 
-    /// <summary>The refusal of a connection without AI agents (an older server).</summary>
-    const string NoAiAgents = "This server has no AI agents. Update the server.";
+    /// <summary>The refusal of a connection without the MCP server (an older server).</summary>
+    const string NoAiAgents = "This server has no MCP server. Update the server.";
 
     /// <summary>Checks and stores an OADM PRO license key (INVALID_ARGUMENT with the reason).</summary>
     Task<ProLicenseState> ImportLicenseAsync(string license, CancellationToken ct) => throw new NotSupportedException("This connection has no license.");

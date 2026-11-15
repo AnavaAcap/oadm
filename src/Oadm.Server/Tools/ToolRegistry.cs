@@ -14,24 +14,12 @@ namespace Oadm.Server.Tools;
 /// parameter. The channel that brings the call makes it: MCP from the access key, a later built-in assistant from the
 /// logged-in user. A tool never reads anything else of the request.
 /// </summary>
-/// <param name="User">The user with the role, the permissions and the device view of now; its client machine names the channel ("MCP laptop").</param>
+/// <param name="User">The caller with the role, the permissions and the device view of now (an MCP access key: "MCP Lobby-bot").</param>
 /// <param name="BindingKey">What cursors and handles are bound to (never sent anywhere): the access key's hash, a session's token hash.</param>
 public sealed record ToolCaller(AuthenticatedCaller User, string BindingKey)
 {
-    /// <summary>The caller only reads: no tool that changes something is listed or runs.</summary>
-    public bool ReadOnly { get; init; }
-
-    /// <summary>The answer to a change of a <see cref="ReadOnly"/> caller.</summary>
-    public string ReadOnlyRefusal { get; init; } = ToolAnswers.ReadOnlyCaller;
-
     /// <summary>What the channel tells about itself in <c>oadm_server_info</c> (its key and limits); <see cref="ToolChannel.None"/> without.</summary>
     public ToolChannel Channel { get; init; } = ToolChannel.None;
-
-    /// <summary>
-    /// The permission the channel itself needs on top of each tool's own (MCP: "Use AI agents"); null when the channel needs
-    /// none. The channel sets it; the registry only checks it, so the tools stay independent of any one channel.
-    /// </summary>
-    public string? ChannelPermission { get; init; }
 }
 
 /// <summary>What <c>oadm_server_info</c> says of the channel a caller came through: its access key and its own limits.</summary>
@@ -73,7 +61,7 @@ internal sealed record OadmTool(
 
     /// <summary>
     /// The call reaches devices or the network although it writes nothing to OADM (a scan that logs in with the credential
-    /// list): a Read only caller does not get it, and a channel counts it like a change.
+    /// list): it is never announced as a plain read, and a channel counts it like a change.
     /// </summary>
     public bool ActsOutside { get; init; }
 
@@ -158,8 +146,8 @@ internal sealed record ToolResult(JsonObject? Answer, string? Error, IReadOnlyLi
 /// <summary>
 /// The one tool registry of the server (docs/spec/mcp.md "Tools and MCP"): every tool with its descriptor, schemas, permission
 /// and invoke method, independent of any channel. MCP is an adapter on top of it (transport, access keys, its own limits); a
-/// later built-in assistant calls the same tools in process. The list shows only what the caller may do now (rule 5: "Use AI
-/// agents", the role and device group of the methods each tool calls, read only callers only reading tools); a call of a tool
+/// later built-in assistant calls the same tools in process. The list shows only what the caller may do now (rule 5: the
+/// role and device group of the methods each tool calls, the plugins that are on); a call of a tool
 /// that is not listed answers the refusal; every argument is checked against the published schema first; every answer is at
 /// most <see cref="ToolAnswers.MaxBytes"/>. Device texts are only ever JSON values (rule 6).
 /// </summary>
@@ -168,14 +156,12 @@ internal sealed class ToolRegistry
     private readonly Dictionary<string, OadmTool> _tools;
     private readonly IReadOnlyList<IToolSource> _sources;
     private readonly InProcessCalls _calls;
-    private readonly RoleStore _roles;
 
-    public ToolRegistry(IEnumerable<OadmTool> tools, InProcessCalls calls, RoleStore roles, IEnumerable<IToolSource>? sources = null)
+    public ToolRegistry(IEnumerable<OadmTool> tools, InProcessCalls calls, IEnumerable<IToolSource>? sources = null)
     {
         _tools = tools.ToDictionary(t => t.Name, StringComparer.Ordinal);
         _sources = [.. sources ?? []];
         _calls = calls;
-        _roles = roles;
     }
 
     /// <summary>The fixed tools and those of the sources now; a source never replaces a fixed tool or another source's first.</summary>
@@ -250,16 +236,6 @@ internal sealed class ToolRegistry
     {
         ArgumentNullException.ThrowIfNull(tool);
         ArgumentNullException.ThrowIfNull(caller);
-        if (caller.ChannelPermission is { } channel && !caller.User.Has(channel))
-        {
-            return _roles.Catalog.DeniedMessage(channel);
-        }
-
-        if (caller.ReadOnly && (!tool.ReadsOnly || tool.ActsOutside))
-        {
-            return caller.ReadOnlyRefusal;
-        }
-
         return tool.Methods.FirstOrDefault(m => !InProcessCalls.Allows(m, caller.User)) is { } method
             ? _calls.DeniedMessage(method, caller.User)
             : tool.Gate?.Invoke(caller);
@@ -286,7 +262,6 @@ internal static class ToolAnswers
 
     public const string FieldsMessage = "Some arguments are not valid. Correct them and call again.";
     public const string Failed = "The call failed. Try again.";
-    public const string ReadOnlyCaller = "You can only read here.";
 
     public static readonly JsonSerializerOptions Json = new()
     {

@@ -37,7 +37,7 @@ public sealed class McpServerTests
         Assert.Equal(McpTexts.Off, state.Status);
         Assert.True(state.PkiAvailable);
 
-        // While it is off PKI is never asked: its first load is the first Turn on, which gives the policy AI agents a certificate.
+        // While it is off PKI is never asked: its first load is the first Turn on, which gives the policy MCP server a certificate.
         Assert.Equal(0, server.Certificates.Loads);
         Assert.Equal(string.Empty, state.Certificate);
         await server.SetAsync(enabled: true);
@@ -70,10 +70,10 @@ public sealed class McpServerTests
         await using var server = await McpTestServer.StartAsync(configureServices: services =>
         {
             services.RemoveAll<ToolRegistry>();
-            services.AddSingleton(sp => new ToolRegistry([held], sp.GetRequiredService<Oadm.Server.Auth.InProcessCalls>(), sp.GetRequiredService<RoleStore>()));
+            services.AddSingleton(sp => new ToolRegistry([held], sp.GetRequiredService<Oadm.Server.Auth.InProcessCalls>()));
         });
         var key = await server.CreateKeyAsync();
-        var other = await server.CreateKeyAsync(await server.Host.InvokerForUserAsync("second", Oadm.Sdk.Plugins.UserRole.Admin), name: "other"); // the user's keys share the places
+        var other = await server.CreateKeyAsync(name: "other"); // another key has its own places
         var calls = Enumerable.Range(0, McpAccess.CallsAtOnce).Select(_ => server.CallToolAsync(key, "oadm_test_hold")).ToList();
         await Oadm.Sdk.Testing.Eventually.TrueAsync(() => Volatile.Read(ref entered) == McpAccess.CallsAtOnce, "every allowed call waits in the tool");
 
@@ -122,7 +122,9 @@ public sealed class McpServerTests
 
         server.Certificates.Problem = "The MCP server has no certificate. Choose one in its policy.";
         server.Certificates.RaiseChanged();
-        await TestHelpers.WaitUntilAsync(() => Task.FromResult(server.Listener.App is null), "the port closes");
+        // The port closes first, the status follows when the apply ends: wait for the status, then the port is closed too.
+        await TestHelpers.WaitUntilAsync(async () => !(await server.McpService().GetAsync(new Proto.Empty())).Running, "the status says the port closed");
+        Assert.Null(server.Listener.App);
         state = await server.McpService().GetAsync(new Proto.Empty());
         Assert.False(state.Running);
         Assert.Equal(server.Certificates.Problem, state.Status);
@@ -133,13 +135,13 @@ public sealed class McpServerTests
     {
         var firewall = new Oadm.Tests.Shared.RecordingFirewall();
         await using var server = await McpTestServer.StartAsync(firewall: firewall);
-        Assert.Equal(["close OADM Server (AI agents, TCP 5082)", "open OADM Server (AI agents, TCP 5082)"], firewall.CallList); // a rule a crash left goes first
+        Assert.Equal(["close OADM Server (MCP server, TCP 5082)", "open OADM Server (MCP server, TCP 5082)"], firewall.CallList); // a rule a crash left goes first
         await server.SetAsync(enabled: true, port: 5090);
         await server.SetAsync(enabled: false, port: 5090);
         Assert.Equal(
             [
-                "close OADM Server (AI agents, TCP 5082)", "open OADM Server (AI agents, TCP 5082)", "close OADM Server (AI agents, TCP 5082)",
-                "open OADM Server (AI agents, TCP 5090)", "close OADM Server (AI agents, TCP 5090)",
+                "close OADM Server (MCP server, TCP 5082)", "open OADM Server (MCP server, TCP 5082)", "close OADM Server (MCP server, TCP 5082)",
+                "open OADM Server (MCP server, TCP 5090)", "close OADM Server (MCP server, TCP 5090)",
             ],
             firewall.CallList);
     }
@@ -158,7 +160,7 @@ public sealed class McpServerTests
 
         await server.SetAsync(enabled: true, port: 5090);
         var audit = await server.Host.Audit.ListAsync(new Proto.ListAuditRequest());
-        var entry = audit.Entries.First(e => e.Action == AuditActions.AiAgentsChanged);
+        var entry = audit.Entries.First(e => e.Action == AuditActions.McpChanged);
         Assert.Equal("Turned on, Port 5082 -> 5090", entry.Detail);
     }
 
@@ -192,13 +194,44 @@ public sealed class McpServerTests
     }
 
     [Fact]
-    public async Task AnEndedKeyIsRefusedAndTheAuditLogNamesItsUserAndKeyUntilTheHourlyCleanup()
+    public async Task RefusedKeysFromRotatingAddressesNeverFloodTheAuditLog()
     {
         await using var host = await TestServerHost.StartAsync();
         var time = new FakeTimeProvider(DateTimeOffset.UtcNow);
-        var tokens = new AuthTokenStore(host.Get<IDbContextFactory<OadmDbContext>>(), time);
+        using var tokens = new AccessKeyStore(host.Get<IDbContextFactory<OadmDbContext>>(), time);
+        using var access = new McpAccess(tokens, host.Get<RoleStore>(), host.Get<DeviceViewFactory>(), host.Get<AccessEpochs>(), host.Get<AuditLog>(), time);
+        async Task<List<Proto.AuditEntry>> RefusedAsync() =>
+            [.. (await host.Audit.ListAsync(new Proto.ListAuditRequest())).Entries.Where(e => e.Action == AuditActions.AccessKeyRefused)];
+
+        // Addresses of one IPv6 /64 are one address: one entry, all refusals counted in it.
+        for (var i = 1; i <= 60; i++)
+        {
+            Assert.Null(await access.AuthenticateAsync("oadm_unknownkey", $"2001:db8:1:2::{i:x}", CancellationToken.None));
+        }
+
+        var single = Assert.Single(await RefusedAsync());
+        Assert.Equal("60 refused calls", single.Detail);
+
+        // Many addresses: at most the port's new entries a minute, the next minute again.
+        for (var i = 1; i <= 2 * McpAccess.MaxRefusalAuditsPerMinute; i++)
+        {
+            Assert.Null(await access.AuthenticateAsync("oadm_unknownkey", $"10.8.0.{i}", CancellationToken.None));
+        }
+
+        Assert.Equal(McpAccess.MaxRefusalAuditsPerMinute, (await RefusedAsync()).Count);
+        time.Advance(McpAccess.RefusalEntry);
+        Assert.Null(await access.AuthenticateAsync("oadm_unknownkey", "10.8.1.1", CancellationToken.None));
+        Assert.Equal(McpAccess.MaxRefusalAuditsPerMinute + 1, (await RefusedAsync()).Count);
+    }
+
+    [Fact]
+    public async Task AnEndedKeyIsRefusedAndTheAuditLogNamesItUntilTheHourlyCleanup()
+    {
+        await using var host = await TestServerHost.StartAsync();
+        var time = new FakeTimeProvider(DateTimeOffset.UtcNow);
+        using var tokens = new AccessKeyStore(host.Get<IDbContextFactory<OadmDbContext>>(), time);
         var admin = (await host.Get<UserStore>().FindByNameAsync(TestServerHost.AdminUserName, CancellationToken.None))!;
-        var (key, _) = await tokens.CreateAccessKeyAsync(admin.Id, admin.UserName, "laptop", 30, readOnly: false, "test", CancellationToken.None);
+        var (key, _) = await tokens.CreateAsync("laptop", BuiltInRoles.AdministratorId, DeviceScope.All, 30, admin.UserName, CancellationToken.None);
         using var access = new McpAccess(tokens, host.Get<RoleStore>(), host.Get<DeviceViewFactory>(), host.Get<AccessEpochs>(), host.Get<AuditLog>(), time);
         Assert.NotNull(await access.AuthenticateAsync(key, "10.9.0.1", CancellationToken.None));
 
@@ -206,14 +239,14 @@ public sealed class McpServerTests
         Assert.Null(await access.AuthenticateAsync(key, "10.9.0.1", CancellationToken.None));
         Assert.Null(await access.AuthenticateAsync(key, "10.9.0.1", CancellationToken.None));
         var entry = Assert.Single((await host.Audit.ListAsync(new Proto.ListAuditRequest())).Entries, e => e.Action == AuditActions.AccessKeyRefused);
-        Assert.Equal(AuditActions.ViaAccessKey(TestServerHost.AdminUserName, "laptop"), entry.UserName);
+        Assert.Equal(Oadm.Core.Auth.AccessKeyStore.AgentNameOf("laptop"), entry.UserName);
         Assert.Equal("laptop", entry.Target);
         Assert.Equal("The key has ended. 2 refused calls", entry.Detail);
 
         // The hourly cleanup removes the ended key; a later refusal knows it no more.
         await tokens.DeleteExpiredAsync(CancellationToken.None);
-        Assert.Empty(await tokens.ListAccessKeysAsync(admin.Id, CancellationToken.None));
-        Assert.Null(await tokens.OwnerOfRefusedKeyAsync(key, CancellationToken.None));
+        Assert.Empty(await tokens.ListAsync(CancellationToken.None));
+        Assert.Null(await tokens.NameOfRefusedKeyAsync(key, CancellationToken.None));
     }
 
     [Fact]
@@ -395,11 +428,11 @@ public sealed class McpServerTests
         await using var server = await McpTestServer.StartAsync(configureServices: services =>
         {
             services.RemoveAll<McpAccess>();
-            services.AddSingleton(sp => new McpAccess(sp.GetRequiredService<AuthTokenStore>(), sp.GetRequiredService<RoleStore>(),
+            services.AddSingleton(sp => new McpAccess(sp.GetRequiredService<AccessKeyStore>(), sp.GetRequiredService<RoleStore>(),
                 sp.GetRequiredService<DeviceViewFactory>(), sp.GetRequiredService<AccessEpochs>(), sp.GetRequiredService<AuditLog>(), time));
         });
         var key = await server.CreateKeyAsync();
-        var other = await server.CreateKeyAsync(await server.Host.InvokerForUserAsync("second", Oadm.Sdk.Plugins.UserRole.Admin), name: "second");
+        var other = await server.CreateKeyAsync(name: "second");
         for (var i = 0; i < McpAccess.CallsPerSecond; i++)
         {
             Assert.Equal(200, (await server.PostAsync(key, McpTestServer.Request("tools/list"))).Status);

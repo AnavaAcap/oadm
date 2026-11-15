@@ -48,10 +48,35 @@ internal static class TaskRunTools
     /// <summary>Devices of a preview shown by name (the rest are counted).</summary>
     public const int ShownDevices = 20;
 
-    public const string NotOffered = "This task is not offered to AI agents. Run it in OADM.";
+    public const string NotOffered = "This task is not offered over MCP. Run it in OADM.";
     public const string NothingToRun = "No device of the filter would get this task.";
 
-    public static IEnumerable<OadmTool> Create(ToolHandles handles)
+    /// <summary>The refusal for a role that may run no task: its agent gets no task or file tool (cancel stays).</summary>
+    public const string NoTaskRight = "Your role may run no task.";
+
+    /// <summary>
+    /// Null when <paramref name="caller"/>'s role may run at least one task (a "task:" right), else <see cref="NoTaskRight"/>: the
+    /// catalog, preview, run and the file tools (files are only for tasks) are not listed for a role without one, like Viewer.
+    /// </summary>
+    public static string? TaskRight(ToolCaller caller)
+    {
+        ArgumentNullException.ThrowIfNull(caller);
+        var permissions = caller.User.Permissions;
+        return permissions.IsAll || permissions.Keys.Any(k => k.StartsWith("task:", StringComparison.Ordinal)) ? null : NoTaskRight;
+    }
+
+    /// <summary>A tool that also needs a task right (<see cref="TaskRight"/>) on top of its own gate.</summary>
+    public static OadmTool NeedsTaskRight(OadmTool tool)
+    {
+        ArgumentNullException.ThrowIfNull(tool);
+        var own = tool.Gate;
+        return tool with { Gate = caller => TaskRight(caller) ?? own?.Invoke(caller) };
+    }
+
+    public static IEnumerable<OadmTool> Create(ToolHandles handles) =>
+        Tools(handles).Select(t => t.Name.StartsWith("oadm_tasks_cancel_", StringComparison.Ordinal) ? t : NeedsTaskRight(t));
+
+    private static IEnumerable<OadmTool> Tools(ToolHandles handles)
     {
         yield return new OadmTool(
             "oadm_tasks_catalog",

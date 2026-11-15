@@ -1,0 +1,132 @@
+---
+title: MCP tools
+description: Every tool an AI agent can call in OADM, what it does, and whether it changes something.
+---
+
+{/* Written by McpPluginToolTests.TheToolsPageOfTheDocsListsEveryToolAsTheServerOffersIt (OADM_WRITE_DOCS=1): do not edit by hand. */}
+
+These are the tools an agent can be offered. It sees only the ones the role of its access key allows, of the plugins that are on.
+A change is always two tools: the preview checks everything and changes nothing, the run takes only the preview's handle
+and runs after the user agreed.
+
+## Server
+
+| Tool | Kind | What it does |
+| --- | --- | --- |
+| `oadm_server_info` | Read | The OADM server, who you are, your role and what it allows, the limits of this server and how many devices you see. Call it first. |
+| `oadm_settings_get` | Read | The server settings OADM shows every user, read only: how it scans, retries, runs tasks and checks clocks. Change them in OADM. |
+
+## Devices
+
+| Tool | Kind | What it does |
+| --- | --- | --- |
+| `oadm_devices_add_preview` | Preview | Looks for Axis devices in a network range or at IP addresses of the server's own networks or of connected sites. It sends no login and stores nothing. Then call oadm_devices_add_run with the handle: it logs in with the credential list and adds. |
+| `oadm_devices_add_run` | Run (changes) | Logs in to the devices of a preview with the credential list and adds those that log in, keeps the waiting addresses, or tries the waiting list. Devices that do not log in are not added. |
+| `oadm_devices_credentials_preview` | Preview | Shows which devices would get the login of a stored credential, chosen by its name. Without a name it lists the names; no password is ever sent or shown. |
+| `oadm_devices_credentials_run` | Run (changes) | Stores the chosen credential as the login of the devices of a preview and queues their refresh. The devices themselves are not changed. |
+| `oadm_devices_get` | Read | One device with its details, as the device details in OADM show them, never its credentials. Take the id from oadm_devices_search. |
+| `oadm_devices_refresh_preview` | Preview | Shows which devices OADM would read again. Nothing is changed; then call oadm_devices_refresh_run with the handle. |
+| `oadm_devices_refresh_run` | Run (changes) | Queues a full refresh of the devices of a preview. The results show in oadm_devices_search as they arrive. |
+| `oadm_devices_remove_preview` | Preview | Shows which devices OADM would stop managing. Nothing is changed; then call oadm_devices_remove_run with the handle. |
+| `oadm_devices_remove_run` | Run (changes) | Removes the devices of a preview from OADM, with their stored logins and tags. The devices themselves are not changed. |
+| `oadm_devices_search` | Read | Your devices that match a filter, a page at a time with the total and a cursor. Narrow with a filter after oadm_devices_summary; pass next_cursor for the next page. |
+| `oadm_devices_snapshot` | Read | One JPEG of a camera now, at most 1280 pixels wide, as an image. Take the device id from oadm_devices_search. |
+| `oadm_devices_summary` | Read | Counts of your devices by status, model, AXIS OS version, site, tag or category. Call it before oadm_devices_search to see where the devices are. |
+
+## Tasks
+
+| Tool | Kind | What it does |
+| --- | --- | --- |
+| `oadm_task_preview` | Preview | Checks the input and shows what the task would do on the filter's devices; nothing is changed. Show the plan and the skipped reasons to the user, then call oadm_task_run with the handle. |
+| `oadm_task_run` | Run (changes) | Runs the task of a preview on its devices, one task per device. Follow them with oadm_tasks_list and the batch. |
+| `oadm_tasks_cancel_preview` | Preview | Shows which tasks of a run or of a list of ids are still waiting or running and would be cancelled; nothing is changed. Show it to the user, then call oadm_tasks_cancel_run with the handle. |
+| `oadm_tasks_cancel_run` | Run (changes) | Cancels the tasks of a preview. A running task stops at its next safe point, so a device may be left half done. |
+| `oadm_tasks_catalog` | Read | The tasks you may run on the devices of a filter: per task how many can run it, why the others cannot, and its input schema. Call it before oadm_task_preview. |
+| `oadm_tasks_get` | Read | One task with its steps and its log (the newest 200 lines). Take the id from oadm_tasks_list. |
+| `oadm_tasks_list` | Read | Tasks of your devices, the newest first, with the counts per state first. Pass batch to follow the tasks of one run; next_cursor for the next page. |
+
+## Files
+
+| Tool | Kind | What it does |
+| --- | --- | --- |
+| `oadm_files_delete_preview` | Preview | Checks the files and shows what a delete would remove; nothing is changed. Show the list to the user, then call oadm_files_delete_run with the handle. |
+| `oadm_files_delete_run` | Run (changes) | Deletes the files of a preview from the server. A task that still needs one can no longer use it. |
+| `oadm_files_list` | Read | The files you sent with upload links, the newest first. They stay on the server for a day or so and are used by task previews through their id. |
+| `oadm_files_upload_link` | Change | A one-time link to send a file for a task (an AXIS OS file, an application) from your shell; the file never passes the model. Use the answer's file id in the task's input. |
+
+## Tags
+
+| Tool | Kind | What it does |
+| --- | --- | --- |
+| `oadm_tags_assign_preview` | Preview | Shows how many devices of a filter get or lose tags and the first 20 of them; nothing is changed. Show it to the user, then call oadm_tags_assign_run with the handle. |
+| `oadm_tags_assign_run` | Run (changes) | Adds and removes the tags of a preview on its devices in one step. Removing a tag is not undone by the run. |
+| `oadm_tags_list` | Read | The tags of your devices with the number of devices that have each, a page at a time. Use it before oadm_tags_assign_preview to see which tags exist. |
+
+## Sites
+
+| Tool | Kind | What it does |
+| --- | --- | --- |
+| `oadm_sites_list` | Read | The remote sites you see with their status and device counts, a page at a time. A site is a network OADM reaches through a site node. |
+
+## Compliance
+
+| Tool | Kind | What it does |
+| --- | --- | --- |
+| `oadm_compliance_checks` | Read | The compliance checks you see, turned on or off, with what each one checks, its severity and which devices it is for. |
+| `oadm_compliance_summary` | Read | Per check how many devices of a filter pass, fail or are unknown, the worst check first. Devices come only as counts; use oadm_devices_search to list them. |
+
+## Event rules
+
+| Tool | Kind | What it does |
+| --- | --- | --- |
+| `oadm_events_log` | Read | The event log, the newest first: the events rules use, rules that fired and every action that ran, with a result. It has no total; pass next_cursor for older entries. |
+| `oadm_rules_catalog` | Read | The events and actions rules are made of, and the recipients they can send to. Pass event or action for one in full, with its fields; call it before oadm_rules_save_preview. |
+| `oadm_rules_delete_preview` | Preview | Shows the rule that would be deleted and what its deletion does; nothing is deleted. Show it to the user, then call oadm_rules_delete_run with the handle. |
+| `oadm_rules_delete_run` | Run (changes) | Deletes the rule of a preview. A rule that is on runs its off actions first. |
+| `oadm_rules_get` | Read | One event rule in full: its conditions, actions and limits, as oadm_rules_save_preview takes them. Passwords and fields that may hold a login or a token are never shown; an address shows its scheme, host and port only. |
+| `oadm_rules_list` | Read | The event rules with what each watches, does and its state now, a page at a time. Use oadm_rules_get for one rule in full. |
+| `oadm_rules_save_preview` | Preview | Checks a new or changed event rule as the rule editor does and shows what it would watch and do; nothing is saved. Show it to the user, then call oadm_rules_save_run with the handle. |
+| `oadm_rules_save_run` | Run (changes) | Creates or changes the rule of a preview. A changed rule replaces the old one. |
+
+## Logs
+
+| Tool | Kind | What it does |
+| --- | --- | --- |
+| `oadm_logs_audit` | Read | Who did what in OADM, the newest first: since a time, with a text in the user, action, target or detail. Administrators only. |
+| `oadm_logs_search` | Read | Lines of the OADM server log, the newest first: since a time, at a level or above, with a text. Use it to find why something failed. |
+
+## PKI
+
+| Tool | Kind | What it does |
+| --- | --- | --- |
+| `oadm_pki_certificate_create_preview` | Preview | Makes a key and a certificate for HTTPS or IEEE 802.1X with an issuing policy. The key stays in OADM. Nothing is changed. Call oadm_pki_certificate_create_run with the handle to apply it. |
+| `oadm_pki_certificate_create_run` | Run (changes) | Applies the plan of oadm_pki_certificate_create_preview, which checks everything again. |
+| `oadm_pki_certificates` | Read | Lists the certificates PKI knows: device certificates, certificate authorities, servers and the ones created here. Never shows a private key. |
+| `oadm_pki_policies` | Read | Lists the issuing policies for HTTPS and IEEE 802.1X certificates, to pick the policy of a new certificate. |
+
+## NTP server
+
+| Tool | Kind | What it does |
+| --- | --- | --- |
+| `oadm_ntp_status` | Read | Shows whether the NTP server is on, where it listens, its time source and how its latest requests went. |
+
+## DHCP server
+
+| Tool | Kind | What it does |
+| --- | --- | --- |
+| `oadm_dhcp_leases` | Read | Lists the leases of the DHCP server by MAC address, with their state and the end of an active lease. |
+| `oadm_dhcp_status` | Read | Shows whether the DHCP server is on, its interface and range, what clients get, and other DHCP servers it saw. |
+
+## Hardening scan
+
+| Tool | Kind | What it does |
+| --- | --- | --- |
+| `oadm_hardening_results` | Read | Lists the last hardening scan results per device as counts of passed, warning and failed checks, and the state of the running scan. |
+
+## VAPIX Commander
+
+| Tool | Kind | What it does |
+| --- | --- | --- |
+| `oadm_vapix_command_preview` | Preview | Runs one command of oadm_vapix_commands on devices from oadm_devices_search, one task per device. Read the results with oadm_tasks_get. Nothing is changed. Call oadm_vapix_command_run with the handle to apply it. |
+| `oadm_vapix_command_run` | Run (changes) | Applies the plan of oadm_vapix_command_preview, which checks everything again. |
+| `oadm_vapix_commands` | Read | Lists the VAPIX Commander commands an agent may run, with their fields. Run one with oadm_vapix_command_preview. |

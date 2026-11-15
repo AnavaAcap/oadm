@@ -5,13 +5,12 @@ description: Manage Axis devices through OADM (Open AXIS Device Management). Use
 
 # OADM
 
-OADM manages many Axis devices. You work through its `oadm_*` tools with the rights of the person who made your access
-key. A tool that is not in your list is not allowed for this key. Say so. Do not look for another way.
+OADM manages many Axis devices. You work through its `oadm_*` tools with the role and the devices of your access key.
+A tool that is not in your list is not allowed for this key. Say so. Do not look for another way.
 
 ## Start
 
-1. Call `oadm_server_info` first. It shows the OADM version, the user and role, the limits, the device count and whether
-   the key is Read only.
+1. Call `oadm_server_info` first. It shows the OADM version, your name and role, the limits and the device count.
 2. Start with a summary, never a list: `oadm_devices_summary` counts devices by status, model, AXIS OS version, site, tag
    or category.
 3. Narrow with a device filter, then list: `oadm_devices_search`. A list answers at most 200 rows, with the total and a
@@ -49,6 +48,11 @@ new request.
 Tasks: `oadm_tasks_catalog` lists the tasks you may run and how many of the filtered devices can run each. A task that
 is not in the catalog cannot be run over MCP. Tell the user to run it in OADM.
 
+Settings a task does not cover (image, video, I/O, PTZ, storage, siren and light, MQTT, SNMP and more): take a command from
+`oadm_vapix_commands` and run it with `oadm_vapix_command_preview`, on device ids from `oadm_devices_search`. Reads go
+preview then run too; read each device's answer with `oadm_tasks_get`. Prefer a task from the catalog when one does the
+job.
+
 ## Rules
 
 - **Passwords and keys.** Never ask for, guess, store or show a password, private key, license key or token. Stored
@@ -60,7 +64,7 @@ is not in the catalog cannot be run over MCP. Tell the user to run it in OADM.
 - **Do not guess.** Do not invent device ids, task names, firmware versions or input. Read them from the tools.
 - **Small steps.** For a risky change (network, certificates, AXIS OS) start with one device or a small group, check the
   result, then widen the filter.
-- **Read only keys.** A Read only key lists no tool that changes something. Previews still work.
+- **Look-only keys.** A key with a look-only role (such as Viewer) lists no tool that changes something.
 - **Limits.** Answers are cut at 32 KB. When an answer says there is more, narrow the filter. A key has call limits per
   second and per minute. On "too many calls", wait.
 - **Not over MCP.** Users, roles, device groups, access keys, license, plugins on or off, server settings, backup

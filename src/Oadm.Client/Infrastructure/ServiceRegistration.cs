@@ -171,11 +171,8 @@ public static class ServiceRegistration
             sp.GetRequiredService<IOadmApi>(),
             sp.GetRequiredService<IDialogService>(),
             Path.Combine(options.DataFolder, "logs")));
-        services.AddSingleton<AiAgentsViewModel>(); // the Settings card AI agents (docs/spec/mcp.md)
+        services.AddSingleton<AiAgentsViewModel>(); // the Settings card AI, section MCP (docs/spec/mcp.md)
         services.AddSingleton<SettingsViewModel>();
-        services.AddSingleton<Func<AccessKeysViewModel>>(sp => () => new AccessKeysViewModel(
-            sp.GetRequiredService<IOadmApi>(), sp.GetRequiredService<IDialogService>(), sp.GetRequiredService<IClipboardService>()));
-        services.AddSingleton<AllAccessKeysViewModel>(); // every user's keys, Permissions page
         services.AddSingleton<CredentialsViewModel>();
         services.AddSingleton<LogsViewModel>();
         services.AddSingleton<AuditLogViewModel>();
@@ -201,8 +198,7 @@ public static class ServiceRegistration
             sp.GetRequiredService<ILogger<UsersViewModel>>(),
             sp.GetRequiredService<ServerConnection>(),
             sp.GetRequiredService<RolesViewModel>(),
-            sp.GetRequiredService<DeviceGroupsViewModel>(),
-            sp.GetRequiredService<AllAccessKeysViewModel>()));
+            sp.GetRequiredService<DeviceGroupsViewModel>()));
         services.AddSingleton<Func<AddDevicesMode, AddDevicesViewModel>>(sp => mode => new AddDevicesViewModel(
             sp.GetRequiredService<IOadmApi>(),
             sp.GetRequiredService<IUiDispatcher>(),

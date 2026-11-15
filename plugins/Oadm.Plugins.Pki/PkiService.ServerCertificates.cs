@@ -35,16 +35,16 @@ public sealed partial class PkiService
     private ServerChoiceCache? _serverChoices; // one reference: never a torn read of its fields across threads
     private int _revocations; // counts the changes of the revocation list (the cache of the choices follows it)
 
-    /// <summary>"The 802.1X server", "The EST server" or "The server for AI agents".</summary>
+    /// <summary>"The 802.1X server", "The EST server" or "The MCP server".</summary>
     private static string ServerText(string kind) => kind switch
     {
         PolicyKinds.Dot1xServer => "The 802.1X server",
-        PolicyKinds.McpServer => ServerForAiAgents,
+        PolicyKinds.McpServer => McpServerText,
         _ => "The EST server",
     };
 
-    /// <summary>The host's MCP server in a sentence of its status ("MCP" appears only in the docs).</summary>
-    internal const string ServerForAiAgents = "The server for AI agents";
+    /// <summary>The host's MCP server in a sentence of its status.</summary>
+    internal const string McpServerText = "The MCP server";
 
     /// <summary>
     /// The certificates of the list with a key OADM holds, each with what it names; ended ones and ones that are no server
@@ -218,14 +218,14 @@ public sealed partial class PkiService
         await EnsureServerCertificatesAsync(names, ct).ConfigureAwait(false);
     }
 
-    /// <summary>The server policies that share one certificate: the 802.1X server, the EST server and AI agents.</summary>
-    internal static IReadOnlyList<string> SharedServerKinds { get; } = [PolicyKinds.Dot1xServer, PolicyKinds.EstServer, PolicyKinds.McpServer];
+    /// <summary>The server policies that share one certificate: the 802.1X server and the EST server (never the MCP server).</summary>
+    internal static IReadOnlyList<string> SharedServerKinds { get; } = [PolicyKinds.Dot1xServer, PolicyKinds.EstServer];
 
     /// <summary>
-    /// OADM PRO became active (and every start with it), Turn on of a server, the first Turn on of AI agents also without OADM
-    /// PRO (decisions 2026-10-25 and 2026-11-14): every server policy without a certificate gets the shared one ("802.1X and EST
-    /// server": ECDSA P-256, 10 years, from the OADM CA, naming <paramref name="names"/>, the names both PRO servers give and
-    /// this computer's addresses and name). The one a server policy already shows is taken when it is still usable; else it
+    /// OADM PRO became active (and every start with it), Turn on of a PRO server (decision 2026-10-25): every PRO server policy
+    /// without a certificate gets the shared one ("802.1X and EST server": ECDSA P-256, 10 years, from the OADM CA, naming
+    /// <paramref name="names"/>, the names both PRO servers give and this computer's addresses and name). The policy MCP server
+    /// never gets it (<see cref="EnsureMcpServerCertificateAsync"/>). The one a server policy already shows is taken when it is still usable; else it
     /// is made. Nothing when every policy has one, the list cannot be read or no CA can issue yet (the next start tries again).
     /// </summary>
     internal async Task EnsureServerCertificatesAsync(IReadOnlyList<string>? names, CancellationToken ct)
@@ -275,6 +275,53 @@ public sealed partial class PkiService
 
         bool Missing() => SharedServerKinds.Any(kind => Policies.FirstOf(kind) is { CertificateId: null });
     }
+
+    /// <summary>The name of the certificate PKI makes for the MCP server on its first Turn on.</summary>
+    public const string McpServerCertificateName = "MCP Server Certificate";
+
+    /// <summary>
+    /// The first Turn on of the MCP server, also without OADM PRO (decision 2026-11-15): the policy MCP server without a certificate
+    /// gets its own one ("MCP Server Certificate": ECDSA P-256, 10 years, server authentication, from the CA of the shared
+    /// server certificate, naming this computer's addresses and host name; site nodes do not relay it, so no site addresses).
+    /// Nothing when the policy has one (the user's choice stays), the list cannot be read or no CA can issue yet.
+    /// </summary>
+    internal async Task EnsureMcpServerCertificateAsync(CancellationToken ct)
+    {
+        if (Policies.IsUnreadable || Policies.FirstOf(PolicyKinds.McpServer) is not { CertificateId: null })
+        {
+            return;
+        }
+
+        await _serverCertificateGate.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            if (Policies.FirstOf(PolicyKinds.McpServer) is not { CertificateId: null } || ServerIssuingCa() is not { } ca)
+            {
+                return; // another load was quicker, or no CA can issue yet (the status says why)
+            }
+
+            // The loopback names last: an agent on this computer connects to localhost; the address of Connect an agent stays the
+            // computer's own name (the first host name).
+            List<string> all = [.. Policies.McpServerNames?.Invoke() ?? [.. Oadm.Plugins.Est.Serving.ServerCertificates.LocalAddresses(), Environment.MachineName], .. LoopbackNames];
+            var ips = all.Where(n => IPAddress.TryParse(n, out _)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+            var dns = all.Where(n => !IPAddress.TryParse(n, out _) && CertificateNames.IsPlainHostName(n)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+            var (id, error) = await MakeServerCertificateAsync(McpServerCertificateName, ca, ips, dns, "OADM", ct).ConfigureAwait(false);
+            if (id is null)
+            {
+                LogServerCertificateFailed(McpServerCertificateName, error ?? string.Empty);
+                return;
+            }
+
+            await Policies.SetServerCertificateAsync(PolicyKinds.McpServer, id, ct).ConfigureAwait(false); // only where none is set
+        }
+        finally
+        {
+            _serverCertificateGate.Release();
+        }
+    }
+
+    /// <summary>The names an agent on the server's own computer connects with; in every MCP Server Certificate.</summary>
+    internal static readonly string[] LoopbackNames = ["localhost", "127.0.0.1", "::1"];
 
     /// <summary>
     /// The shared server certificate a server policy shows now (made by OADM under <see cref="SharedServerCertificateName"/>),
@@ -432,9 +479,9 @@ public sealed partial class PkiService
 
 /// <summary>
 /// PKI's <see cref="IServerCertificates"/>, offered through the plugin services while PKI runs: the certificate the policy AI
-/// agents picks, for the host's MCP server (docs/spec/mcp.md "Transport and certificate"). Like the EST server's Turn on, the
-/// first load of a server that is on gives a policy without a certificate the shared server certificate, also without OADM
-/// PRO (<see cref="PkiService.EnsureServerCertificatesAsync"/>); its Certificate field can change it afterwards.
+/// agents picks, for the host's MCP server (docs/spec/mcp.md "Transport and certificate"). The host loads it only while AI
+/// agents is on: the first load of a policy without a certificate makes "MCP Server Certificate", also without OADM PRO
+/// (<see cref="PkiService.EnsureMcpServerCertificateAsync"/>); its Certificate field can change it afterwards.
 /// </summary>
 internal sealed class PkiServerCertificates : IServerCertificates
 {
@@ -457,8 +504,8 @@ internal sealed class PkiServerCertificates : IServerCertificates
             return new HostServerCertificate([], "PKI has no policy for this server.");
         }
 
-        // Nothing when the policy has a certificate; else the shared one (no CA that can issue: the status says why).
-        await _service.EnsureServerCertificatesAsync(null, ct).ConfigureAwait(false);
+        // Nothing when the policy has a certificate; else its own one (no CA that can issue: the status says why).
+        await _service.EnsureMcpServerCertificateAsync(ct).ConfigureAwait(false);
         var load = _service.ServerCertificateOf(PolicyKinds.McpServer);
         if (load.Material is not { } material)
         {
@@ -475,7 +522,7 @@ internal sealed class PkiServerCertificates : IServerCertificates
         catch (CryptographicException)
         {
             chain.ForEach(c => c.Dispose());
-            return new HostServerCertificate([], PolicyTexts.ServerCertificateUnusable(PkiService.ServerForAiAgents, "it cannot be read."));
+            return new HostServerCertificate([], PolicyTexts.ServerCertificateUnusable(PkiService.McpServerText, "it cannot be read."));
         }
         finally
         {

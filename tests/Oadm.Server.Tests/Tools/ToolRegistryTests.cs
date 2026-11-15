@@ -59,13 +59,13 @@ public sealed class ToolRegistryTests
         Assert.Equal(ToolAnswers.FieldsMessage, invalid.Error);
         Assert.Equal("limit", Assert.Single(invalid.Fields).Field);
 
-        // A read only caller of any channel lists no change. The registry itself needs no MCP permission: a channel names the
-        // one it needs (MCP: "Use AI agents"), and a role without it then lists none.
-        Assert.All(registry.For(caller with { ReadOnly = true }), t => Assert.True(t.ReadsOnly, t.Name));
-        var operatorRole = caller with { User = caller.User with { Permissions = await host.Get<RoleStore>().PermissionsOfAsync(BuiltInRoles.IdOf(Oadm.Sdk.Plugins.UserRole.Operator), CancellationToken.None) } };
+        // The registry needs no permission of any channel: the role alone decides (an Operator lists the device search but not
+        // the audit log, which is the Administrator's).
+        var operatorRole = caller with { User = caller.User with { RoleId = BuiltInRoles.OperatorId, Permissions = await host.Get<RoleStore>().PermissionsOfAsync(BuiltInRoles.OperatorId, CancellationToken.None) } };
         Assert.Contains(registry.For(operatorRole), t => t.Name == "oadm_devices_search");
-        Assert.Empty(registry.For(operatorRole with { ChannelPermission = HostPermissions.McpUse }));
-        var refused = await registry.CallAsync(operatorRole with { ChannelPermission = HostPermissions.McpUse }, "oadm_server_info", null, CancellationToken.None);
+        Assert.Contains(registry.For(operatorRole), t => t.Name == "oadm_server_info");
+        Assert.DoesNotContain(registry.For(operatorRole), t => t.Name == "oadm_logs_audit");
+        var refused = await registry.CallAsync(operatorRole, "oadm_logs_audit", null, CancellationToken.None);
         Assert.True(refused.IsError);
     }
 

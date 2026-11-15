@@ -34,7 +34,8 @@ public sealed record RecipientModel(
 /// What the gRPC EventService does with rules: list them with their live state, check and save them (the engine applies
 /// the change before the call returns), turn them on or off, copy and delete them; and with recipients: list, save, delete.
 /// </summary>
-public sealed class EventRulesService(EventCatalog catalog, RuleStore store, RecipientStore recipients, RuleEngine engine, DeviceRepository devices) : IDisposable, Oadm.Sdk.Certificates.IRecipientCertificateUse
+public sealed class EventRulesService(EventCatalog catalog, RuleStore store, RecipientStore recipients, RuleEngine engine, DeviceRepository devices, TimeProvider time)
+    : IDisposable, Oadm.Sdk.Certificates.IRecipientCertificateUse
 {
     /// <summary>The rule names a refused delete lists; more are counted.</summary>
     private const int NamedRules = 5;
@@ -118,7 +119,7 @@ public sealed class EventRulesService(EventCatalog catalog, RuleStore store, Rec
         var linked = await RecipientsByIdAsync(ct).ConfigureAwait(false);
         var clean = WithoutOldTargets(rule);
         RuleValidator.Validate(clean, Catalog, key => StoredSecretsOf(existing, clean, key), linked);
-        var now = DateTime.UtcNow;
+        var now = time.GetUtcNow().UtcDateTime;
         var names = await DeviceNamesAsync([clean], ct).ConfigureAwait(false);
         return Summary(new StoredRule(clean, existing?.CreatedUtc ?? now, now, existing?.LastFiredUtc), names, linked);
     }

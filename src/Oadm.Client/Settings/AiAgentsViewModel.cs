@@ -18,13 +18,13 @@ using Oadm.Sdk.Network;
 namespace Oadm.Client.Settings;
 
 /// <summary>
-/// The Settings card AI agents (docs/spec/mcp.md "Transport and certificate"; "MCP" only in the docs): off by default; Turn on,
+/// The Settings card AI, section MCP (docs/spec/mcp.md "Transport and certificate"): off by default; Turn on,
 /// Port and Listen on for administrators (Save), the certificate the PKI policy MCP server picks, and Download CA certificate
-/// for the agent's computer. Without PKI: "Turn on PKI to choose the certificate." and no Turn on. Every user sees the state.
+/// for the agent's computer. Without PKI: "PKI is not running. The server log says why." and no Turn on. Every user sees the state.
 /// </summary>
 public sealed partial class AiAgentsViewModel : ValidatingViewModel
 {
-    public const string Intro = "AI agents work in OADM with an access key and the rights of its user.";
+    public const string Intro = "AI agents such as Claude Code connect to OADM over MCP with an access key.";
     public const string ChooseCertificate = McpTexts.CertificateOnTurnOn;
     public const string NoCertificate = "None";
     public const string PortRange = McpTexts.PortRange;
@@ -35,6 +35,7 @@ public sealed partial class AiAgentsViewModel : ValidatingViewModel
     private readonly IOadmApi _api;
     private readonly IDialogService _dialogs;
     private static readonly FileType ZipFile = new("Skill", "zip", "application/zip");
+    private static readonly FileType JsonFile = new("JSON file", "json", "application/json");
 
     private readonly UserSession? _session;
     private readonly IClipboardService? _clipboard;
@@ -45,6 +46,7 @@ public sealed partial class AiAgentsViewModel : ValidatingViewModel
         _api = api;
         _dialogs = dialogs;
         _clipboard = clipboard;
+        Keys = new AccessKeysViewModel(api, dialogs, clipboard);
         _session = session;
         if (session is not null)
         {
@@ -53,12 +55,21 @@ public sealed partial class AiAgentsViewModel : ValidatingViewModel
                 if (e.PropertyName == nameof(UserSession.IsAdmin))
                 {
                     OnPropertyChanged(nameof(IsAdmin));
+                    _ = IsAdmin && IsLoaded ? Keys.LoadAsync() : Task.CompletedTask;
                     NotifyCommands();
                 }
             };
         }
 
-        Listen.PropertyChanged += (_, _) => NotifyCommands();
+        Listen.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(InterfaceSelection.Selected))
+            {
+                OnPropertyChanged(nameof(SelectedInterface)); // the field the server's error shows below
+            }
+
+            NotifyCommands();
+        };
         Validation.Rule(nameof(Port), () => int.TryParse(Port, NumberStyles.None, CultureInfo.InvariantCulture, out var port) && port is >= 1025 and <= 65535 ? null : PortRange);
         Validation.Validate();
         Validation.Reset();
@@ -67,8 +78,18 @@ public sealed partial class AiAgentsViewModel : ValidatingViewModel
     /// <summary>Administrators change it; the server checks it too.</summary>
     public bool IsAdmin => _session?.IsAdmin ?? true;
 
+    /// <summary>The section Access keys (administrators).</summary>
+    public AccessKeysViewModel Keys { get; }
+
     /// <summary>The choices of Listen on (the server's interfaces).</summary>
     public InterfaceSelection Listen { get; } = new();
+
+    /// <summary>The chosen interface of Listen on (bind <c>SelectedItem</c>): the field of its validation error.</summary>
+    public InterfaceOption? SelectedInterface
+    {
+        get => Listen.Selected;
+        set => Listen.Selected = value;
+    }
 
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(SaveCommand))]
@@ -99,9 +120,6 @@ public sealed partial class AiAgentsViewModel : ValidatingViewModel
         : _state.Certificate.Length > 0 ? _state.Certificate
         : _state.Settings.Enabled ? NoCertificate
         : ChooseCertificate;
-
-    /// <summary>The names the certificate holds (agents connect with one of them).</summary>
-    public string? CertificateHint => _state is { CertificateNames.Count: > 0 } state ? "Names: " + string.Join(", ", state.CertificateNames) : null;
 
     /// <summary>Listen on as plain text (users who read the card).</summary>
     public string ListenText => Listen.Selected?.Label ?? InterfaceOptions.AllLabel;
@@ -137,6 +155,10 @@ public sealed partial class AiAgentsViewModel : ValidatingViewModel
         {
             Apply(await _api.GetMcpAsync(CancellationToken.None).ConfigureAwait(true));
             IsLoaded = true;
+            if (IsAdmin)
+            {
+                await Keys.LoadAsync().ConfigureAwait(true); // the access keys: administrators only
+            }
         }
         catch (Exception ex) when (ex is RpcException or NotSupportedException)
         {
@@ -161,7 +183,7 @@ public sealed partial class AiAgentsViewModel : ValidatingViewModel
     [RelayCommand(CanExecute = nameof(CanTurnOff))]
     private async Task TurnOffAsync()
     {
-        if (await _dialogs.ConfirmAsync("Turn off AI agents", "Agents can no longer connect until you turn it on again.", "Turn off").ConfigureAwait(true))
+        if (await _dialogs.ConfirmAsync("Turn off the MCP server", "Agents can no longer connect until you turn it on again.", "Turn off").ConfigureAwait(true))
         {
             await SetAsync(false).ConfigureAwait(true);
         }
@@ -215,6 +237,22 @@ public sealed partial class AiAgentsViewModel : ValidatingViewModel
         }
     }
 
+    /// <summary>Download of a configuration file (.mcp.json, mcp.json): the save picker, then the file as shown.</summary>
+    [RelayCommand]
+    private async Task DownloadConnectionAsync(AgentConnection? connection)
+    {
+        if (connection?.FileName is not { } fileName)
+        {
+            return;
+        }
+
+        if (await _dialogs.SaveFileAsync("Download " + fileName, fileName, JsonFile, Encoding.UTF8.GetBytes(connection.Text + "\n")).ConfigureAwait(true) is { } name)
+        {
+            MessageIsError = false;
+            Message = $"Saved {name}.";
+        }
+    }
+
     private async Task SetAsync(bool enabled)
     {
         if (!Validation.IsValid)
@@ -239,6 +277,10 @@ public sealed partial class AiAgentsViewModel : ValidatingViewModel
         catch (RpcException ex) when (ex.StatusCode == StatusCode.InvalidArgument && ex.Status.Detail == PortRange)
         {
             Validation.SetServerError(nameof(Port), ex.Status.Detail);
+        }
+        catch (RpcException ex) when (ex.StatusCode == StatusCode.InvalidArgument && ex.Status.Detail == McpTexts.UnknownInterface)
+        {
+            Validation.SetServerError(nameof(SelectedInterface), ex.Status.Detail);
         }
         catch (RpcException ex)
         {
@@ -271,7 +313,6 @@ public sealed partial class AiAgentsViewModel : ValidatingViewModel
         OnPropertyChanged(nameof(StatusText));
         OnPropertyChanged(nameof(HasProblem));
         OnPropertyChanged(nameof(CertificateText));
-        OnPropertyChanged(nameof(CertificateHint));
         OnPropertyChanged(nameof(ListenText));
         OnPropertyChanged(nameof(CanDownloadCa));
         OnPropertyChanged(nameof(Connections));

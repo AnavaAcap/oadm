@@ -6,18 +6,21 @@
              xmlns:settings="using:Oadm.Client.Settings"
              x:Class="Oadm.Client.Settings.AiAgentsCardView"
              x:DataType="settings:AiAgentsViewModel">
-  <!-- Settings page, every user (docs/spec/mcp.md): the server AI agents connect to. Administrators turn it on and set the port
-       and interface (Save); the certificate is the one the PKI policy MCP server picks. The status sits left of the buttons it
-       reports on, like the EST server's. -->
-  <c:CollapsibleCard Title="AI agents">
+  <!-- Settings page, every user (docs/spec/mcp.md): the card AI with its section MCP (a later section follows below it).
+       Administrators turn the MCP server on and set the port and interface (Save); the certificate is the one the PKI policy
+       MCP server picks. The status sits left of the buttons it reports on, like the EST server's. Access keys (administrators
+       only), then Connect an agent: one compact row per client. -->
+  <c:CollapsibleCard Title="AI">
     <StackPanel Classes="form">
+      <!-- Section MCP -->
+      <TextBlock x:Name="McpSection" Classes="sectionTitle" Text="MCP" />
       <TextBlock Classes="secondary" Text="{x:Static settings:AiAgentsViewModel.Intro}" TextWrapping="Wrap" />
       <StackPanel Classes="form" IsVisible="{Binding IsAdmin}">
         <ui:FormField Label="Port">
           <TextBox x:Name="McpPort" Text="{Binding Port}" Width="120" HorizontalAlignment="Left" />
         </ui:FormField>
         <ui:FormField Label="Listen on" InputWidth="320">
-          <ComboBox HorizontalAlignment="Stretch" ItemsSource="{Binding Listen.Items}" SelectedItem="{Binding Listen.Selected}"
+          <ComboBox HorizontalAlignment="Stretch" ItemsSource="{Binding Listen.Items}" SelectedItem="{Binding SelectedInterface}"
                     ToolTip.Tip="The interface agents reach this server on">
             <ComboBox.ItemTemplate>
               <DataTemplate x:DataType="net:InterfaceOption">
@@ -35,38 +38,10 @@
           <TextBlock Text="{Binding ListenText}" />
         </ui:FormField>
       </StackPanel>
-      <ui:FormField Label="Certificate" Hint="{Binding CertificateHint}">
+      <ui:FormField Label="Certificate">
         <TextBlock Text="{Binding CertificateText}" TextWrapping="Wrap" />
       </ui:FormField>
-      <!-- Connect an agent (docs/spec/mcp.md): the client configurations with this server's address, one Copy each. -->
-      <StackPanel x:Name="ConnectAgent" Classes="form" IsVisible="{Binding HasConnections}">
-        <TextBlock Classes="sectionTitle" Text="Connect an agent" />
-        <ItemsControl ItemsSource="{Binding Connections}">
-          <ItemsControl.ItemTemplate>
-            <DataTemplate x:DataType="settings:AgentConnection">
-              <ui:FormField Label="{Binding Title}" Hint="{Binding Hint}" Classes="wide">
-                <DockPanel>
-                  <Button DockPanel.Dock="Right" Classes="toolbar iconOnly" VerticalAlignment="Top" Margin="4,0,0,0" ToolTip.Tip="{Binding CopyTip}"
-                          Command="{Binding $parent[settings:AiAgentsCardView].((settings:AiAgentsViewModel)DataContext).CopyCommand}" CommandParameter="{Binding}">
-                    <ui:OadmIcon Data="{StaticResource Icon.copy}" />
-                  </Button>
-                  <ui:CodeView Language="Plain" Text="{Binding Text}" />
-                </DockPanel>
-              </ui:FormField>
-            </DataTemplate>
-          </ItemsControl.ItemTemplate>
-        </ItemsControl>
-        <TextBlock Classes="secondary" Text="{x:Static settings:AgentConnections.TrustCa}" TextWrapping="Wrap" />
-      </StackPanel>
       <DockPanel>
-        <StackPanel DockPanel.Dock="Left" Orientation="Horizontal" Spacing="8">
-          <Button Classes="secondary" Command="{Binding DownloadCaCommand}" IsEnabled="{Binding CanDownloadCa}">
-            <ui:IconLabel Icon="{StaticResource Icon.download}" Text="Download CA certificate" />
-          </Button>
-          <Button x:Name="McpDownloadSkill" Classes="secondary" Command="{Binding DownloadSkillCommand}">
-            <ui:IconLabel Icon="{StaticResource Icon.download}" Text="Download skill" />
-          </Button>
-        </StackPanel>
         <Button DockPanel.Dock="Right" x:Name="McpSave" Classes="primary" Content="Save" Command="{Binding SaveCommand}" IsVisible="{Binding IsAdmin}"
                 ToolTip.Tip="{Binding SaveTip}" ToolTip.ShowOnDisabled="True" Margin="8,0,0,0" />
         <Button DockPanel.Dock="Right" x:Name="McpTurnOn" Classes="secondary" Content="Turn on" Command="{Binding TurnOnCommand}" IsVisible="{Binding ShowTurnOn}"
@@ -75,8 +50,87 @@
                 Margin="8,0,0,0" />
         <ui:StatusChip HorizontalAlignment="Right" VerticalAlignment="Center" Text="{Binding StatusText}" IsOk="{Binding Running}" IsError="{Binding HasProblem}" MaxLines="2" />
       </DockPanel>
+
+      <!-- Access keys (administrators, docs/spec/mcp.md "Access keys"): Create access key opens the form that shows the key
+           once; Delete asks first and ends the key at once. -->
+      <StackPanel x:Name="AccessKeys" Classes="form" DataContext="{Binding Keys}" IsVisible="{Binding $parent[settings:AiAgentsCardView].((settings:AiAgentsViewModel)DataContext).IsAdmin}"
+                  x:DataType="settings:AccessKeysViewModel">
+        <StackPanel Orientation="Horizontal" Spacing="4">
+          <TextBlock Classes="sectionTitle" Text="{x:Static settings:AccessKeyWords.Title}" VerticalAlignment="Center" Margin="0,0,12,0" />
+          <ui:ToolbarButton x:Name="CreateAccessKey" Text="{x:Static settings:AccessKeyWords.Create}" IconKey="add" Command="{Binding CreateCommand}"
+                            VerticalAlignment="Center" />
+        </StackPanel>
+        <ui:ProgressRow Text="Reading the access keys" IsVisible="{Binding IsLoading}" />
+        <TextBlock Classes="secondary" Text="{x:Static settings:AccessKeyWords.Empty}" TextWrapping="Wrap" IsVisible="{Binding IsEmpty}" />
+        <DataGrid x:Name="KeysGrid" ItemsSource="{Binding Keys}" IsReadOnly="True" CanUserSortColumns="True" CanUserReorderColumns="False"
+                  SelectionMode="Single" MaxHeight="300" IsVisible="{Binding HasKeys}">
+          <DataGrid.Columns>
+            <DataGridTextColumn Header="Name" Width="*" MinWidth="110" Binding="{Binding Name}" x:DataType="settings:AccessKeyRow" />
+            <DataGridTextColumn Header="Role" Width="100" Binding="{Binding RoleName}" x:DataType="settings:AccessKeyRow" />
+            <DataGridTextColumn Header="Devices" Width="110" Binding="{Binding DevicesText}" x:DataType="settings:AccessKeyRow" />
+            <DataGridTextColumn Header="Created" Width="96" Binding="{Binding Created}" SortMemberPath="CreatedSortKey" x:DataType="settings:AccessKeyRow" />
+            <DataGridTextColumn Header="Expires" Width="96" Binding="{Binding Expires}" SortMemberPath="ExpiresSortKey" x:DataType="settings:AccessKeyRow" />
+            <DataGridTextColumn Header="Last used" Width="130" Binding="{Binding LastUsed}" SortMemberPath="LastUsedSortKey" CellStyleClasses="dimmed"
+                                x:DataType="settings:AccessKeyRow" />
+            <DataGridTemplateColumn Width="48" CanUserSort="False" x:DataType="settings:AccessKeyRow">
+              <DataGridTemplateColumn.CellTemplate>
+                <DataTemplate x:DataType="settings:AccessKeyRow">
+                  <Button Classes="toolbar iconOnly danger" ToolTip.Tip="Delete" Margin="6,0" HorizontalAlignment="Left"
+                          Command="{Binding $parent[settings:AiAgentsCardView].((settings:AiAgentsViewModel)DataContext).Keys.DeleteCommand}" CommandParameter="{Binding}">
+                    <ui:OadmIcon Data="{StaticResource Icon.remove}" />
+                  </Button>
+                </DataTemplate>
+              </DataGridTemplateColumn.CellTemplate>
+            </DataGridTemplateColumn>
+          </DataGrid.Columns>
+        </DataGrid>
+        <TextBlock Classes="error" Text="{Binding Message}" TextWrapping="Wrap"
+                   IsVisible="{Binding Message, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+      </StackPanel>
+
+      <!-- Connect an agent (docs/spec/mcp.md): one row per client with this server's address: Copy, and Download for a file. -->
+      <StackPanel x:Name="ConnectAgent" Classes="form" IsVisible="{Binding HasConnections}">
+        <TextBlock Classes="sectionTitle subsection" Text="Connect an agent" />
+        <ItemsControl ItemsSource="{Binding Connections}">
+          <ItemsControl.ItemsPanel>
+            <ItemsPanelTemplate>
+              <StackPanel Spacing="8" />
+            </ItemsPanelTemplate>
+          </ItemsControl.ItemsPanel>
+          <ItemsControl.ItemTemplate>
+            <DataTemplate x:DataType="settings:AgentConnection">
+              <ui:FormField Label="{Binding Title}" Classes="wide">
+                <DockPanel>
+                  <!-- Copy always rightmost, so the Copy buttons of all rows line up; Download left of it for a file. -->
+                  <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="4" Margin="4,0,0,0" VerticalAlignment="Center">
+                    <Button Classes="toolbar iconOnly" ToolTip.Tip="{Binding DownloadTip}" IsVisible="{Binding IsFile}"
+                            Command="{Binding $parent[settings:AiAgentsCardView].((settings:AiAgentsViewModel)DataContext).DownloadConnectionCommand}" CommandParameter="{Binding}">
+                      <ui:OadmIcon Data="{StaticResource Icon.download}" />
+                    </Button>
+                    <Button Classes="toolbar iconOnly" ToolTip.Tip="{Binding CopyTip}"
+                            Command="{Binding $parent[settings:AiAgentsCardView].((settings:AiAgentsViewModel)DataContext).CopyCommand}" CommandParameter="{Binding}">
+                      <ui:OadmIcon Data="{StaticResource Icon.copy}" />
+                    </Button>
+                  </StackPanel>
+                  <TextBlock Text="{Binding Line}" Classes.mono="{Binding ShowsText}" Classes.secondary="{Binding IsFile}"
+                             VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+                </DockPanel>
+              </ui:FormField>
+            </DataTemplate>
+          </ItemsControl.ItemTemplate>
+        </ItemsControl>
+        <TextBlock Classes="secondary" Text="{x:Static settings:AgentConnections.TrustCa}" TextWrapping="Wrap" />
+      </StackPanel>
+      <StackPanel Orientation="Horizontal" Spacing="8">
+        <Button Classes="secondary" Command="{Binding DownloadCaCommand}" IsEnabled="{Binding CanDownloadCa}">
+          <ui:IconLabel Icon="{StaticResource Icon.download}" Text="Download CA certificate" />
+        </Button>
+        <Button x:Name="McpDownloadSkill" Classes="secondary" Command="{Binding DownloadSkillCommand}">
+          <ui:IconLabel Icon="{StaticResource Icon.download}" Text="Download skill" />
+        </Button>
+      </StackPanel>
       <TextBlock Text="{Binding Message}" Classes.error="{Binding MessageIsError}" Classes.secondary="{Binding !MessageIsError}" TextWrapping="Wrap"
-                 HorizontalAlignment="Right" IsVisible="{Binding Message, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                 IsVisible="{Binding Message, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
     </StackPanel>
   </c:CollapsibleCard>
 </UserControl>

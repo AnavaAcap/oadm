@@ -18,9 +18,8 @@ namespace Oadm.Server.Mcp;
 /// <summary>
 /// The upload links of MCP (docs/spec/mcp.md "Files"): <c>PUT /files/&lt;token&gt;</c> with the same access key, once, within 10
 /// minutes, exactly the size the link was made for. The file goes through <c>FileService.Upload</c> in process as the key's
-/// caller (its limits, its owner: the tasks of this key read it), never through the model; audited as "&lt;user&gt; via access
-/// key &lt;name&gt;". A Read only key never sends a file, also with a link. The download links are the same path with GET
-/// (<see cref="SendAsync"/>): once, within 10 minutes, bound to the key; a Read only key may fetch them (it changes nothing).
+/// caller (its limits, its owner: the tasks of this key read it), never through the model; audited as "MCP &lt;key name&gt;". The
+/// download links are the same path with GET (<see cref="SendAsync"/>): once, within 10 minutes, bound to the key.
 /// </summary>
 internal sealed class McpFiles(ToolHandles handles, InProcessCalls calls, AuditLog audit, TimeProvider time)
 {
@@ -85,12 +84,6 @@ internal sealed class McpFiles(ToolHandles handles, InProcessCalls calls, AuditL
     {
         ArgumentNullException.ThrowIfNull(http);
         ArgumentNullException.ThrowIfNull(caller);
-        if (caller.ReadOnly)
-        {
-            await RefuseAsync(http, StatusCodes.Status403Forbidden, McpAccess.ReadOnlyKey).ConfigureAwait(false);
-            return;
-        }
-
         if (handles.TakeUpload(caller.BindingKey, token) is not { } upload)
         {
             await RefuseAsync(http, StatusCodes.Status404NotFound, ToolHandles.LinkEnded).ConfigureAwait(false);

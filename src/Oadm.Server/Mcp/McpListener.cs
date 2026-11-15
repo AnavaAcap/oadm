@@ -18,7 +18,7 @@ public sealed record McpStatus(McpSettings Settings, bool Running, string Text, 
 
 /// <summary>
 /// Opens and closes the MCP server's port (docs/spec/mcp.md "Transport and certificate"): while the setting is on, PKI runs and
-/// its policy AI agents picks a usable certificate (the first Turn on gives the policy the shared server certificate), the
+/// its policy MCP server picks a usable certificate (the first Turn on makes the MCP Server Certificate for it), the
 /// server listens on the port and interface; otherwise the port is closed and the status says why. It follows the setting (Save on the card), PKI's certificate (a change of the policy or the
 /// Certificates list), PKI being turned on or off and, every 30 s, whatever it could not open before (a port in use, an
 /// interface that is gone). The Windows service keeps a firewall rule for the port only while it listens.
@@ -70,7 +70,10 @@ public sealed partial class McpListener : IAsyncDisposable
     public event EventHandler? Changed;
 
     /// <summary>The server's interfaces (the choices of Listen on).</summary>
-    public IReadOnlyList<ServerNetworkInterface> Interfaces() => _interfaces.List();
+    public IReadOnlyList<ServerNetworkInterface> Interfaces() =>
+        // Only interfaces an agent can reach: up, with an address that is not IPv6 link-local (no filter drivers, virtual adapters
+        // without an address, tunnels). The loopback stays: an agent on this computer only.
+        [.. _interfaces.List().Where(n => n.IsUp && n.Addresses.Any(a => !a.IsIPv6LinkLocal))];
 
     /// <summary>Starts following the setting and PKI; opens the port when it is on.</summary>
     public async Task StartAsync(CancellationToken ct)
@@ -109,7 +112,7 @@ public sealed partial class McpListener : IAsyncDisposable
 
             if (!settings.Enabled)
             {
-                // Off: PKI is not asked (its first load gives the policy the shared server certificate, like a Turn on).
+                // Off: PKI is not asked (its first load makes the policy's own certificate, "MCP Server Certificate").
                 await CloseAsync().ConfigureAwait(false);
                 Set(new McpStatus(settings, false, McpTexts.Off, true, null, [], []));
                 return;
@@ -263,8 +266,8 @@ public sealed partial class McpListener : IAsyncDisposable
         await _rule.SyncAsync(open, CancellationToken.None).ConfigureAwait(false);
     }
 
-    /// <summary>"OADM Server (AI agents, TCP 5082)".</summary>
-    private static FirewallRule Rule(int port) => FirewallRule.ForService("AI agents", FirewallProtocol.Tcp, port);
+    /// <summary>"OADM Server (MCP server, TCP 5082)".</summary>
+    private static FirewallRule Rule(int port) => FirewallRule.ForService("MCP server", FirewallProtocol.Tcp, port);
 
     private void Watch(IServerCertificates? certificates)
     {
@@ -321,15 +324,15 @@ public sealed partial class McpListener : IAsyncDisposable
             ? [.. san.EnumerateIPAddresses().Select(ip => ip.ToString()), .. san.EnumerateDnsNames()]
             : [];
 
-    [LoggerMessage(Level = LogLevel.Information, Message = "AI agents: listening on port {Port}")]
+    [LoggerMessage(Level = LogLevel.Information, Message = "MCP server: listening on port {Port}")]
     private partial void LogListening(int port);
 
-    [LoggerMessage(Level = LogLevel.Information, Message = "AI agents: port closed")]
+    [LoggerMessage(Level = LogLevel.Information, Message = "MCP server: port closed")]
     private partial void LogClosed();
 
-    [LoggerMessage(Level = LogLevel.Warning, Message = "AI agents: port {Port} cannot be opened")]
+    [LoggerMessage(Level = LogLevel.Warning, Message = "MCP server: port {Port} cannot be opened")]
     private partial void LogOpenFailed(Exception ex, int port);
 
-    [LoggerMessage(Level = LogLevel.Warning, Message = "AI agents: the port could not be brought in line with the setting")]
+    [LoggerMessage(Level = LogLevel.Warning, Message = "MCP server: the port could not be brought in line with the setting")]
     private partial void LogApplyFailed(Exception ex);
 }

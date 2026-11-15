@@ -23,7 +23,7 @@ namespace Oadm.Server.Tests.Mcp;
 /// <summary>
 /// The task tools of stage 2 (docs/spec/mcp.md "Tasks", "Files", rule 2 "No change without a preview"): the catalog, the
 /// preview that writes nothing and answers a handle, the run that takes only the handle, the plugin's own payload check
-/// (also in <c>TaskService.Run</c>), tasks with a secret never offered, upload links, and Read only keys that change nothing.
+/// (also in <c>TaskService.Run</c>), tasks with a secret never offered, upload links, and roles that may not run a task.
 /// </summary>
 public sealed class McpTaskToolTests
 {
@@ -96,14 +96,14 @@ public sealed class McpTaskToolTests
         var batch = run["batch"]!.GetValue<string>();
         var listed = await server.ToolAsync(key, "oadm_tasks_list", new JsonObject { ["batch"] = batch });
         Assert.Equal(1, listed["total"]!.GetValue<int>());
-        Assert.Equal("admin@MCP agent", listed["tasks"]![0]!["owner"]!.GetValue<string>());
+        Assert.Equal("MCP agent", listed["tasks"]![0]!["owner"]!.GetValue<string>());
         var again = await server.CallToolAsync(key, "oadm_task_run", new JsonObject { ["handle"] = handle });
         Assert.True(again["isError"]!.GetValue<bool>());
         Assert.Contains(ToolHandles.Ended, again["content"]![0]!["text"]!.GetValue<string>(), StringComparison.Ordinal);
 
         // The run is in the audit log as the key's user.
         var audit = (await server.Host.Audit.ListAsync(new Proto.ListAuditRequest())).Entries;
-        Assert.Contains(audit, e => e.Action == AuditActions.TaskRun && e.UserName == AuditActions.ViaAccessKey(TestServerHost.AdminUserName, "agent"));
+        Assert.Contains(audit, e => e.Action == AuditActions.TaskRun && e.UserName == Oadm.Core.Auth.AccessKeyStore.AgentNameOf("agent"));
     }
 
     [Fact]
@@ -158,36 +158,18 @@ public sealed class McpTaskToolTests
     }
 
     [Fact]
-    public async Task AReadOnlyKeyListsNoWriteToolAndCanNeitherRunNorUpload()
+    public async Task AViewerKeyIsOfferedNoTaskAndAPreviewIsRefusedByItsRole()
     {
-        var clock = new Microsoft.Extensions.Time.Testing.FakeTimeProvider(DateTimeOffset.UtcNow);
-        await using var server = await StartAsync(clock);
-        await DeviceServiceTests.AddDeviceAsync(server.Host, "10.15.0.1", 4601);
-        var key = await server.CreateKeyAsync(readOnly: true);
-        var writer = await server.CreateKeyAsync(name: "writer");
-        var writes = server.Host.Get<ToolRegistry>().All.Where(t => !t.ReadsOnly).Select(t => t.Name).ToList();
-        Assert.Contains("oadm_task_run", writes);
-        Assert.Contains("oadm_files_upload_link", writes);
-
-        var names = await server.ToolNamesAsync(key);
-        Assert.Contains("oadm_task_preview", names); // a preview writes nothing
-        Assert.All(writes, w => Assert.DoesNotContain(w, names));
-        foreach (var tool in writes)
+        await using var server = await StartAsync();
+        var device = await DeviceServiceTests.AddDeviceAsync(server.Host, "10.15.0.1", 4601);
+        var key = await server.CreateKeyAsync(name: "viewer", roleId: Oadm.Core.Auth.BuiltInRoles.ViewerId.ToString());
+        Assert.DoesNotContain("oadm_tasks_catalog", await server.ToolNamesAsync(key)); // a role that may run no task gets no task tool
+        var refused = await server.CallToolAsync(key, "oadm_task_preview", new JsonObject
         {
-            clock.Advance(TimeSpan.FromMinutes(2)); // each refused change is still counted: a minute apart
-            var refused = await server.CallToolAsync(key, tool, tool == "oadm_task_run" ? new JsonObject { ["handle"] = "x" } : new JsonObject { ["name"] = "a.bin", ["size"] = 1 });
-            Assert.True(refused["isError"]!.GetValue<bool>());
-            Assert.Contains(McpAccess.ReadOnlyKey, refused["content"]![0]!["text"]!.GetValue<string>(), StringComparison.Ordinal);
-        }
-
-        // Even a preview's handle and an upload link do not help: the run is not listed, and the upload is refused.
-        var preview = await server.ToolAsync(key, "oadm_task_preview", new JsonObject { ["task"] = RestartTaskPlugin.PluginId, ["filter"] = new JsonObject(), ["input"] = new JsonObject() });
-        var run = await server.CallToolAsync(key, "oadm_task_run", new JsonObject { ["handle"] = preview["handle"]!.GetValue<string>() });
-        Assert.True(run["isError"]!.GetValue<bool>());
+            ["task"] = RestartTaskPlugin.PluginId, ["filter"] = new JsonObject { ["ids"] = new JsonArray(device.Id.ToString()) }, ["input"] = new JsonObject(),
+        });
+        Assert.True(refused["isError"]!.GetValue<bool>());
         Assert.Empty((await server.Host.Tasks.ListAsync(new Proto.ListTasksRequest())).Tasks);
-        var link = await server.ToolAsync(writer, "oadm_files_upload_link", new JsonObject { ["name"] = "a.bin", ["size"] = 3 });
-        using var put = await PutAsync(server, key, link["url"]!.GetValue<string>(), [1, 2, 3]);
-        Assert.Equal(System.Net.HttpStatusCode.Forbidden, put.StatusCode);
     }
 
     [Fact]
@@ -229,7 +211,7 @@ public sealed class McpTaskToolTests
         var folder = await server.CallToolAsync(key, "oadm_files_upload_link", new JsonObject { ["name"] = "../a.bin", ["size"] = 3 });
         Assert.True(folder["isError"]!.GetValue<bool>());
         var audit = (await server.Host.Audit.ListAsync(new Proto.ListAuditRequest())).Entries;
-        Assert.Contains(audit, e => e.Action == AuditActions.FileUploaded && e.Target == "firmware.bin" && e.UserName == AuditActions.ViaAccessKey(TestServerHost.AdminUserName, "agent"));
+        Assert.Contains(audit, e => e.Action == AuditActions.FileUploaded && e.Target == "firmware.bin" && e.UserName == Oadm.Core.Auth.AccessKeyStore.AgentNameOf("agent"));
     }
 
     [Fact]
@@ -238,7 +220,7 @@ public sealed class McpTaskToolTests
         await using var server = await StartAsync();
         var device = await DeviceServiceTests.AddDeviceAsync(server.Host, "10.16.0.1", 4701);
         var key = await server.CreateKeyAsync();
-        var other = await server.CreateKeyAsync(await server.Host.InvokerForUserAsync("second", Oadm.Sdk.Plugins.UserRole.Admin), name: "other"); // another user's budget
+        var other = await server.CreateKeyAsync(name: "other"); // another key's budget
         var access = server.Host.Get<McpAccess>();
         var caller = (await access.AuthenticateAsync(key, "local", CancellationToken.None))!;
         for (var i = 0; i < McpAccess.ChangesPerMinute; i++)

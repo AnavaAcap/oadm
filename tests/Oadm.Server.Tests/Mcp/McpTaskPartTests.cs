@@ -420,7 +420,7 @@ public sealed class McpTaskPartTests
     }
 
     [Fact]
-    public async Task CancellingByBatchFindsOnlyTheBatchAndAReadOnlyKeyCannotRunACancelOrADelete()
+    public async Task CancellingByBatchFindsOnlyTheBatchAndAnotherKeyCannotRunItsHandle()
     {
         await using var server = await McpTestServer.StartAsync();
         Assert.True(server.Host.Get<PluginRegistry>().RegisterTaskPlugin(new BlockingTask(), new PluginOrigin(BlockingTask.PluginId, "1.0.0", null)));
@@ -437,18 +437,11 @@ public sealed class McpTaskPartTests
         Assert.Equal(0, none["matched"]!.GetValue<int>());
         Assert.Null(none["handle"]);
 
-        // A Read only key lists no cancel run and no file delete run; the previews stay (they write nothing).
-        var readOnly = await server.CreateKeyAsync(readOnly: true, name: "reader");
-        var names = await server.ToolNamesAsync(readOnly);
-        Assert.Contains("oadm_tasks_cancel_preview", names);
-        Assert.Contains("oadm_files_delete_preview", names);
-        Assert.Contains("oadm_files_list", names);
-        Assert.DoesNotContain("oadm_tasks_cancel_run", names);
-        Assert.DoesNotContain("oadm_files_delete_run", names);
+        // The handle is the key's own: another key cannot run it.
+        var other = await server.CreateKeyAsync(name: "reader");
         var cancelHandle = preview["handle"]!.GetValue<string>();
-        var refused = await server.CallToolAsync(readOnly, "oadm_tasks_cancel_run", new JsonObject { ["handle"] = cancelHandle });
+        var refused = await server.CallToolAsync(other, "oadm_tasks_cancel_run", new JsonObject { ["handle"] = cancelHandle });
         Assert.True(refused["isError"]!.GetValue<bool>());
-        Assert.Contains(McpAccess.ReadOnlyKey, refused["content"]![0]!["text"]!.GetValue<string>(), StringComparison.Ordinal);
         var cleanup = await server.ToolAsync(key, "oadm_tasks_cancel_run", new JsonObject { ["handle"] = cancelHandle });
         Assert.Equal(1, cleanup["cancelled"]!.GetValue<int>());
     }
@@ -530,11 +523,11 @@ public sealed class McpTaskPartTests
     }
 
     [Fact]
-    public async Task ADownloadLinkServesItsFileOnceToItsKeyAndAReadOnlyKeyMayFetchItAndItIsAudited()
+    public async Task ADownloadLinkServesItsFileOnceToItsKeyAndItIsAudited()
     {
         await using var server = await McpTestServer.StartAsync();
         var key = await server.CreateKeyAsync();
-        var readOnly = await server.CreateKeyAsync(name: "reader", readOnly: true);
+        var readOnly = await server.CreateKeyAsync(name: "reader");
         var other = await server.CreateKeyAsync(name: "other");
         byte[] file = [.. Enumerable.Range(0, 300 * 1024).Select(i => (byte)(i * 7))]; // more than one chunk
         var handles = server.Host.Get<ToolHandles>();
@@ -565,7 +558,7 @@ public sealed class McpTaskPartTests
             Assert.Equal(System.Net.HttpStatusCode.NotFound, twice.StatusCode);
         }
 
-        // A Read only key still sends no file, and a link of /files/ takes only GET and PUT.
+        // A link of /files/ takes only GET and PUT.
         using (var post = new HttpRequestMessage(HttpMethod.Post, "/files/" + token))
         {
             using var client = server.Http();
@@ -575,7 +568,7 @@ public sealed class McpTaskPartTests
         }
 
         var audit = (await server.Host.Audit.ListAsync(new Proto.ListAuditRequest())).Entries;
-        Assert.Contains(audit, e => e.Action == AuditActions.FileDownloaded && e.Target == "report.csv" && e.UserName == AuditActions.ViaAccessKey(TestServerHost.AdminUserName, "reader"));
+        Assert.Contains(audit, e => e.Action == AuditActions.FileDownloaded && e.Target == "report.csv" && e.UserName == Oadm.Core.Auth.AccessKeyStore.AgentNameOf("reader"));
     }
 
     private static async Task<string> UploadAsync(McpTestServer server, string key, string name, byte[] content)

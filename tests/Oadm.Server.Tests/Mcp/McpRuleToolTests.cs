@@ -103,7 +103,7 @@ public sealed class McpRuleToolTests
         Assert.Equal(saved.ConditionsText, preview["watches"]!.GetValue<string>()); // the same texts as the Rules tab
         Assert.Equal(saved.ActionsText, preview["does"]!.GetValue<string>());
         Assert.Contains((await server.Host.Audit.ListAsync(new Proto.ListAuditRequest())).Entries,
-            e => e.Action == AuditActions.RuleCreated && e.Target == "Camera offline" && e.UserName == AuditActions.ViaAccessKey(TestServerHost.AdminUserName, "agent"));
+            e => e.Action == AuditActions.RuleCreated && e.Target == "Camera offline" && e.UserName == Oadm.Core.Auth.AccessKeyStore.AgentNameOf("agent"));
     }
 
     [Fact]
@@ -405,7 +405,7 @@ public sealed class McpRuleToolTests
         var roles = new Proto.RoleService.RoleServiceClient(server.Host.Invoker);
 
         // Reading rules and the log needs "See event rules"; changing them needs more.
-        var saved = await roles.SaveRolesAsync(new Proto.SaveRolesRequest { Roles = { new Proto.RoleChange { Name = "Viewers", Permissions = { HostPermissions.McpUse, HostPermissions.EventsView } } } });
+        var saved = await roles.SaveRolesAsync(new Proto.SaveRolesRequest { Roles = { new Proto.RoleChange { Name = "Viewers", Permissions = { HostPermissions.EventsView } } } });
         var viewer = await server.CreateKeyAsync(await server.Host.InvokerForRoleAsync("viewer", Guid.Parse(saved.Roles.Single(r => r.Name == "Viewers").Id)));
         var names = await server.ToolNamesAsync(viewer);
         Assert.All(ReadingTools, n => Assert.Contains(n, names));
@@ -413,18 +413,6 @@ public sealed class McpRuleToolTests
         var denied = await server.CallToolAsync(viewer, "oadm_rules_save_preview", new JsonObject { ["rule"] = Rule("x", Act("test.mcp.notify")) });
         Assert.True(denied["isError"]!.GetValue<bool>());
         Assert.Contains("Your role does not allow", Text(denied), StringComparison.Ordinal);
-
-        // A Read only key reads, previews and never lists a run tool.
-        var readOnly = await server.CreateKeyAsync(readOnly: true);
-        var readOnlyNames = await server.ToolNamesAsync(readOnly);
-        Assert.Contains("oadm_rules_save_preview", readOnlyNames);
-        Assert.Contains("oadm_rules_delete_preview", readOnlyNames);
-        Assert.DoesNotContain("oadm_rules_save_run", readOnlyNames);
-        Assert.DoesNotContain("oadm_rules_delete_run", readOnlyNames);
-        var preview = await server.ToolAsync(readOnly, "oadm_rules_save_preview", new JsonObject { ["rule"] = Rule("Read only", Act("test.mcp.notify")) });
-        var refused = await server.CallToolAsync(readOnly, "oadm_rules_save_run", new JsonObject { ["handle"] = preview["handle"]!.GetValue<string>() });
-        Assert.Contains(McpAccess.ReadOnlyKey, Text(refused), StringComparison.Ordinal);
-        Assert.Empty((await Events(server).ListRulesAsync(new Proto.Empty())).Rules);
 
         // Rules are for users with all devices: a user of a device group lists no rule tool.
         var group = await GroupCallers.ForTagAsync(server.Host, "tech", "Lobby");

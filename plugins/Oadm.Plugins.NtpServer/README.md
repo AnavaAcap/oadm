@@ -78,6 +78,7 @@ put `Oadm.Plugins.DateTime.Server.dll` into this plugin folder, where the loader
 port); `save` ({enabled, interfaceId, upstream, serveAtSites, serveSites}) validates the upstream with one query (same timeouts; the running
 server keeps serving) and replies {saved, upstreamError, upstreamResult, state}; an upstream that does not answer is
 not saved (error under the field). Events: `state` (status/upstream changed), `requests` (new entries).
+MCP (docs/spec/mcp.md): the read-only tool `oadm_ntp_status`.
 
 ## Permissions
 

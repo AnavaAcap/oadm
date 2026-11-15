@@ -250,6 +250,10 @@ public sealed class RolloutRequest
     public bool ConfirmedDangerous { get; set; }
 
     public string? Owner { get; set; }
+
+    /// <summary>Masks secret values in the steps and the log (a run of an AI agent, <see cref="RolloutPayload.MaskSecrets"/>).</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    internal bool MaskSecrets { get; set; }
 }
 
 public sealed class RolloutReply
@@ -282,6 +286,12 @@ internal sealed class RolloutPayload
 
     /// <summary>The user confirmed the dangerous commands; the task refuses them without it.</summary>
     public bool ConfirmedDangerous { get; set; }
+
+    /// <summary>
+    /// A run an AI agent started (<see cref="CommanderTools"/>): values whose names point to a secret (a community, a password, a
+    /// key) are masked in the step and the task log, which the agent reads (docs/spec/mcp.md rule 4: no secrets over MCP).
+    /// </summary>
+    public bool MaskSecrets { get; set; }
 
     public List<RolloutPayloadCommand> Commands { get; set; } = [];
 

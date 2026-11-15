@@ -117,8 +117,9 @@ revocation").
   backup), `ExpiryEvents`; `PkiService.Policies.cs` (the methods, PKI's own conversions, the expiry days handed to the
   host). Kinds: HTTPS certificate, IEEE 802.1X certificate, Expiry warning, 802.1X server, 802.1X trusted CA (stored id
   `allowCa`), VLAN, Block (a stored `alsoRevoke` is no longer read), EST server, Enrollment, EST sign-in CA (stored id
-  `signInCa`), MCP server (`mcpServer`, the host's server for AI agents: `PkiServerCertificates` offers its certificate as
-  the SDK's `IServerCertificates`). Defaults "HTTPS", "IEEE 802.1X", "EST server" (`PkiService.ConvertIssuing`), "MCP
+  `signInCa`), MCP server (`mcpServer`, the host's MCP server: `PkiServerCertificates` offers its certificate as
+  the SDK's `IServerCertificates`; its first load makes "MCP Server Certificate", `PkiService.EnsureMcpServerCertificateAsync`,
+  never the shared server certificate). Defaults "HTTPS", "IEEE 802.1X", "EST server" (`PkiService.ConvertIssuing`), "MCP
   server" without a certificate (`PkiService.McpServerPolicies`); the 802.1X server policy and the
   default 802.1X trusted CA policies come from `RadiusPolicies`. The conversions and their owners: `docs/spec/pki.md`
   "Converting existing settings". The 802.1X server and EST read the store in process (`IPluginServices`).

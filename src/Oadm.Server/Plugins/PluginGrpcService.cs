@@ -390,32 +390,6 @@ public sealed partial class PluginGrpcService(PluginRegistry registry, CorePlugi
         _ => new RpcException(new Status(StatusCode.Internal, $"Plugin {pluginId} failed: {ex.Message}")),
     };
 
-    /// <summary>
-    /// True when <paramref name="method"/> is the method of a read tool of the plugin (a tool without <c>Changes</c>) or the preview
-    /// method of a change tool, which writes nothing, and the plugin does not audit it (<c>IsAudited</c> is the plugin's own word that
-    /// a method changes server configuration or devices, whatever its tool says). A plugin that cannot name its tools has no read
-    /// method (fail closed).
-    /// </summary>
-    private bool IsReadMethod(string pluginId, string method)
-    {
-        if (!registry.TryGetCorePlugin(pluginId, out var registered))
-        {
-            return false;
-        }
-
-        try
-        {
-            return !registered.Plugin.IsAudited(method)
-                && (registered.Plugin.Tools ?? []).Any(t => string.Equals(t.Changes ? t.PreviewMethod : t.Method, method, StringComparison.Ordinal));
-        }
-#pragma warning disable CA1031 // A plugin that throws on Tools has no read method.
-        catch (Exception)
-#pragma warning restore CA1031
-        {
-            return false;
-        }
-    }
-
     public override async Task<Proto.InvokeReply> Invoke(Proto.InvokeRequest request, ServerCallContext context)
     {
         if (string.IsNullOrWhiteSpace(request.PluginId) || string.IsNullOrWhiteSpace(request.Method))
@@ -424,12 +398,6 @@ public sealed partial class PluginGrpcService(PluginRegistry registry, CorePlugi
         }
 
         var access = Authorize(request);
-        if (Auth.AuthInterceptor.CallerOf(context).ReadOnly && !IsReadMethod(request.PluginId, request.Method))
-        {
-            // A Read only access key reads what a plugin's read tools name and nothing else, whatever the plugin's tool says of itself.
-            throw new RpcException(new Status(StatusCode.PermissionDenied, Auth.InProcessCalls.ReadOnlyRefusal));
-        }
-
         var caller = await CallerAsync(context).ConfigureAwait(false);
         var payload = string.IsNullOrEmpty(request.PayloadJson) ? null : request.PayloadJson;
         var done = false;

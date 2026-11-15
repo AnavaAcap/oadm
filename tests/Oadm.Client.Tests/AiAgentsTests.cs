@@ -15,9 +15,9 @@ using Oadm.Contracts.V1;
 namespace Oadm.Client.Tests;
 
 /// <summary>
-/// AI agents in the client (docs/spec/mcp.md): the Settings card (Turn on, Port, Listen on, the certificate, Download CA
-/// certificate; read only for other roles), the account menu's Access keys (a key shown once, Delete) and every user's keys
-/// on the Permissions page. Headless, with screenshots in OADM_SCREENSHOT_DIR.
+/// The Settings card AI, section MCP, in the client (docs/spec/mcp.md): Turn on, Port, Listen on, the certificate, Download CA
+/// certificate (read only for other roles), Connect an agent (one row per client, Copy and Download) and the access keys
+/// (administrators: the list, Create with the key shown once, Delete). Headless, with screenshots in OADM_SCREENSHOT_DIR.
 /// </summary>
 public sealed class AiAgentsTests
 {
@@ -52,12 +52,11 @@ public sealed class AiAgentsTests
         Assert.True(card.ShowTurnOn);
         Assert.False(card.SaveCommand.CanExecute(null));
         Assert.Equal(AiAgentsViewModel.NoChanges, card.SaveTip);
-        Assert.Equal(McpTexts.CertificateOnTurnOn, card.CertificateText); // the first Turn on gives the policy AI agents one
+        Assert.Equal(McpTexts.CertificateOnTurnOn, card.CertificateText); // the first Turn on gives the policy MCP server one
         Assert.False(card.CanDownloadCa);
 
         await card.TurnOnCommand.ExecuteAsync(null);
-        Assert.Equal("802.1X and EST server (OADM Root CA FAKE), until 2036-11-14", card.CertificateText);
-        Assert.Equal("Names: oadm-server.local, 10.0.0.17", card.CertificateHint);
+        Assert.Equal("MCP Server Certificate (OADM Root CA FAKE), until 2036-11-14", card.CertificateText);
         Assert.True(card.Running);
         Assert.Equal("Running on port 5082", card.StatusText);
         Assert.True(card.ShowTurnOff);
@@ -86,10 +85,52 @@ public sealed class AiAgentsTests
         api.GetMcpAsync(Arg.Any<CancellationToken>()).Returns(state);
         var card = new AiAgentsViewModel(api, Substitute.For<IDialogService>(), Session(UserRole.Admin));
         await card.LoadAsync();
-        Assert.Equal("Turn on PKI to choose the certificate.", card.CertificateText);
+        Assert.Equal("PKI is not running. The server log says why.", card.CertificateText);
         Assert.False(card.TurnOnCommand.CanExecute(null));
-        Assert.Equal("Turn on PKI to choose the certificate.", card.TurnOnTip);
+        Assert.Equal("PKI is not running. The server log says why.", card.TurnOnTip);
         Assert.False(card.CanDownloadCa);
+    }
+
+    [Fact]
+    public async Task AnInterfaceTheServerDoesNotKnowShowsItsErrorDirectlyBelowListenOn()
+    {
+        var api = Substitute.For<IOadmApi>();
+        var state = new McpState { Settings = new McpSettings { Port = 5082 }, Status = McpTexts.Off, PkiAvailable = true };
+        state.Interfaces.Add(new McpInterface { Id = "all", Label = "All interfaces", Name = "All interfaces" });
+        state.Interfaces.Add(new McpInterface { Id = "eth0", Label = "Ethernet - 10.0.0.17", Name = "Ethernet", Addresses = { "10.0.0.17" } });
+        state.Interfaces.Add(new McpInterface { Id = "eth1", Label = "Ethernet 2 - 10.1.0.17", Name = "Ethernet 2", Addresses = { "10.1.0.17" } });
+        api.GetMcpAsync(Arg.Any<CancellationToken>()).Returns(state);
+        api.SetMcpAsync(Arg.Any<McpSettings>(), Arg.Any<CancellationToken>())
+            .Returns<McpState>(_ => throw new Grpc.Core.RpcException(new Grpc.Core.Status(Grpc.Core.StatusCode.InvalidArgument, McpTexts.UnknownInterface)));
+        var outDir = Environment.GetEnvironmentVariable("OADM_SCREENSHOT_DIR");
+        var done = await HeadlessSession.Shared.Dispatch(async () =>
+        {
+            var card = new AiAgentsViewModel(api, Substitute.For<IDialogService>(), Session(UserRole.Admin));
+            await card.LoadAsync();
+            var window = new Window { Width = 900, Height = 700, Content = new AiAgentsCardView { DataContext = card, Margin = new Avalonia.Thickness(24) } };
+            window.Show();
+            Pump();
+            window.GetVisualDescendants().OfType<Oadm.Client.Controls.CollapsibleCard>().Single().IsExpanded = true;
+            Pump();
+
+            card.SelectedInterface = card.Listen.Find("eth0");
+            await card.SaveCommand.ExecuteAsync(null);
+            Pump();
+            Assert.Equal(McpTexts.UnknownInterface, card.ErrorOf(nameof(AiAgentsViewModel.SelectedInterface)));
+            Assert.Null(card.Message); // never under the buttons
+            Assert.False(card.SaveCommand.CanExecute(null));
+            var listenOn = window.GetVisualDescendants().OfType<Oadm.Sdk.Client.Controls.FormField>().Single(f => f.Label == "Listen on" && f.IsEffectivelyVisible);
+            Assert.Contains(McpTexts.UnknownInterface, listenOn.GetVisualDescendants().OfType<TextBlock>().Where(t => t.IsEffectivelyVisible).Select(t => t.Text));
+            Save(window, outDir, "client-settings-ai-mcp-interface-error.png");
+
+            card.SelectedInterface = card.Listen.Find("eth1"); // another choice clears it
+            Pump();
+            Assert.Null(card.ErrorOf(nameof(AiAgentsViewModel.SelectedInterface)));
+            Assert.True(card.SaveCommand.CanExecute(null));
+            window.Close();
+            return true;
+        }, CancellationToken.None);
+        Assert.True(done);
     }
 
     [Fact]
@@ -98,7 +139,7 @@ public sealed class AiAgentsTests
         var outDir = Environment.GetEnvironmentVariable("OADM_SCREENSHOT_DIR");
         var done = await HeadlessSession.Shared.Dispatch(async () =>
         {
-            foreach (var (role, name) in new[] { (UserRole.Admin, "client-page-settings-ai-agents.png"), (UserRole.Operator, "client-page-settings-ai-agents-operator.png") })
+            foreach (var (role, name) in new[] { (UserRole.Admin, "client-page-settings-ai.png"), (UserRole.Operator, "client-page-settings-ai-operator.png") })
             {
                 var api = new FakeOadmApi(TimeSpan.FromMilliseconds(5));
                 using var f = new DevicesFixture(api);
@@ -178,10 +219,11 @@ public sealed class AiAgentsTests
             Pump();
             Assert.True(view.FindControl<Control>("ConnectAgent")!.IsEffectivelyVisible);
             Assert.True(view.FindControl<Button>("McpDownloadSkill")!.IsEffectivelyVisible);
-            Assert.Equal(3, view.GetVisualDescendants().OfType<Oadm.Sdk.Client.Controls.CodeView>().Count(c => c.IsEffectivelyVisible));
+            Assert.DoesNotContain(view.GetVisualDescendants().OfType<Oadm.Sdk.Client.Controls.CodeView>(), c => c.IsEffectivelyVisible); // one compact row each, no file blocks
+            Assert.Equal(["Claude Code", ".mcp.json", "VS Code"], view.FindControl<Control>("ConnectAgent")!.GetVisualDescendants().OfType<Oadm.Sdk.Client.Controls.FormField>().Where(c => c.IsEffectivelyVisible).Select(c => c.Label));
             var texts = view.GetVisualDescendants().OfType<TextBlock>().Where(t => t.IsEffectivelyVisible).Select(t => t.Text).ToList();
             Assert.Contains("Connect an agent", texts);
-            Save(window, outDir, "client-page-settings-ai-agents-connect.png");
+            Save(window, outDir, "client-page-settings-ai-mcp-connect.png");
             window.Close();
             return true;
         }, CancellationToken.None);
@@ -194,74 +236,178 @@ public sealed class AiAgentsTests
     [InlineData("10.0.0.17", "10.0.0.17")]
     [InlineData("fd00::17", "[fd00::17]")]
     [InlineData("", null)]
+    [InlineData("10.0.0.17|127.0.0.1|::1|oadm-server.local|localhost", "oadm-server.local")] // the loopback names are never handed out
+    [InlineData("127.0.0.1|::1|10.0.0.17|localhost", "10.0.0.17")]
     public void TheAgentConnectsToANameOfTheCertificate(string names, string? host) =>
         Assert.Equal(host, AgentConnections.HostOf(names.Split('|', StringSplitOptions.RemoveEmptyEntries)));
+
+    private static readonly IReadOnlyList<RoleOption> FormRoles =
+    [
+        new(FakeOadmApi.AdministratorRoleId, "Administrator", RoleKind.Administrator),
+        new(FakeOadmApi.OperatorRoleId, "Operator", RoleKind.Operator),
+        new(FakeOadmApi.ViewerRoleId, "Viewer", RoleKind.Viewer),
+    ];
 
     [Theory]
     [InlineData("a$(x)", false)]
     [InlineData("quote\"d", false)]
     [InlineData("back`tick", false)]
     [InlineData("semi;colon", false)]
-    [InlineData("Laptop 2.0_a-b", true)]
-    public async Task AKeyNameAllowsOnlyLettersDigitsSpaceDashUnderscoreAndDotWithTheErrorBelowTheField(string name, bool fine)
+    [InlineData("Lobby-bot 2.0_a", true)]
+    public void AKeyNameAllowsOnlyLettersDigitsSpaceDashUnderscoreAndDotWithTheErrorBelowTheField(string name, bool fine)
     {
-        var done = await HeadlessSession.Shared.Dispatch(() =>
-        {
-            using var api = new FakeOadmApi(TimeSpan.FromMilliseconds(5));
-            var keys = new AccessKeysViewModel(api, Substitute.For<IDialogService>());
-            keys.Name = name;
-            Assert.Equal(fine ? null : AccessKeyWords.NameCharacters, keys.ErrorOf(nameof(AccessKeysViewModel.Name)));
-            Assert.Equal(fine, keys.CreateCommand.CanExecute(null));
-            return Task.FromResult(true);
-        }, CancellationToken.None);
-        Assert.True(done);
+        using var api = new FakeOadmApi(TimeSpan.FromMilliseconds(5));
+        var form = new AccessKeyFormViewModel(api, null, FormRoles, [DeviceAccessOption.All]) { Role = FormRoles[2] };
+        form.Name = name;
+        Assert.Equal(fine ? null : AccessKeyWords.NameCharacters, form.ErrorOf(nameof(AccessKeyFormViewModel.Name)));
+        Assert.Equal(fine, form.CreateCommand.CanExecute(null));
     }
 
     [Fact]
-    public async Task ANewKeyIsShownOnceWithCopyAndTheListDeletesKeys()
+    public void TheFormNeedsANameARoleAndDevicesAndAnAdministratorKeyHasAllDevices()
+    {
+        using var api = new FakeOadmApi(TimeSpan.FromMilliseconds(5));
+        var form = new AccessKeyFormViewModel(api, null, FormRoles, [DeviceAccessOption.All, new DeviceAccessOption("g1", "Lobby")]);
+        Assert.Null(form.ErrorOf(nameof(AccessKeyFormViewModel.Name))); // an untouched form shows no error
+        Assert.Null(form.ErrorOf(nameof(AccessKeyFormViewModel.Role)));
+        Assert.False(form.CreateCommand.CanExecute(null));
+        Assert.Equal(AccessKeyWords.EnterName, form.CreateTip);
+        Assert.Equal(90, form.Lifetime.Days);
+        Assert.Equal(DeviceAccessOption.All, form.Devices);
+
+        form.Name = "Lobby-bot";
+        Assert.Equal(AccessKeyWords.ChooseRole, form.CreateTip);
+        form.Role = FormRoles[0];
+        Assert.False(form.IsDevicesEnabled);
+        Assert.Equal(DeviceGroupWords.AdministratorsHaveAll, form.DevicesHint);
+        form.Role = FormRoles[1];
+        Assert.True(form.IsDevicesEnabled);
+        form.Devices = null;
+        Assert.Equal(DeviceGroupWords.ChooseDevices, form.ErrorOf(nameof(AccessKeyFormViewModel.Devices)));
+        Assert.False(form.CreateCommand.CanExecute(null));
+        form.Role = FormRoles[0]; // an Administrator key needs no choice
+        Assert.Null(form.ErrorOf(nameof(AccessKeyFormViewModel.Devices)));
+        Assert.True(form.CreateCommand.CanExecute(null));
+    }
+
+    [Fact]
+    public async Task CreateShowsTheKeyOnceWithCopyAndTheRefusalsOfTheServerBelowTheirFields()
     {
         var outDir = Environment.GetEnvironmentVariable("OADM_SCREENSHOT_DIR");
         var done = await HeadlessSession.Shared.Dispatch(async () =>
         {
             using var api = new FakeOadmApi(TimeSpan.FromMilliseconds(5));
-            var dialogs = Substitute.For<IDialogService>();
-            dialogs.ConfirmAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>()).Returns(true);
+            var groups = await api.ListDeviceGroupsAsync(CancellationToken.None);
+            var lobby = groups.Groups.First();
             var clipboard = Substitute.For<IClipboardService>();
             clipboard.SetTextAsync(Arg.Any<string>()).Returns(true);
-            var keys = new AccessKeysViewModel(api, dialogs, clipboard);
-            await keys.LoadAsync();
-            Assert.False(keys.HasKeys);
-
-            var window = new AccessKeysWindow { DataContext = keys };
+            var options = new[] { DeviceAccessOption.All }.Concat(groups.Groups.Select(g => new DeviceAccessOption(g.Id, g.Name))).ToList();
+            var form = new AccessKeyFormViewModel(api, clipboard, FormRoles, options);
+            var window = new AccessKeyFormWindow();
+            window.Attach(form);
             window.Show();
             Pump();
-            Assert.Null(keys.ErrorOf(nameof(AccessKeysViewModel.Name))); // an untouched form shows no error
-            Assert.False(keys.CreateCommand.CanExecute(null));
-            Assert.Equal(AccessKeyWords.EnterName, keys.CreateTip);
-            Save(window, outDir, "client-access-keys-empty.png");
 
-            keys.Name = "Laptop";
-            keys.ReadOnly = true;
-            await keys.CreateCommand.ExecuteAsync(null);
+            // A name the server has: its refusal directly below the Name field, the border red.
+            form.Name = "health check";
+            form.Role = FormRoles[2];
+            await form.CreateCommand.ExecuteAsync(null);
             Pump();
-            Assert.StartsWith("oadm_", keys.NewKey, StringComparison.Ordinal);
-            Assert.True(window.FindControl<Avalonia.Controls.Control>("NewKeyBox")!.IsEffectivelyVisible);
-            var row = Assert.Single(keys.Keys);
-            Assert.Equal(("Laptop", "Yes", AccessKeyWords.NeverUsed), (row.Name, row.ReadOnlyText, row.LastUsed));
-            var grid = window.GetVisualDescendants().OfType<Oadm.Client.Controls.AccessKeyGrid>().Single().GetVisualDescendants().OfType<DataGrid>().Single();
-            Assert.False(grid.Columns[0].IsVisible); // the user's own keys: no User column
-            Assert.Equal(string.Empty, keys.Name);
-            await keys.CopyKeyCommand.ExecuteAsync(null);
-            await clipboard.Received(1).SetTextAsync(keys.NewKey!);
-            Save(window, outDir, "client-access-keys-created.png");
+            Assert.Equal("An access key with this name exists.", form.ErrorOf(nameof(AccessKeyFormViewModel.Name)));
+            var nameField = window.GetVisualDescendants().OfType<Oadm.Sdk.Client.Controls.FormField>().Single(f => f.Label == "Name");
+            Assert.Contains("An access key with this name exists.", nameField.GetVisualDescendants().OfType<TextBlock>().Where(t => t.IsEffectivelyVisible).Select(t => t.Text));
+            Assert.False(form.HasNewKey);
+            Save(window, outDir, "client-access-key-name-taken.png");
 
-            // The same name again: the server's refusal below the name.
-            keys.Name = "laptop";
-            await keys.CreateCommand.ExecuteAsync(null);
-            Assert.Equal("You already have an access key with this name.", keys.ErrorOf(nameof(AccessKeysViewModel.Name)));
+            form.Name = "Lobby-bot";
+            form.Role = FormRoles[1];
+            form.Devices = options.Single(o => o.GroupId == lobby.Id);
+            form.Lifetime = AccessKeyFormViewModel.Lifetimes[0];
+            Save(window, outDir, "client-access-key-form.png");
+            await form.CreateCommand.ExecuteAsync(null);
+            Pump();
+            Assert.StartsWith("oadm_", form.NewKey, StringComparison.Ordinal);
+            Assert.True(window.FindControl<Control>("NewKeyBox")!.IsEffectivelyVisible);
+            Assert.False(window.FindControl<Control>("KeyName")!.IsEffectivelyVisible); // the form gives way to the key
+            Assert.False(window.FindControl<Button>("CreateKey")!.IsEffectivelyVisible);
+            Assert.Equal("Close", form.CloseText);
+            Assert.False(form.CreateCommand.CanExecute(null)); // one key per dialog
+            var texts = window.GetVisualDescendants().OfType<TextBlock>().Where(t => t.IsEffectivelyVisible).Select(t => t.Text).ToList();
+            Assert.Contains(AccessKeyWords.CopyNow, texts);
+            await form.CopyKeyCommand.ExecuteAsync(null);
+            await clipboard.Received(1).SetTextAsync(form.NewKey!);
+            Pump();
+            Save(window, outDir, "client-access-key-created.png");
 
-            await keys.DeleteCommand.ExecuteAsync(row);
-            Assert.Empty(keys.Keys);
+            var made = (await api.ListAccessKeysAsync(CancellationToken.None)).Single(k => k.Name == "Lobby-bot");
+            Assert.Equal(("Operator", false, lobby.Name), (made.RoleName, made.AllDevices, made.DeviceGroupName));
+            Assert.InRange((made.Expires.ToDateTime() - made.Created.ToDateTime()).TotalDays, 29.9, 30.1);
+            form.CloseCommand.Execute(null);
+            Pump();
+            Assert.False(window.IsVisible);
+            return true;
+        }, CancellationToken.None);
+        Assert.True(done);
+    }
+
+    [Fact]
+    public async Task TheCardListsTheKeysForAdministratorsCreatesOneAndDeletesOneAfterAsking()
+    {
+        var outDir = Environment.GetEnvironmentVariable("OADM_SCREENSHOT_DIR");
+        var done = await HeadlessSession.Shared.Dispatch(async () =>
+        {
+            var api = new FakeOadmApi(TimeSpan.FromMilliseconds(5));
+            using var f = new DevicesFixture(api);
+            using var connection = new ServerConnection(f.Api, f.Store, f.Tasks, f.Ui, Microsoft.Extensions.Logging.Abstractions.NullLogger<ServerConnection>.Instance);
+            var groups = await api.ListDeviceGroupsAsync(CancellationToken.None);
+            await api.CreateAccessKeyAsync(new CreateAccessKeyRequest
+            {
+                Name = "Lobby-bot", Days = 90, RoleId = FakeOadmApi.OperatorRoleId, DeviceGroupId = groups.Groups.First().Id,
+            }, CancellationToken.None);
+            var dialogs = Substitute.For<IDialogService>();
+            dialogs.ConfirmAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>()).Returns(true);
+            AccessKeyFormViewModel? shown = null;
+            dialogs.ShowAccessKeyFormAsync(Arg.Any<AccessKeyFormViewModel>()).Returns(async call =>
+            {
+                shown = call.Arg<AccessKeyFormViewModel>();
+                shown.Name = "Yard";
+                shown.Role = shown.Roles.Single(r => r.Title == "Viewer");
+                await shown.CreateCommand.ExecuteAsync(null);
+            });
+            var session = Session(UserRole.Admin);
+            var card = new AiAgentsViewModel(api, dialogs, session);
+            var settings = new SettingsViewModel(f.Api, connection, Microsoft.Extensions.Logging.Abstractions.NullLogger<SettingsViewModel>.Instance, session, aiAgents: card);
+            await settings.LoadAsync();
+            await card.TurnOnCommand.ExecuteAsync(null);
+            Assert.Equal(["Health check", "Lobby-bot"], card.Keys.Keys.Select(k => k.Name));
+            var lobby = card.Keys.Keys.Single(k => k.Name == "Lobby-bot");
+            Assert.Equal(("Operator", groups.Groups.First().Name, AccessKeyWords.NeverUsed), (lobby.RoleName, lobby.DevicesText, lobby.LastUsed));
+            Assert.Equal(DeviceGroupWords.AllDevices, card.Keys.Keys.Single(k => k.Name == "Health check").DevicesText);
+
+            await card.Keys.CreateCommand.ExecuteAsync(null);
+            Assert.NotNull(shown);
+            Assert.Contains(shown.Roles, r => r.Title == "Administrator"); // every role of the server
+            Assert.Equal(DeviceAccessOption.All, shown.DeviceOptions[0]);
+            Assert.Equal(groups.Groups.Count + 1, shown.DeviceOptions.Count);
+            Assert.Equal(["Health check", "Lobby-bot", "Yard"], card.Keys.Keys.Select(k => k.Name)); // the list after Create
+
+            var window = new Window { Width = 1520, Height = 1600, Content = new SettingsView { DataContext = settings, Margin = new Avalonia.Thickness(24) } };
+            window.Show();
+            Pump();
+            var view = Assert.Single(window.GetVisualDescendants().OfType<AiAgentsCardView>(), c => c.IsEffectivelyVisible);
+            view.GetVisualDescendants().OfType<Oadm.Client.Controls.CollapsibleCard>().Single().IsExpanded = true;
+            Pump();
+            Assert.True(view.FindControl<Control>("AccessKeys")!.IsEffectivelyVisible);
+            var grid = view.FindControl<DataGrid>("KeysGrid")!;
+            Assert.Equal(["Name", "Role", "Devices", "Created", "Expires", "Last used"], grid.Columns.Take(6).Select(c => c.Header as string));
+            var texts = view.GetVisualDescendants().OfType<TextBlock>().Where(t => t.IsEffectivelyVisible).Select(t => t.Text).ToList();
+            Assert.Contains("MCP", texts);
+            Assert.Contains(AccessKeyWords.Title, texts);
+            Save(window, outDir, "client-page-settings-ai-mcp.png");
+
+            await card.Keys.DeleteCommand.ExecuteAsync(card.Keys.Keys.Single(k => k.Name == "Yard"));
+            await dialogs.Received(1).ConfirmAsync("Delete access key", "Agents that use Yard can no longer connect.", "Delete"); // red: starts with Delete
+            Assert.Equal(["Health check", "Lobby-bot"], card.Keys.Keys.Select(k => k.Name));
             window.Close();
             return true;
         }, CancellationToken.None);
@@ -269,62 +415,58 @@ public sealed class AiAgentsTests
     }
 
     [Fact]
-    public async Task TheAccountMenuOffersAccessKeysOnlyToRolesThatMayUseAiAgents()
+    public async Task OtherRolesSeeNoAccessKeysAndTheAccountMenuHasNone()
     {
+        var api = Substitute.For<IOadmApi>();
+        api.GetMcpAsync(Arg.Any<CancellationToken>()).Returns(new McpState { Settings = new McpSettings { Port = 5082 }, Status = McpTexts.Off, PkiAvailable = true });
+        var card = new AiAgentsViewModel(api, Substitute.For<IDialogService>(), Session(UserRole.Operator));
+        await card.LoadAsync();
+        await api.DidNotReceive().ListAccessKeysAsync(Arg.Any<CancellationToken>()); // administrators only
+        Assert.False(card.IsAdmin);
+
         var done = await HeadlessSession.Shared.Dispatch(async () =>
         {
             var app = (App)Avalonia.Application.Current!;
             var vm = Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetRequiredService<MainWindowViewModel>(app.Services!);
-            Assert.True(vm.CanUseAiAgents); // fake mode: the administrator
             var window = new MainWindow { DataContext = vm, Width = 1400, Height = 800 };
             window.Show();
             Pump();
-            var menu = (MenuFlyout)window.FindControl<Button>("TitleUser")!.Flyout!;
-            var items = menu.Items.OfType<MenuItem>().ToList();
-            Assert.Equal(["Your role", "Access keys"], items.Select(i => i.Header as string));
+            Assert.Null(window.FindControl<Button>("TitleUser")!.Flyout); // a click shows Your role: no account menu of keys
             window.Close();
             await Task.CompletedTask;
             return true;
         }, CancellationToken.None);
         Assert.True(done);
-
-        var operatorSession = Session(UserRole.Operator);
-        Assert.False(operatorSession.Has(Oadm.Sdk.Plugins.HostPermissionKeys.McpUse));
-        Assert.True(Session(UserRole.Operator, Oadm.Sdk.Plugins.HostPermissionKeys.McpUse).Has(Oadm.Sdk.Plugins.HostPermissionKeys.McpUse));
     }
 
     [Fact]
-    public async Task ThePermissionsPageListsEveryUsersKeysAndDeletesOne()
+    public async Task ConnectRowsCopyTheTextAndDownloadTheFiles()
     {
-        var outDir = Environment.GetEnvironmentVariable("OADM_SCREENSHOT_DIR");
-        var done = await HeadlessSession.Shared.Dispatch(async () =>
-        {
-            using var api = new FakeOadmApi(TimeSpan.FromMilliseconds(5));
-            await api.CreateAccessKeyAsync("Build server", 365, readsOnly: false, CancellationToken.None);
-            var dialogs = Substitute.For<IDialogService>();
-            dialogs.ConfirmAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>()).Returns(true);
-            var session = Session(UserRole.Admin);
-            var all = new AllAccessKeysViewModel(api, dialogs);
-            var users = new UsersViewModel(api, dialogs, session, Microsoft.Extensions.Logging.Abstractions.NullLogger<UsersViewModel>.Instance, accessKeys: all);
-            await users.LoadAsync();
-            Assert.Equal(["admin", "tech2"], all.Keys.Select(k => k.UserName));
+        using var api = new FakeOadmApi(TimeSpan.FromMilliseconds(5));
+        var dialogs = Substitute.For<IDialogService>();
+        dialogs.SaveFileAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<FileType>(), Arg.Any<byte[]>()).Returns(c => c.ArgAt<string>(1));
+        var clipboard = Substitute.For<IClipboardService>();
+        clipboard.SetTextAsync(Arg.Any<string>()).Returns(true);
+        var card = new AiAgentsViewModel(api, dialogs, Session(UserRole.Admin), clipboard);
+        await card.LoadAsync();
+        await card.TurnOnCommand.ExecuteAsync(null);
+        var (code, project, vsCode) = (card.Connections[0], card.Connections[1], card.Connections[2]);
+        Assert.Equal((false, true, true), (code.IsFile, project.IsFile, vsCode.IsFile));
+        Assert.Equal(code.Text, code.Line); // the command in one line
+        Assert.Equal(("For a project folder", "For .vscode/mcp.json"), (project.Line, vsCode.Line));
 
-            var window = new Window { Width = 1700, Height = 1000, Content = new UsersPageView { DataContext = users, Margin = new Avalonia.Thickness(24) } };
-            window.Show();
-            Pump();
-            Assert.True(window.GetVisualDescendants().OfType<AccessKeysCardView>().Single().IsEffectivelyVisible);
-            var grid = window.GetVisualDescendants().OfType<Oadm.Client.Controls.AccessKeyGrid>().Single().GetVisualDescendants().OfType<DataGrid>().Single();
-            Assert.Equal("User", grid.Columns[0].Header);
-            Assert.True(grid.Columns[0].IsVisible); // every user's keys: the User column
-            Save(window, outDir, "client-page-permissions-access-keys.png");
+        await card.DownloadConnectionCommand.ExecuteAsync(project);
+        await dialogs.Received(1).SaveFileAsync("Download .mcp.json", ".mcp.json", Arg.Any<FileType>(),
+            Arg.Is<byte[]>(b => System.Text.Encoding.UTF8.GetString(b).Contains("\"mcpServers\"", StringComparison.Ordinal)));
+        Assert.Equal("Saved .mcp.json.", card.Message);
+        await card.DownloadConnectionCommand.ExecuteAsync(vsCode);
+        await dialogs.Received(1).SaveFileAsync("Download mcp.json", "mcp.json", Arg.Any<FileType>(),
+            Arg.Is<byte[]>(b => System.Text.Encoding.UTF8.GetString(b).Contains("\"servers\"", StringComparison.Ordinal)));
+        await card.DownloadConnectionCommand.ExecuteAsync(code); // the command is no file
+        await dialogs.Received(2).SaveFileAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<FileType>(), Arg.Any<byte[]>());
 
-            await all.DeleteCommand.ExecuteAsync(all.Keys.Single(k => k.UserName == "tech2"));
-            Assert.Equal(["admin"], all.Keys.Select(k => k.UserName));
-            await dialogs.Received(1).ConfirmAsync("Delete access key", Arg.Is<string>(m => m.Contains("Laptop of tech2", StringComparison.Ordinal)), "Delete");
-            window.Close();
-            return true;
-        }, CancellationToken.None);
-        Assert.True(done);
+        await card.CopyCommand.ExecuteAsync(vsCode);
+        await clipboard.Received(1).SetTextAsync(vsCode.Text);
     }
 
     private static void Pump()

@@ -12,32 +12,43 @@ using Proto = Oadm.Contracts.V1;
 namespace Oadm.Server.Auth;
 
 /// <summary>
-/// gRPC AccessKeyService (docs/spec/mcp.md "Access keys"): the access keys AI agents send to the MCP server. Every user lists
-/// and deletes their own; creating one needs "Use AI agents" (<see cref="HostPermissions.McpUse"/>, <see cref="AccessPolicy"/>);
-/// administrators list and delete every user's (Permissions page). A new key is in the reply of Create only; the server keeps
-/// its SHA-256. Created and deleted keys are audited, never with the key.
+/// gRPC AccessKeyService (docs/spec/mcp.md "Access keys"): the access keys the MCP server takes, Administrator only
+/// (<see cref="AccessPolicy"/>; the Settings card AI, section MCP). A key has a name, a role, devices (all, or one device group)
+/// and an end; it is an identity of its own. A new key is in the reply of Create only; the server keeps its SHA-256. Created
+/// and deleted keys are audited by the administrator who did it, never with the key.
 /// </summary>
-public sealed class AccessKeyGrpcService(AuthTokenStore tokens, AuditLog audit) : Proto.AccessKeyService.AccessKeyServiceBase
+public sealed class AccessKeyGrpcService(AccessKeyStore keys, AuditLog audit) : Proto.AccessKeyService.AccessKeyServiceBase
 {
-    public override async Task<Proto.AccessKeyList> ListMine(Proto.Empty request, ServerCallContext context)
-    {
-        var caller = AuthInterceptor.CallerOf(context);
-        return ToProto(await tokens.ListAccessKeysAsync(caller.UserId, context.CancellationToken).ConfigureAwait(false));
-    }
+    /// <summary>The trailer of a refused create that names its field: name, role, devices or days.</summary>
+    public const string FieldTrailer = "oadm-field";
+
+    public override async Task<Proto.AccessKeyList> List(Proto.Empty request, ServerCallContext context) =>
+        ToProto(await keys.ListAsync(context.CancellationToken).ConfigureAwait(false));
 
     public override async Task<Proto.CreatedAccessKey> Create(Proto.CreateAccessKeyRequest request, ServerCallContext context)
     {
         var caller = AuthInterceptor.CallerOf(context);
+        if (!Guid.TryParse(request.RoleId, out var roleId))
+        {
+            throw Refused(AccessKeyField.Role, AccessKeyTexts.ChooseRole);
+        }
+
+        Guid? groupId = null;
+        if (!request.AllDevices && !string.IsNullOrEmpty(request.DeviceGroupId))
+        {
+            groupId = Guid.TryParse(request.DeviceGroupId, out var id) ? id : throw Refused(AccessKeyField.Devices, Core.DeviceGroups.DeviceGroupTexts.UnknownGroup);
+        }
+
         try
         {
-            var (key, info) = await tokens.CreateAccessKeyAsync(caller.UserId, caller.UserName, request.Name, request.Days, request.ReadOnly,
-                caller.ClientAddress, context.CancellationToken).ConfigureAwait(false);
+            var (key, info) = await keys.CreateAsync(request.Name, roleId, new DeviceScope(request.AllDevices, groupId), request.Days, caller.UserName,
+                context.CancellationToken).ConfigureAwait(false);
             await audit.WriteAsync(AuditActions.AccessKeyCreated, info.Name, Detail(info), context.CancellationToken).ConfigureAwait(false);
             return new Proto.CreatedAccessKey { Key = ToProto(info), Secret = key };
         }
-        catch (ArgumentException ex)
+        catch (AccessKeyFieldException ex)
         {
-            throw GrpcGuard.InvalidArgument(ex.Message);
+            throw Refused(ex.Field, ex.Message);
         }
         catch (InvalidOperationException ex)
         {
@@ -47,30 +58,23 @@ public sealed class AccessKeyGrpcService(AuthTokenStore tokens, AuditLog audit) 
 
     public override async Task<Proto.AccessKeyList> Delete(Proto.AccessKeyIdRequest request, ServerCallContext context)
     {
-        var caller = AuthInterceptor.CallerOf(context);
-        await DeleteAsync(request.Id, caller.UserId, context.CancellationToken).ConfigureAwait(false);
-        return ToProto(await tokens.ListAccessKeysAsync(caller.UserId, context.CancellationToken).ConfigureAwait(false));
+        var name = Guid.TryParse(request.Id, out var id) ? await keys.DeleteAsync(id, context.CancellationToken).ConfigureAwait(false) : null;
+        if (name is null)
+        {
+            throw GrpcGuard.NotFound(AccessKeyTexts.NotFound);
+        }
+
+        await audit.WriteAsync(AuditActions.AccessKeyDeleted, name, null, CancellationToken.None).ConfigureAwait(false); // deleted: always audited
+        return ToProto(await keys.ListAsync(context.CancellationToken).ConfigureAwait(false));
     }
 
-    public override async Task<Proto.AccessKeyList> ListAll(Proto.Empty request, ServerCallContext context) =>
-        ToProto(await tokens.ListAccessKeysAsync(null, context.CancellationToken).ConfigureAwait(false));
+    private static RpcException Refused(AccessKeyField field, string message) =>
+        new(new Status(StatusCode.InvalidArgument, message), new Metadata { { FieldTrailer, field.ToString().ToLowerInvariant() } });
 
-    public override async Task<Proto.AccessKeyList> DeleteAny(Proto.AccessKeyIdRequest request, ServerCallContext context)
-    {
-        await DeleteAsync(request.Id, null, context.CancellationToken).ConfigureAwait(false);
-        return ToProto(await tokens.ListAccessKeysAsync(null, context.CancellationToken).ConfigureAwait(false));
-    }
-
-    private async Task DeleteAsync(string id, Guid? userId, CancellationToken ct)
-    {
-        var deleted = await tokens.DeleteAccessKeyAsync(id ?? string.Empty, userId, ct).ConfigureAwait(false)
-            ?? throw GrpcGuard.NotFound(AccessKeyTexts.NotFound);
-        await audit.WriteAsync(AuditActions.AccessKeyDeleted, deleted.UserName + ": " + deleted.Name, null, ct).ConfigureAwait(false);
-    }
-
-    /// <summary>"Read only, until 2027-02-12" (what the key may do, never the key).</summary>
+    /// <summary>"Role Operator, device group Lobby, until 2027-02-12" (what the key may do, never the key).</summary>
     private static string Detail(AccessKeyInfo key) =>
-        (key.ReadOnly ? "Read only, " : string.Empty) + "until " + key.ExpiresUtc.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+        "Role " + key.RoleName + ", " + (key.Devices.AllDevices ? "all devices" : "device group " + key.DeviceGroupName)
+        + ", until " + key.ExpiresUtc.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
 
     private static Proto.AccessKeyList ToProto(IReadOnlyList<AccessKeyInfo> keys)
     {
@@ -83,10 +87,14 @@ public sealed class AccessKeyGrpcService(AuthTokenStore tokens, AuditLog audit) 
     {
         var proto = new Proto.AccessKey
         {
-            Id = key.Id,
-            UserName = key.UserName,
+            Id = key.Id.ToString(),
             Name = key.Name,
-            ReadOnly = key.ReadOnly,
+            RoleId = key.RoleId.ToString(),
+            RoleName = key.RoleName,
+            AllDevices = key.Devices.AllDevices,
+            DeviceGroupId = key.Devices.AllDevices ? string.Empty : key.Devices.GroupId?.ToString() ?? string.Empty,
+            DeviceGroupName = key.DeviceGroupName,
+            CreatedBy = key.CreatedBy,
             Created = Utc(key.CreatedUtc),
             Expires = Utc(key.ExpiresUtc),
         };

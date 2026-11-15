@@ -176,7 +176,7 @@
         </StackPanel>
       </StackPanel>
 
-      <!-- Right column: backup and restore (administrators), the license and AI agents (every user), then support (administrators) -->
+      <!-- Right column: backup and restore (administrators), the license and AI (every user), then support (administrators) -->
       <StackPanel x:Name="RightColumn" Grid.Column="2" Spacing="16" VerticalAlignment="Top">
         <backup:BackupCardView DataContext="{Binding Backup}"
                                IsVisible="{Binding $parent[UserControl].((settings:SettingsViewModel)DataContext).ShowBackup}" />
