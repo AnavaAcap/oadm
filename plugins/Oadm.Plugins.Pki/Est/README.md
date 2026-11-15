@@ -101,3 +101,8 @@ A PRO part of the PKI plugin (`../README.md`, `docs/spec/pki.md` "One plugin"). 
 The read-only tool `oadm_est_enrollments` (`Tools/EstTools.cs`, docs/spec/mcp.md "Plugins"): the state, the certificate
 count, Not renewed and the enrollments of the caller's devices, newest first, paged; while the server is off its state
 only. Tests: `ToolTests`.
+
+The page's Delete all as `oadm_est_enrollments_clear_preview` / `_run` (`Tools/EstPageTools.cs`, `PluginPageTools`, decision
+2026-11-15): the rights of `clearEnrollments` (Administrator, "manage", users with all devices, the run audited, the preview
+not); the preview counts the entries and deletes nothing, an empty list is refused ("The enrollments list is empty.").
+Tests: `PageToolTests`.

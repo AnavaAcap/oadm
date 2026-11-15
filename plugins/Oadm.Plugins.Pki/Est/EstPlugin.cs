@@ -145,14 +145,19 @@ public sealed class EstPlugin : ICorePlugin, IEventSource, IAsyncDisposable
     }
 
     /// <summary>Reading is for everyone; Turn on, Turn off, Save and Delete all change the server (Admin, audited).</summary>
-    public UserRole RequiredRole(string method) =>
+    public UserRole RequiredRole(string method) => RoleOf(EstPageTools.Set.RulesMethodOf(method));
+
+    private static UserRole RoleOf(string method) =>
         method is ServerSwitchMethods.Get or EstMethods.GetState or EstMethods.GetEnrollments or EstMethods.GetNotRenewed or EstMethods.GetCertificate
             || method == EstTools.Enrollments.Method
             ? UserRole.Operator
             : UserRole.Admin;
 
     /// <summary>The enrollments tool (docs/spec/mcp.md "Plugins"): the state and the enrollments of the caller's devices, read only like the page.</summary>
-    public IReadOnlyList<PluginTool> Tools => EstTools.All;
+    public IReadOnlyList<PluginTool> Tools { get; } = [.. EstTools.All, .. EstPageTools.Set.Tools];
+
+    /// <summary>The Admin methods are audited (Delete all as a tool too); a preview only reads.</summary>
+    public bool IsAudited(string method) => RequiredRole(method) == UserRole.Admin && !PluginTool.IsPreviewMethod(method);
 
     public IReadOnlyList<PermissionDefinition> Permissions { get; } =
     [
@@ -163,7 +168,8 @@ public sealed class EstPlugin : ICorePlugin, IEventSource, IAsyncDisposable
     /// The EST server is server-wide (docs/spec/device-scope.md "Server-wide services"): Turn on, Turn off, Save and Delete all
     /// are for users with all devices; users limited to a device group read the page with the rows of their own devices.
     /// </summary>
-    public bool RequiresAllDevices(string method) => ServerSwitchMethods.IsChange(method) || method is EstMethods.Save or EstMethods.ClearEnrollments;
+    public bool RequiresAllDevices(string method) =>
+        EstPageTools.Set.RulesMethodOf(method) is var rules && (ServerSwitchMethods.IsChange(rules) || rules is EstMethods.Save or EstMethods.ClearEnrollments);
 
     /// <summary>The page backend with the user's call: a user limited to a group sees the enrollments, certificates and listeners of that group's devices.</summary>
     public async Task<string?> InvokeAsync(ICallContext caller, string method, string? payloadJson, CancellationToken ct)
@@ -177,6 +183,11 @@ public sealed class EstPlugin : ICorePlugin, IEventSource, IAsyncDisposable
         if (ServerSwitchMethods.IsSwitchMethod(method))
         {
             return await InvokeSwitchAsync(method, ct).ConfigureAwait(false);
+        }
+
+        if (EstPageTools.Set.Handles(method))
+        {
+            return await EstPageTools.Set.InvokeAsync(this, caller, method, payloadJson, ct).ConfigureAwait(false);
         }
 
         if (method == EstTools.Enrollments.Method && Service is null)
