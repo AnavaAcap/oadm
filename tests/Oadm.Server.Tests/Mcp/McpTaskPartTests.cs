@@ -106,8 +106,8 @@ public sealed class McpTaskPartTests
         Assert.DoesNotContain("online", firmware["properties"]!.AsObject().Select(p => p.Key)); // axis.com needs the user's own sign-in
 
         var acap = TaskPayloadSchemas.Of(new AcapTaskPlugin())!;
-        Assert.Equal(["install", "remove", "start", "stop", "settings"], acap["properties"]!["action"]!["enum"]!.AsArray().Select(v => v!.GetValue<string>()));
-        Assert.DoesNotContain(acap["properties"]!.AsObject().Select(p => p.Key), name => name is "licenseKeys" or "passwordsAllowed"); // license keys and passwords stay in OADM
+        Assert.Equal(["install", "remove", "start", "stop", "installLicense", "settings"], acap["properties"]!["action"]!["enum"]!.AsArray().Select(v => v!.GetValue<string>()));
+        Assert.DoesNotContain(acap["properties"]!.AsObject().Select(p => p.Key), name => name is "licenseKeys" or "passwordsAllowed" or "licenseKey"); // the license key and passwords are the person's
         Assert.Equal("string", acap["properties"]!["values"]!["additionalProperties"]!["type"]!.GetValue<string>());
 
         var delete = TaskPayloadSchemas.Of(new DeleteCertificatesTask(() => null))!;
@@ -246,7 +246,7 @@ public sealed class McpTaskPartTests
     }
 
     [Fact]
-    public async Task ApplicationsTakesPackagesAndNamesButNeitherLicenseKeysNorSettings()
+    public async Task ApplicationsTakesPackagesAndNamesAndLeavesSecretsToTheUser()
     {
         await using var server = await StartAsync();
         var device = await AddAsync(server.Host, "10.22.0.1", 5201, "M3085-V", "12.8.0", DeviceStatus.Ok, Application);
@@ -269,7 +269,7 @@ public sealed class McpTaskPartTests
         Assert.Equal("The package runs on the devices. Check that it is the one you want.", Assert.Single(named["warnings"]!.AsArray())!.GetValue<string>());
         Assert.Empty(stop["files"]!.AsArray());
 
-        // The dialog's rules at their fields; the schema leaves license keys and the page's password switch out.
+        // The dialog's rules at their fields; the schema leaves the key files, the entered key and the page's password switch out.
         var install = await RefusedAsync(server, key, AcapTaskId, Filter(device), new JsonObject { ["action"] = "install" });
         Assert.StartsWith("Install needs an uploaded package", install["input.files"], StringComparison.Ordinal);
         var name = await RefusedAsync(server, key, AcapTaskId, Filter(device), new JsonObject { ["action"] = "start", ["application"] = "../x" });
@@ -278,9 +278,10 @@ public sealed class McpTaskPartTests
         {
             ["action"] = "installLicense",
             ["licenseKeys"] = new JsonArray(),
+            ["licenseKey"] = "typed",
             ["passwordsAllowed"] = true,
         });
-        Assert.StartsWith("Use one of: install, remove, start, stop, settings", secret["input.action"], StringComparison.Ordinal);
+        Assert.Equal(ToolInputTexts.Unknown, secret["input.licenseKey"]);
         Assert.Equal(ToolInputTexts.Unknown, secret["input.licenseKeys"]);
         Assert.Equal(ToolInputTexts.Unknown, secret["input.passwordsAllowed"]);
 
@@ -300,7 +301,7 @@ public sealed class McpTaskPartTests
             ["application"] = "vmd",
             ["values"] = new JsonObject { ["Mqtt.Password"] = "x" },
         });
-        Assert.Equal("Mqtt.Password is a password. Set it in OADM.", password["input.values.Mqtt.Password"]);
+        Assert.Equal("Mqtt.Password is a password. List it in passwords: the user enters it.", password["input.values.Mqtt.Password"]);
     }
 
     [Fact]
