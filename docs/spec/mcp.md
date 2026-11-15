@@ -227,7 +227,8 @@ counts first; decision 2026-11-15 "the agents see everything OADM shows"): `oadm
 with the target as scheme, host and port, `has_password` only, the rules that use them and the connection of a persistent
 type (the first answer of `WatchRecipientStatus`). Not offered: System report (its jobs belong to a user's session and
 hold the devices' configuration), Outputs (an action without state; `oadm_io_ports` shows the outputs), starting reads,
-checks, streams, exports and reports (they stay in the pages).
+checks, streams, exports and reports (they stay in the pages). A read's name never ends in `_preview` or `_run`, which name
+the two halves of a change (the load test's are `checks` and `check`).
 
 ### Not over MCP
 
