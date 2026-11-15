@@ -50,12 +50,23 @@
           <TextBox x:Name="MessageBox" Text="{Binding Draft}" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="64" MaxHeight="200"
                    MaxLength="{x:Static a:AssistantTexts.MaxMessageLength}" PlaceholderText="{x:Static a:AssistantTexts.Placeholder}" />
         </ui:FormField>
-        <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
+        <!-- The model picker left of Send (the provider's list, or a typed name), its error directly below it (data
+             validation of the box); the other parts stay in the first row, the row of the boxes. -->
+        <Grid ColumnDefinitions="*,Auto,Auto,Auto" RowDefinitions="32,Auto" ColumnSpacing="8">
           <TextBlock x:Name="SelectionCount" Classes="secondary" Text="{Binding SelectionText}" VerticalAlignment="Center" IsVisible="{Binding HasSelection}" />
           <ui:ToolbarButton Grid.Column="1" x:Name="AttachFile" Text="{x:Static a:AssistantTexts.AttachFile}" IconKey="paperclip"
                             Command="{Binding AttachFileCommand}" VerticalAlignment="Center"
                             ToolTip.Tip="{Binding AttachTip}" ToolTip.ShowOnDisabled="True" />
-          <Panel Grid.Column="2">
+          <Panel Grid.Column="2" Grid.RowSpan="2" VerticalAlignment="Top">
+            <ComboBox x:Name="ModelPicker" Width="180" ItemsSource="{Binding Models}" SelectedItem="{Binding Model}" Text="{Binding Model}"
+                      IsEditable="{Binding IsModelEditable}" IsVisible="{Binding !IsLoadingModels}" PlaceholderText="{x:Static a:AssistantTexts.ModelTip}"
+                      ToolTip.Tip="{x:Static a:AssistantTexts.ModelTip}" DataValidationErrors.Errors="{Binding ModelErrors}" />
+            <StackPanel Orientation="Horizontal" Spacing="6" Height="{StaticResource Oadm.ControlHeight}" IsVisible="{Binding IsLoadingModels}">
+              <ui:ProgressRing Classes="checkBox" />
+              <TextBlock Classes="secondary" Text="{x:Static a:AssistantTexts.LoadingModels}" VerticalAlignment="Center" />
+            </StackPanel>
+          </Panel>
+          <Panel Grid.Column="3">
             <Button x:Name="Send" Classes.primary="{Binding !HasReadyPreview}" Classes.secondary="{Binding HasReadyPreview}"
                     Command="{Binding SendCommand}" IsVisible="{Binding !IsStreaming}" ToolTip.Tip="{Binding SendTip}" ToolTip.ShowOnDisabled="True">
               <ui:IconLabel Icon="{StaticResource Icon.send}" Text="{x:Static a:AssistantTexts.Send}" />

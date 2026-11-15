@@ -11,8 +11,10 @@ namespace Oadm.Client.Api;
 /// <summary>
 /// Fake AssistantService (docs/spec/assistant.md) so <c>--fake</c> shows the Assistant panel and the Settings card AI, section
 /// Assistant, and view models are testable without a server: a scripted answer per message (<see cref="AssistantScript"/>,
-/// a default one by keywords: offline devices as a table, a picture, a restart as a preview card, otherwise Markdown), Stop,
-/// Run of a preview (a Restart task), End and the settings with their refusals (trailer <c>oadm-field</c>).
+/// a default one by keywords: offline devices as a table, a picture, a restart as a preview card, otherwise Markdown), the
+/// model list (<see cref="AssistantModels"/>), the model of every message (empty: "Choose a model.", "no-tools": the answer
+/// ends with "This model cannot use tools."), Stop, Run of a preview (a Restart task), End and the settings with their
+/// refusals (trailer <c>oadm-field</c>).
 /// </summary>
 public sealed partial class FakeOadmApi
 {
@@ -23,7 +25,7 @@ public sealed partial class FakeOadmApi
 
     private AssistantSettings _assistant = new()
     {
-        Enabled = true, Provider = "anthropic", Model = "claude-opus-5-5", DailyLimit = 2_000_000,
+        Enabled = true, Provider = "anthropic", DailyLimit = 2_000_000,
     };
 
     private bool _assistantHasKey = true;
@@ -36,6 +38,12 @@ public sealed partial class FakeOadmApi
     /// script ends without it). Null: the default script.
     /// </summary>
     public Func<AssistantMessage, CancellationToken, IAsyncEnumerable<AssistantEvent>>? AssistantScript { get; set; }
+
+    /// <summary>The answer of ListModels (tests); null: a list by provider (none for OpenAI-compatible: editable).</summary>
+    public AssistantModelList? AssistantModels { get; set; }
+
+    /// <summary>How many times ListModels was called (tests).</summary>
+    public int AssistantModelReads { get; private set; }
 
     /// <summary>Every message Chat received, in order (tests).</summary>
     public List<AssistantMessage> AssistantMessages { get; } = [];
@@ -73,6 +81,16 @@ public sealed partial class FakeOadmApi
                 throw new RpcException(new Status(StatusCode.FailedPrecondition, AssistantOff));
             }
 
+            if (message.Model.Trim().Length == 0)
+            {
+                throw AssistantRefused("model", Contracts.Assistant.AssistantTexts.ChooseModel);
+            }
+
+            if (message.Model.Length > 200)
+            {
+                throw AssistantRefused("model", Contracts.Assistant.AssistantTexts.ModelTooLong);
+            }
+
             if (_assistantChats.ContainsKey(message.ConversationId))
             {
                 throw new RpcException(new Status(StatusCode.FailedPrecondition, AssistantBusy));
@@ -86,7 +104,8 @@ public sealed partial class FakeOadmApi
         var done = false;
         try
         {
-            var events = (AssistantScript ?? DefaultAssistantScript)(message, stop.Token).GetAsyncEnumerator(stop.Token);
+            var script = message.Model == "no-tools" ? NoTools : AssistantScript ?? DefaultAssistantScript;
+            var events = script(message, stop.Token).GetAsyncEnumerator(stop.Token);
             try
             {
                 while (true)
@@ -220,9 +239,49 @@ public sealed partial class FakeOadmApi
         }
 
         await Task.Delay(_tick, ct).ConfigureAwait(false);
-        return settings.Model == "no-tools"
-            ? new AssistantTestReply { Ok = false, Message = AssistantNoTools }
-            : new AssistantTestReply { Ok = true, Message = "Hello from " + settings.Model + ". I can use OADM's tools." };
+        return settings.Address.Contains("unreachable", StringComparison.Ordinal)
+            ? new AssistantTestReply { Ok = false, Message = "The provider did not answer. Check the address." }
+            : new AssistantTestReply { Ok = true, Message = Contracts.Assistant.AssistantTexts.ProviderAnswered };
+    }
+
+    public async Task<AssistantModelList> ListAssistantModelsAsync(CancellationToken ct)
+    {
+        string provider;
+        lock (_gate)
+        {
+            ThrowIfOffline();
+            AssistantModelReads++;
+            if (!_assistant.Enabled)
+            {
+                throw new RpcException(new Status(StatusCode.FailedPrecondition, AssistantOff));
+            }
+
+            provider = _assistant.Provider;
+            if (AssistantModels is { } scripted)
+            {
+                return scripted.Clone();
+            }
+        }
+
+        await Task.Delay(_tick, ct).ConfigureAwait(false);
+        var list = new AssistantModelList();
+        list.Models.AddRange(provider switch
+        {
+            "anthropic" => ["claude-sonnet-5", "claude-opus-5-5", "claude-haiku-5"],
+            "openai" => ["gpt-5.1", "gpt-5.1-mini"],
+            "ollama" => ["llama4:16x17b", "qwen3:32b"],
+            _ => [],
+        });
+        list.Editable = list.Models.Count == 0;
+        list.Suggested = list.Models.Contains(Contracts.Assistant.AssistantTexts.AnthropicDefaultModel) ? Contracts.Assistant.AssistantTexts.AnthropicDefaultModel : list.Models.FirstOrDefault() ?? string.Empty;
+        return list;
+    }
+
+    private static async IAsyncEnumerable<AssistantEvent> NoTools(AssistantMessage message, [EnumeratorCancellation] CancellationToken ct)
+    {
+        await Task.Yield();
+        ct.ThrowIfCancellationRequested();
+        yield return new AssistantEvent { Done = new AssistantDone { Error = Contracts.Assistant.AssistantTexts.CannotUseTools } };
     }
 
     private void CheckAssistant(AssistantSettings settings)
@@ -236,11 +295,6 @@ public sealed partial class FakeOadmApi
             && !(Uri.TryCreate(settings.Address, UriKind.Absolute, out var uri) && uri.Scheme is "http" or "https"))
         {
             throw AssistantRefused("address", Contracts.Assistant.AssistantTexts.AddressNotValid);
-        }
-
-        if (settings.Model.Trim().Length == 0)
-        {
-            throw AssistantRefused("model", Contracts.Assistant.AssistantTexts.EnterModel);
         }
 
         if (settings.Provider != "ollama" && settings.ApiKey.Length == 0 && !_assistantHasKey)
@@ -264,15 +318,8 @@ public sealed partial class FakeOadmApi
             Settings = _assistant.Clone(),
             HasApiKey = _assistantHasKey,
             UsedToday = _assistantUsed,
-            Status = _assistant.Enabled ? "On" : "Off",
+            Status = _assistant.Enabled ? Contracts.Assistant.AssistantTexts.On : Contracts.Assistant.AssistantTexts.Off,
         };
-        state.Models.AddRange(_assistant.Provider switch
-        {
-            "anthropic" => ["claude-opus-5-5", "claude-sonnet-5", "claude-haiku-5"],
-            "openai" => ["gpt-5.1", "gpt-5.1-mini"],
-            "ollama" => ["llama4:16x17b", "qwen3:32b"],
-            _ => [],
-        });
         return state;
     }
 

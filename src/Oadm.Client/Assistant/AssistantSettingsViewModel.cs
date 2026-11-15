@@ -14,9 +14,9 @@ namespace Oadm.Client.Assistant;
 
 /// <summary>
 /// The Settings card AI, section Assistant (docs/spec/assistant.md "Settings"), below the section MCP: Turn on / Turn off,
-/// Provider, API key (write only, "Saved" once stored; not for Ollama), Address (Ollama, OpenAI-compatible), Model (the
-/// provider's list), Send pictures to the model, the daily limits and Used today, Test, Save. Administrators edit, every
-/// other user reads it. Errors below their fields, the server's refusals too (trailer <c>oadm-field</c>).
+/// Provider, API key (write only, "Saved" once stored; not for Ollama), Address (Ollama, OpenAI-compatible), Send pictures
+/// to the model, the daily limits and Used today, Test (reads the provider's model list), Save. No model: each user picks
+/// it in the panel. Administrators edit, every other user reads it. Errors below their fields, the server's refusals too (trailer <c>oadm-field</c>).
 /// </summary>
 public sealed partial class AssistantSettingsViewModel : ValidatingViewModel
 {
@@ -51,7 +51,6 @@ public sealed partial class AssistantSettingsViewModel : ValidatingViewModel
         Validation.Rule(nameof(Address), () => Provider is not { NeedsAddress: true } ? null
             : Address.Trim().Length == 0 ? AssistantTexts.EnterAddress
             : IsAddress(Address) ? null : AssistantTexts.AddressNotValid);
-        Validation.Rule(nameof(Model), () => Model.Trim().Length == 0 ? AssistantTexts.EnterModel : Model.Trim().Length > 200 ? AssistantTexts.ModelTooLong : null);
         Validation.Rule(nameof(ApiKey), () => Provider is not { NeedsKey: true } ? null
             : ApiKey.Length > 500 ? AssistantTexts.ApiKeyTooLong
             : HasApiKey || ApiKey.Length > 0 ? null : AssistantTexts.EnterApiKey);
@@ -83,7 +82,6 @@ public sealed partial class AssistantSettingsViewModel : ValidatingViewModel
 
     [ObservableProperty] public partial string Address { get; set; } = string.Empty;
 
-    [ObservableProperty] public partial string Model { get; set; } = string.Empty;
 
     [ObservableProperty] public partial bool SendPictures { get; set; }
 
@@ -92,8 +90,6 @@ public sealed partial class AssistantSettingsViewModel : ValidatingViewModel
     /// <summary>Optional; empty: no limit per user.</summary>
     [ObservableProperty] public partial string UserDailyLimit { get; set; } = string.Empty;
 
-    /// <summary>The provider's models (Model's list); may be empty.</summary>
-    [ObservableProperty] public partial IReadOnlyList<string> Models { get; private set; } = [];
 
     /// <summary>The answer of Test, or what is wrong.</summary>
     [ObservableProperty]
@@ -141,7 +137,7 @@ public sealed partial class AssistantSettingsViewModel : ValidatingViewModel
 
     public string? TurnOnTip => Validation.FirstError;
 
-    public string? TestTip => Validation.FirstErrorOf([nameof(Provider), nameof(Address), nameof(Model), nameof(ApiKey)]);
+    public string? TestTip => Validation.FirstErrorOf([nameof(Provider), nameof(Address), nameof(ApiKey)]);
 
     private bool Changed => _state?.Settings is { } saved && !Same(saved, Build(saved.Enabled));
 
@@ -150,7 +146,7 @@ public sealed partial class AssistantSettingsViewModel : ValidatingViewModel
     protected override void OnPropertyChanged(System.ComponentModel.PropertyChangedEventArgs e)
     {
         base.OnPropertyChanged(e);
-        if (e.PropertyName is nameof(Provider) or nameof(ApiKey) or nameof(Address) or nameof(Model) or nameof(SendPictures)
+        if (e.PropertyName is nameof(Provider) or nameof(ApiKey) or nameof(Address) or nameof(SendPictures)
             or nameof(DailyLimit) or nameof(UserDailyLimit))
         {
             OnPropertyChanged(nameof(SaveTip));
@@ -158,17 +154,7 @@ public sealed partial class AssistantSettingsViewModel : ValidatingViewModel
         }
     }
 
-    partial void OnProviderChanged(AssistantProvider? value)
-    {
-        if (value is not null && Model.Trim().Length == 0 && value == AssistantProvider.Anthropic)
-        {
-            Model = AssistantTexts.ModelSuggestion;
-        }
-
-        // The list belongs to the saved provider; another one has its own (known after Save).
-        Models = value is not null && _state?.Settings?.Provider == value.Id ? [.. _state.Models] : value == AssistantProvider.Anthropic ? [AssistantTexts.ModelSuggestion] : [];
-        TestResult = null;
-    }
+    partial void OnProviderChanged(AssistantProvider? value) => TestResult = null;
 
     public async Task LoadAsync()
     {
@@ -213,7 +199,7 @@ public sealed partial class AssistantSettingsViewModel : ValidatingViewModel
     private Task TurnOffAsync() => SetAsync(false);
 
     private bool CanTest => IsLoaded && IsAdmin && !IsBusy && !IsTesting
-        && Validation.IsValidFor(nameof(Provider), nameof(Address), nameof(Model), nameof(ApiKey));
+        && Validation.IsValidFor(nameof(Provider), nameof(Address), nameof(ApiKey));
 
     /// <summary>One short call with the settings of the form (the saved key when the box is empty); never saves.</summary>
     [RelayCommand(CanExecute = nameof(CanTest))]
@@ -279,7 +265,6 @@ public sealed partial class AssistantSettingsViewModel : ValidatingViewModel
     {
         "provider" => nameof(Provider),
         "address" => nameof(Address),
-        "model" => nameof(Model),
         "api_key" => nameof(ApiKey),
         "daily_limit" => nameof(DailyLimit),
         "user_daily_limit" => nameof(UserDailyLimit),
@@ -291,7 +276,6 @@ public sealed partial class AssistantSettingsViewModel : ValidatingViewModel
         Enabled = enabled,
         Provider = Provider?.Id ?? string.Empty,
         Address = NeedsAddress ? Address.Trim() : string.Empty,
-        Model = Model.Trim(),
         ApiKey = NeedsKey ? ApiKey : string.Empty,
         SendPictures = SendPictures,
         DailyLimit = ParseLimit(DailyLimit) ?? 0,
@@ -299,7 +283,7 @@ public sealed partial class AssistantSettingsViewModel : ValidatingViewModel
     };
 
     private static bool Same(AssistantSettings saved, AssistantSettings form) =>
-        saved.Provider == form.Provider && saved.Address == form.Address && saved.Model == form.Model && form.ApiKey.Length == 0
+        saved.Provider == form.Provider && saved.Address == form.Address && form.ApiKey.Length == 0
         && saved.SendPictures == form.SendPictures && saved.DailyLimit == form.DailyLimit && saved.UserDailyLimit == form.UserDailyLimit;
 
     private void Apply(AssistantSettingsState state)
@@ -308,12 +292,10 @@ public sealed partial class AssistantSettingsViewModel : ValidatingViewModel
         var settings = state.Settings ?? new AssistantSettings();
         Provider = AssistantProvider.Find(settings.Provider) ?? AssistantProvider.Anthropic;
         Address = settings.Address;
-        Model = settings.Model;
         ApiKey = string.Empty;
         SendPictures = settings.SendPictures;
         DailyLimit = (settings.DailyLimit > 0 ? settings.DailyLimit : DefaultDailyLimit).ToString("N0", CultureInfo.InvariantCulture);
         UserDailyLimit = settings.UserDailyLimit > 0 ? settings.UserDailyLimit.ToString("N0", CultureInfo.InvariantCulture) : string.Empty;
-        Models = [.. state.Models];
         Validation.Reset();
         _availability?.Apply(state);
         OnPropertyChanged(nameof(IsOn));

@@ -1354,7 +1354,7 @@
   </Style>
   <!-- A hint or error below a check box sits 6 px below the box like below any input (the box is 16 px in a 32 px row, which stays for the label) -->
   <Style Selector="ui|FormField:message > CheckBox">
-    <Setter Property="Margin" Value="0,0,0,-14" />
+    <Setter Property="Margin" Value="0,0,0,-16" />
   </Style>
   <Style Selector="TextBlock.fieldLabel">
     <Setter Property="Foreground" Value="{StaticResource Oadm.TextSecondaryBrush}" />

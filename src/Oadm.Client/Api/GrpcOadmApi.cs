@@ -737,6 +737,9 @@ public sealed class GrpcOadmApi : IOadmApi, IDisposable
     public async Task AssistantEndAsync(string conversationId, CancellationToken ct) =>
         await C.Assistant.EndAsync(new AssistantConversationRequest { ConversationId = conversationId }, cancellationToken: ct);
 
+    public async Task<AssistantModelList> ListAssistantModelsAsync(CancellationToken ct) =>
+        await C.Assistant.ListModelsAsync(new Empty(), cancellationToken: ct);
+
     public async Task<AssistantSettingsState> GetAssistantSettingsAsync(CancellationToken ct) =>
         await C.Assistant.GetSettingsAsync(new Empty(), cancellationToken: ct);
 

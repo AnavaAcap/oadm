@@ -444,13 +444,16 @@ public interface IOadmApi
     /// <summary>Forgets the conversation (panel closed, New chat, sign out).</summary>
     Task AssistantEndAsync(string conversationId, CancellationToken ct) => throw NoAssistant();
 
+    /// <summary>The provider's models for the panel's Model picker (editable when the provider gives no list).</summary>
+    Task<AssistantModelList> ListAssistantModelsAsync(CancellationToken ct) => throw NoAssistant();
+
     /// <summary>The settings (every signed-in user, without the key).</summary>
     Task<AssistantSettingsState> GetAssistantSettingsAsync(CancellationToken ct) => throw NoAssistant();
 
     /// <summary>Saves the settings (administrators); INVALID_ARGUMENT with trailer <c>oadm-field</c>.</summary>
     Task<AssistantSettingsState> SetAssistantSettingsAsync(AssistantSettings settings, CancellationToken ct) => throw NoAssistant();
 
-    /// <summary>One short call to the provider with these settings; never saves.</summary>
+    /// <summary>Reads the provider's model list with these settings (address and key); never saves.</summary>
     Task<AssistantTestReply> TestAssistantAsync(AssistantSettings settings, CancellationToken ct) => throw NoAssistant();
 
     /// <summary>The refusal of a connection without the assistant (an older server).</summary>

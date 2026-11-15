@@ -151,10 +151,6 @@
           <ui:FormField Label="API key" InputWidth="320" IsVisible="{Binding NeedsKey}">
             <ui:PasswordBox x:Name="AssistantApiKey" Text="{Binding ApiKey}" PlaceholderText="{Binding ApiKeyPlaceholder}" />
           </ui:FormField>
-          <ui:FormField Label="Model" InputWidth="320">
-            <ComboBox x:Name="AssistantModel" IsEditable="True" HorizontalAlignment="Stretch" Text="{Binding Model}" ItemsSource="{Binding Models}"
-                      PlaceholderText="{x:Static a:AssistantTexts.ModelSuggestion}" />
-          </ui:FormField>
           <ui:FormField Label="" Hint="{x:Static a:AssistantTexts.PicturesHint}">
             <CheckBox x:Name="AssistantPictures" Content="Send pictures to the model" IsChecked="{Binding SendPictures}" />
           </ui:FormField>
@@ -168,9 +164,6 @@
         <StackPanel Classes="form" IsVisible="{Binding !IsAdmin}">
           <ui:FormField Label="Provider" Hint="{Binding PrivacyNote}">
             <TextBlock Text="{Binding ProviderText}" />
-          </ui:FormField>
-          <ui:FormField Label="Model">
-            <TextBlock Text="{Binding Model}" />
           </ui:FormField>
           <ui:FormField Label="Send pictures">
             <TextBlock Text="{Binding SendPicturesText}" />

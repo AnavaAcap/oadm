@@ -31,7 +31,9 @@ with Cancel and **Run** that then follow their tasks in the task mirror with **S
 window, device tables whose row selects the device in the grid and "+N more" with **Select all in the grid**, notices and
 errors), the four start suggestions while empty, and at the bottom the attached files (Attach file uploads through
 FileService), the message box (Enter sends, Shift+Enter a new line, at most 8,000 characters), "12 devices selected" (the
-grid's selection goes with every message; above 10,000 the message below the box and Send off), **Send** / **Stop**. A
+grid's selection goes with every message; above 10,000 the message below the box and Send off), the Model picker
+(`ListModels`, a ring while it reads, editable without a list, kept per user on this client in the client settings
+`AssistantModels`, sent with every message, its error directly below it), **Send** / **Stop**. A
 table row or Select all shows the Devices page and selects the devices there (`DevicesViewModel.SelectInGrid`: a search that
 hides some is cleared, the view selects the rows in one step with the ring above 1,000).
 

@@ -77,6 +77,9 @@ public sealed class ClientSettings
     /// <summary>Navigation rail shows labels (expanded, the default) or icons only (collapsed).</summary>
     public bool NavRailExpanded { get; set; } = true;
 
+    /// <summary>The Assistant's model each user chose in the panel, by "user@server" (docs/spec/assistant.md "The panel").</summary>
+    public Dictionary<string, string> AssistantModels { get; set; } = [];
+
     /// <summary>Ids of "server key replaced" notices the user dismissed on this client.</summary>
     public List<string> DismissedKeyNotices { get; set; } = [];
 

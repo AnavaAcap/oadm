@@ -32,7 +32,8 @@ public sealed class AssistantAttachmentItem(string fileId, string name, long siz
 /// <summary>
 /// The Assistant panel (docs/spec/assistant.md "The panel"): a chat with the model on the right of every page, opened by
 /// the title bar button. A conversation id per open panel and New chat (ended on close, New chat and sign out: nothing is
-/// kept). Each message carries the device grid's selection (at most 10,000) and the attached files; the answer streams as
+/// kept). Each message carries the model of the Model picker (the provider's list from ListModels, editable without one;
+/// the choice kept per user on this client), the device grid's selection (at most 10,000) and the attached files; the answer streams as
 /// items (Markdown text, tool lines, preview cards, pictures, device tables, notices). Run of a preview is the user's click
 /// only. Lives on the UI thread.
 /// </summary>
@@ -47,13 +48,17 @@ public sealed partial class AssistantPanelViewModel : ObservableObject
     private readonly TaskStore? _tasks;
     private readonly IDialogService? _dialogs;
     private readonly IClipboardService? _clipboard;
+    private readonly Infrastructure.IClientSettingsStore? _settings;
+    private int _modelRead;
     private readonly HashSet<string> _notices = new(StringComparer.Ordinal);
     private CancellationTokenSource? _chat;
     private AssistantAnswerItem? _answer;
 
     public AssistantPanelViewModel(IOadmApi api, AssistantAvailability availability, UserSession? session = null, DevicesViewModel? devices = null,
-        TaskStore? tasks = null, IDialogService? dialogs = null, IClipboardService? clipboard = null, ServerConnection? connection = null)
+        TaskStore? tasks = null, IDialogService? dialogs = null, IClipboardService? clipboard = null, ServerConnection? connection = null,
+        Infrastructure.IClientSettingsStore? settings = null)
     {
+        _settings = settings;
         ArgumentNullException.ThrowIfNull(api);
         ArgumentNullException.ThrowIfNull(availability);
         _api = api;
@@ -143,6 +148,82 @@ public sealed partial class AssistantPanelViewModel : ObservableObject
     [NotifyPropertyChangedFor(nameof(SendTip))]
     public partial string Draft { get; set; } = string.Empty;
 
+    /// <summary>The provider's models for the picker (empty when it gives none: the picker takes a typed name).</summary>
+    [ObservableProperty] public partial IReadOnlyList<string> Models { get; private set; } = [];
+
+    /// <summary>The provider gives no list: the user types the model.</summary>
+    [ObservableProperty] public partial bool IsModelEditable { get; private set; }
+
+    /// <summary>ListModels runs: a ring in place of the picker.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(SendTip))]
+    [NotifyCanExecuteChangedFor(nameof(SendCommand), nameof(SendSuggestionCommand))]
+    public partial bool IsLoadingModels { get; private set; }
+
+    /// <summary>The model every message carries; kept per user on this client. Changing it keeps the conversation.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(SendTip))]
+    [NotifyCanExecuteChangedFor(nameof(SendCommand), nameof(SendSuggestionCommand))]
+    public partial string Model { get; set; } = string.Empty;
+
+    /// <summary>A problem of the model, directly below the picker ("Choose a model.", the server's refusal, the list's error).</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ModelErrors))]
+    public partial string? ModelError { get; private set; }
+
+    /// <summary><see cref="ModelError"/> as the picker's data validation errors (red border, the text below it).</summary>
+    public IReadOnlyList<object>? ModelErrors => ModelError is { } error ? [error] : null;
+
+    partial void OnModelChanged(string value)
+    {
+        ModelError = null;
+        if (value.Trim().Length > 0 && _settings is { } store && ModelKey is { } key && !IsLoadingModels)
+        {
+            store.Current.AssistantModels[key] = value.Trim();
+            store.Save();
+        }
+    }
+
+    /// <summary>"user@server": the remembered model is the user's, on this client.</summary>
+    private string? ModelKey => _session is { IsLoggedIn: true } session ? $"{session.UserName}@{session.ServerAddress}".ToLowerInvariant() : null;
+
+    /// <summary>Reads the provider's models (on open): the remembered choice when it is still offered, else the suggested one, else the first.</summary>
+    public async Task LoadModelsAsync(CancellationToken ct)
+    {
+        var read = ++_modelRead;
+        IsLoadingModels = true;
+        try
+        {
+            var list = await _api.ListAssistantModelsAsync(ct).ConfigureAwait(true);
+            if (read != _modelRead)
+            {
+                return;
+            }
+
+            Models = [.. list.Models];
+            IsModelEditable = list.Editable || list.Models.Count == 0;
+            var remembered = ModelKey is { } key && _settings?.Current.AssistantModels.GetValueOrDefault(key) is { Length: > 0 } kept ? kept : null;
+            Model = remembered is not null && (IsModelEditable || Models.Contains(remembered, StringComparer.Ordinal)) ? remembered
+                : list.Suggested.Length > 0 ? list.Suggested
+                : Models.Count > 0 ? Models[0] : remembered ?? string.Empty;
+            ModelError = null;
+        }
+        catch (RpcException ex)
+        {
+            if (read == _modelRead)
+            {
+                ModelError = ex.Status.Detail;
+            }
+        }
+        finally
+        {
+            if (read == _modelRead)
+            {
+                IsLoadingModels = false;
+            }
+        }
+    }
+
     /// <summary>The picture shown larger over the window; null: none.</summary>
     [ObservableProperty] public partial AssistantPictureItem? Enlarged { get; private set; }
 
@@ -168,7 +249,8 @@ public sealed partial class AssistantPanelViewModel : ObservableObject
     /// <summary>Why Send is off.</summary>
     public string? SendTip => IsStreaming ? AssistantTexts.WaitForAnswer
         : IsUploading ? AssistantTexts.WaitForUpload
-        : SelectionError ?? (Draft.Trim().Length == 0 ? AssistantTexts.EnterMessage : null);
+        : IsLoadingModels ? AssistantTexts.LoadingModels
+        : SelectionError ?? (Draft.Trim().Length == 0 ? AssistantTexts.EnterMessage : Model.Trim().Length == 0 ? AssistantTexts.ChooseModel : null);
 
     /// <summary>The server has it on and the role may use it (read on every connect).</summary>
     public async Task RefreshAsync(CancellationToken ct)
@@ -206,6 +288,7 @@ public sealed partial class AssistantPanelViewModel : ObservableObject
 
         ConversationId = Guid.NewGuid().ToString();
         IsOpen = true;
+        _ = LoadModelsAsync(CancellationToken.None);
     }
 
     /// <summary>Closes the panel and forgets the conversation (End on the server).</summary>
@@ -225,12 +308,12 @@ public sealed partial class AssistantPanelViewModel : ObservableObject
         ConversationId = Guid.NewGuid().ToString();
     }
 
-    private bool CanSend => !IsStreaming && !IsUploading && SelectionError is null && Draft.Trim().Length > 0;
+    private bool CanSend => !IsStreaming && !IsUploading && !IsLoadingModels && SelectionError is null && Draft.Trim().Length > 0 && Model.Trim().Length > 0;
 
     [RelayCommand(CanExecute = nameof(CanSend))]
     private Task SendAsync() => SendTextAsync(Draft);
 
-    private bool CanSendSuggestion(string? text) => !IsStreaming && !IsUploading && SelectionError is null;
+    private bool CanSendSuggestion(string? text) => !IsStreaming && !IsUploading && !IsLoadingModels && SelectionError is null && Model.Trim().Length > 0;
 
     [RelayCommand(CanExecute = nameof(CanSendSuggestion))]
     private Task SendSuggestionAsync(string? text) => string.IsNullOrWhiteSpace(text) ? Task.CompletedTask : SendTextAsync(text);
@@ -249,14 +332,22 @@ public sealed partial class AssistantPanelViewModel : ObservableObject
             text = text[..AssistantTexts.MaxMessageLength];
         }
 
-        var message = new AssistantMessage { ConversationId = conversation, Text = text };
+        if (Model.Trim().Length == 0)
+        {
+            ModelError = AssistantTexts.ChooseModel;
+            return;
+        }
+
+        var message = new AssistantMessage { ConversationId = conversation, Text = text, Model = Model.Trim() };
         if (_devices is not null && SelectionError is null)
         {
             message.SelectedDeviceIds.AddRange(_devices.SelectedDevices.Select(d => d.Id));
         }
 
         message.Attachments.AddRange(Attachments.Select(a => new AssistantAttachment { FileId = a.FileId, Name = a.Name, Size = a.Size }));
-        Items.Add(new AssistantUserItem(text, [.. Attachments.Select(a => a.Name)]));
+        var user = new AssistantUserItem(text, [.. Attachments.Select(a => a.Name)]);
+        var attached = Attachments.ToList();
+        Items.Add(user);
         Attachments.Clear();
         Draft = string.Empty;
         Message = null;
@@ -283,6 +374,21 @@ public sealed partial class AssistantPanelViewModel : ObservableObject
         catch (RpcException ex) when (ex.StatusCode == StatusCode.Cancelled && chat.IsCancellationRequested)
         {
             // closed or New chat
+        }
+        catch (RpcException ex) when (ex.StatusCode == StatusCode.InvalidArgument && ex.Trailers.GetValue("oadm-field") == "model")
+        {
+            // The model was refused: its error below the picker, the message back in the box to send again.
+            if (ReferenceEquals(_chat, chat))
+            {
+                Items.Remove(user);
+                Draft = text;
+                foreach (var file in attached)
+                {
+                    Attachments.Add(file);
+                }
+
+                ModelError = ex.Status.Detail;
+            }
         }
         catch (RpcException ex)
         {

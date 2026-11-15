@@ -98,7 +98,7 @@ public static class AssistantTexts
     public const string PicturesHint = "Camera pictures always show in the chat.";
     public const string OllamaPrivacy = "Ollama keeps everything in your network.";
     public const string NoProvider = Shared.ChooseProvider;
-    public const string EnterModel = Shared.EnterModel;
+    public const string ChooseModel = Shared.ChooseModel;
     public const string ModelTooLong = Shared.ModelTooLong;
     public const string EnterAddress = Shared.EnterAddress;
     public const string AddressNotValid = Shared.AddressNotValid;
@@ -108,7 +108,8 @@ public static class AssistantTexts
     public const string UserLimitRange = Shared.UserDailyLimitRange;
     public const string NoChanges = "No changes to save.";
     public const string Testing = "Testing the provider";
-    public const string ModelSuggestion = Shared.AnthropicDefaultModel;
+    public const string ModelTip = "Model";
+    public const string LoadingModels = "Reading the models";
 
     /// <summary>The note under the provider for a cloud one.</summary>
     public static string CloudPrivacy(string provider) =>

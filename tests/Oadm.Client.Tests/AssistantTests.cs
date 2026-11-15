@@ -50,13 +50,14 @@ public sealed class AssistantTests
         return session;
     }
 
-    private static AssistantPanelViewModel Panel(FakeOadmApi api, DevicesFixture? f = null, UserSession? session = null, IDialogService? dialogs = null,
-        IClipboardService? clipboard = null)
+    private static async Task<AssistantPanelViewModel> PanelAsync(FakeOadmApi api, DevicesFixture? f = null, UserSession? session = null, IDialogService? dialogs = null,
+        IClipboardService? clipboard = null, Oadm.Client.Infrastructure.IClientSettingsStore? settings = null)
     {
         var availability = new AssistantAvailability();
         availability.Apply(new AssistantSettingsState { Settings = new AssistantSettings { Enabled = true, Provider = "anthropic" } });
-        var panel = new AssistantPanelViewModel(api, availability, session ?? Session(admin: true), f?.Devices, f?.Tasks, dialogs, clipboard);
+        var panel = new AssistantPanelViewModel(api, availability, session ?? Session(admin: true), f?.Devices, f?.Tasks, dialogs, clipboard, settings: settings);
         panel.Open();
+        await panel.LoadModelsAsync(CancellationToken.None); // the read Open started, awaited
         return panel;
     }
 
@@ -103,7 +104,7 @@ public sealed class AssistantTests
             new AssistantEvent { Notice = "Your messages and the data the assistant reads go to Anthropic." }, // once only
             new AssistantEvent { Done = new AssistantDone { Error = "The provider did not answer. Try again." } },
         ], ct);
-        var panel = Panel(api);
+        var panel = await PanelAsync(api);
         Assert.True(panel.IsEmpty);
 
         panel.Draft = "Which devices are offline?";
@@ -140,7 +141,7 @@ public sealed class AssistantTests
             using var f = new DevicesFixture(api);
             var devices = Devices(3);
             f.SeedDevices(devices);
-            var panel = Panel(api, f);
+            var panel = await PanelAsync(api, f);
             Assert.Equal(string.Empty, panel.SelectionText);
             Assert.False(panel.HasSelection);
 
@@ -172,13 +173,13 @@ public sealed class AssistantTests
     }
 
     [Fact]
-    public void MoreThanTenThousandSelectedDevicesStopSendWithTheMessageBelowTheBox()
+    public async Task MoreThanTenThousandSelectedDevicesStopSendWithTheMessageBelowTheBox()
     {
         var api = new FakeOadmApi(TimeSpan.FromMilliseconds(5), seedSampleData: false);
         using var f = new DevicesFixture(api);
         var devices = Devices(AssistantTexts.MaxSelection + 1);
         f.SeedDevices(devices);
-        var panel = Panel(api, f);
+        var panel = await PanelAsync(api, f);
         panel.Draft = "Which of these are offline?";
         f.Devices.SelectedDevices.ReplaceAll(f.Store.Devices);
         Assert.Equal(AssistantTexts.TooManySelected, panel.SelectionError);
@@ -198,7 +199,7 @@ public sealed class AssistantTests
         using var f = new DevicesFixture(api);
         var devices = Devices(3);
         f.SeedDevices(devices);
-        var panel = Panel(api, f);
+        var panel = await PanelAsync(api, f);
         f.Select([.. devices.Select(d => d.Id)]);
         panel.Draft = "Restart these";
         await panel.SendCommand.ExecuteAsync(null);
@@ -236,7 +237,7 @@ public sealed class AssistantTests
     {
         using var api = new FakeOadmApi(TimeSpan.FromMilliseconds(5));
         api.AssistantScript = (_, ct) => Script([new AssistantEvent { Preview = new AssistantPreviewCard { Handle = "gone", Title = "Restart", DeviceCount = 1 } }], ct);
-        var panel = Panel(api);
+        var panel = await PanelAsync(api);
         panel.Draft = "Restart it";
         await panel.SendCommand.ExecuteAsync(null);
         var preview = panel.Items.OfType<AssistantPreviewItem>().Single();
@@ -254,7 +255,7 @@ public sealed class AssistantTests
     {
         using var api = new FakeOadmApi(TimeSpan.FromMilliseconds(5));
         api.AssistantScript = Endless;
-        var panel = Panel(api);
+        var panel = await PanelAsync(api);
         var conversation = panel.ConversationId;
         panel.Draft = "Tell me everything";
         var sending = panel.SendCommand.ExecuteAsync(null);
@@ -282,7 +283,7 @@ public sealed class AssistantTests
     public async Task NewChatAndCloseEndTheConversationAndForgetIt()
     {
         using var api = new FakeOadmApi(TimeSpan.FromMilliseconds(5));
-        var panel = Panel(api);
+        var panel = await PanelAsync(api);
         var first = panel.ConversationId!;
         Assert.True(Guid.TryParse(first, out _));
         await panel.SendSuggestionCommand.ExecuteAsync(AssistantTexts.Suggestions[0]);
@@ -310,7 +311,7 @@ public sealed class AssistantTests
     {
         using var api = new FakeOadmApi(TimeSpan.FromMilliseconds(5));
         var session = Session(admin: true);
-        var panel = Panel(api, session: session);
+        var panel = await PanelAsync(api, session: session);
         var conversation = panel.ConversationId!;
         session.SignOut();
         Assert.False(panel.IsOpen);
@@ -357,7 +358,7 @@ public sealed class AssistantTests
         var devices = Devices(5);
         f.SeedDevices(devices);
         api.AssistantScript = (_, ct) => Script([new AssistantEvent { Table = Table(5, devices) }], ct);
-        var panel = Panel(api, f);
+        var panel = await PanelAsync(api, f);
         var shown = 0;
         panel.ShowDevicesRequested += (_, _) => shown++;
         await panel.SendSuggestionCommand.ExecuteAsync(AssistantTexts.Suggestions[0]);
@@ -379,7 +380,7 @@ public sealed class AssistantTests
         api.AssistantScript = (_, ct) => Script([new AssistantEvent { Text = "**3** devices" }], ct);
         var clipboard = Substitute.For<IClipboardService>();
         clipboard.SetTextAsync(Arg.Any<string>()).Returns(true);
-        var panel = Panel(api, clipboard: clipboard);
+        var panel = await PanelAsync(api, clipboard: clipboard);
         await panel.SendSuggestionCommand.ExecuteAsync("How many?");
         await panel.CopyCommand.ExecuteAsync(panel.Items.OfType<AssistantAnswerItem>().Single());
         await clipboard.Received(1).SetTextAsync("**3** devices");
@@ -390,7 +391,7 @@ public sealed class AssistantTests
     public async Task ARefusalOfChatShowsInTheConversation()
     {
         using var api = new FakeOadmApi(TimeSpan.FromMilliseconds(5));
-        var panel = Panel(api);
+        var panel = await PanelAsync(api);
         var settings = (await api.GetAssistantSettingsAsync(CancellationToken.None)).Settings;
         settings.Enabled = false;
         await api.SetAssistantSettingsAsync(settings, CancellationToken.None);
@@ -398,6 +399,79 @@ public sealed class AssistantTests
         var error = Assert.IsType<AssistantNoticeItem>(panel.Items[^1]);
         Assert.True(error.IsError);
         Assert.Equal(FakeOadmApi.AssistantOff, error.Text);
+    }
+
+    // ------------------------------------------------------------ model picker
+
+    [Fact]
+    public async Task ThePickerLoadsTheModelsSuggestsOneRemembersTheChoiceAndSendsItWithEveryMessage()
+    {
+        using var api = new FakeOadmApi(TimeSpan.FromMilliseconds(5));
+        var store = new Oadm.Client.Infrastructure.InMemoryClientSettingsStore();
+        var panel = await PanelAsync(api, settings: store);
+        Assert.Equal(["claude-sonnet-5", "claude-opus-5-5", "claude-haiku-5"], panel.Models);
+        Assert.False(panel.IsModelEditable);
+        Assert.False(panel.IsLoadingModels);
+        Assert.Equal("claude-opus-5-5", panel.Model); // the suggested one the first time
+
+        panel.Model = "claude-haiku-5";
+        await panel.SendSuggestionCommand.ExecuteAsync("Hello");
+        var conversation = panel.ConversationId;
+        panel.Model = "claude-sonnet-5"; // a change keeps the conversation
+        await panel.SendSuggestionCommand.ExecuteAsync("And now?");
+        Assert.Equal(["claude-haiku-5", "claude-sonnet-5"], api.AssistantMessages.Select(m => m.Model));
+        Assert.Equal(conversation, panel.ConversationId);
+        Assert.All(api.AssistantMessages, m => Assert.Equal(conversation, m.ConversationId));
+
+        // The same user on this client later: the choice is kept.
+        var again = await PanelAsync(api, settings: store);
+        Assert.Equal("claude-sonnet-5", again.Model);
+        Assert.Equal("claude-sonnet-5", Assert.Single(store.Current.AssistantModels).Value);
+        var other = await PanelAsync(api, session: Session(admin: false, HostPermissionKeys.AssistantUse), settings: store);
+        Assert.Equal("claude-opus-5-5", other.Model); // another user: own choice
+    }
+
+    [Fact]
+    public async Task WithoutAListThePickerTakesATypedModelAndAnEmptyOneStopsSendWithTheErrorBelowIt()
+    {
+        using var api = new FakeOadmApi(TimeSpan.FromMilliseconds(5));
+        api.AssistantModels = new AssistantModelList { Editable = true };
+        var panel = await PanelAsync(api);
+        Assert.True(panel.IsModelEditable);
+        Assert.Empty(panel.Models);
+        Assert.Equal(string.Empty, panel.Model);
+        panel.Draft = "Hello";
+        Assert.False(panel.SendCommand.CanExecute(null));
+        Assert.Equal(AssistantTexts.ChooseModel, panel.SendTip);
+        await panel.SendSuggestionCommand.ExecuteAsync("Hello");
+        Assert.Equal(AssistantTexts.ChooseModel, panel.ModelError);
+        Assert.Empty(api.AssistantMessages);
+
+        panel.Model = "my-local-model";
+        Assert.Null(panel.ModelError);
+        Assert.True(panel.SendCommand.CanExecute(null));
+        await panel.SendCommand.ExecuteAsync(null);
+        Assert.Equal("my-local-model", api.AssistantMessages.Single().Model);
+    }
+
+    [Fact]
+    public async Task AModelTheServerRefusesShowsBelowThePickerAndTheMessageStaysInTheBox()
+    {
+        using var api = new FakeOadmApi(TimeSpan.FromMilliseconds(5));
+        api.AssistantModels = new AssistantModelList { Editable = true };
+        var panel = await PanelAsync(api);
+        panel.Model = new string('m', 201);
+        panel.Draft = "Hello";
+        await panel.SendCommand.ExecuteAsync(null);
+        Assert.Equal(Oadm.Contracts.Assistant.AssistantTexts.ModelTooLong, panel.ModelError);
+        Assert.Equal("Hello", panel.Draft);
+        Assert.True(panel.IsEmpty);
+
+        panel.Model = "no-tools"; // a model that cannot use tools answers once with the reason
+        await panel.SendCommand.ExecuteAsync(null);
+        var error = Assert.IsType<AssistantNoticeItem>(panel.Items[^1]);
+        Assert.True(error.IsError);
+        Assert.Equal(Oadm.Contracts.Assistant.AssistantTexts.CannotUseTools, error.Text);
     }
 
     // ------------------------------------------------------------ settings
@@ -412,19 +486,12 @@ public sealed class AssistantTests
         Assert.True(form.IsAvailable);
         Assert.True(availability.IsOn);
         Assert.Equal(AssistantProvider.Anthropic, form.Provider);
-        Assert.Equal("claude-opus-5-5", form.Model);
         Assert.Equal(AssistantTexts.Saved, form.ApiKeyPlaceholder);
         Assert.Equal(AssistantTexts.CloudPrivacy("Anthropic"), form.PrivacyNote);
         Assert.False(form.NeedsAddress);
         Assert.False(form.SaveCommand.CanExecute(null));
         Assert.Equal(AssistantTexts.NoChanges, form.SaveTip);
-        Assert.Null(form.ErrorOf(nameof(AssistantSettingsViewModel.Model))); // an untouched form shows nothing
-
-        form.Model = " ";
-        Assert.Equal(AssistantTexts.EnterModel, form.ErrorOf(nameof(AssistantSettingsViewModel.Model)));
-        Assert.False(form.SaveCommand.CanExecute(null));
-        Assert.Equal(AssistantTexts.EnterModel, form.SaveTip);
-        form.Model = "claude-sonnet-5";
+        Assert.Null(form.ErrorOf(nameof(AssistantSettingsViewModel.Address))); // an untouched form shows nothing
 
         form.Provider = AssistantProvider.Ollama;
         Assert.True(form.NeedsAddress);
@@ -446,8 +513,8 @@ public sealed class AssistantTests
 
         await form.SaveCommand.ExecuteAsync(null);
         var saved = (await api.GetAssistantSettingsAsync(CancellationToken.None)).Settings;
-        Assert.Equal(("ollama", "http://10.0.0.5:11434", "claude-sonnet-5", 500_000L, 0L), (saved.Provider, saved.Address, saved.Model, saved.DailyLimit, saved.UserDailyLimit));
-        Assert.Equal(["llama4:16x17b", "qwen3:32b"], form.Models);
+        Assert.Equal(("ollama", "http://10.0.0.5:11434", 500_000L, 0L), (saved.Provider, saved.Address, saved.DailyLimit, saved.UserDailyLimit));
+        Assert.Equal("500,000", form.DailyLimit); // shown with separators like Used today
 
         await form.TurnOffCommand.ExecuteAsync(null);
         Assert.False(form.IsOn);
@@ -461,23 +528,23 @@ public sealed class AssistantTests
         using var api = new FakeOadmApi(TimeSpan.FromMilliseconds(5));
         var form = new AssistantSettingsViewModel(api, Session(admin: true));
         await form.LoadAsync();
-        form.Model = "no-tools";
-        await form.TestCommand.ExecuteAsync(null);
-        Assert.False(form.TestOk);
-        Assert.Equal(FakeOadmApi.AssistantNoTools, form.TestResult);
-        Assert.Equal("no-tools", api.AssistantTests.Single().Model);
-        Assert.Equal("claude-opus-5-5", (await api.GetAssistantSettingsAsync(CancellationToken.None)).Settings.Model);
-
-        form.Model = "claude-opus-5-5";
+        Assert.Equal("2,000,000", form.DailyLimit);
         await form.TestCommand.ExecuteAsync(null);
         Assert.True(form.TestOk);
-        Assert.StartsWith("Hello from claude-opus-5-5", form.TestResult, StringComparison.Ordinal);
+        Assert.Equal(Oadm.Contracts.Assistant.AssistantTexts.ProviderAnswered, form.TestResult);
+
+        form.Provider = AssistantProvider.OpenAiCompatible;
+        form.Address = "http://unreachable:1234";
+        await form.TestCommand.ExecuteAsync(null);
+        Assert.False(form.TestOk);
+        Assert.Equal("The provider did not answer. Check the address.", form.TestResult);
+        Assert.Equal(2, api.AssistantTests.Count);
+        Assert.Equal("anthropic", (await api.GetAssistantSettingsAsync(CancellationToken.None)).Settings.Provider); // never saved
     }
 
     [Theory]
     [InlineData("provider", nameof(AssistantSettingsViewModel.Provider))]
     [InlineData("address", nameof(AssistantSettingsViewModel.Address))]
-    [InlineData("model", nameof(AssistantSettingsViewModel.Model))]
     [InlineData("api_key", nameof(AssistantSettingsViewModel.ApiKey))]
     [InlineData("daily_limit", nameof(AssistantSettingsViewModel.DailyLimit))]
     [InlineData("user_daily_limit", nameof(AssistantSettingsViewModel.UserDailyLimit))]
@@ -486,7 +553,7 @@ public sealed class AssistantTests
         var api = Substitute.For<IOadmApi>();
         api.GetAssistantSettingsAsync(Arg.Any<CancellationToken>()).Returns(new AssistantSettingsState
         {
-            Settings = new AssistantSettings { Provider = "openai-compatible", Address = "http://10.0.0.5:1234", Model = "m", DailyLimit = 2_000_000 },
+            Settings = new AssistantSettings { Provider = "openai-compatible", Address = "http://10.0.0.5:1234", DailyLimit = 2_000_000 },
             HasApiKey = true,
         });
         api.SetAssistantSettingsAsync(Arg.Any<AssistantSettings>(), Arg.Any<CancellationToken>()).Returns<AssistantSettingsState>(_ =>
@@ -554,7 +621,7 @@ public sealed class AssistantTests
             using var f = new DevicesFixture(api);
             var devices = Devices(60);
             f.SeedDevices(devices);
-            var panel = Panel(api, f);
+            var panel = await PanelAsync(api, f);
             var window = PanelWindow(panel);
             window.Show();
             Pump();
@@ -698,7 +765,8 @@ public sealed class AssistantTests
                 view.GetVisualDescendants().OfType<CollapsibleCard>().Single().IsExpanded = true;
                 Pump();
                 Assert.True(view.FindControl<Control>("AssistantSection")!.IsEffectivelyVisible);
-                Assert.Equal(admin, view.FindControl<ComboBox>("AssistantModel")!.IsEffectivelyVisible);
+                Assert.Equal(admin, view.FindControl<ComboBox>("AssistantProvider")!.IsEffectivelyVisible);
+                Assert.DoesNotContain(window.GetVisualDescendants().OfType<Oadm.Sdk.Client.Controls.FormField>(), x => x.Label == "Model"); // chosen in the panel
                 Assert.Equal(admin, view.FindControl<Button>("AssistantSave")!.IsEffectivelyVisible);
                 if (admin)
                 {
