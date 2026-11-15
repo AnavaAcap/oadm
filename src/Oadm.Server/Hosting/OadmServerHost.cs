@@ -215,6 +215,8 @@ public static partial class OadmServerHost
                     .. Tools.RuleTools.Create(cursors, sp.GetRequiredService<Tools.ToolHandles>()),
                     .. Tools.DeviceChangeTools.Create(sp.GetRequiredService<Tools.ToolHandles>(), sp.GetRequiredService<TimeProvider>()),
                     .. Tools.SettingsTools.Create(),
+                    Tools.ServerStatusTool.Create(call => call.CallAsync<Mcp.McpGrpcService, Oadm.Contracts.V1.Empty, Oadm.Contracts.V1.McpState>(
+                        Tools.ServerStatusTool.McpPath, new Oadm.Contracts.V1.Empty(), (s, r, c) => s.Get(r, c))),
                     .. Tools.FileTools.Create(cursors, sp.GetRequiredService<Tools.ToolHandles>()),
                     .. Tools.SelectionTools.Create(cursors),
                     .. Tools.DocsTools.Create(() => Assistant.DocsIndex.Shipped),
