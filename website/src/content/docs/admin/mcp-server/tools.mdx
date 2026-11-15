@@ -15,7 +15,7 @@ and runs after the user agreed.
 | --- | --- | --- |
 | `oadm_server_info` | Read | The OADM server, who you are, your role and what it allows, the limits of this server and how many devices you see. Call it first. |
 | `oadm_server_status` | Read | OADM's own state: OADM PRO, which plugins are on, MCP and the assistant, and the date of the list of Axis vulnerabilities. Read only. |
-| `oadm_settings_get` | Read | The server settings OADM shows every user, read only: how it scans, retries, runs tasks and checks clocks. Change them in OADM. |
+| `oadm_settings_get` | Read | The server settings OADM shows every user: how it scans, retries, runs tasks and checks clocks. Administrators change them with oadm_settings_set_preview. |
 | `oadm_settings_set_preview` | Preview | Shows the old and new value of each server setting you name, checked as the Settings page checks them; nothing is changed. Then call oadm_settings_set_run with the handle. |
 | `oadm_settings_set_run` | Run (changes) | Saves the settings of a preview, checked again, as Save on the Settings page does; audited as server settings. |
 

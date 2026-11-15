@@ -767,6 +767,6 @@ public sealed class McpDeviceChangeTests
         Assert.DoesNotContain("installer", text, StringComparison.Ordinal);
         Assert.DoesNotContain(StoredPassword, text, StringComparison.Ordinal);
         Assert.True(server.Host.Get<ToolRegistry>().All.Single(t => t.Name == "oadm_settings_get").ReadsOnly);
-        Assert.DoesNotContain("/oadm.v1.SettingsService/Set", server.Host.Get<ToolRegistry>().All.SelectMany(t => t.Methods));
+        Assert.Equal(["oadm_settings_set_preview", "oadm_settings_set_run"], server.Host.Get<ToolRegistry>().All.Where(t => t.Methods.Contains("/oadm.v1.SettingsService/Set")).Select(t => t.Name).Order(StringComparer.Ordinal)); // the change is its own pair (decision 2026-11-15)
     }
 }
