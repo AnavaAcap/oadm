@@ -217,6 +217,7 @@ public static partial class OadmServerHost
                     .. Tools.ComplianceTools.Create(),
                     .. Tools.VulnerabilityTools.Create(cursors, facts),
                     .. Tools.RuleTools.Create(cursors, sp.GetRequiredService<Tools.ToolHandles>()),
+                    .. Tools.RecipientTools.Create(cursors),
                     .. Tools.DeviceChangeTools.Create(sp.GetRequiredService<Tools.ToolHandles>(), sp.GetRequiredService<TimeProvider>()),
                     .. Tools.SettingsTools.Create(),
                     Tools.ServerStatusTool.Create(call => call.CallAsync<Mcp.McpGrpcService, Oadm.Contracts.V1.Empty, Oadm.Contracts.V1.McpState>(

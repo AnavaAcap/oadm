@@ -15,3 +15,8 @@ Id `oadm.mqtt`, server only, always on. Event rule action **Publish MQTT message
 - On Windows the session copies a client certificate into the key store until it closes: Windows TLS refuses a key that lives only in memory.
 - Two connections with one client ID take each other's place on the broker. The default is one ID per recipient (`MqttRecipient.DefaultClientId`), so
   two recipients on one broker need no setting. A Test gets a unique ID, and a unique ending on a chosen Client ID, so it never throws the open session off.
+
+## MCP
+
+Its recipients and their connection are in the host tool `oadm_recipients_list` (docs/spec/mcp.md): target as scheme, host
+and port, "has_password" only, the rules that use them. An action plugin has no tools of its own.

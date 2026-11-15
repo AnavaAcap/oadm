@@ -4,6 +4,7 @@ using System.Text.Json;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 
+using Oadm.Plugins.IoMonitor.Tools;
 using Oadm.Sdk.Devices;
 using Oadm.Sdk.Plugins;
 using Oadm.Sdk.Vapix;
@@ -71,6 +72,12 @@ public sealed partial class IoMonitorPlugin : ICorePlugin, IAsyncDisposable
     public CorePluginGroup Group => CorePluginGroup.Monitoring;
 
     public IReadOnlyList<ITaskPlugin> TaskPlugins => [];
+
+    /// <summary>The read-only tool <c>oadm_io_ports</c> (docs/spec/mcp.md "Plugins"): one read of a device's ports, the page's rule.</summary>
+    public IReadOnlyList<PluginTool> Tools => IoMonitorTools.All;
+
+    /// <summary>The tools are named <c>oadm_io_...</c>.</summary>
+    public string? ToolArea => "io";
 
     /// <summary>Running streams, one per page (tests).</summary>
     public int StreamCount
@@ -167,6 +174,8 @@ public sealed partial class IoMonitorPlugin : ICorePlugin, IAsyncDisposable
                 var stopped = FindJob(caller, IoMonitorJson.Deserialize<StreamRequest>(payloadJson).StreamId);
                 await StopStreamAsync(stopped.Id).ConfigureAwait(false);
                 return null;
+            case var _ when method == IoMonitorTools.Ports.Method:
+                return await ReadOnceAsync(caller, payloadJson, ct).ConfigureAwait(false);
             case IoMonitorMethods.KeepAlive:
                 return IoMonitorJson.Serialize(new KeepAliveReply(KeepAlive(FindJob(caller, IoMonitorJson.Deserialize<StreamRequest>(payloadJson).StreamId).Id)));
             default:
@@ -227,6 +236,65 @@ public sealed partial class IoMonitorPlugin : ICorePlugin, IAsyncDisposable
         ];
     }
 
+    /// <summary>One <c>getPorts</c> of the I/O port management API. Throws <see cref="InvalidOperationException"/> with the device's error.</summary>
+    internal static async Task<IReadOnlyList<IoPort>> GetPortsAsync(IVapixClient client, TimeSpan timeout, CancellationToken ct)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Post, IoMonitorPluginInfo.Path)
+        {
+            Content = new StringContent("""{"apiVersion":"1.0","context":"oadm","method":"getPorts"}""", Encoding.UTF8, "application/json"),
+        };
+        request.Options.Set(VapixRequestOptions.Timeout, timeout);
+        using var response = await client.SendAsync(request, ct).ConfigureAwait(false);
+        if (!response.IsSuccessStatusCode)
+        {
+            throw new InvalidOperationException(DeviceMessages.ForHttpStatus((int)response.StatusCode) ?? DeviceMessages.ServerError((int)response.StatusCode));
+        }
+
+        return ParsePorts(await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false));
+    }
+
+    /// <summary>
+    /// The tool's one read of a device's ports, with the checks of a page's start: a device outside the caller's view answers
+    /// like an unknown one, a refused status, a device without the API and a failed read answer the page's texts in
+    /// <c>error</c>. It starts no stream and keeps nothing.
+    /// </summary>
+    private async Task<string> ReadOnceAsync(ICallContext caller, string? payloadJson, CancellationToken ct)
+    {
+        var args = PluginJson.Parse<IoMonitorTools.PortsArgs>(string.IsNullOrWhiteSpace(payloadJson) ? "{}" : payloadJson, IoMonitorTools.Json);
+        if (args.DeviceId == Guid.Empty)
+        {
+            return PluginToolErrors.Answer([new("device_id", IoMonitorTools.EnterDevice)]);
+        }
+
+        var device = await caller.Devices.FindAsync(args.DeviceId, ct).ConfigureAwait(false);
+        if (device is null)
+        {
+            return caller.HasAllDevices ? PluginToolErrors.Answer([new("device_id", DeviceMessages.NoLongerAvailable(1))]) : throw new DevicesNotAvailableException();
+        }
+
+        var error = RefusalFor(device) ?? (device.Apis.Supports(IoMonitorPluginInfo.ApiId, "1.0") ? null : IoMonitorTools.NoPorts);
+        IReadOnlyList<IoPort> ports = [];
+        if (error is null)
+        {
+            try
+            {
+                var client = await caller.Vapix.CreateAsync(device.Id, ct).ConfigureAwait(false);
+                ports = await GetPortsAsync(client, _options.RequestTimeout, ct).ConfigureAwait(false);
+            }
+            catch (Exception ex) when (ex is not DevicesNotAvailableException && (ex is not OperationCanceledException || !ct.IsCancellationRequested))
+            {
+                error = ex switch
+                {
+                    OperationCanceledException => DeviceMessages.Timeout(_options.RequestTimeout),
+                    InvalidOperationException or JsonException => ex.Message,
+                    _ => DeviceMessages.Unreachable(ex.Message),
+                };
+            }
+        }
+
+        return JsonSerializer.Serialize(IoMonitorTools.Answer(device.Id, device.Address, ports, error, _time.GetUtcNow()), IoMonitorTools.Json);
+    }
+
     /// <summary>The user's stream job; another user's id and an unknown one answer alike.</summary>
     private IPluginJob FindJob(ICallContext caller, string? streamId) =>
         (streamId is null ? null : Jobs.Find(caller, streamId)) ?? throw new KeyNotFoundException(IoMonitorMethods.StreamEnded);
@@ -256,7 +324,7 @@ public sealed partial class IoMonitorPlugin : ICorePlugin, IAsyncDisposable
 
         if (!device.Apis.Supports(IoMonitorPluginInfo.ApiId, "1.0"))
         {
-            return new StartReply(null, "The device has no inputs or outputs to show");
+            return new StartReply(null, IoMonitorTools.NoPorts);
         }
 
         var key = (deviceId, caller.DeviceScopeKey);
@@ -564,18 +632,7 @@ public sealed partial class IoMonitorPlugin : ICorePlugin, IAsyncDisposable
                 throw new InvalidOperationException(DeviceMessages.Unreachable(ex.Message), ex);
             }
 
-            using var request = new HttpRequestMessage(HttpMethod.Post, IoMonitorPluginInfo.Path)
-            {
-                Content = new StringContent("""{"apiVersion":"1.0","context":"oadm","method":"getPorts"}""", Encoding.UTF8, "application/json"),
-            };
-            request.Options.Set(VapixRequestOptions.Timeout, options.RequestTimeout);
-            using var response = await client.SendAsync(request, ct).ConfigureAwait(false);
-            if (!response.IsSuccessStatusCode)
-            {
-                throw new InvalidOperationException(DeviceMessages.ForHttpStatus((int)response.StatusCode) ?? DeviceMessages.ServerError((int)response.StatusCode));
-            }
-
-            return ParsePorts(await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false));
+            return await GetPortsAsync(client, options.RequestTimeout, ct).ConfigureAwait(false);
         }
 
         /// <summary>The VAPIX clients of one of the streams' users (all of them share the device scope).</summary>

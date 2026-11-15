@@ -107,6 +107,13 @@ with Error "1 device is no longer available." when the camera alone leaves the u
 group or its rules change (the host ends the job). Messages and states go only to the page's session. See
 [Device groups](../../docs/spec/device-scope.md).
 
+## MCP
+
+`Tools/MetadataTools` (`ICorePlugin.Tools`, area `metadata`, docs/spec/mcp.md): the read-only tool `oadm_metadata_streams`
+lists the streams pages have open on the caller's devices (any user's page): state, text, message and lost counts, the
+time of the last message and the last 3 messages (topic, operation, values in one line, cut at 160 characters); with
+`device_id` the last 20 of that device's streams (`MonitorSession.Recent`, memory only). It opens no stream.
+
 ## Tests
 
 - `tests/Oadm.Plugins.MetadataMonitor.Tests`: parser (namespaces, several notifications per document, malformed XML, Info

@@ -1,6 +1,7 @@
 using System.Reflection;
 
 using Oadm.Plugins.SnapshotReport.Report;
+using Oadm.Plugins.SnapshotReport.Tools;
 using Oadm.Sdk.Plugins;
 
 namespace Oadm.Plugins.SnapshotReport;
@@ -36,7 +37,10 @@ public sealed class SnapshotReportPlugin : ICorePlugin, IDisposable
         new("report", "Create snapshots and reports", "Take a current picture of every camera and export the PDF report.") { ViewerDefault = true },
     ];
 
-    public string? RequiredPermission(string method) => method == SnapshotReportMethods.ListSources ? PermissionKeys.Show : "report";
+    public string? RequiredPermission(string method) => method == SnapshotReportMethods.ListSources || SnapshotTools.Sources.Calls(method) ? PermissionKeys.Show : "report";
+
+    /// <summary>The read-only tool <c>oadm_snapshot_report_sources</c> (docs/spec/mcp.md "Plugins"): "show", like the page's tiles.</summary>
+    public IReadOnlyList<PluginTool> Tools => SnapshotTools.All;
 
     /// <summary>The OADM version printed on the report cover (host application version).</summary>
     public static string HostVersion
@@ -113,6 +117,13 @@ public sealed class SnapshotReportPlugin : ICorePlugin, IDisposable
         {
             case SnapshotReportMethods.ListSources:
                 return SnapshotReportJson.Serialize(await snapshots.ListSourcesAsync(caller, SnapshotReportJson.Deserialize<ListSourcesRequest>(payloadJson), ct).ConfigureAwait(false));
+            case var _ when method == SnapshotTools.Sources.Method:
+            {
+                // The page's tiles of the chosen cameras (the caller's devices only), with the sources the page keeps.
+                var (request, errors) = SnapshotTools.RequestOf(payloadJson);
+                return request is null ? errors : SnapshotTools.Answer(await snapshots.ListSourcesAsync(caller, request, ct, refreshSources: false).ConfigureAwait(false));
+            }
+
             case SnapshotReportMethods.Snapshot:
             {
                 var request = SnapshotRequestOf(payloadJson);

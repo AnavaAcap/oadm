@@ -1,4 +1,5 @@
 using Oadm.Plugins.ImageHealth.Monitoring;
+using Oadm.Plugins.ImageHealth.Tools;
 using Oadm.Plugins.Shared;
 using Oadm.Sdk.Devices;
 using Oadm.Sdk.Plugins;
@@ -38,6 +39,9 @@ public sealed class ImageHealthPlugin : ICorePlugin, IAsyncDisposable
     public CorePluginGroup Group => CorePluginGroup.Monitoring;
 
     public IReadOnlyList<ITaskPlugin> TaskPlugins => [];
+
+    /// <summary>The read-only tool <c>oadm_image_health_results</c> (docs/spec/mcp.md "Plugins"), with the page's rule.</summary>
+    public IReadOnlyList<PluginTool> Tools => ImageHealthTools.All;
 
     /// <summary>The monitor while the plugin runs (tests).</summary>
     internal ImageHealthMonitor? Monitor => _monitor;
@@ -85,6 +89,9 @@ public sealed class ImageHealthPlugin : ICorePlugin, IAsyncDisposable
                 return ImageHealthJson.Serialize(await monitor.SnapshotAsync(caller, ct).ConfigureAwait(false));
             case ImageHealthMethods.GetState:
                 return ImageHealthJson.Serialize(await monitor.SnapshotAsync(caller, ct).ConfigureAwait(false));
+            case var _ when method == ImageHealthTools.Results.Method:
+                // The caller's table as it is: no camera is asked.
+                return ImageHealthTools.Answer(await monitor.SnapshotAsync(caller, ct).ConfigureAwait(false), payloadJson);
             default:
                 throw new ArgumentException($"Unknown method '{method}'.", nameof(method));
         }

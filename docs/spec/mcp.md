@@ -286,11 +286,26 @@ confirmation, and needs the plugin's "Run on many devices" right. At most 1,000 
 values as `***` in its steps and log (`RolloutPayload.MaskSecrets`, `SecretValues`): a value whose label, parameter or path
 names a secret (community, password, key, token, ...), never a yes/no value.
 
+**Monitoring and maintenance pages** (read only, what each page shows, with the page's right, the caller's devices and
+counts first; decision 2026-11-15 "the agents see everything OADM shows"): `oadm_edge_storage_cards`,
+`oadm_image_health_results` (the last read or check the page made, never a camera read by the tool),
+`oadm_recordings_search` (the page's search of one camera), `oadm_io_ports` (one read of one device's ports, no stream),
+`oadm_metadata_streams` (the streams pages have open and their last messages; it opens none), `oadm_dashboards_list` and
+`oadm_dashboards_values` (the values the widgets show now, nothing watched), `oadm_load_test_checks` and `oadm_load_test_check`,
+`oadm_snapshot_report_sources` (1 to 20 cameras). The host tool `oadm_recipients_list` (`Tools/RecipientTools`, rights of
+`ListRecipients`, users with all devices) lists the recipients of the action plugins (Notifications, MQTT, Modbus, OPC UA)
+with the target as scheme, host and port, `has_password` only, the rules that use them and the connection of a persistent
+type (the first answer of `WatchRecipientStatus`). Not offered: System report (its jobs belong to a user's session and
+hold the devices' configuration), Outputs (an action without state; `oadm_io_ports` shows the outputs), starting reads,
+checks, streams, exports and reports (they stay in the pages). A read's name never ends in `_preview` or `_run`, which name
+the two halves of a change (the load test's are `checks` and `check`).
+
 ### Not over MCP
 
-Live video, Live View tabs, Dashboards live values, Metadata Monitor and I/O Monitor streams, Web View; users, roles,
-device groups, access keys, license changes, plugins on/off, Forget server; Settings changes; backup restore, Delete all
-tasks, Delete all devices (reading the license and plugin state is `oadm_server_status`). Backups stay GUI only: no tool creates, downloads or restores one (decision 2026-11-15).
+Live video, Live View tabs, Dashboards live updates, Metadata Monitor and I/O Monitor streams (their state and one read
+are offered, see "Plugins"), Web View; users, roles, device groups, access keys, license changes, plugins on/off, Forget
+server; Settings changes; backup restore, Delete all tasks, Delete all devices (reading the license and plugin state is
+`oadm_server_status`). Backups stay GUI only: no tool creates, downloads or restores one (decision 2026-11-15).
 
 ## Files
 
@@ -580,7 +595,7 @@ The website gets a user page (Administration > MCP server, `admin/mcp-server`, n
 ## Open points
 
 - Client support for the MCP tasks extension: if it spreads, `oadm_task_run` may answer a task handle instead of polling.
-- Not offered yet: recipients, changing compliance checks, turning a rule on or off by itself; the waiting list keeps no
+- Not offered yet: changing recipients, changing compliance checks, turning a rule on or off by itself; the waiting list keeps no
   tags or site for a device an agent puts there.
 - The skills extension is declared without fields; when its schema settles, `McpSkill` may list the skill there too.
 

@@ -294,6 +294,11 @@ public sealed class McpPluginToolTests
         var deviceConfig = new PluginOrigin(Oadm.Plugins.DeviceConfig.DeviceConfigIds.PackageId, "1.0.0", null) { DisplayName = "Device configuration", AlwaysOn = true };
         registry.RegisterCorePlugin(new Oadm.Plugins.DeviceConfig.Tools.DeviceConfigToolsPlugin(), deviceConfig);
         registry.RegisterTaskPlugin(new Oadm.Plugins.DeviceConfig.Configure.ConfigureDevicesTask(), deviceConfig);
+        foreach (var page in McpPageToolTests.PagePlugins().Where(p => p is not Oadm.Plugins.EdgeStorage.EdgeStoragePlugin)) // Edge storage is above
+        {
+            registry.RegisterCorePlugin(page, new PluginOrigin(page.Id, "1.0.0", null) { DisplayName = page.DisplayName, MinSdkVersion = SdkInfo.Version });
+        }
+
         await server.Host.Get<PluginActivation>().LoadAsync(CancellationToken.None);
         await server.Host.Get<RoleStore>().SyncCatalogAsync(PermissionCatalog.Build(registry), CancellationToken.None);
         await server.Host.Get<CorePluginHost>().StartAllAsync(CancellationToken.None);
@@ -380,6 +385,13 @@ public sealed class McpPluginToolTests
                 "hardening" => "Hardening scan",
                 "vapix" => "VAPIX Commander",
                 "config" => "Device configuration",
+                "recipients" => "Event rules",
+                "recordings" => "Edge Recording Export",
+                "image" => "Image Health Dashboard",
+                "io" => "I/O Monitor",
+                "metadata" => "Metadata Monitor",
+                "load" => "Load test",
+                "snapshot" => "Snapshot report",
                 _ => char.ToUpperInvariant(word[0]) + word[1..],
             };
         }
@@ -389,7 +401,8 @@ public sealed class McpPluginToolTests
             : name.EndsWith("_run", StringComparison.Ordinal) ? "Run (changes)"
             : tool["annotations"]?["readOnlyHint"]?.GetValue<bool>() == true ? "Read" : "Change";
 
-        var order = new[] { "Server", "Devices", "Tasks", "Files", "Tags", "Sites", "Compliance", "Vulnerabilities", "Event rules", "Logs", "PKI", "EST server", "802.1X server", "NTP server", "DHCP server", "Hardening scan", "Application management", "Edge storage", "Action Rule Editor", "Device triggers", "VAPIX Commander", "Device configuration" };
+        var order = new[] { "Server", "Devices", "Tasks", "Files", "Tags", "Sites", "Compliance", "Vulnerabilities", "Event rules", "Logs", "PKI", "EST server", "802.1X server", "NTP server", "DHCP server", "Hardening scan", "Application management", "Edge storage", "Action Rule Editor", "Device triggers", "VAPIX Commander", "Device configuration",
+            "Edge Recording Export", "Image Health Dashboard", "I/O Monitor", "Metadata Monitor", "Dashboards", "Load test", "Snapshot report" };
         var text = new System.Text.StringBuilder();
         foreach (var line in Intro)
         {

@@ -28,7 +28,7 @@ public sealed class McpAreaToolTests
     /// <summary>The tools of the areas (<see cref="McpToolTests"/> lists them with those of the other stages).</summary>
     public static readonly string[] ToolNames =
     [
-        "oadm_compliance_checks", "oadm_compliance_summary", "oadm_events_log", "oadm_rules_catalog", "oadm_rules_delete_preview",
+        "oadm_compliance_checks", "oadm_compliance_summary", "oadm_events_log", "oadm_recipients_list", "oadm_rules_catalog", "oadm_rules_delete_preview",
         "oadm_rules_delete_run", "oadm_rules_get", "oadm_rules_list", "oadm_rules_save_preview", "oadm_rules_save_run", "oadm_sites_list",
         "oadm_tags_assign_preview", "oadm_tags_assign_run", "oadm_tags_list", "oadm_vulnerabilities", "oadm_vulnerabilities_summary",
     ];
@@ -43,6 +43,7 @@ public sealed class McpAreaToolTests
         "/oadm.v1.DeviceService/Search",
         "/oadm.v1.EventService/CheckRule", "/oadm.v1.EventService/DeleteRule", "/oadm.v1.EventService/GetCatalog", "/oadm.v1.EventService/GetRule",
         "/oadm.v1.EventService/ListLog", "/oadm.v1.EventService/ListRecipients", "/oadm.v1.EventService/ListRules", "/oadm.v1.EventService/SaveRule",
+        "/oadm.v1.EventService/WatchRecipientStatus",
         "/oadm.v1.SiteService/ListSites",
         "/oadm.v1.TagService/List", "/oadm.v1.TagService/PlanDeviceTags", "/oadm.v1.TagService/SetDeviceTags",
         "/oadm.v1.VulnerabilityService/Get",
@@ -67,6 +68,7 @@ public sealed class McpAreaToolTests
         ["oadm_events_log"] = [],
         ["oadm_vulnerabilities_summary"] = [],
         ["oadm_vulnerabilities"] = [],
+        ["oadm_recipients_list"] = [],
     };
 
     private static async Task<(McpTestServer Server, Device[] Devices)> StartWithDevicesAsync(int count, string prefix, int serial)

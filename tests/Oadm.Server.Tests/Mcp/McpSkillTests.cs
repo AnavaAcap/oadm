@@ -39,6 +39,9 @@ public sealed partial class McpSkillTests
         .. AddOnToolNames,
         "oadm_device_rules_list", "oadm_device_triggers_list", "oadm_device_triggers_devices",
         "oadm_config_parameters", "oadm_config_action_rules", "oadm_config_stream_profiles",
+        "oadm_recordings_search", "oadm_image_health_results", "oadm_io_ports", "oadm_metadata_streams",
+        "oadm_dashboards_list", "oadm_dashboards_values", "oadm_load_test_checks", "oadm_load_test_check", "oadm_snapshot_report_sources",
+        "oadm_recipients_list",
     ];
 
     private static readonly string[] Workflows =

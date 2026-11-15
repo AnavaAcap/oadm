@@ -75,6 +75,11 @@ any address. No methods, no devices.
 `siteSupport: full`: the actions need no device, so rules about devices at a site use them like any other. They send on
 the server's own network (the user's own servers).
 
+## MCP
+
+Its recipients (HTTP, Email, TCP) are in the host tool `oadm_recipients_list` (docs/spec/mcp.md): target as scheme, host
+and port, "has_password" only, the rules that use them. An action plugin has no tools of its own.
+
 ## Tests
 
 `tests/Oadm.Plugins.Notifications.Tests`: a small HTTP server on 127.0.0.1 (plain and TLS with a self-signed

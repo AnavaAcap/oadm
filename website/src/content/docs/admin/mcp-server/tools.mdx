@@ -89,6 +89,7 @@ and runs after the user agreed.
 | Tool | Kind | What it does |
 | --- | --- | --- |
 | `oadm_events_log` | Read | The event log, the newest first: the events rules use, rules that fired and every action that ran, with a result. It has no total; pass next_cursor for older entries. |
+| `oadm_recipients_list` | Read | The recipients of the event rules (HTTP, email, TCP, MQTT, Modbus, OPC UA) with their target, the rules that use them and, for MQTT, Modbus and OPC UA, whether their connection is up. Counts first, then a page by name. |
 | `oadm_rules_catalog` | Read | The events and actions rules are made of, and the recipients they can send to. Pass event or action for one in full, with its fields; call it before oadm_rules_save_preview. |
 | `oadm_rules_delete_preview` | Preview | Shows the rule that would be deleted and what its deletion does; nothing is deleted. Show it to the user, then call oadm_rules_delete_run with the handle. |
 | `oadm_rules_delete_run` | Run (changes) | Deletes the rule of a preview. A rule that is on runs its off actions first. |
@@ -184,6 +185,56 @@ and runs after the user agreed.
 | `oadm_config_action_rules` | Read | Reads the action rules of devices: name, on or off, the event and the action, grouped by rule with the devices that have it. |
 | `oadm_config_parameters` | Read | Reads the value of a setting on many devices and groups the devices by value, e.g. capture frequency or capture mode. Find the setting by a word of its name or label, or by its exact parameter name. |
 | `oadm_config_stream_profiles` | Read | Reads the stream profiles of devices (name, description, resolution, frame rate, codec), grouped by profile name with the devices that have it. |
+
+## Edge storage
+
+| Tool | Kind | What it does |
+| --- | --- | --- |
+| `oadm_edge_storage_cards` | Read | Lists the SD cards of the cameras the Edge storage page read last: the counts by state, then per camera its state, size, used share, wear and retention. |
+
+## Edge Recording Export
+
+| Tool | Kind | What it does |
+| --- | --- | --- |
+| `oadm_recordings_search` | Read | Searches the recordings on the SD card or network share of one camera in a time range: the count, the time span, the estimated size, then the recordings oldest first. |
+
+## Image Health Dashboard
+
+| Tool | Kind | What it does |
+| --- | --- | --- |
+| `oadm_image_health_results` | Read | Lists the last image health check of the cameras: the counts, then per camera whether it is blurred, blocked, redirected, too dark or unsuitable. |
+
+## I/O Monitor
+
+| Tool | Kind | What it does |
+| --- | --- | --- |
+| `oadm_io_ports` | Read | Reads the inputs and outputs of one device once: each port's name, direction, state, normal state and whether it is active. |
+
+## Metadata Monitor
+
+| Tool | Kind | What it does |
+| --- | --- | --- |
+| `oadm_metadata_streams` | Read | Lists the event streams the Metadata Monitor page has open on your devices, with their state, message counts and last messages. |
+
+## Dashboards
+
+| Tool | Kind | What it does |
+| --- | --- | --- |
+| `oadm_dashboards_list` | Read | Lists the dashboards by name with how many widgets of each kind they have. |
+| `oadm_dashboards_values` | Read | Shows the widgets of one dashboard with the value each shows now, when it came and why it may be old. |
+
+## Load test
+
+| Tool | Kind | What it does |
+| --- | --- | --- |
+| `oadm_load_test_check` | Read | Shows one load test check: its verdict, the result of each ramp step, then its camera streams worst first with their loss, rate and first problem. |
+| `oadm_load_test_checks` | Read | Lists the kept load test checks, newest first, with the verdict, the peak rate, the worst loss and the progress of the running one. |
+
+## Snapshot report
+
+| Tool | Kind | What it does |
+| --- | --- | --- |
+| `oadm_snapshot_report_sources` | Read | Lists the video sources of chosen cameras as the Snapshot report shows them, with the facts the report prints and why a camera cannot be shown. |
 
 ## Docs
 
