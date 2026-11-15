@@ -334,12 +334,18 @@ internal static class Samples
         return xml.Append("</reply>").ToString();
     }
 
-    /// <summary>A camera that answers list.cgi with <paramref name="apps"/> and refuses everything else.</summary>
+    /// <summary>The info.cgi reply of the AXIS P3265-V (AXIS OS 12.11, plugin README "Device API").</summary>
+    public const string InfoXml = "<supportedSdks><sdk name=\"acap3\"/><sdk name=\"acap4-cv\"/><sdk name=\"acap4-native\"/></supportedSdks>";
+
+    /// <summary>A camera that answers list.cgi with <paramref name="apps"/>, info.cgi like the P3265-V and refuses everything else.</summary>
     public static FakeCamera Camera(params InstalledApplication[] apps) => new()
     {
-        Respond = (request, _) => request.RequestUri?.OriginalString.StartsWith(ApplicationApiClient.ListPath, StringComparison.Ordinal) == true
-            ? new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(ListXml(apps)) }
-            : new HttpResponseMessage(HttpStatusCode.BadRequest),
+        Respond = (request, _) => request.RequestUri?.OriginalString switch
+        {
+            { } uri when uri.StartsWith(ApplicationApiClient.ListPath, StringComparison.Ordinal) => new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(ListXml(apps)) },
+            { } uri when uri.StartsWith(ApplicationApiClient.InfoPath, StringComparison.Ordinal) => new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(InfoXml) },
+            _ => new HttpResponseMessage(HttpStatusCode.BadRequest),
+        },
     };
 
     /// <summary>A device with the Application API in its cached list.</summary>

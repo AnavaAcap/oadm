@@ -168,6 +168,9 @@ public sealed record DeviceApps
     /// <summary>The embedded development (ACAP SDK) version, for old package.conf packages; null when not known.</summary>
     public string? EmbeddedDevelopmentVersion { get; init; }
 
+    /// <summary>The kinds of applications the device runs (applications/info.cgi: "acap3", "acap4-native"); null when not known.</summary>
+    public IReadOnlyList<string>? SupportedSdks { get; init; }
+
     /// <summary>Not read (not Ok, no Application API) or the read failed: the text of the status cell.</summary>
     public string? Error { get; init; }
 

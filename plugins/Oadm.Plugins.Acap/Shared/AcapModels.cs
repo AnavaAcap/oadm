@@ -467,6 +467,9 @@ public sealed record AcapDeviceFacts
     /// <summary>Properties.EmbeddedDevelopment.Version, e.g. 2.18.</summary>
     public string? EmbeddedDevelopmentVersion { get; init; }
 
+    /// <summary>applications/info.cgi <c>supportedSdks</c> ("acap3", "acap4-cv", "acap4-native"), lower case; null when the device did not answer.</summary>
+    public IReadOnlyList<string>? SupportedSdks { get; init; }
+
     /// <summary>config.cgi AllowUnsigned; null when the device does not offer it (before AXIS OS 11.2).</summary>
     public bool? AllowUnsigned { get; init; }
 

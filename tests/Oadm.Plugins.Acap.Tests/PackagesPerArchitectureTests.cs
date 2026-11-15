@@ -246,7 +246,7 @@ public sealed class PackagesPerArchitectureTests : IDisposable
 
         Assert.Empty(device.Writes);
         Assert.Equal(
-            ["Check compatibility: Done", "Read package: Done", "Read device info: Warning", "Read SDK version: Skipped", "Read unsigned application setting: Skipped",
+            ["Check compatibility: Done", "Read package: Done", "Read SDK version: Done", "Read device info: Warning", "Read unsigned application setting: Skipped",
              "Read installed applications: Skipped", "Check package: Skipped", "Upload package: Skipped", "Verify installation: Skipped", "Completed: Done"],
             StepRun.Lines(ctx.Steps));
         Assert.Equal("No package for armv7hf. Nothing was changed.", StepRun.Detail(ctx.Steps, "Read device info"));
