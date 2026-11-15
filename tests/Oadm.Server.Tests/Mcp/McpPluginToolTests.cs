@@ -281,6 +281,11 @@ public sealed class McpPluginToolTests
         registry.RegisterCorePlugin(new DhcpServerPlugin(), new PluginOrigin(DhcpServerPluginInfo.PluginId, "1.0.0", null) { DisplayName = "DHCP server" });
         registry.RegisterCorePlugin(new HardeningScanPlugin(), new PluginOrigin(HardeningScanPluginInfo.PluginId, "1.0.0", null) { DisplayName = "Hardening scan" });
         registry.RegisterCorePlugin(new Oadm.Plugins.VapixCommander.VapixCommanderPlugin(), new PluginOrigin(Oadm.Plugins.VapixCommander.VapixCommanderPlugin.PluginId, "1.0.0", null) { DisplayName = "VAPIX Commander" });
+        foreach (var page in McpPageToolTests.PagePlugins())
+        {
+            registry.RegisterCorePlugin(page, new PluginOrigin(page.Id, "1.0.0", null) { DisplayName = page.DisplayName, MinSdkVersion = SdkInfo.Version });
+        }
+
         await server.Host.Get<PluginActivation>().LoadAsync(CancellationToken.None);
         await server.Host.Get<RoleStore>().SyncCatalogAsync(PermissionCatalog.Build(registry), CancellationToken.None);
         await server.Host.Get<CorePluginHost>().StartAllAsync(CancellationToken.None);
@@ -359,6 +364,14 @@ public sealed class McpPluginToolTests
                 "dhcp" => "DHCP server",
                 "hardening" => "Hardening scan",
                 "vapix" => "VAPIX Commander",
+                "recipients" => "Event rules",
+                "edge" => "Edge storage",
+                "recordings" => "Edge Recording Export",
+                "image" => "Image Health Dashboard",
+                "io" => "I/O Monitor",
+                "metadata" => "Metadata Monitor",
+                "load" => "Load test",
+                "snapshot" => "Snapshot report",
                 _ => char.ToUpperInvariant(word[0]) + word[1..],
             };
         }
@@ -368,7 +381,8 @@ public sealed class McpPluginToolTests
             : name.EndsWith("_run", StringComparison.Ordinal) ? "Run (changes)"
             : tool["annotations"]?["readOnlyHint"]?.GetValue<bool>() == true ? "Read" : "Change";
 
-        var order = new[] { "Server", "Devices", "Tasks", "Files", "Tags", "Sites", "Compliance", "Event rules", "Logs", "PKI", "NTP server", "DHCP server", "Hardening scan", "VAPIX Commander" };
+        var order = new[] { "Server", "Devices", "Tasks", "Files", "Tags", "Sites", "Compliance", "Event rules", "Logs", "PKI", "NTP server", "DHCP server", "Hardening scan", "VAPIX Commander",
+            "Edge storage", "Edge Recording Export", "Image Health Dashboard", "I/O Monitor", "Metadata Monitor", "Dashboards", "Load test", "Snapshot report" };
         var text = new System.Text.StringBuilder();
         foreach (var line in Intro)
         {

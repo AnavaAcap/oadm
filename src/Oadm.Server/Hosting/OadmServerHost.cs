@@ -213,6 +213,7 @@ public static partial class OadmServerHost
                     .. Tools.SiteTools.Create(cursors),
                     .. Tools.ComplianceTools.Create(),
                     .. Tools.RuleTools.Create(cursors, sp.GetRequiredService<Tools.ToolHandles>()),
+                    .. Tools.RecipientTools.Create(cursors),
                     .. Tools.DeviceChangeTools.Create(sp.GetRequiredService<Tools.ToolHandles>(), sp.GetRequiredService<TimeProvider>()),
                     .. Tools.SettingsTools.Create(),
                     .. Tools.FileTools.Create(cursors, sp.GetRequiredService<Tools.ToolHandles>()),
