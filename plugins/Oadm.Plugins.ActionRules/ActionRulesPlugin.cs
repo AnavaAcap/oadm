@@ -71,12 +71,12 @@ public sealed partial class ActionRulesPlugin : ICorePlugin, IAsyncDisposable
     internal DeviceSweeps<DeviceRulesRow>? Sweeps => _sweeps;
 
     /// <summary>The read tool (docs/spec/mcp.md "Plugins"): the rules the editor read last, "show" like the page; it reads no device.</summary>
-    public IReadOnlyList<PluginTool> Tools => ActionRuleTools.All;
+    public IReadOnlyList<PluginTool> Tools { get; } = [.. ActionRuleTools.All, .. ActionRulePageTools.Set.Tools];
 
     /// <summary>The tool is named <c>oadm_device_rules_list</c>: the rules on the devices, apart from OADM's own event rules (<c>oadm_rules_*</c>).</summary>
     public string? ToolArea => "device_rules";
 
-    public string? RequiredPermission(string method) => method switch
+    public string? RequiredPermission(string method) => ActionRulePageTools.Set.RulesMethodOf(method) switch
     {
         ActionRulesMethods.Read or ActionRulesMethods.GetState or ActionRulesMethods.GetProgress or ActionRulesMethods.Templates or ActionRulesMethods.UndoRuns
             or ActionRulesMethods.Events => PermissionKeys.Show,
@@ -88,7 +88,7 @@ public sealed partial class ActionRulesPlugin : ICorePlugin, IAsyncDisposable
     };
 
     /// <summary>Every run is in the audit log.</summary>
-    public bool IsAudited(string method) => RequiredPermission(method) is ActionRulesMethods.ManagePermission or ActionRulesMethods.DeletePermission;
+    public bool IsAudited(string method) => !PluginTool.IsPreviewMethod(method) && RequiredPermission(method) is ActionRulesMethods.ManagePermission or ActionRulesMethods.DeletePermission;
 
     public async Task StartAsync(ICorePluginContext ctx, CancellationToken ct)
     {
@@ -128,6 +128,11 @@ public sealed partial class ActionRulesPlugin : ICorePlugin, IAsyncDisposable
     {
         ArgumentNullException.ThrowIfNull(caller);
         var sweeps = _sweeps ?? throw new InvalidOperationException(NotRunning);
+        if (ActionRulePageTools.Set.Handles(method))
+        {
+            return await ActionRulePageTools.Set.InvokeAsync(this, caller, method, payloadJson, ct).ConfigureAwait(false);
+        }
+
         switch (method)
         {
             case ActionRulesMethods.Read:
@@ -461,6 +466,13 @@ public sealed partial class ActionRulesPlugin : ICorePlugin, IAsyncDisposable
     /// <summary>A new recipient, created on each device by the same task as a copied one.</summary>
     private async Task<RunStarted> NewRecipientAsync(ICallContext caller, NewRecipientRequest request, CancellationToken ct)
     {
+        var (payload, devices) = await PrepareNewRecipientAsync(caller, request, ct).ConfigureAwait(false);
+        return await StartAsync(caller, payload, devices, ct).ConfigureAwait(false);
+    }
+
+    /// <summary>The page's checks of a new recipient and the run it starts; reads and writes nothing (also the preview of a tool).</summary>
+    internal async Task<(RuleTaskPayload Payload, IReadOnlyList<Guid> Devices)> PrepareNewRecipientAsync(ICallContext caller, NewRecipientRequest request, CancellationToken ct)
+    {
         var devices = DeviceIds(request.DeviceIds);
         await CallDevices.RequireAsync(caller, devices, ct).ConfigureAwait(false);
         if (string.IsNullOrWhiteSpace(request.Template) || !request.Template.StartsWith("com.axis.recipient.", StringComparison.Ordinal) || request.Template.Length > 256)
@@ -489,10 +501,17 @@ public sealed partial class ActionRulesPlugin : ICorePlugin, IAsyncDisposable
         {
             Recipient = new DeviceRecipient(string.Empty, name, request.Template, [.. parameters.Select(p => new NameValue(p.Key, p.Value))]),
         };
-        return await StartAsync(caller, payload, devices, ct).ConfigureAwait(false);
+        return (payload, devices);
     }
 
     private async Task<RunStarted> RecipientsAsync(ICallContext caller, string method, RecipientRunRequest request, CancellationToken ct)
+    {
+        var (payload, devices) = await PrepareRecipientsAsync(caller, method, request, ct).ConfigureAwait(false);
+        return await StartAsync(caller, payload, devices, ct).ConfigureAwait(false);
+    }
+
+    /// <summary>The page's checks of a recipient change or delete and the run it starts; reads and writes nothing.</summary>
+    internal async Task<(RuleTaskPayload Payload, IReadOnlyList<Guid> Devices)> PrepareRecipientsAsync(ICallContext caller, string method, RecipientRunRequest request, CancellationToken ct)
     {
         var delete = method == ActionRulesMethods.RecipientDelete;
         var targets = Targets(request.Targets);
@@ -516,10 +535,17 @@ public sealed partial class ActionRulesPlugin : ICorePlugin, IAsyncDisposable
         {
             RecipientPatch = delete ? null : request.Patch,
         };
-        return await StartAsync(caller, payload, [.. targets.Select(t => t.DeviceId)], ct).ConfigureAwait(false);
+        return (payload, [.. targets.Select(t => t.DeviceId)]);
     }
 
     private async Task<RunStarted> SchedulesAsync(ICallContext caller, string method, ScheduleRunRequest request, CancellationToken ct)
+    {
+        var (payload, devices) = await PrepareSchedulesAsync(caller, method, request, ct).ConfigureAwait(false);
+        return await StartAsync(caller, payload, devices, ct).ConfigureAwait(false);
+    }
+
+    /// <summary>The page's checks of a schedule change or delete and the run it starts; reads and writes nothing.</summary>
+    internal static async Task<(RuleTaskPayload Payload, IReadOnlyList<Guid> Devices)> PrepareSchedulesAsync(ICallContext caller, string method, ScheduleRunRequest request, CancellationToken ct)
     {
         var delete = method == ActionRulesMethods.ScheduleDelete;
         var targets = Targets(request.Targets);
@@ -535,7 +561,7 @@ public sealed partial class ActionRulesPlugin : ICorePlugin, IAsyncDisposable
             SchedulePatch = delete ? null : request.Patch,
             Rules = rules,
         };
-        return await StartAsync(caller, payload, [.. targets.Select(t => t.DeviceId)], ct).ConfigureAwait(false);
+        return (payload, [.. targets.Select(t => t.DeviceId)]);
     }
 
     /// <summary>A new schedule (OADM's own id from its name, the same on every device) or one copied from a device.</summary>
@@ -546,12 +572,7 @@ public sealed partial class ActionRulesPlugin : ICorePlugin, IAsyncDisposable
         DeviceSchedule schedule;
         if (request.New is { } created)
         {
-            if (string.IsNullOrWhiteSpace(created.Name) || created.Definition is null || ScheduleProblem(created) is { } problem)
-            {
-                throw new ArgumentException(string.IsNullOrWhiteSpace(created.Name) ? "Enter a name." : ScheduleProblem(created) ?? "Enter the schedule.", nameof(request));
-            }
-
-            schedule = new DeviceSchedule(ScheduleText.OwnId(created.Name), created.Name.Trim(), ScheduleText.Normalize(created.Definition));
+            schedule = NewSchedule(created);
         }
         else
         {
@@ -571,6 +592,48 @@ public sealed partial class ActionRulesPlugin : ICorePlugin, IAsyncDisposable
         };
         return await StartAsync(caller, payload, devices, ct).ConfigureAwait(false);
     }
+
+    /// <summary>The page's checks of a new schedule: the schedule with OADM's own id from its name.</summary>
+    internal static DeviceSchedule NewSchedule(SchedulePatch created)
+    {
+        ArgumentNullException.ThrowIfNull(created);
+        if (string.IsNullOrWhiteSpace(created.Name) || created.Definition is null || ScheduleProblem(created) is not null)
+        {
+            throw new ArgumentException(string.IsNullOrWhiteSpace(created.Name) ? "Enter a name." : ScheduleProblem(created) ?? "Enter the schedule.", nameof(created));
+        }
+
+        return new DeviceSchedule(ScheduleText.OwnId(created.Name), created.Name.Trim(), ScheduleText.Normalize(created.Definition));
+    }
+
+    /// <summary>The page's run of a payload checked before (<see cref="PrepareNewRecipientAsync"/> and the others): saved for undo, one task per device.</summary>
+    internal Task<RunStarted> StartPreparedAsync(ICallContext caller, RuleTaskPayload payload, IReadOnlyList<Guid> devices, CancellationToken ct) =>
+        StartAsync(caller, payload, devices, ct);
+
+    /// <summary>The page's copy of a recipient (it reads the source with its passwords).</summary>
+    internal Task<RunStarted> CopyRecipientAsync(ICallContext caller, DeployRequest request, CancellationToken ct) => DeployRecipientAsync(caller, request, ct);
+
+    /// <summary>The page's new schedule or copy of a schedule.</summary>
+    internal Task<RunStarted> PutScheduleAsync(ICallContext caller, ScheduleDeployRequest request, CancellationToken ct) => DeployScheduleAsync(caller, request, ct);
+
+    /// <summary>The page's Read: the chosen devices (null: every device of the caller), each in the caller's view; answers the progress.</summary>
+    internal async Task<RulesState> StartReadAsync(ICallContext caller, IReadOnlyList<Guid>? deviceIds, CancellationToken ct)
+    {
+        var sweeps = _sweeps ?? throw new InvalidOperationException(NotRunning);
+        HashSet<Guid>? readIds = deviceIds is null ? null : DeviceIds(deviceIds).ToHashSet();
+        if (readIds is not null)
+        {
+            await CallDevices.RequireAsync(caller, readIds, ct).ConfigureAwait(false);
+        }
+
+        sweeps.For(caller)?.Start(readIds);
+        return await StateAsync(caller, ct).ConfigureAwait(false) with { Rows = [] };
+    }
+
+    /// <summary>The caller's table as the page reads it.</summary>
+    internal Task<RulesState> CallerStateAsync(ICallContext caller, CancellationToken ct) => StateAsync(caller, ct);
+
+    /// <summary>The template set of a row; null when it is not known (any more).</summary>
+    internal TemplateSet? TemplateSetOf(string? id) => id is not null && _templateSets.TryGetValue(id, out var set) ? set : null;
 
     /// <summary>
     /// The source of a copy and the chosen devices, both in the caller's view (checked before the source is read): a removed

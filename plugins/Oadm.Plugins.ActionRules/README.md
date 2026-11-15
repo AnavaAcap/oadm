@@ -106,3 +106,25 @@ says the device's reason.
 The read-only tool `oadm_device_rules_list` (`Tools/ActionRuleTools.cs`, docs/spec/mcp.md "Plugins"; area `device_rules`,
 apart from OADM's own event rules): the table the editor read last for the caller's device scope, a summary per rule
 name and one row per device and rule, paged. It reads no device. Tests: `ToolTests`.
+
+The page's actions as tools (`Tools/ActionRulePageTools.cs`, `PluginPageTools`, decision 2026-11-15), each with the rights
+of the page method it wraps (a preview is never audited):
+
+| Tool | Kind | Permission | Page method |
+|---|---|---|---|
+| `read` | start (no confirmation, like Refresh) | show | `read` |
+| `recipients`, `schedules` | read of the last read, by name (and kind); `device_id`: one device's settings | show | `getState` |
+| `recipient_kinds` | read: the kinds the chosen devices offer, with their settings | show | `templates` |
+| `recipient_create`, `recipient_change`, `recipient_copy` | preview / run | manage | `recipientNew`, `recipientEdit`, `recipientDeploy` |
+| `schedule_create`, `schedule_change`, `schedule_copy` | preview / run | manage | `scheduleDeploy`, `scheduleEdit`, `scheduleDeploy` |
+| `recipient_delete`, `schedule_delete` | preview / run, destructive | delete | `recipientDelete`, `scheduleDelete` |
+
+- Devices by the host's filter (at most 500 a call), each in the caller's view (`CallDevices.RequireAsync`, like the page).
+- Recipients and schedules are chosen like the page's groups: by name (and kind) on the chosen devices the editor read, at
+  the version read; devices without one are counted in `skipped`. Built-in schedules are never targets; a schedule rules
+  use is deleted only with them (`delete_rules`).
+- The preview runs the page's checks (`PrepareNewRecipientAsync`, `PrepareRecipientsAsync`, `PrepareSchedulesAsync`,
+  `NewSchedule`) and starts nothing; the run checks again and starts the page's run (saved for undo, one task per device).
+- No password is taken or shown: a password setting or a login inside an address answers "Set this in OADM." (a secret
+  channel follows: TODO in `ActionRulePageTools.Settings`). A copy takes the source's password on the server, like the page.
+- Rule changes, copies, deletes and undo are the editor's task, not these tools. Tests: `PageToolTests`.
