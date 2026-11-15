@@ -219,6 +219,15 @@ the answer show `***` for a value whose label, parameter or path names a secret 
 it needs `rollout` and is audited. Tests:
 `ToolTests`.
 
+The saved commands (`CommanderPageTools`, `PluginPageTools`, decision 2026-11-15), each with the rights of its page method:
+`oadm_vapix_saved_save_preview` / `_run` (a command as JSON in the command file format; the store's preparation and
+`CommandValidator`, the 500 limit, `previous_id` to replace one), `oadm_vapix_saved_delete_preview` / `_run` and
+`oadm_vapix_saved_import_preview` / `_run` (a command file; the preview names the commands, the ones replaced and the ones
+left out) need "saved" and all devices like the page; `oadm_vapix_saved_export` ("show") answers the export file (at most
+24 KB, else "Choose fewer commands"), without password values and with every value whose name points to a secret as `***`
+(`SecretValues.IsSecretName`: field defaults, query, headers, body). No password passes a tool: a password field with a
+value refuses the command ("Set passwords in OADM."; a stored password stays when its field is empty). Tests: `PageToolTests`.
+
 ## Tests
 
 - `tests/Oadm.Plugins.VapixCommander.Tests`: rendering of every field type, typed JSON, booleans per kind, validation,
