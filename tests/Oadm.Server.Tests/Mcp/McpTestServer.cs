@@ -26,7 +26,7 @@ namespace Oadm.Server.Tests.Mcp;
 
 /// <summary>
 /// The real server with its MCP server on an in-memory test server (no network): a fake PKI offers a self-signed certificate
-/// for the policy MCP server, the administrator turns MCP on through McpService, users get access keys through
+/// for the policy AI agents, the administrator turns MCP on through McpService, users get access keys through
 /// AccessKeyService. <see cref="PostAsync"/> sends one JSON-RPC request with the headers of revision 2026-07-28;
 /// <see cref="ConnectAsync"/> connects the official C# client.
 /// </summary>

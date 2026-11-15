@@ -138,7 +138,7 @@ internal sealed class EventRulesRig : IAsyncDisposable
         Engine = new RuleEngine(Catalog, Store, Log, Runner, Devices, _db.Get<IDeviceChangeFeed>(), Time,
             new RuleEngineOptions { TickInterval = TimeSpan.FromHours(10), QueueCapacity = QueueCapacity },
             new Microsoft.Extensions.Logging.Logger<RuleEngine>(EngineLog), Clock);
-        Rules = new EventRulesService(Catalog, Store, Recipients, Engine, Devices);
+        Rules = new EventRulesService(Catalog, Store, Recipients, Engine, Devices, Time);
         await Engine.StartAsync(CancellationToken.None);
         if (SiteEvents is { } siteEvents)
         {

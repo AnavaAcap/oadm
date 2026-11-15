@@ -218,14 +218,14 @@ public sealed partial class PkiService
         await EnsureServerCertificatesAsync(names, ct).ConfigureAwait(false);
     }
 
-    /// <summary>The server policies that share one certificate: the 802.1X server, the EST server and AI agents.</summary>
-    internal static IReadOnlyList<string> SharedServerKinds { get; } = [PolicyKinds.Dot1xServer, PolicyKinds.EstServer, PolicyKinds.McpServer];
+    /// <summary>The server policies that share one certificate: the 802.1X server and the EST server (never AI agents).</summary>
+    internal static IReadOnlyList<string> SharedServerKinds { get; } = [PolicyKinds.Dot1xServer, PolicyKinds.EstServer];
 
     /// <summary>
-    /// OADM PRO became active (and every start with it), Turn on of a server, the first Turn on of AI agents also without OADM
-    /// PRO (decisions 2026-10-25 and 2026-11-14): every server policy without a certificate gets the shared one ("802.1X and EST
-    /// server": ECDSA P-256, 10 years, from the OADM CA, naming <paramref name="names"/>, the names both PRO servers give and
-    /// this computer's addresses and name). The one a server policy already shows is taken when it is still usable; else it
+    /// OADM PRO became active (and every start with it), Turn on of a PRO server (decision 2026-10-25): every PRO server policy
+    /// without a certificate gets the shared one ("802.1X and EST server": ECDSA P-256, 10 years, from the OADM CA, naming
+    /// <paramref name="names"/>, the names both PRO servers give and this computer's addresses and name). The policy AI agents
+    /// never gets it (<see cref="EnsureMcpServerCertificateAsync"/>). The one a server policy already shows is taken when it is still usable; else it
     /// is made. Nothing when every policy has one, the list cannot be read or no CA can issue yet (the next start tries again).
     /// </summary>
     internal async Task EnsureServerCertificatesAsync(IReadOnlyList<string>? names, CancellationToken ct)
@@ -274,6 +274,48 @@ public sealed partial class PkiService
         }
 
         bool Missing() => SharedServerKinds.Any(kind => Policies.FirstOf(kind) is { CertificateId: null });
+    }
+
+    /// <summary>The name of the certificate PKI makes for the server for AI agents on its first Turn on.</summary>
+    public const string McpServerCertificateName = "MCP Server Certificate";
+
+    /// <summary>
+    /// The first Turn on of AI agents, also without OADM PRO (decision 2026-11-15): the policy AI agents without a certificate
+    /// gets its own one ("MCP Server Certificate": ECDSA P-256, 10 years, server authentication, from the CA of the shared
+    /// server certificate, naming this computer's addresses and host name; site nodes do not relay it, so no site addresses).
+    /// Nothing when the policy has one (the user's choice stays), the list cannot be read or no CA can issue yet.
+    /// </summary>
+    internal async Task EnsureMcpServerCertificateAsync(CancellationToken ct)
+    {
+        if (Policies.IsUnreadable || Policies.FirstOf(PolicyKinds.McpServer) is not { CertificateId: null })
+        {
+            return;
+        }
+
+        await _serverCertificateGate.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            if (Policies.FirstOf(PolicyKinds.McpServer) is not { CertificateId: null } || ServerIssuingCa() is not { } ca)
+            {
+                return; // another load was quicker, or no CA can issue yet (the status says why)
+            }
+
+            List<string> all = [.. Policies.McpServerNames?.Invoke() ?? [.. Oadm.Plugins.Est.Serving.ServerCertificates.LocalAddresses(), Environment.MachineName]];
+            var ips = all.Where(n => IPAddress.TryParse(n, out _)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+            var dns = all.Where(n => !IPAddress.TryParse(n, out _) && CertificateNames.IsPlainHostName(n)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+            var (id, error) = await MakeServerCertificateAsync(McpServerCertificateName, ca, ips, dns, "OADM", ct).ConfigureAwait(false);
+            if (id is null)
+            {
+                LogServerCertificateFailed(McpServerCertificateName, error ?? string.Empty);
+                return;
+            }
+
+            await Policies.SetServerCertificateAsync(PolicyKinds.McpServer, id, ct).ConfigureAwait(false); // only where none is set
+        }
+        finally
+        {
+            _serverCertificateGate.Release();
+        }
     }
 
     /// <summary>
@@ -432,9 +474,9 @@ public sealed partial class PkiService
 
 /// <summary>
 /// PKI's <see cref="IServerCertificates"/>, offered through the plugin services while PKI runs: the certificate the policy AI
-/// agents picks, for the host's MCP server (docs/spec/mcp.md "Transport and certificate"). Like the EST server's Turn on, the
-/// first load of a server that is on gives a policy without a certificate the shared server certificate, also without OADM
-/// PRO (<see cref="PkiService.EnsureServerCertificatesAsync"/>); its Certificate field can change it afterwards.
+/// agents picks, for the host's MCP server (docs/spec/mcp.md "Transport and certificate"). The host loads it only while AI
+/// agents is on: the first load of a policy without a certificate makes "MCP Server Certificate", also without OADM PRO
+/// (<see cref="PkiService.EnsureMcpServerCertificateAsync"/>); its Certificate field can change it afterwards.
 /// </summary>
 internal sealed class PkiServerCertificates : IServerCertificates
 {
@@ -457,8 +499,8 @@ internal sealed class PkiServerCertificates : IServerCertificates
             return new HostServerCertificate([], "PKI has no policy for this server.");
         }
 
-        // Nothing when the policy has a certificate; else the shared one (no CA that can issue: the status says why).
-        await _service.EnsureServerCertificatesAsync(null, ct).ConfigureAwait(false);
+        // Nothing when the policy has a certificate; else its own one (no CA that can issue: the status says why).
+        await _service.EnsureMcpServerCertificateAsync(ct).ConfigureAwait(false);
         var load = _service.ServerCertificateOf(PolicyKinds.McpServer);
         if (load.Material is not { } material)
         {

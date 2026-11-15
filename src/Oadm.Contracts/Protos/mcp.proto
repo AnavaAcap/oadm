@@ -5,7 +5,7 @@ import "Protos/common.proto";
 import "google/protobuf/timestamp.proto";
 
 // The MCP server for AI agents (docs/spec/mcp.md), the Settings card AI agents. Off by default; its certificate is the one
-// PKI's policy MCP server picks. Every signed-in user reads the state and the CA certificate; changing it is Administrator
+// PKI's policy AI agents picks. Every signed-in user reads the state and the CA certificate; changing it is Administrator
 // only (users with all devices), audited like the other server settings.
 service McpService {
   rpc Get (Empty) returns (McpState);
@@ -37,8 +37,8 @@ message McpState {
   // "Running on port 5082", "Off", "Turn on PKI to choose the certificate.", "The MCP server has no certificate. Choose
   // one in its policy.", "Port 5082 cannot be opened: ..."
   string status = 3;
-  bool pki_available = 4;                 // PKI runs: the policy MCP server can pick a certificate
-  string certificate = 5;                 // "MCP server (OADM Root CA SERVER01), until 2036-11-14"; empty without one
+  bool pki_available = 4;                 // PKI runs: the policy AI agents can pick a certificate
+  string certificate = 5;                 // "MCP Server Certificate (OADM Root CA SERVER01), until 2036-11-14"; empty without one
   repeated string certificate_names = 6;  // the addresses and names the certificate holds
   repeated McpInterface interfaces = 7;   // the choices of Listen on (administrators only)
   bool has_ca_certificate = 8;            // GetCaCertificate has something to give

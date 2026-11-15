@@ -22,8 +22,8 @@ AI agents are part of the OADM server. They are off until an administrator turns
 </Steps>
 
 Agents connect over HTTPS. The certificate comes from the **AI agents** policy of the [PKI](../pki/) page, and the first
-**Turn on** picks the shared server certificate for it. Without PKI the card says "Turn on PKI to choose the
-certificate." On Windows the installed server opens the port in the firewall while AI agents are on. On Linux and macOS
+**Turn on** makes its own certificate, **MCP Server Certificate**. You can choose another one in that policy. When PKI is
+not running, the card says "PKI is not running. The server log says why." On Windows the installed server opens the port in the firewall while AI agents are on. On Linux and macOS
 open it yourself if a firewall runs.
 
 **Turn off** closes the port. Agents can no longer connect.
@@ -42,7 +42,7 @@ Permissions page.
 
 </Steps>
 
-OADM shows the key once and cannot show it again. Lost it? Delete it and create a new one. Each user can have 20 keys.
+No password is asked: you are signed in. OADM shows the key once and cannot show it again. Lost it? Delete it and create a new one. Each user can have 20 keys.
 
 **Read only** gives the agent a key that looks but changes nothing. Use it for reports and health checks.
 
@@ -81,9 +81,10 @@ and put the folder `oadm` from the ZIP file where your agent reads its skills.
   device, one picture of a camera.
 - Read tasks and their results, the server log, the audit log and the event log.
 - Run tasks on many devices, such as restart, date and time, Upgrade AXIS OS, network settings, applications or
-  certificates. A task shows in your Tasks list like one you started. Its owner is "your name@MCP key name". Cancel
+  certificates. A task shows in your Tasks list like one you started. Its owner is "your name@AI agent key name". Cancel
   tasks.
-- Refresh, remove and add devices, and set their login from the credential list by its name.
+- Refresh, remove and add devices, and set their login from the credential list by its name. Agents add only
+  addresses in the networks of the server or a site, at most 200 devices at a time.
 - Add and remove tags, read sites and compliance results, and create, change or delete event rules.
 - Read PKI certificates and create one, and read the NTP server, DHCP server and Hardening scan pages. Other plugins can
   bring their own tools, shown only while the plugin is on.
@@ -111,20 +112,21 @@ Texts that come from devices, such as names, locations and log lines, are data f
 ## Limits
 
 A key can make 20 calls a second, 10 changes and 30 camera pictures a minute, and all keys of one user together the
-same. A list answers at
-most 200 rows at a time, with the total, and no answer is larger than 32 KB. An agent asks for a summary first and
-narrows with filters.
+same. A key has at most 4 calls waiting for an answer. A list answers at most 200 rows at a time, with the total; a log
+says whether more lines follow instead. No answer is larger than 32 KB. An agent asks for a summary first and narrows
+with filters.
 
 ## Troubleshooting
 
 | What you see | What to do |
 |---|---|
-| **Turn on PKI to choose the certificate.** | Turn on PKI in Settings. |
+| **PKI is not running. The server log says why.** | Open the Logs page and look for the PKI error. |
 | **Port 5082 cannot be opened** | Another program uses the port. Choose another port and save. |
 | The agent says **The access key is not valid. Create a new one in OADM under Access keys.** | The key is wrong, deleted or has ended. Create a new one. |
 | The agent does not trust the server | Trust the CA once: **Download CA certificate** on the card. |
 | The agent says **This access key is Read only.** | Create a key without **Read only** for changes. |
 | The agent has no tool for something | The key's user does not have the permission, or the plugin is off. Check the role on the Permissions page. |
-| **Too many calls with this access key** | The agent waits a second and tries again. |
+| **Too many calls with this access key. Wait a second.** | The agent waits a second and tries again. |
+| **Too many calls at once. Wait for an answer.** | The agent waits for its other calls to answer. |
 | **Too many changes with this access key. Wait a minute.** | The agent made 10 changes in a minute. It waits. |
-| **Too many pictures with this access key. Wait a minute.** | The agent took 30 camera pictures in a minute. It waits. |
+| **Too many pictures. Wait a minute.** | The agent took 30 camera pictures in a minute. It waits. |

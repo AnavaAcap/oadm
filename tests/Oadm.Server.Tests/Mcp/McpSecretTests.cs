@@ -167,7 +167,15 @@ public sealed class McpSecretTests
         var run = await server.Host.Tasks.RunAsync(new Proto.RunTaskRequest { PluginId = WaitingTask.PluginId, DeviceIds = { device.Id.ToString() } });
         await ChangeAsync("oadm_tasks_cancel", new JsonObject { ["batch"] = run.BatchId });
         await server.Host.Get<Oadm.Core.Tasks.TaskEngine>().WaitForCompletionAsync(Guid.Parse(run.TaskIds[0]), CancellationToken.None);
-        await ChangeAsync("oadm_task", new JsonObject { ["task"] = "oadm.restart", ["filter"] = new JsonObject { ["search"] = "10.4.1.1" }, ["input"] = new JsonObject() });
+        var restart = await ChangeAsync("oadm_task", new JsonObject { ["task"] = "oadm.restart", ["filter"] = new JsonObject { ["search"] = "10.4.1.1" }, ["input"] = new JsonObject() });
+        var engine = server.Host.Get<Oadm.Core.Tasks.TaskEngine>();
+        var restartBatch = restart["batch"]!.GetValue<string>();
+        var restartTasks = (await server.Host.Tasks.ListAsync(new Proto.ListTasksRequest())).Tasks.Where(t => t.BatchId == restartBatch).Select(t => Guid.Parse(t.Id)).ToList();
+        Assert.NotEmpty(restartTasks);
+        foreach (var started in restartTasks)
+        {
+            await engine.WaitForCompletionAsync(started, CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(30)); // its log lines are written before the scan
+        }
 
         clock.Advance(TimeSpan.FromMinutes(2));
         var uploadBytes = new byte[] { 1, 2, 3 };

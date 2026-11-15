@@ -219,7 +219,7 @@ The Policies tab is one card and a side panel, like Intune (`PkiView` `PoliciesP
 | Issuing policies | **IEEE 802.1X certificate** | Issued by, Valid (days), Key, EAPOL version (1, 2 or 3), EAP identity (MAC address, Host name, IP address, Last octet of the IP address, Custom), RADIUS server CA (a CA of the list) | no | Built-in "IEEE 802.1X" (the first-start root CA, 365 days, ECC P-256, RADIUS server CA the first-start root CA; a new installation EAPOL version 2 and the IP address as identity; one used before keeps its identity, EAPOL version and RSA 2048) |
 | Server policies | **802.1X server** (one only, PRO) | Certificate (see "Server certificates"; ECC only), Minimum TLS version (1.0, 1.1, 1.2, 1.3; 1.0 and 1.1 with the hint "Only for old devices: TLS 1.0 and 1.1 are no longer considered secure."; the cipher suites follow it, no selection), Largest EAP packet (500 to 1,400 bytes), Reauthentication (Switch decides, or every 10 to 1,440 minutes) | no | Built-in "802.1X server" (the shared certificate "802.1X and EST server", TLS 1.2, 1,020 bytes as RFC 3748 3.1, Switch decides) |
 | Server policies | **EST server** (one only, PRO) | Certificate (see "Server certificates") | no | Built-in "EST server" (the shared certificate "802.1X and EST server") |
-| Server policies | **AI agents** (stored `mcpServer`, one only, not PRO; [mcp.md](mcp.md)) | Certificate (see "Server certificates"; it must name one of this computer's addresses or its host name, also as a full name such as server01.example.com: "This certificate names none of this server's addresses and not its host name. Choose another one.") | no | Built-in "AI agents" (conversion owner `oadm.pki:mcp-server`), without a certificate until it gets the shared certificate "802.1X and EST server": on the first Turn on of AI agents, also without OADM PRO, or when OADM PRO makes it for the other servers |
+| Server policies | **AI agents** (stored `mcpServer`, one only, not PRO; [mcp.md](mcp.md)) | Certificate (see "Server certificates"; it must name one of this computer's addresses or its host name, also as a full name such as server01.example.com: "This certificate names none of this server's addresses and not its host name. Choose another one.") | no | Built-in "AI agents" (conversion owner `oadm.pki:mcp-server`), without a certificate until the first Turn on of AI agents makes its own "MCP Server Certificate", also without OADM PRO; never the shared "802.1X and EST server" |
 | 802.1X access policies (PRO) | **802.1X trusted CA** (stored `allowCa`) | CA; Only devices OADM manages (on) or Any device with a valid certificate | no | the first-start root CA under its real name, e.g. "OADM Root CA SERVER01", and "Axis device ID", both only managed (`RadiusPolicies.DefaultAllowCaPolicies`; policies already stored keep their names) |
 | 802.1X access policies (PRO) | **VLAN** | VLAN ID (1 to 4094) | yes | none |
 | 802.1X access policies (PRO) | **Block** | none (the devices only) | yes | none |
@@ -351,9 +351,8 @@ and are checked against the 802.1X trusted CA and EST sign-in CA policies. The t
   Pick another certificate first.") and shows the server under Used by.
 - **No Create in the policy:** other certificates come from the Certificates tab (Create, Sign request, Import); the field
   lists them.
-- **One certificate for every server:** when OADM PRO becomes active, on every start with OADM PRO, on Turn on and on the
-  first Turn on of AI agents (its first load through `IServerCertificates`, also without OADM PRO), every server policy
-  without a certificate (802.1X server, EST server, AI agents) gets the shared one (`PkiService.EnsureServerCertificatesAsync`,
+- **One certificate for both PRO servers:** when OADM PRO becomes active, on every start with OADM PRO and on Turn on, the
+  802.1X server and EST server policies without a certificate get the shared one (`PkiService.EnsureServerCertificatesAsync`,
   a system write `PolicyStore.SetServerCertificateAsync`, only where none is set): the one a server policy already shows
   while it is usable (in the list with its key, not ended, still accepted), else a new "802.1X and EST server", from the CA a server policy
   names when it can issue (the first-start root CA by default), else the first CA that can issue
@@ -364,7 +363,15 @@ and are checked against the 802.1X trusted CA and EST sign-in CA policies. The t
   the next start, minute or connection). Start order: PKI's own start and license change make it only once both server
   plugins started (`PolicyStore.ServerPluginStarted`, also while their servers are off; the EST plugin hands the site nodes'
   addresses from its stored `sites` then) and neither server is turned on; a server that is on makes it at its own start
-  with its names, the 802.1X server after it took over its kept certificate (`PkiPlugin.MakesServerCertificates`).
+  with its names, the 802.1X server after it took over its kept certificate (`PkiPlugin.MakesServerCertificates`). The
+  policy AI agents never gets the shared certificate.
+- **AI agents' own certificate** (decision 2026-11-15): PKI never makes or assigns a certificate for the policy AI agents
+  at a start, a license change or a change of the server plugins. Only the host's first load through `IServerCertificates`
+  (the first Turn on of AI agents, also without OADM PRO) gives the policy, while it has no certificate, a new "MCP Server
+  Certificate" (`PkiService.EnsureMcpServerCertificateAsync`): from the same CA as the shared one (`ServerIssuingCa`), ECC
+  P-256, 10 years (never past the CA's end), server authentication, kept with its key (created, use Server), naming this
+  computer's addresses and host name (no site addresses: site nodes do not relay AI agents). A certificate the user chose
+  in the policy stays.
 - **No automatic renewal:** nothing makes a server certificate again. The Expiry warning and the server's status remind; the
   user picks another one in the policy.
 - **The servers** load the picked certificate with its key (`PkiCertificateAuthority.ServerCertificate`;

@@ -348,7 +348,7 @@ used again.
 - **`McpService`** (`mcp.proto`, `docs/spec/mcp.md`, the Settings card AI agents): `Get` (signed in: on, port, Listen on,
   running, the status text, PKI there, the certificate and its names; the interfaces for the Administrator role only),
   `Set` (Admin, all devices; audited "Changed AI agents" with what changed; INVALID_ARGUMENT for a port outside 1025 to
-  65535 or an unknown interface, FAILED_PRECONDITION "Turn on PKI to choose the certificate."), `GetCaCertificate` (signed
+  65535 or an unknown interface, FAILED_PRECONDITION "PKI is not running. The server log says why."), `GetCaCertificate` (signed
   in: the issuers of the MCP server's certificate as PEM, `oadm-ca.pem`; NOT_FOUND without one).
   - `GetSkill` (signed in): the skill `oadm` as `oadm-skill.zip` (**Download skill**).
 - **`AccessKeyService`** (`mcp.proto`, `docs/spec/mcp.md` "Access keys"): `ListMine`, `Delete` (signed in, the caller's own

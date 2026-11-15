@@ -320,7 +320,7 @@ public sealed class McpLimitsAndLinksTests
     [Fact]
     public async Task AFileTransferThatKeepsUpTheMinimumRateStillEndsAfterItsBudgetAndFreesItsPlace()
     {
-        var clock = new FakeTimeProvider(DateTimeOffset.UtcNow);
+        var clock = new TimerCountingClock(DateTimeOffset.UtcNow);
         await using var server = await McpTestServer.StartAsync(configureServices: services =>
         {
             services.RemoveAll<McpFiles>();
@@ -340,14 +340,10 @@ public sealed class McpLimitsAndLinksTests
         var sending = client.SendAsync(put);
         try
         {
-            for (var i = 0; i < 100 && !sending.IsCompleted; i++)
-            {
-                clock.Advance(TimeSpan.FromMinutes(3)); // the budget's timer starts when the transfer does; later advances reach it as well
-                await Task.WhenAny(sending, Task.Delay(50));
-            }
-
-            Assert.True(sending.IsCompleted, "the transfer did not end after its budget");
-            using var response = await sending;
+            // The budget's timer starts with the transfer: only then does the fake clock run it out.
+            await Oadm.Sdk.Testing.Eventually.TrueAsync(() => clock.Timers > 0 || sending.IsCompleted, "the transfer started its budget");
+            clock.Advance(TimeSpan.FromMinutes(3));
+            using var response = await sending.WaitAsync(TimeSpan.FromSeconds(30));
             Assert.Equal(System.Net.HttpStatusCode.RequestTimeout, response.StatusCode);
             Assert.Contains(McpFiles.TransferTooLong, await response.Content.ReadAsStringAsync(), StringComparison.Ordinal);
         }
@@ -365,6 +361,20 @@ public sealed class McpLimitsAndLinksTests
         }
 
         Assert.Equal(TimeSpan.FromMinutes(15), McpFiles.TransferBudget(null)); // a download of unknown size
+    }
+
+    /// <summary>A fake clock that counts the timers made on it (the transfer's budget is the only one of <see cref="McpFiles"/>).</summary>
+    private sealed class TimerCountingClock(DateTimeOffset start) : FakeTimeProvider(start)
+    {
+        private int _timers;
+
+        public int Timers => Volatile.Read(ref _timers);
+
+        public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period)
+        {
+            Interlocked.Increment(ref _timers);
+            return base.CreateTimer(callback, state, dueTime, period);
+        }
     }
 
     /// <summary>A request body that sends one byte and then waits until released.</summary>
@@ -390,6 +400,56 @@ public sealed class McpLimitsAndLinksTests
         }
     }
 
+    [Fact]
+    public async Task AFileRequestKeepsTheOneMegabyteBodyLimitUntilItsUploadLinkIsTakenThenExactlyTheLinksSize()
+    {
+        await using var server = await McpTestServer.StartAsync();
+        var key = await server.CreateKeyAsync();
+        var size = (int)McpEndpoint.MaxBodyBytes + 1;
+        var link = await Link(server, key, "large.bin", size);
+        var path = new Uri(link["url"]!.GetValue<string>()).AbsolutePath;
+        var body = new byte[size];
+
+        var refused = await GuardPutAsync(server, "oadm_unknownkey", path, body);
+        Assert.Equal(401, refused.Status);
+        Assert.Equal(McpEndpoint.MaxBodyBytes, refused.Limit);
+
+        var other = await GuardPutAsync(server, key, "/files/notalink", body);
+        Assert.Equal(404, other.Status);
+        Assert.Equal(McpEndpoint.MaxBodyBytes, other.Limit);
+
+        var taken = await GuardPutAsync(server, key, path, body);
+        Assert.Equal(200, taken.Status);
+        Assert.Equal(size, taken.Limit);
+    }
+
+    /// <summary>A PUT through the guard with a body size feature of its own (the in-memory test server has none to read back).</summary>
+    private static async Task<(int Status, long? Limit)> GuardPutAsync(McpTestServer server, string key, string path, byte[] body)
+    {
+        var http = new Microsoft.AspNetCore.Http.DefaultHttpContext { RequestServices = server.Host.Services };
+        var limit = new BodyLimit();
+        http.Features.Set<Microsoft.AspNetCore.Http.Features.IHttpMaxRequestBodySizeFeature>(limit);
+        http.Request.Method = "PUT";
+        http.Request.Scheme = "https";
+        http.Request.Host = new Microsoft.AspNetCore.Http.HostString("localhost");
+        http.Request.Path = path;
+        http.Request.Headers.Authorization = "Bearer " + key;
+        http.Request.ContentLength = body.Length;
+        http.Request.Body = new MemoryStream(body);
+        http.Response.Body = new MemoryStream();
+        http.Connection.RemoteIpAddress = System.Net.IPAddress.Loopback;
+        await McpEndpoint.GuardAsync(http, _ => throw new InvalidOperationException("Only /mcp goes on."), server.Host.Get<McpAccess>(), null,
+            server.Host.Get<McpFiles>(), server.Host.Get<ToolRegistry>(), null);
+        return (http.Response.StatusCode, limit.MaxRequestBodySize);
+    }
+
+    private sealed class BodyLimit : Microsoft.AspNetCore.Http.Features.IHttpMaxRequestBodySizeFeature
+    {
+        public bool IsReadOnly => false;
+
+        public long? MaxRequestBodySize { get; set; } = 30_000_000; // Kestrel's default
+    }
+
     private static HttpRequestMessage Put(string url, string key)
     {
         var put = new HttpRequestMessage(HttpMethod.Put, new Uri(url).PathAndQuery) { Content = new ByteArrayContent([1, 2, 3]) };
@@ -407,20 +467,28 @@ public sealed class McpLimitsAndLinksTests
     [Fact]
     public async Task AUsersKeysShareTheirCallsASecondAndThePortHasOneCapForEveryone()
     {
-        await using var server = await McpTestServer.StartAsync();
+        var clock = new FakeTimeProvider(DateTimeOffset.UtcNow); // stands still: every call falls into the same second
+        await using var server = await McpTestServer.StartAsync(accessClock: clock);
         var key = await server.CreateKeyAsync();
         var sameUser = await server.CreateKeyAsync(name: "again");
         var otherUser = await SecondUserKeyAsync(server);
 
-        // 20 calls a second for the user: the two keys together (the fake clock stands still within the second only when the test is fast, so count by the limiter's refusal).
-        var statuses = new List<int>();
+        // 20 calls a second for the user: the two keys together; the 21st of either key is refused, another user is not.
         for (var i = 0; i < McpAccess.CallsPerSecond; i++)
         {
-            statuses.Add((await server.PostAsync(i % 2 == 0 ? key : sameUser, McpTestServer.Request("tools/list"))).Status);
+            Assert.Equal(200, (await server.PostAsync(i % 2 == 0 ? key : sameUser, McpTestServer.Request("tools/list"))).Status);
         }
 
-        Assert.DoesNotContain(statuses, s => s != 200 && s != 429); // slow machines may start a new second
+        foreach (var either in new[] { key, sameUser })
+        {
+            var refused = await server.PostAsync(either, McpTestServer.Request("tools/list"));
+            Assert.Equal(429, refused.Status);
+            Assert.Equal(McpEndpoint.TooManyCalls, refused.ErrorMessage);
+        }
+
         Assert.Equal(200, (await server.PostAsync(otherUser, McpTestServer.Request("tools/list"))).Status);
+        clock.Advance(TimeSpan.FromSeconds(1));
+        Assert.Equal(200, (await server.PostAsync(key, McpTestServer.Request("tools/list"))).Status); // the next second
 
         // The port: more places than one user has are taken by many users; the next call of anyone is refused.
         var access = server.Host.Get<McpAccess>();

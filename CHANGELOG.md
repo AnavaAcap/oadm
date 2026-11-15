@@ -9,19 +9,7 @@ Each entry is one short line in plain words (what the user gets, not how); no ne
 
 ### Added
 
-- AI agents: turn on the server AI agents connect to on the Settings page; the first Turn on gives it the shared server certificate of PKI, the PKI policy AI agents changes it.
-- AI agents: create access keys in the account menu; an agent reads your devices, tasks and logs with the rights of your role.
-- AI agents: an agent previews a task on the devices of a filter and runs it with your rights; Restart, Use OADM NTP server and Date and time are offered.
-- AI agents: an agent sends a file for a task through a one-time upload link, never through the model.
-- AI agents: an agent runs Upgrade AXIS OS, Network settings, Assign IP address, Applications and the HTTPS, 802.1X and renew certificate tasks, with the dialogs' checks and warnings.
-- AI agents: an agent cancels tasks and lists and deletes the files it sent.
-- AI agents: a task preview names the uploaded files it uses with their SHA-256.
-- AI agents: an agent takes a camera picture, refreshes, removes and adds devices, and sets their login from the credential list.
-- AI agents: an agent lists and changes device tags, lists sites, reads compliance results and checks, works with event rules and reads the event log.
-- AI agents: an agent reads PKI certificates and policies, creates a certificate, and reads the NTP server, DHCP server and Hardening scan status.
-- AI agents: plugins bring their own tools, shown only while the plugin is on.
-- AI agents: the Settings card shows how to connect Claude Code and VS Code, each with Copy.
-- AI agents: a skill tells agents how to work with OADM, served to agents and as Download skill.
+- AI agents: agents such as Claude Code work with your devices and tasks through an access key, turned on in Settings.
 - Tasks: a run with settings the task does not accept starts no task and says why.
 - Permissions: the role right Use AI agents, and every user's access keys with Delete.
 - Plugin SDK 0.13.0: the certificates of the servers OADM runs, the permission Use AI agents, tasks for AI agents (payload schema, payload check, plan) and plugin tools.

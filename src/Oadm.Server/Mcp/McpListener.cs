@@ -109,7 +109,7 @@ public sealed partial class McpListener : IAsyncDisposable
 
             if (!settings.Enabled)
             {
-                // Off: PKI is not asked (its first load gives the policy the shared server certificate, like a Turn on).
+                // Off: PKI is not asked (its first load makes the policy's own certificate, "MCP Server Certificate").
                 await CloseAsync().ConfigureAwait(false);
                 Set(new McpStatus(settings, false, McpTexts.Off, true, null, [], []));
                 return;
