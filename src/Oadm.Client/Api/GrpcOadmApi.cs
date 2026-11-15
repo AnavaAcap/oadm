@@ -716,14 +716,14 @@ public sealed class GrpcOadmApi : IOadmApi, IDisposable
 
     public async Task<McpSkillZip> GetMcpSkillAsync(CancellationToken ct) => await C.Mcp.GetSkillAsync(new Empty(), cancellationToken: ct);
 
-    public async Task<IReadOnlyList<AccessKey>> ListAccessKeysAsync(bool everyUser, CancellationToken ct) =>
-        (everyUser ? await C.AccessKeys.ListAllAsync(new Empty(), cancellationToken: ct) : await C.AccessKeys.ListMineAsync(new Empty(), cancellationToken: ct)).Keys;
+    public async Task<IReadOnlyList<AccessKey>> ListAccessKeysAsync(CancellationToken ct) =>
+        (await C.AccessKeys.ListAsync(new Empty(), cancellationToken: ct)).Keys;
 
-    public async Task<CreatedAccessKey> CreateAccessKeyAsync(string name, int days, bool readsOnly, CancellationToken ct) =>
-        await C.AccessKeys.CreateAsync(new CreateAccessKeyRequest { Name = name, Days = days, ReadOnly = readsOnly }, cancellationToken: ct);
+    public async Task<CreatedAccessKey> CreateAccessKeyAsync(CreateAccessKeyRequest request, CancellationToken ct) =>
+        await C.AccessKeys.CreateAsync(request, cancellationToken: ct);
 
-    public async Task<IReadOnlyList<AccessKey>> DeleteAccessKeyAsync(string id, bool anyUser, CancellationToken ct) =>
-        (anyUser ? await C.AccessKeys.DeleteAnyAsync(new AccessKeyIdRequest { Id = id }, cancellationToken: ct) : await C.AccessKeys.DeleteAsync(new AccessKeyIdRequest { Id = id }, cancellationToken: ct)).Keys;
+    public async Task<IReadOnlyList<AccessKey>> DeleteAccessKeyAsync(string id, CancellationToken ct) =>
+        (await C.AccessKeys.DeleteAsync(new AccessKeyIdRequest { Id = id }, cancellationToken: ct)).Keys;
 
     public Task<Oadm.Sdk.Plugins.PluginDownload> CreateSupportReportAsync(CancellationToken ct) =>
         OpenDownloadAsync(C.Support.CreateReport(new Empty(), cancellationToken: CancellationToken.None), ct);

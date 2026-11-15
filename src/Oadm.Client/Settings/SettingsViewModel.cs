@@ -115,7 +115,7 @@ public sealed partial class SettingsViewModel : ValidatingViewModel
 
     public bool ShowLicense => License is not null;
 
-    /// <summary>The card "AI agents" (every user; administrators change it); null in tests without it.</summary>
+    /// <summary>The card "AI" (section MCP) (every user; administrators change it); null in tests without it.</summary>
     public AiAgentsViewModel? AiAgents { get; }
 
     public bool ShowAiAgents => AiAgents is not null;

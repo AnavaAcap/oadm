@@ -18,13 +18,13 @@ using Oadm.Sdk.Network;
 namespace Oadm.Client.Settings;
 
 /// <summary>
-/// The Settings card AI agents (docs/spec/mcp.md "Transport and certificate"; "MCP" only in the docs): off by default; Turn on,
-/// Port and Listen on for administrators (Save), the certificate the PKI policy AI agents picks, and Download CA certificate
+/// The Settings card AI, section MCP (docs/spec/mcp.md "Transport and certificate"): off by default; Turn on,
+/// Port and Listen on for administrators (Save), the certificate the PKI policy MCP server picks, and Download CA certificate
 /// for the agent's computer. Without PKI: "PKI is not running. The server log says why." and no Turn on. Every user sees the state.
 /// </summary>
 public sealed partial class AiAgentsViewModel : ValidatingViewModel
 {
-    public const string Intro = AccessKeyWords.Intro; // one phrase with the account menu's Access keys
+    public const string Intro = "AI agents such as Claude Code connect to OADM over MCP with an access key.";
     public const string ChooseCertificate = McpTexts.CertificateOnTurnOn;
     public const string NoCertificate = "None";
     public const string PortRange = McpTexts.PortRange;
@@ -35,6 +35,7 @@ public sealed partial class AiAgentsViewModel : ValidatingViewModel
     private readonly IOadmApi _api;
     private readonly IDialogService _dialogs;
     private static readonly FileType ZipFile = new("Skill", "zip", "application/zip");
+    private static readonly FileType JsonFile = new("JSON file", "json", "application/json");
 
     private readonly UserSession? _session;
     private readonly IClipboardService? _clipboard;
@@ -45,6 +46,7 @@ public sealed partial class AiAgentsViewModel : ValidatingViewModel
         _api = api;
         _dialogs = dialogs;
         _clipboard = clipboard;
+        Keys = new AccessKeysViewModel(api, dialogs, clipboard);
         _session = session;
         if (session is not null)
         {
@@ -53,6 +55,7 @@ public sealed partial class AiAgentsViewModel : ValidatingViewModel
                 if (e.PropertyName == nameof(UserSession.IsAdmin))
                 {
                     OnPropertyChanged(nameof(IsAdmin));
+                    _ = IsAdmin && IsLoaded ? Keys.LoadAsync() : Task.CompletedTask;
                     NotifyCommands();
                 }
             };
@@ -74,6 +77,9 @@ public sealed partial class AiAgentsViewModel : ValidatingViewModel
 
     /// <summary>Administrators change it; the server checks it too.</summary>
     public bool IsAdmin => _session?.IsAdmin ?? true;
+
+    /// <summary>The section Access keys (administrators).</summary>
+    public AccessKeysViewModel Keys { get; }
 
     /// <summary>The choices of Listen on (the server's interfaces).</summary>
     public InterfaceSelection Listen { get; } = new();
@@ -152,6 +158,10 @@ public sealed partial class AiAgentsViewModel : ValidatingViewModel
         {
             Apply(await _api.GetMcpAsync(CancellationToken.None).ConfigureAwait(true));
             IsLoaded = true;
+            if (IsAdmin)
+            {
+                await Keys.LoadAsync().ConfigureAwait(true); // the access keys: administrators only
+            }
         }
         catch (Exception ex) when (ex is RpcException or NotSupportedException)
         {
@@ -176,7 +186,7 @@ public sealed partial class AiAgentsViewModel : ValidatingViewModel
     [RelayCommand(CanExecute = nameof(CanTurnOff))]
     private async Task TurnOffAsync()
     {
-        if (await _dialogs.ConfirmAsync("Turn off AI agents", "Agents can no longer connect until you turn it on again.", "Turn off").ConfigureAwait(true))
+        if (await _dialogs.ConfirmAsync("Turn off the MCP server", "Agents can no longer connect until you turn it on again.", "Turn off").ConfigureAwait(true))
         {
             await SetAsync(false).ConfigureAwait(true);
         }
@@ -227,6 +237,22 @@ public sealed partial class AiAgentsViewModel : ValidatingViewModel
         {
             MessageIsError = false;
             Message = $"Copied {connection.Title}.";
+        }
+    }
+
+    /// <summary>Download of a configuration file (.mcp.json, mcp.json): the save picker, then the file as shown.</summary>
+    [RelayCommand]
+    private async Task DownloadConnectionAsync(AgentConnection? connection)
+    {
+        if (connection?.FileName is not { } fileName)
+        {
+            return;
+        }
+
+        if (await _dialogs.SaveFileAsync("Download " + fileName, fileName, JsonFile, Encoding.UTF8.GetBytes(connection.Text + "\n")).ConfigureAwait(true) is { } name)
+        {
+            MessageIsError = false;
+            Message = $"Saved {name}.";
         }
     }
 
