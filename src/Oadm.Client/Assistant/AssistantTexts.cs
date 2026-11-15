@@ -11,7 +11,7 @@ namespace Oadm.Client.Assistant;
 public static class AssistantTexts
 {
     public const string Title = "Assistant";
-    public const string NewChat = "New chat";
+    public const string Clear = "Clear";
     public const string Close = "Close";
     public const string Send = "Send";
     public const string Stop = "Stop";
@@ -46,6 +46,17 @@ public static class AssistantTexts
     public const string CopyCsv = Oadm.Client.Controls.MarkdownText.CopyCsv;
     public const string SaveCsv = Oadm.Client.Controls.MarkdownText.SaveCsv;
     public const string StartHeading = "What can I do for your devices?";
+
+    // The section labels of the panel (small, in capitals by the theme's TextBlock.sectionLabel).
+    public const string SourcesLabel = "SOURCES";
+    public const string ResultsLabel = "RESULTS";
+    public const string NextLabel = "NEXT";
+
+    /// <summary>The muted line under the message box.</summary>
+    public const string Footnote = "Answers come from OADM's data. Check a plan before you run it.";
+
+    /// <summary>The folded tool lines of an answer: "Steps (5)".</summary>
+    public static string Steps(int count) => string.Create(CultureInfo.CurrentCulture, $"Steps ({count:N0})");
 
     /// <summary>The title bar button's tooltip with its key.</summary>
     public const string TitleTip = "Assistant (Ctrl+J)";
@@ -179,11 +190,9 @@ public static class AssistantTexts
         return char.ToUpperInvariant(text[0]) + text[1..];
     }
 
-    // Settings, section Assistant (Settings card AI).
-    public const string SectionIntro = "Chat with an AI model in OADM. It works with the rights of the signed-in user.";
+    // The card Assistant of the page MCP & Assistant.
     public const string Saved = "Saved";
     public const string ApiKeyHint = "Leave empty to keep the saved key.";
-    public const string PicturesHint = "Camera pictures always show in the chat.";
     public const string OllamaPrivacy = "Ollama keeps everything in your network.";
     public const string NoProvider = Shared.ChooseProvider;
     public const string ChooseModel = Shared.ChooseModel;
@@ -203,6 +212,9 @@ public static class AssistantTexts
     public static string CloudPrivacy(string provider) =>
         $"Device names, addresses and other data of your devices go to {provider}.";
 
-    /// <summary>"18,420 tokens" (Used today).</summary>
+    /// <summary>"18,420 tokens".</summary>
     public static string Tokens(long count) => string.Create(CultureInfo.CurrentCulture, $"{count:N0} tokens");
+
+    /// <summary>"95,333 tokens today": the server's use of today in the panel's composer, next to Send.</summary>
+    public static string TokensToday(long count) => Tokens(count) + " today";
 }

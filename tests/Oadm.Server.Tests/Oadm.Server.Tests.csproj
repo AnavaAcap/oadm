@@ -41,6 +41,19 @@
     <ProjectReference Include="..\..\plugins\Oadm.Plugins.NtpServer\Oadm.Plugins.NtpServer.csproj" />
     <ProjectReference Include="..\..\plugins\Oadm.Plugins.DhcpServer\Oadm.Plugins.DhcpServer.csproj" />
     <ProjectReference Include="..\..\plugins\Oadm.Plugins.HardeningScan\Oadm.Plugins.HardeningScan.csproj" />
+    <ProjectReference Include="..\..\plugins\Oadm.Plugins.EdgeStorage\Oadm.Plugins.EdgeStorage.csproj" />
+    <!-- It holds its own copy of the Applications plugin's shared types: used only through the alias. -->
+    <ProjectReference Include="..\..\plugins\Oadm.Plugins.AppManagement\Oadm.Plugins.AppManagement.csproj" Aliases="appmanagement" />
+    <ProjectReference Include="..\..\plugins\Oadm.Plugins.ActionRules\Oadm.Plugins.ActionRules.csproj" Aliases="actionrules" />
+    <ProjectReference Include="..\..\plugins\Oadm.Plugins.DeviceTriggers\Oadm.Plugins.DeviceTriggers.csproj" Aliases="devicetriggers" />
+    <ProjectReference Include="..\..\plugins\Oadm.Plugins.DeviceConfig\Oadm.Plugins.DeviceConfig.csproj" />
+    <ProjectReference Include="..\..\plugins\Oadm.Plugins.EdgeRecordingExport\Oadm.Plugins.EdgeRecordingExport.csproj" />
+    <ProjectReference Include="..\..\plugins\Oadm.Plugins.ImageHealth\Oadm.Plugins.ImageHealth.csproj" />
+    <ProjectReference Include="..\..\plugins\Oadm.Plugins.IoMonitor\Oadm.Plugins.IoMonitor.csproj" />
+    <ProjectReference Include="..\..\plugins\Oadm.Plugins.MetadataMonitor\Oadm.Plugins.MetadataMonitor.csproj" />
+    <ProjectReference Include="..\..\plugins\Oadm.Plugins.Dashboards\Oadm.Plugins.Dashboards.csproj" />
+    <ProjectReference Include="..\..\plugins\Oadm.Plugins.LoadTest\Oadm.Plugins.LoadTest.csproj" />
+    <ProjectReference Include="..\..\plugins\Oadm.Plugins.SnapshotReport\Oadm.Plugins.SnapshotReport.csproj" />
     <!-- The real OADM Site Node in the same process (sites tests). -->
     <ProjectReference Include="..\..\src\Oadm.SiteNode\Oadm.SiteNode.csproj" />
   </ItemGroup>

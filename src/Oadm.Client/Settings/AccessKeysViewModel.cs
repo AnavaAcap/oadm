@@ -85,6 +85,12 @@ public static class AccessKeyWords
 /// </summary>
 public sealed partial class AccessKeysViewModel(IOadmApi api, IDialogService dialogs, IClipboardService? clipboard = null) : ObservableObject
 {
+    /// <summary>Close of the dialog Access keys.</summary>
+    public event EventHandler? CloseRequested;
+
+    [RelayCommand]
+    private void Close() => CloseRequested?.Invoke(this, EventArgs.Empty);
+
     /// <summary>Every key by name (at most 100).</summary>
     public RangeObservableCollection<AccessKeyRow> Keys { get; } = [];
 

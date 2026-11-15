@@ -27,7 +27,8 @@ public sealed partial class TaskGrpcService(
     AuditLog audit,
     RoleStore roles,
     IHostApplicationLifetime lifetime,
-    ILogger<TaskGrpcService> logger) : Proto.TaskService.TaskServiceBase
+    ILogger<TaskGrpcService> logger,
+    Devices.DeviceFactsSource facts) : Proto.TaskService.TaskServiceBase
 {
     /// <summary>The task's log, oldest first (live while the task runs).</summary>
     public override async Task<Proto.TaskLog> GetLog(Proto.TaskIdRequest request, ServerCallContext context)
@@ -121,7 +122,7 @@ public sealed partial class TaskGrpcService(
         var view = await views.ForAsync(context).ConfigureAwait(false);
         var reply = new List<Proto.TaskPluginInfo>();
         IReadOnlySet<Guid>? filtered = request.Filter is { } filter
-            ? (await Devices.DeviceSearch.MatchesAsync(view, filter, withApis: false, context.CancellationToken).ConfigureAwait(false)).Select(d => d.Id).ToHashSet()
+            ? (await Devices.DeviceSearch.MatchesAsync(view, filter, facts.Now(), withApis: false, context.CancellationToken).ConfigureAwait(false)).Select(d => d.Id).ToHashSet()
             : null;
         foreach (var entry in await runnable.GetAsync(view, context.CancellationToken).ConfigureAwait(false))
         {
@@ -223,7 +224,7 @@ public sealed partial class TaskGrpcService(
             return reply;
         }
 
-        var devices = await Devices.DeviceSearch.MatchesAsync(view, request.Filter ?? new Proto.DeviceFilter(), withApis: true, ct).ConfigureAwait(false);
+        var devices = await Devices.DeviceSearch.MatchesAsync(view, request.Filter ?? new Proto.DeviceFilter(), facts.Now(), withApis: true, ct).ConfigureAwait(false);
         Sdk.Tasks.TaskPlan plan;
         try
         {

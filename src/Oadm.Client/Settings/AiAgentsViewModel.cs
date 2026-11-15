@@ -29,7 +29,6 @@ public sealed partial class AiAgentsViewModel : ValidatingViewModel
 
     /// <summary>The rail entry and title of the page.</summary>
     public const string PageTitle = "MCP & Assistant";
-    public const string Intro = "AI agents such as Claude Code connect to OADM over MCP with an access key.";
     public const string PageSubtitle = "Agents and the Assistant work with your devices.";
     public const string ChooseCertificate = McpTexts.CertificateOnTurnOn;
     public const string NoCertificate = "None";
@@ -41,7 +40,6 @@ public sealed partial class AiAgentsViewModel : ValidatingViewModel
     private readonly IOadmApi _api;
     private readonly IDialogService _dialogs;
     private static readonly FileType ZipFile = new("Skill", "zip", "application/zip");
-    private static readonly FileType JsonFile = new("JSON file", "json", "application/json");
 
     private readonly UserSession? _session;
     private readonly IClipboardService? _clipboard;
@@ -145,12 +143,29 @@ public sealed partial class AiAgentsViewModel : ValidatingViewModel
     public bool ShowTurnOff => IsAdmin && IsOn;
 
     /// <summary>The configurations of Connect an agent for this server's address (while it runs and its names are known).</summary>
-    public IReadOnlyList<AgentConnection> Connections =>
+    public IReadOnlyList<AgentConnection> Connections { get; private set; } = [];
+
+    private IReadOnlyList<AgentConnection> BuildConnections() =>
         _state is { Running: true } state && AgentConnections.HostOf([.. state.CertificateNames]) is { } host
             ? AgentConnections.For(host, state.Settings.Port)
             : [];
 
     public bool HasConnections => Connections.Count > 0;
+
+    /// <summary>The configuration chosen in Connect an agent (its index in <see cref="Connections"/>; Claude Code first).</summary>
+    [ObservableProperty] public partial int SelectedConnection { get; set; }
+
+    /// <summary>The button Access keys (administrators): the dialog with the list, Create access key and Delete.</summary>
+    [RelayCommand]
+    private async Task ShowAccessKeysAsync()
+    {
+        _ = Keys.LoadAsync(); // the dialog shows its ring while the list reads
+        await _dialogs.ShowAccessKeysAsync(Keys).ConfigureAwait(true);
+    }
+
+    /// <summary>Copy of Connect an agent: the command or the file text of the chosen configuration.</summary>
+    [RelayCommand]
+    private Task CopySelectedAsync() => CopyAsync(Connections.ElementAtOrDefault(Math.Max(0, SelectedConnection)));
 
     public bool CanDownloadCa => _state?.HasCaCertificate ?? false;
 
@@ -254,22 +269,6 @@ public sealed partial class AiAgentsViewModel : ValidatingViewModel
         }
     }
 
-    /// <summary>Download of a configuration file (.mcp.json, mcp.json): the save picker, then the file as shown.</summary>
-    [RelayCommand]
-    private async Task DownloadConnectionAsync(AgentConnection? connection)
-    {
-        if (connection?.FileName is not { } fileName)
-        {
-            return;
-        }
-
-        if (await _dialogs.SaveFileAsync("Download " + fileName, fileName, JsonFile, Encoding.UTF8.GetBytes(connection.Text + "\n")).ConfigureAwait(true) is { } name)
-        {
-            MessageIsError = false;
-            Message = $"Saved {name}.";
-        }
-    }
-
     private async Task SetAsync(bool enabled)
     {
         if (!Validation.IsValid)
@@ -332,7 +331,14 @@ public sealed partial class AiAgentsViewModel : ValidatingViewModel
         OnPropertyChanged(nameof(CertificateText));
         OnPropertyChanged(nameof(ListenText));
         OnPropertyChanged(nameof(CanDownloadCa));
-        OnPropertyChanged(nameof(Connections));
+        var connections = BuildConnections();
+        if (!connections.Select(c => c.Text).SequenceEqual(Connections.Select(c => c.Text)))
+        {
+            Connections = connections; // only a new address or port gives a new list, so the choice stays
+            OnPropertyChanged(nameof(Connections));
+            SelectedConnection = 0;
+        }
+
         OnPropertyChanged(nameof(HasConnections));
         NotifyCommands();
     }

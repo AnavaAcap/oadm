@@ -264,10 +264,10 @@ public sealed partial class AssistantPanelViewModel : IMarkdownActions
         }
 
         var csv = new StringBuilder();
-        Infrastructure.Csv.AppendRecord(csv, [AssistantTexts.ColumnName, AssistantTexts.ColumnAddress, AssistantTexts.ColumnModel, AssistantTexts.ColumnStatus]);
+        Infrastructure.Csv.AppendRecord(csv, [AssistantTexts.ColumnName, AssistantTexts.ColumnAddress, AssistantTexts.ColumnModel, table.FourthHeader]);
         foreach (var row in table.Rows)
         {
-            Infrastructure.Csv.AppendRecord(csv, [row.Name, row.Address, row.Model, row.Status]);
+            Infrastructure.Csv.AppendRecord(csv, [row.Name, row.Address, row.Model, row.Fourth]);
         }
 
         return csv.ToString();
@@ -334,8 +334,15 @@ public sealed partial class AssistantPanelViewModel : IMarkdownActions
                 case AssistantAnswerItem answer:
                     md.AppendLine(answer.Text.TrimEnd());
                     break;
-                case AssistantToolItem tool:
-                    md.Append('_').Append(tool.Text).AppendLine("_");
+                case AssistantStepsItem steps:
+                    foreach (var tool in steps.Steps)
+                    {
+                        md.Append('_').Append(tool.Text).AppendLine("_");
+                    }
+
+                    break;
+                case AssistantSourcesItem sources:
+                    md.Append("Sources: ").AppendLine(string.Join(", ", sources.Chips));
                     break;
                 case AssistantNoticeItem notice:
                     md.AppendLine(notice.Text);

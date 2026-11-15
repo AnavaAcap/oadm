@@ -1,4 +1,5 @@
 using Oadm.Plugins.LoadTest.Checking;
+using Oadm.Plugins.LoadTest.Tools;
 using Oadm.Plugins.Shared;
 using Oadm.Sdk.Plugins;
 
@@ -38,6 +39,9 @@ public sealed class LoadTestPlugin : ICorePlugin, IAsyncDisposable
     public CorePluginGroup Group => CorePluginGroup.Monitoring;
 
     public IReadOnlyList<ITaskPlugin> TaskPlugins => [];
+
+    /// <summary>The read-only tools <c>oadm_load_test_checks</c> and <c>oadm_load_test_check</c> (docs/spec/mcp.md "Plugins"): "show".</summary>
+    public IReadOnlyList<PluginTool> Tools => LoadTestTools.All;
 
     /// <summary>The running service (tests).</summary>
     internal CheckService? Service => _service;
@@ -98,6 +102,8 @@ public sealed class LoadTestPlugin : ICorePlugin, IAsyncDisposable
             LoadTestMethods.GetRun => LoadTestJson.Serialize(await service.GetRunAsync(caller, LoadTestJson.Deserialize<RunRequest>(payloadJson), ct).ConfigureAwait(false)),
             LoadTestMethods.GetStream => LoadTestJson.Serialize(await service.GetStreamAsync(caller, LoadTestJson.Deserialize<StreamRequest>(payloadJson), ct).ConfigureAwait(false)),
             LoadTestMethods.DeleteRun => await DeleteAsync(service, caller, payloadJson, ct).ConfigureAwait(false),
+            _ when method == LoadTestTools.Checks.Method => LoadTestTools.ChecksAnswerOf(service.ListRuns(caller)),
+            _ when method == LoadTestTools.Check.Method => await RunToolAsync(service, caller, payloadJson, ct).ConfigureAwait(false),
             _ => throw new ArgumentException($"Unknown method '{method}'.", nameof(method)),
         };
     }
@@ -105,6 +111,20 @@ public sealed class LoadTestPlugin : ICorePlugin, IAsyncDisposable
     /// <summary>In-process calls without a user (the host itself, tests): as a user with all devices.</summary>
     public Task<string?> InvokeAsync(string method, string? payloadJson, CancellationToken ct) =>
         InvokeAsync(new ContextCall(_ctx ?? throw new InvalidOperationException(NotRunning)), method, payloadJson, ct);
+
+    /// <summary>One check of the caller's scope with one page of its streams (worst first), like the page's run view.</summary>
+    private static async Task<string> RunToolAsync(CheckService service, ICallContext caller, string? payloadJson, CancellationToken ct)
+    {
+        var (runId, errors) = LoadTestTools.RunIdOf(payloadJson);
+        if (errors is not null)
+        {
+            return errors;
+        }
+
+        var page = PluginToolPage.Of(payloadJson);
+        var skip = LoadTestTools.SkipOf(page);
+        return LoadTestTools.RunAnswerOf(await service.GetRunAsync(caller, new RunRequest(runId, skip, page.Limit), ct).ConfigureAwait(false), page, skip);
+    }
 
     private static async Task<string?> DeleteAsync(CheckService service, ICallContext caller, string? payloadJson, CancellationToken ct)
     {

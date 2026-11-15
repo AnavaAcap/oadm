@@ -24,7 +24,8 @@ service AssistantService {
   // Forgets the conversation (panel closed, New chat).
   rpc End (AssistantConversationRequest) returns (Empty);
   rpc GetSettings (Empty) returns (AssistantSettingsState);
-  // INVALID_ARGUMENT with trailer oadm-field (provider, address, api_key, daily_limit, user_daily_limit).
+  // INVALID_ARGUMENT with trailer oadm-field (provider, address, api_key, daily_limit, user_daily_limit, steps_per_answer,
+  // answer_seconds).
   rpc SetSettings (AssistantSettings) returns (AssistantSettingsState);
   // Reads the provider's model list with the given settings (the saved key when api_key is empty); never saves.
   rpc Test (AssistantSettings) returns (AssistantTestReply);
@@ -77,7 +78,20 @@ message AssistantEvent {
     AssistantTable table = 5;
     AssistantDone done = 6;
     string notice = 7;                     // shown once, e.g. "Your messages and the data the assistant reads go to Anthropic."
+    // 8..19 are kept free; never reuse or renumber a field.
+    AssistantSources sources = 20;         // what the answer used, once before done (only when a tool answered)
+    AssistantFollowUps follow_ups = 21;    // 1..3 next questions the model offers, once before done (only when it answered)
   }
+}
+
+// The chips below an answer: one short label per area of the tools it used ("7 devices", "Compliance", "Docs"), at most 6.
+message AssistantSources {
+  repeated string chips = 1;
+}
+
+// The model's next questions (its <<next>> line, taken out of the text): plain text; a click sends one as the user's message.
+message AssistantFollowUps {
+  repeated string questions = 1;           // 1..3, each at most 200 characters
 }
 
 message AssistantToolLine {
@@ -110,6 +124,9 @@ message AssistantTable {
   repeated AssistantDeviceRow rows = 1;    // at most 50
   int32 total = 2;                         // all matching devices; > rows: "+N more"
   repeated string all_device_ids = 3;      // for Select all in the grid, at most 10,000
+  // The fact the question asked about ("Clock", "Vulnerabilities", "Certificate expires"): the 4th column shows each row's
+  // detail under this header instead of the status; empty: the status.
+  string detail_header = 4;
 }
 
 message AssistantDeviceRow {
@@ -118,6 +135,7 @@ message AssistantDeviceRow {
   string address = 3;
   string model = 4;
   string status = 5;
+  string detail = 6;                       // the value under AssistantTable.detail_header
 }
 
 message AssistantDone {
@@ -146,6 +164,8 @@ message AssistantSettings {
   bool send_pictures = 6;
   int64 daily_limit = 7;                   // tokens a day for the server, default 2,000,000
   int64 user_daily_limit = 8;              // 0 = no limit per user
+  int32 steps_per_answer = 9;              // the model's tool calls per message, 1..50 (0 from an older client: 20)
+  int32 answer_seconds = 10;               // the longest one answer may take, 30..600 (0 from an older client: 120)
 }
 
 message AssistantSettingsState {

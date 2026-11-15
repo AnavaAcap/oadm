@@ -112,6 +112,7 @@ chosen cameras, exported as a PDF report (PDFsharp + MigraDoc, MIT).
   dropped 30 minutes after it ended (by a timer), and with the user's job when the host ends it (no re-download); a user
   builds at most 2 reports at once, a further one waits its turn ("Wait for your earlier reports to finish"); all
   finished PDFs together stay within 1 GB (the oldest finished ones are dropped first).
+- MCP ([mcp.md](mcp.md)): the read-only tool `oadm_snapshot_report_sources` (the tiles of 1 to 20 chosen cameras).
 - Device groups: only cameras of the user's view ("All" = the view); reports are jobs of their user, another user's
   report id answers like an unknown one.
 
@@ -263,6 +264,8 @@ server** of the PKI page, its own source-available `Est/LICENSE`. Off by default
 - Device groups: Turn on, Turn off, Save and Delete all only for users with all devices; a user with a group sees the
   enrollments, Not renewed, certificates and listeners (this server, sites) of the group's devices only, never refusals
   of cameras OADM does not manage. Host names never go into certificates of a device a user with a group added.
+- MCP ([mcp.md](mcp.md)): the read-only tool `oadm_est_enrollments` (the state and the enrollments of the caller's
+  devices; while the server is off its state only).
 
 ## 802.1X server (core plugin of PKI, OADM PRO)
 
@@ -286,6 +289,8 @@ certificate, TLS, trusted CAs, VLAN, Block) are PKI's policies (`docs/spec/pki.m
   "Change the 802.1X server", `oadm.radius:manage`), audited, and only for users with all devices; the policies need
   PKI's "Manage the certificate authority"; a user with a group sees the Sessions and Log rows of the group's devices
   (rows without a managed device never), no server-wide settings and only the switches of the group's routes.
+- MCP ([mcp.md](mcp.md)): the read-only tool `oadm_radius_log` (the state and the log of the caller's devices; never a
+  shared secret or a certificate).
 
 ## Metadata Monitor (core plugin)
 
@@ -300,6 +305,7 @@ Monitoring, icon `activity`), **off by default**. A port of the AXIS Metadata Mo
   keep-alive; the client keeps the newest 10,000 messages; XML through `DeviceXml` (1 MB, no DTD). The RTSP port of a
   camera behind a port forward is set in the device list (**OADM > RTSP port**); Start never changes it (an older
   client's port is ignored).
+- MCP ([mcp.md](mcp.md)): the read-only tool `oadm_metadata_streams` (the open streams of the caller's devices and their last messages; it opens none).
 - Device groups: streams are jobs of their user (another user's id answers like an unknown one), opened through the
   user's call, sent to the page's session only; a stream ends Stopped when the user's group or its rules change (the host
   ends the job), with Error when the camera alone leaves the user's view. At most 16 streams (the place is taken before
@@ -319,6 +325,7 @@ that has the app, with five count cards (Good, Detected, Pending, Detection off,
   page is shown, off by default), nothing in the background and no events (event rules use the app's own events through
   Device triggers); 24 cameras at a time, 3 s each; a stopped app stays as **Not running**; a detection turned off is no
   problem (the camera counts as Good); refused statuses without a request. Methods `check` and `getState` are Operator.
+- MCP ([mcp.md](mcp.md)): the read-only tool `oadm_image_health_results` (the last check, counts first, by page).
 - Device groups: one table per device scope; a group user checks and sees only the group's cameras, chosen ids outside it
   are refused whole (NOT_FOUND).
 
@@ -337,6 +344,8 @@ Details: [Application management](app-management.md) and the plugin's README.
   key, list, log and settings parsing are the Applications plugin's linked source;
   setting values only for roles with "Change application settings", never logged; permission `oadm.app-management:view`.
 - Device groups: every read and run is the caller's; ids outside the group refuse the whole request (NOT_FOUND).
+- MCP ([mcp.md](mcp.md)): the read-only tool `oadm_app_management_applications` (what the page read last in the
+  caller's login session, of the devices the caller sees; it reads no device).
 
 ## Load test (core plugin)
 
@@ -353,6 +362,7 @@ one row per camera stream. Details: [Load test](load-test.md) and the plugin's R
   camera streams per check and 200 at once; RTP over UDP on 50000-50799 with the firewall rule open only while a check runs; the last 5 runs kept
   (the 6th deletes the oldest), a run that was running at a server stop kept as Failed. Methods `plan`, `listRuns`,
   `getRun`, `getStream` need "show" (Viewer), `start`, `cancel`, `deleteRun` the plugin's "run" permission (Operator).
+- MCP ([mcp.md](mcp.md)): the read-only tools `oadm_load_test_checks` and `oadm_load_test_check` (verdicts, steps, streams worst first).
 - Device groups: a group user checks only the group's cameras (chosen ids outside it refused whole, NOT_FOUND); runs
   belong to the device scope that ran them. A check is a shared host job of that scope: streams and the exposure raise
   only on the starter's devices as they are now, a camera that leaves the group is dropped, live rows only of cameras
@@ -369,6 +379,7 @@ drawn as a faceplate; no events, no actions, no switching.
   per request, 1 s pause after a failure); one reading per device shared by every page; stopped after 20 s without the
   page's keep-alive; at most 20 devices at once; refused statuses without a request; the VAPIX client always from the
   factory, never kept or disposed.
+- MCP ([mcp.md](mcp.md)): the read-only tool `oadm_io_ports` (one read of one device's ports; no stream).
 - Device groups: streams are jobs of their user (another user's id answers like an unknown one), ports go to the page's
   session only, a reading is shared within one device scope and ends when the device leaves its view.
 
@@ -394,6 +405,7 @@ event of the event rules, plus "<Trigger>: connection lost".
 - Device groups: every trigger belongs to the group of the user who made it (none = all devices) and watches only that
   group's devices ("All devices" and tags = the group's), so its events come only from them; group users see and change
   only their group's triggers; a deleted group's triggers watch nothing; the editor's reads are the user's jobs.
+- MCP ([mcp.md](mcp.md)): the read-only tools `oadm_device_triggers_list` and `oadm_device_triggers_devices`.
 
 ## Action Rule Editor (core plugin)
 
@@ -423,6 +435,8 @@ many devices. Every settings form uses the bundled action catalog (`Catalog/acti
   Operator yes); every change, copy, delete and undo is audited.
 - Device groups: one table per device scope; every device id of a request in the caller's devices or the whole request
   is refused (NOT_FOUND) before anything is read, saved or started; undo runs per group.
+- MCP ([mcp.md](mcp.md)): the read-only tool `oadm_device_rules_list` (the rules the editor read last for the caller's
+  device scope; it reads no device).
 
 ## System report (core plugin without a page)
 
@@ -544,6 +558,7 @@ triggers**) and no dashboard.
   fill's lightness; sizes Small (default), Medium, Large inside the same tile; no confirmation, no
   lock after a press (the rule's Dead time and Max per minute); a press while editing does nothing; the plugin's own button
   events are never dashboard values.
+- MCP ([mcp.md](mcp.md)): the read-only tools `oadm_dashboards_list` and `oadm_dashboards_values` (the values the widgets show now).
 - Device groups: each dashboard belongs to the group of the user who made it (none = all devices); group users see and
   change only their group's dashboards with the group's devices, get only the events of their devices and sites and only
   the values their own pages watch; saving refuses devices outside the owner's devices; an edit keeps the owner. A group
@@ -571,6 +586,7 @@ B8A44F631339"), the camera's file names.
   estimated from at most 40 recordings per camera.
 - Roles: "show" (Operator and Viewer: search), "Export recordings" (`export`, Operator yes, Viewer no); every downloaded
   recording is audited with the camera and the times.
+- MCP ([mcp.md](mcp.md)): the read-only tool `oadm_recordings_search` (the page's search of one camera, by page).
 - Device groups: search and export take the camera from the user's call; a camera outside the user's group answers like
   an unknown one and is never contacted.
 
@@ -594,9 +610,12 @@ only while Edge storage is on.
   the POST body, never stored, logged or in a URL; retention 0..7,000 days (0 = no age limit).
 - Roles: "show" (Operator, Viewer), "Change storage settings" (`manage`, Operator yes), "Format and encrypt storage"
   (`format`, full device control, Operator no); both run methods audited.
+- MCP ([mcp.md](mcp.md)): the read-only tool `oadm_edge_storage_cards` (the last read, counts first, by page; reads no camera).
 - Device groups: one table per device scope; a group user reads and runs the tools only on the group's cameras (ids
   outside it refuse the whole request, NOT_FOUND); a user with all devices reads the chosen cameras that still exist
   (removed ones are skipped; runs stay refused as a whole).
+- MCP ([mcp.md](mcp.md)): the read-only tool `oadm_edge_storage_cards` (the table the page read last for the caller's
+  device scope, with its counts; it reads no camera).
 
 ## Date and time
 
@@ -642,6 +661,12 @@ import, `/config/rest/$export`, `$import`, like its web interface), **Configure 
   ADM files are read and written byte for byte (format 3, known from files only, ADM is never decompiled), passwords in
   them like ADM; password values never reach a log or an error text. **Create configuration file** is a dialog for one
   device, never a task.
+- MCP and Assistant ([mcp.md](mcp.md)): the read-only tools `oadm_config_parameters`, `oadm_config_action_rules` and
+  `oadm_config_stream_profiles` of the package's core plugin without a page (`Tools/DeviceConfigToolsPlugin`). Rules that
+  must hold: read only, with the dialog's read code (`DeviceSettingsReader`), never a second VAPIX implementation; only
+  devices of the caller's view; Configure devices' permissions (`configure` or `dangerous`); passwords, secrets,
+  community strings and tokens are never answered; bounded (8 devices at a time, 40 s, then the rest counts as not read;
+  at most 20 rows, about 30 KB).
 - Device groups: the source device of Configure devices and Create configuration file is read with the user's query
   (only devices of the user's view); configuration files stay on the client (an import uploads its file for its own
   run), so the server keeps no shared file with saved passwords that a group user could use.
@@ -699,3 +724,4 @@ Server only, always on, no page. Spec: `docs/spec/event-rules.md`.
   subscription; the value is checked before anything is sent; a new recipient works with only the address; nothing goes to disk
   and no certificate is created (Sign and Sign and encrypt need a chosen client certificate, whose URI name is the application URI);
   the stack's refusal of an unprotected password is shown in plain words, OADM adds no rule; no reconnect in the plugin.
+- MCP ([mcp.md](mcp.md)): their recipients and connections are in the host tool `oadm_recipients_list`; the action plugins have no tools of their own.

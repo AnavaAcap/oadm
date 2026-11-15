@@ -50,3 +50,9 @@ Apache-2.0), also for `plugins/Oadm.Plugins.Pki.Client/Radius`.
   `PkiTabHeadlessTests`, `Category=Perf` for 10,000 sessions and the device limit).
 - Not built yet: recorded conversations of real switches (Cisco, Aruba, ...): none could be recorded here; the tests replay
   the RFC examples. A new switch quirk becomes a fixture first.
+
+## MCP
+
+The read-only tool `oadm_radius_log` (`Tools/RadiusTools.cs`, docs/spec/mcp.md "Plugins"): the state and the log of the
+caller's devices, newest first, paged, with a result filter on top of the log's own search; never a shared secret or a
+certificate; while the server is off its state only. Tests: `ToolTests`.

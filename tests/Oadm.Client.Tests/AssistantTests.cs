@@ -111,20 +111,27 @@ public sealed class AssistantTests
         await panel.SendCommand.ExecuteAsync(null);
 
         Assert.False(panel.IsStreaming);
+        // The tool lines folded into one Steps row at the top of the answer, below the notice where the data goes.
         Assert.Equal(
-            [typeof(AssistantUserItem), typeof(AssistantNoticeItem), typeof(AssistantAnswerItem), typeof(AssistantToolItem), typeof(AssistantTableItem),
-                typeof(AssistantPictureItem), typeof(AssistantPreviewItem), typeof(AssistantToolItem), typeof(AssistantNoticeItem)],
+            [typeof(AssistantUserItem), typeof(AssistantNoticeItem), typeof(AssistantStepsItem), typeof(AssistantAnswerItem), typeof(AssistantTableItem),
+                typeof(AssistantPictureItem), typeof(AssistantPreviewItem), typeof(AssistantNoticeItem)],
             panel.Items.Select(i => i.GetType()));
-        Assert.Equal("Two devices are **offline**.", ((AssistantAnswerItem)panel.Items[2]).Text); // the pieces join into one answer
+        var steps = (AssistantStepsItem)panel.Items[2];
+        Assert.Equal(["Looking at devices", "Not allowed"], steps.Steps.Select(s => s.Text));
+        Assert.Equal("Steps (2)", steps.Header);
+        Assert.True(steps.HasFailed);
+        Assert.True(steps.IsExpanded); // the answer failed: open by itself
+        Assert.Equal("Two devices are **offline**.", ((AssistantAnswerItem)panel.Items[3]).Text); // the pieces join into one answer
         var table = (AssistantTableItem)panel.Items[4];
         Assert.True(table.HasMore);
         Assert.Equal("+58 more", table.MoreText);
+        Assert.Equal("60 devices", table.Title);
+        Assert.True(table.ShowsLabel); // the answer's first result card
         var preview = (AssistantPreviewItem)panel.Items[6];
         Assert.Equal(("Restart", "25 devices", "10.0.0.1, 10.0.0.2, +23 more"), (preview.Title, preview.CountText, preview.DevicesText));
         Assert.True(preview.IsReady);
         Assert.True(panel.HasReadyPreview); // Run is the main button now
-        Assert.True(((AssistantToolItem)panel.Items[7]).Failed);
-        var error = (AssistantNoticeItem)panel.Items[8];
+        var error = (AssistantNoticeItem)panel.Items[7];
         Assert.True(error.IsError);
         Assert.Equal("The provider did not answer. Try again.", error.Text);
         Assert.Equal(string.Empty, panel.Draft);
@@ -593,11 +600,18 @@ public sealed class AssistantTests
         form.UserDailyLimit = "12";
         Assert.Equal(AssistantTexts.UserLimitRange, form.ErrorOf(nameof(AssistantSettingsViewModel.UserDailyLimit)));
         form.UserDailyLimit = "";
+        form.StepsPerAnswer = "0";
+        Assert.Equal(Oadm.Contracts.Assistant.AssistantTexts.StepsRange, form.ErrorOf(nameof(AssistantSettingsViewModel.StepsPerAnswer)));
+        form.StepsPerAnswer = "8";
+        form.AnswerSeconds = "10";
+        Assert.Equal(Oadm.Contracts.Assistant.AssistantTexts.AnswerSecondsRange, form.ErrorOf(nameof(AssistantSettingsViewModel.AnswerSeconds)));
+        form.AnswerSeconds = "240";
         Assert.True(form.SaveCommand.CanExecute(null));
 
         await form.SaveCommand.ExecuteAsync(null);
         var saved = (await api.GetAssistantSettingsAsync(CancellationToken.None)).Settings;
         Assert.Equal(("ollama", "http://10.0.0.5:11434", 500_000L, 0L), (saved.Provider, saved.Address, saved.DailyLimit, saved.UserDailyLimit));
+        Assert.Equal((8, 240), (saved.StepsPerAnswer, saved.AnswerSeconds));
         Assert.Equal("500,000", form.DailyLimit); // shown with separators like Used today
 
         await form.TurnOffCommand.ExecuteAsync(null);
@@ -648,6 +662,8 @@ public sealed class AssistantTests
     [InlineData("api_key", nameof(AssistantSettingsViewModel.ApiKey))]
     [InlineData("daily_limit", nameof(AssistantSettingsViewModel.DailyLimit))]
     [InlineData("user_daily_limit", nameof(AssistantSettingsViewModel.UserDailyLimit))]
+    [InlineData("steps_per_answer", nameof(AssistantSettingsViewModel.StepsPerAnswer))]
+    [InlineData("answer_seconds", nameof(AssistantSettingsViewModel.AnswerSeconds))]
     public async Task AServerRefusalShowsBelowTheFieldItNames(string trailer, string property)
     {
         var api = Substitute.For<IOadmApi>();
@@ -712,6 +728,48 @@ public sealed class AssistantTests
     // ------------------------------------------------------------ headless
 
     [Fact]
+    public async Task ATableOfAFactShowsItInTheFourthColumnUnderItsNameInsteadOfTheStatus()
+    {
+        var outDir = Environment.GetEnvironmentVariable("OADM_SCREENSHOT_DIR");
+        var done = await HeadlessSession.Shared.Dispatch(async () =>
+        {
+            var api = new FakeOadmApi(TimeSpan.FromMilliseconds(5), seedSampleData: false);
+            using var f = new DevicesFixture(api);
+            var devices = Devices(2);
+            f.SeedDevices(devices);
+            var panel = await PanelAsync(api, f);
+            var window = PanelWindow(panel);
+            window.Show();
+            Pump();
+            var table = Table(2, devices);
+            table.DetailHeader = "Clock";
+            table.Rows[0].Detail = "50 s ahead";
+            table.Rows[1].Detail = "NTP not synced";
+            api.AssistantScript = (_, ct) => Script(
+            [
+                new AssistantEvent { Tool = new AssistantToolLine { Text = "Looking at devices" } },
+                new AssistantEvent { Table = table },
+                new AssistantEvent { Text = "Two clocks are off." },
+            ], ct);
+            panel.Draft = "Which devices are not NTP synced or have a drift?";
+            await panel.SendCommand.ExecuteAsync(null);
+            Pump();
+            var texts = VisibleTexts(window);
+            Assert.Contains("Clock", texts);
+            Assert.Contains("50 s ahead", texts);
+            Assert.Contains("NTP not synced", texts);
+            Assert.DoesNotContain("Unreachable", texts); // the status gives way to the fact
+            var item = panel.Items.OfType<AssistantTableItem>().Single();
+            Assert.Equal("Clock", item.FourthHeader);
+            Assert.Equal(AssistantTexts.ColumnStatus, new AssistantTableItem(Table(2, devices)).FourthHeader); // no fact: the status
+            Save(window, outDir, "assistant-panel-table-clock.png");
+            window.Close();
+            return true;
+        }, CancellationToken.None);
+        Assert.True(done);
+    }
+
+    [Fact]
     public async Task ThePanelShowsSuggestionsAnAnswerWithATableAndAPictureAndAPreviewCardBeforeAndAfterRun()
     {
         var outDir = Environment.GetEnvironmentVariable("OADM_SCREENSHOT_DIR");
@@ -752,7 +810,7 @@ public sealed class AssistantTests
             var scroller = conversation.GetVisualDescendants().OfType<ScrollViewer>().First();
             scroller.Offset = new Avalonia.Vector(0, 0);
             Pump();
-            Assert.Contains("Looking at devices", VisibleTexts(window));
+            Assert.Contains("Steps (2)", VisibleTexts(window)); // the tool lines folded
             Assert.Contains(window.GetVisualDescendants().OfType<DataGrid>(), g => g.IsEffectivelyVisible);
             Save(window, outDir, "assistant-panel-answer-table.png");
 

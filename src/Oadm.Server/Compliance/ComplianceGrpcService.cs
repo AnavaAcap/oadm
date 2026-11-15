@@ -24,7 +24,7 @@ namespace Oadm.Server.Compliance;
 /// results; Check now and the device of ListChoices come from the view.
 /// </summary>
 public sealed class ComplianceGrpcService(ComplianceService compliance, DeviceViewFactory views, AuditLog audit, IHostApplicationLifetime lifetime,
-    Core.Vapix.TrustAnchorRegistry anchors)
+    Core.Vapix.TrustAnchorRegistry anchors, Devices.DeviceFactsSource facts)
     : Proto.ComplianceService.ComplianceServiceBase
 {
     /// <summary>Results per message of the snapshot.</summary>
@@ -100,7 +100,7 @@ public sealed class ComplianceGrpcService(ComplianceService compliance, DeviceVi
         {
             try
             {
-                only = (await Devices.DeviceSearch.MatchesAsync(view, filter, withApis: false, ct).ConfigureAwait(false)).Select(d => d.Id).ToHashSet();
+                only = (await Devices.DeviceSearch.MatchesAsync(view, filter, facts.Now(), withApis: false, ct).ConfigureAwait(false)).Select(d => d.Id).ToHashSet();
             }
             catch (ArgumentException ex)
             {

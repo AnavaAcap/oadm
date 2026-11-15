@@ -1,6 +1,7 @@
 using System.Runtime.CompilerServices;
 
 using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
 using Avalonia.Headless;
 using Avalonia.Input;
 using Avalonia.VisualTree;
@@ -9,6 +10,7 @@ using Grpc.Core;
 
 using Oadm.Client.Api;
 using Oadm.Client.Assistant;
+using Oadm.Client.Controls;
 using Oadm.Contracts.V1;
 
 using static Oadm.Client.Tests.AssistantTests;
@@ -55,7 +57,8 @@ public sealed class AssistantChatUxTests
         await Oadm.Sdk.Testing.Eventually.TrueAsync(() => panel.Items.OfType<AssistantNoticeItem>().Any(), "the notice arrived");
 
         Assert.True(panel.IsThinking);
-        Assert.Equal([typeof(AssistantUserItem), typeof(AssistantNoticeItem), typeof(AssistantThinkingItem)], panel.Items.Select(i => i.GetType()));
+        Assert.Equal([typeof(AssistantUserItem), typeof(AssistantNoticeItem), typeof(AssistantStatusItem)], panel.Items.Select(i => i.GetType()));
+        Assert.Equal(AssistantTexts.Thinking, ((AssistantStatusItem)panel.Items[2]).Text);
 
         gate.SetResult();
         await sending.WaitAsync(TimeSpan.FromSeconds(30));
@@ -72,13 +75,13 @@ public sealed class AssistantChatUxTests
         panel.Draft = "Hi";
         await panel.SendCommand.ExecuteAsync(null);
         Assert.False(panel.IsThinking);
-        Assert.DoesNotContain(panel.Items, i => i is AssistantThinkingItem);
+        Assert.DoesNotContain(panel.Items, i => i is AssistantStatusItem);
 
         api.AssistantScript = (_, _) => Refused();
         panel.Draft = "Again";
         await panel.SendCommand.ExecuteAsync(null);
         Assert.False(panel.IsThinking);
-        Assert.DoesNotContain(panel.Items, i => i is AssistantThinkingItem);
+        Assert.DoesNotContain(panel.Items, i => i is AssistantStatusItem);
     }
 
     private static async IAsyncEnumerable<AssistantEvent> Refused()
@@ -415,6 +418,210 @@ public sealed class AssistantChatUxTests
                     chip => Assert.Contains(composer, chip.GetVisualAncestors()));
                 Assert.True(scroller.Offset.Y >= scroller.Extent.Height - scroller.Viewport.Height - 1, "the grown box keeps the end in view");
                 Save(window, outDir, "assistant-ux-attachments.png");
+                window.Close();
+                return true;
+            }, CancellationToken.None);
+            Assert.True(done);
+        }
+        finally
+        {
+            Directory.Delete(folder, recursive: true);
+        }
+    }
+
+    private static AssistantEvent Tool(string text, bool failed = false) => new() { Tool = new AssistantToolLine { Text = text, Failed = failed } };
+
+    private static AssistantEvent Sources(params string[] chips) => new() { Sources = new AssistantSources { Chips = { chips } } };
+
+    private static AssistantEvent Next(params string[] questions) => new() { FollowUps = new AssistantFollowUps { Questions = { questions } } };
+
+    [Fact]
+    public async Task OneLiveStatusLineFollowsTheToolsAndTheStepsFoldIntoOneRowAtTheEnd()
+    {
+        using var api = new FakeOadmApi(TimeSpan.FromMilliseconds(5));
+        var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        api.AssistantScript = (_, ct) => Gated(gate, [Tool("Looking at devices")],
+            [Tool("Checking compliance"), Text("All 7 pass."), Sources("7 devices", "Compliance"), Next("Which fail HTTPS?"), Done()], ct);
+        var panel = await PanelAsync(api);
+        panel.Draft = "Do my devices pass?";
+        var sending = panel.SendCommand.ExecuteAsync(null);
+        await Oadm.Sdk.Testing.Eventually.TrueAsync(() => panel.Items.OfType<AssistantStatusItem>().Any(s => s.Text == "Looking at devices"), "the first tool runs");
+
+        // While it runs: one line, no list of tool lines.
+        Assert.Equal([typeof(AssistantUserItem), typeof(AssistantStatusItem)], panel.Items.Select(i => i.GetType()));
+        Assert.True(panel.IsThinking);
+
+        gate.SetResult();
+        await sending.WaitAsync(TimeSpan.FromSeconds(30));
+        Assert.Equal([typeof(AssistantUserItem), typeof(AssistantStepsItem), typeof(AssistantAnswerItem), typeof(AssistantSourcesItem), typeof(AssistantFollowUpsItem)],
+            panel.Items.Select(i => i.GetType()));
+        var steps = (AssistantStepsItem)panel.Items[1];
+        Assert.Equal(("Steps (2)", false, false), (steps.Header, steps.IsExpanded, steps.HasFailed)); // folded: the answer ended well
+        Assert.Equal(["7 devices", "Compliance"], ((AssistantSourcesItem)panel.Items[3]).Chips);
+        Assert.True(((AssistantAnswerItem)panel.Items[2]).ShowsRetry); // Try again stays under the answer
+        Assert.Contains("_Checking compliance_", panel.ChatMarkdown(), StringComparison.Ordinal);
+        Assert.Contains("Sources: 7 devices, Compliance", panel.ChatMarkdown(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task AFailedStepKeepsItsMarkAndTheStepsOpenOnlyWhenTheAnswerFailed()
+    {
+        using var api = new FakeOadmApi(TimeSpan.FromMilliseconds(5));
+        api.AssistantScript = (_, ct) => Script([Tool("Looking at devices"), Tool("Reading the logs: Not allowed", failed: true), Text("I cannot read the logs."), Done()], ct);
+        var panel = await PanelAsync(api);
+        panel.Draft = "What failed?";
+        await panel.SendCommand.ExecuteAsync(null);
+        var steps = panel.Items.OfType<AssistantStepsItem>().Single();
+        Assert.True(steps.HasFailed);
+        Assert.False(steps.IsExpanded);
+
+        api.AssistantScript = (_, ct) => Script([Tool("Looking at devices"), Done("The provider did not answer. Try again.")], ct);
+        panel.Draft = "Again";
+        await panel.SendCommand.ExecuteAsync(null);
+        Assert.True(panel.Items.OfType<AssistantStepsItem>().Last().IsExpanded);
+
+        // An answer without tools has no Steps row.
+        api.AssistantScript = (_, ct) => Script([Text("Hello."), Done()], ct);
+        panel.NewChatCommand.Execute(null);
+        panel.Draft = "Hi";
+        await panel.SendCommand.ExecuteAsync(null);
+        Assert.DoesNotContain(panel.Items, i => i is AssistantStepsItem);
+    }
+
+    [Fact]
+    public async Task ANextQuestionIsSentAsTheUsersMessageAndOnlyTheNewestAnswerKeepsItsQuestions()
+    {
+        using var api = new FakeOadmApi(TimeSpan.FromMilliseconds(5));
+        var answers = 0;
+        api.AssistantScript = (_, ct) => Script([Text($"Answer {++answers}."), Next("Which ones are offline?", "Upgrade them"), Done()], ct);
+        var panel = await PanelAsync(api);
+        panel.Draft = "How are my cameras?";
+        await panel.SendCommand.ExecuteAsync(null);
+        var next = panel.Items.OfType<AssistantFollowUpsItem>().Single();
+        Assert.Equal(["Which ones are offline?", "Upgrade them"], next.Questions);
+
+        await panel.SendSuggestionCommand.ExecuteAsync(next.Questions[0]);
+
+        Assert.Equal("Which ones are offline?", api.AssistantMessages[^1].Text);
+        Assert.False(api.AssistantMessages[^1].ReplaceLast);
+        var single = Assert.Single(panel.Items.OfType<AssistantFollowUpsItem>()); // the older questions went
+        Assert.NotSame(next, single);
+        Assert.Equal("Which ones are offline?", panel.Items.OfType<AssistantUserItem>().Last().Text);
+    }
+
+    [Fact]
+    public async Task TheAnswerStepsResultCardSourcesNextQuestionsAndComposerLookCleanInDarkAndLight()
+    {
+        var outDir = Environment.GetEnvironmentVariable("OADM_SCREENSHOT_DIR");
+        // The light ones: OADM_TEST_APPEARANCE=Light (the appearance is chosen once per test process).
+        var appearance = string.Equals(Environment.GetEnvironmentVariable("OADM_TEST_APPEARANCE"), "Light", StringComparison.OrdinalIgnoreCase) ? "light" : "dark";
+        var folder = Path.Combine(Path.GetTempPath(), $"oadm-shots-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(folder);
+        try
+        {
+            var done = await HeadlessSession.Shared.Dispatch(async () =>
+            {
+                var api = new FakeOadmApi(TimeSpan.FromMilliseconds(5), seedSampleData: false);
+                using var f = new DevicesFixture(api);
+                var devices = AssistantTests.Devices(12);
+                f.SeedDevices(devices);
+                var panel = await PanelAsync(api, f);
+                var window = PanelWindow(panel);
+                window.Show();
+                Pump();
+                var view = window.GetVisualDescendants().OfType<AssistantPanelView>().Single();
+
+                // The live status line while a tool runs.
+                var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                var table = new AssistantTable { Total = 12 };
+                table.Rows.AddRange(devices.Take(10).Select(d => new AssistantDeviceRow { DeviceId = d.Id, Name = d.Address, Address = d.Address, Model = d.Model, Status = "OK" }));
+                table.AllDeviceIds.AddRange(devices.Select(d => d.Id));
+                api.AssistantScript = (_, ct) => Gated(gate, [Tool("Looking at devices")],
+                [
+                    new AssistantEvent { Table = table },
+                    Tool("Checking compliance"), Tool("Reading the settings of 12 devices"), Tool("Searching the docs"),
+                    Text("**12 cameras** are online. 2 of them still run AXIS OS 11.11."),
+                    Sources("12 devices", "Compliance", "Settings", "Docs"),
+                    Next("Which cameras run AXIS OS 11.11?", "Upgrade the two old cameras", "Show a picture of the lobby camera"),
+                    Done(),
+                ], ct);
+                panel.Draft = "How are my cameras?";
+                var sending = panel.SendCommand.ExecuteAsync(null);
+                await Oadm.Sdk.Testing.Eventually.TrueAsync(() => panel.Items.OfType<AssistantStatusItem>().Any(s => s.Text == "Looking at devices"), "the tool runs");
+                Pump();
+                Assert.Contains("Looking at devices", VisibleTexts(window));
+                Assert.Single(view.GetVisualDescendants().OfType<StackPanel>(), s => s.Name == "Thinking" && s.IsEffectivelyVisible);
+                Save(window, outDir, $"assistant-design-status-{appearance}.png");
+
+                // The end: steps folded, the result card with its actions, the sources and the next questions.
+                gate.SetResult();
+                await sending;
+                Pump();
+                var texts = VisibleTexts(window);
+                Assert.DoesNotContain("Checking compliance", texts);
+                Assert.Contains(AssistantTexts.SourcesLabel, texts);
+                Assert.Contains(AssistantTexts.NextLabel, texts);
+                Assert.Contains("12 devices", texts);
+                Assert.Contains("+4 more", texts); // the card shows 8 of the 12
+                Assert.Contains(AssistantTexts.Footnote, texts);
+                var card = view.GetVisualDescendants().OfType<ResultCard>().Single(c => c.Name == "DeviceTable");
+                Assert.Contains(card.GetVisualDescendants().OfType<Button>(), b => ToolTip.GetTip(b) as string == AssistantTexts.SaveCsv && b.IsEffectivelyVisible);
+                Assert.Contains(card.GetVisualDescendants().OfType<Oadm.Sdk.Client.Controls.ToolbarButton>(), b => b.Text == AssistantTexts.SelectAllInGrid);
+                Assert.Equal(3, view.GetVisualDescendants().OfType<Button>().Count(b => b.Classes.Contains("followUp") && b.IsEffectivelyVisible));
+                Save(window, outDir, $"assistant-design-result-{appearance}.png");
+
+                var steps = panel.Items.OfType<AssistantStepsItem>().Single();
+                var scroller = view.FindControl<ListBox>("Conversation")!.GetVisualDescendants().OfType<ScrollViewer>().First();
+                scroller.Offset = new Avalonia.Vector(0, 0);
+                Pump();
+                Assert.Contains("Steps (4)", VisibleTexts(window));
+                Save(window, outDir, $"assistant-design-steps-folded-{appearance}.png");
+                view.GetVisualDescendants().OfType<ToggleButton>().Single(b => b.Name == "StepsHeader").IsChecked = true;
+                Pump();
+                Assert.True(steps.IsExpanded);
+                Assert.Contains("Checking compliance", VisibleTexts(window));
+                Save(window, outDir, $"assistant-design-steps-expanded-{appearance}.png");
+
+
+                // An answer set for reading: headings, a bold lead-in, lists, code.
+                panel.NewChatCommand.Execute(null);
+                api.AssistantScript = (_, ct) => Script(
+                [
+                    Text("# Firmware report\n\n**In short:** 10 of 12 cameras run the newest AXIS OS. Two need an upgrade before the end of the month.\n\n"
+                        + "## What to do\n\n1. Upgrade `10.0.0.2` and `10.0.0.3` to 12.6.97.\n2. Check that both come back online.\n3. Run the compliance check again.\n\n"
+                        + "### Why it matters\n\n- AXIS OS 11.11 has known vulnerabilities.\n- The LTS track ends in March, after that no fixes come.\n- An upgrade takes about 5 minutes per camera and needs a restart.\n\n"
+                        + "```json\n{\"firmware\": \"12.6.97\"}\n```\n"),
+                    Done(),
+                ], ct);
+                panel.Draft = "Write a firmware report";
+                await panel.SendCommand.ExecuteAsync(null);
+                Pump();
+                scroller.Offset = new Avalonia.Vector(0, 0);
+                Pump();
+                var markdown = view.GetVisualDescendants().OfType<MarkdownText>().Single();
+                Assert.Contains(markdown.GetVisualDescendants().OfType<SelectableTextBlock>(), t => t.Classes.Contains("h1"));
+                Assert.Contains(markdown.GetVisualDescendants().OfType<TextBlock>(), t => t.Text == "01.");
+                Assert.Equal(3, markdown.GetVisualDescendants().OfType<Border>().Count(b => b.Classes.Contains("mdBullet")));
+                Save(window, outDir, $"assistant-design-answer-{appearance}.png");
+
+                // The composer: the chosen devices and the files inside the box, the model as a chip, the line below the box;
+                // the files of a sent message as small cards.
+                var file = Path.Combine(folder, "AXIS_OS_12.6.97.bin");
+                await File.WriteAllBytesAsync(file, new byte[48_000]);
+                await panel.AttachFilesAsync([file]);
+                api.AssistantScript = (_, ct) => Script([Text("I will prepare the upgrade with this file."), Done()], ct);
+                panel.Draft = "Use this file";
+                await panel.SendCommand.ExecuteAsync(null);
+                Pump();
+                Assert.Contains(view.GetVisualDescendants().OfType<FileChip>(), c => c.FileName == "AXIS_OS_12.6.97.bin" && c.RemoveCommand is null && c.IsEffectivelyVisible);
+                await panel.AttachFilesAsync([file]);
+                f.Select(devices[0].Id, devices[1].Id);
+                panel.Draft = "Upgrade the selected cameras with this file";
+                Pump();
+                var composer = view.FindControl<Border>("Composer")!;
+                Assert.Contains(composer.GetVisualDescendants().OfType<FileChip>(), c => c.RemoveCommand is not null);
+                Assert.Contains(composer.GetVisualDescendants().OfType<Oadm.Sdk.Client.Controls.OadmIcon>(), i => i.Classes.Contains("modelIcon") && i.IsEffectivelyVisible);
+                Save(window, outDir, $"assistant-design-composer-{appearance}.png");
                 window.Close();
                 return true;
             }, CancellationToken.None);

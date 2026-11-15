@@ -26,7 +26,7 @@ internal static class CommanderTools
     public const int ListedDevices = 20;
 
     public static readonly PluginTool Commands = new("commands", "VAPIX commands",
-        "Lists the VAPIX Commander commands an agent may run, with their fields. Run one with oadm_vapix_command_preview.")
+        "Lists the VAPIX Commander commands an agent may run, with their fields. Use one only for what oadm_devices_search does not already show (clock, certificate, chip, CVEs); run it with oadm_vapix_command_preview.")
     {
         InputType = typeof(CommandsArgs),
         OutputType = typeof(CommandsAnswer),

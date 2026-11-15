@@ -14,6 +14,7 @@ and runs after the user agreed.
 | Tool | Kind | What it does |
 | --- | --- | --- |
 | `oadm_server_info` | Read | The OADM server, who you are, your role and what it allows, the limits of this server and how many devices you see. Call it first. |
+| `oadm_server_status` | Read | OADM's own state: OADM PRO, which plugins are on, MCP and the assistant, and the date of the list of Axis vulnerabilities. Read only. |
 | `oadm_settings_get` | Read | The server settings OADM shows every user, read only: how it scans, retries, runs tasks and checks clocks. Change them in OADM. |
 
 ## Devices
@@ -29,9 +30,9 @@ and runs after the user agreed.
 | `oadm_devices_refresh_run` | Run (changes) | Queues a full refresh of the devices of a preview. The results show in oadm_devices_search as they arrive. |
 | `oadm_devices_remove_preview` | Preview | Shows which devices OADM would stop managing. Nothing is changed; then call oadm_devices_remove_run with the handle. |
 | `oadm_devices_remove_run` | Run (changes) | Removes the devices of a preview from OADM, with their stored logins and tags. The devices themselves are not changed. |
-| `oadm_devices_search` | Read | Your devices that match a filter, a page at a time with the total and a cursor. Narrow with a filter after oadm_devices_summary; pass next_cursor for the next page. |
+| `oadm_devices_search` | Read | Your devices that match a filter, a page at a time with the total and a cursor. Filter by what OADM knows (clock, certificate, chip, CVEs) instead of asking the devices; a filter adds its fields to the rows. |
 | `oadm_devices_snapshot` | Read | One JPEG of a camera now, at most 1280 pixels wide, as an image. Take the device id from oadm_devices_search. |
-| `oadm_devices_summary` | Read | Counts of your devices by status, model, AXIS OS version, site, tag or category. Call it before oadm_devices_search to see where the devices are. |
+| `oadm_devices_summary` | Read | Counts of your devices by status, model, AXIS OS, site, tag, category, chip, clock, NTP, certificate, vulnerabilities or CVE, and what needs a look (clocks, certificates, CVEs). Call it first: OADM already knows this without asking the devices. |
 
 ## Tasks
 
@@ -43,7 +44,8 @@ and runs after the user agreed.
 | `oadm_tasks_cancel_run` | Run (changes) | Cancels the tasks of a preview. A running task stops at its next safe point, so a device may be left half done. |
 | `oadm_tasks_catalog` | Read | The tasks you may run on the devices of a filter: per task how many can run it, why the others cannot, and its input schema. Call it before oadm_task_preview. |
 | `oadm_tasks_get` | Read | One task with its steps and its log (the newest 200 lines). Take the id from oadm_tasks_list. |
-| `oadm_tasks_list` | Read | Tasks of your devices, the newest first, with the counts per state first. Pass batch to follow the tasks of one run; next_cursor for the next page. |
+| `oadm_tasks_list` | Read | Tasks of your devices from OADM's task history, the newest first, with the counts per state first. Pass batch to follow the tasks of one run; next_cursor for the next page. |
+| `oadm_tasks_summary` | Read | OADM's task history of your devices summed up: counts per state and groups by result, task, plugin, owner, device or day, the largest first. Pass status Failed to group the failures by their error. |
 
 ## Files
 
@@ -75,11 +77,19 @@ and runs after the user agreed.
 | `oadm_compliance_checks` | Read | The compliance checks you see, turned on or off, with what each one checks, its severity and which devices it is for. |
 | `oadm_compliance_summary` | Read | Per check how many devices of a filter pass, fail or are unknown, the worst check first. Devices come only as counts; use oadm_devices_search to list them. |
 
+## Vulnerabilities
+
+| Tool | Kind | What it does |
+| --- | --- | --- |
+| `oadm_vulnerabilities` | Read | Your devices with the Axis CVEs that affect them (id, level, score, the version that fixes it), the possible ones apart, a page at a time. Without a vulnerabilities filter: devices with any CVE. |
+| `oadm_vulnerabilities_summary` | Read | How many of your devices the published Axis CVEs affect, by the worst level, and the CVEs that affect the most devices. Possible ones are kept apart. Then oadm_vulnerabilities lists the devices. |
+
 ## Event rules
 
 | Tool | Kind | What it does |
 | --- | --- | --- |
 | `oadm_events_log` | Read | The event log, the newest first: the events rules use, rules that fired and every action that ran, with a result. It has no total; pass next_cursor for older entries. |
+| `oadm_recipients_list` | Read | The recipients of the event rules (HTTP, email, TCP, MQTT, Modbus, OPC UA) with their target, the rules that use them and, for MQTT, Modbus and OPC UA, whether their connection is up. Counts first, then a page by name. |
 | `oadm_rules_catalog` | Read | The events and actions rules are made of, and the recipients they can send to. Pass event or action for one in full, with its fields; call it before oadm_rules_save_preview. |
 | `oadm_rules_delete_preview` | Preview | Shows the rule that would be deleted and what its deletion does; nothing is deleted. Show it to the user, then call oadm_rules_delete_run with the handle. |
 | `oadm_rules_delete_run` | Run (changes) | Deletes the rule of a preview. A rule that is on runs its off actions first. |
@@ -104,6 +114,18 @@ and runs after the user agreed.
 | `oadm_pki_certificates` | Read | Lists the certificates PKI knows: device certificates, certificate authorities, servers and the ones created here. Never shows a private key. |
 | `oadm_pki_policies` | Read | Lists the issuing policies for HTTPS and IEEE 802.1X certificates, to pick the policy of a new certificate. |
 
+## EST server
+
+| Tool | Kind | What it does |
+| --- | --- | --- |
+| `oadm_est_enrollments` | Read | The EST server's state and the certificate enrollments of the cameras, the newest first: new or renewal, issued or refused and why, and how many cameras did not renew in time. |
+
+## 802.1X server
+
+| Tool | Kind | What it does |
+| --- | --- | --- |
+| `oadm_radius_log` | Read | The 802.1X server's state and its log of switch port logins, the newest first: which device passed or failed and why, the switch, port and VLAN. |
+
 ## NTP server
 
 | Tool | Kind | What it does |
@@ -123,13 +145,90 @@ and runs after the user agreed.
 | --- | --- | --- |
 | `oadm_hardening_results` | Read | Lists the last hardening scan results per device as counts of passed, warning and failed checks, and the state of the running scan. |
 
+## Application management
+
+| Tool | Kind | What it does |
+| --- | --- | --- |
+| `oadm_app_management_applications` | Read | Lists the applications (ACAP) the Applications page read last: per application how many devices have it, run it and which versions, then one row per device and application. Reads no device. |
+
+## Edge storage
+
+| Tool | Kind | What it does |
+| --- | --- | --- |
+| `oadm_edge_storage_cards` | Read | Lists the SD cards of the cameras as Edge storage read them last: state, size, used, wear, encryption and retention, with the counts per state. Reads no camera. |
+
+## Action Rule Editor
+
+| Tool | Kind | What it does |
+| --- | --- | --- |
+| `oadm_device_rules_list` | Read | Lists the action rules on the devices as the Action Rule Editor read them last: per rule name the devices that have it and run it, then each device's rules with event and action. Reads no device. |
+
+## Device triggers
+
+| Tool | Kind | What it does |
+| --- | --- | --- |
+| `oadm_device_triggers_devices` | Read | One device trigger's devices: whether OADM receives the event from each, the problem when not, whether the state is on, and the last event. |
+| `oadm_device_triggers_list` | Read | Lists the device triggers: the device event each watches, on or off, how many devices are on, lost or waiting, and when the last event came. |
+
 ## VAPIX Commander
 
 | Tool | Kind | What it does |
 | --- | --- | --- |
 | `oadm_vapix_command_preview` | Preview | Runs one command of oadm_vapix_commands on devices from oadm_devices_search, one task per device. Read the results with oadm_tasks_get. Nothing is changed. Call oadm_vapix_command_run with the handle to apply it. |
 | `oadm_vapix_command_run` | Run (changes) | Applies the plan of oadm_vapix_command_preview, which checks everything again. |
-| `oadm_vapix_commands` | Read | Lists the VAPIX Commander commands an agent may run, with their fields. Run one with oadm_vapix_command_preview. |
+| `oadm_vapix_commands` | Read | Lists the VAPIX Commander commands an agent may run, with their fields. Use one only for what oadm_devices_search does not already show (clock, certificate, chip, CVEs); run it with oadm_vapix_command_preview. |
+
+## Device configuration
+
+| Tool | Kind | What it does |
+| --- | --- | --- |
+| `oadm_config_action_rules` | Read | Reads the action rules of devices: name, on or off, the event and the action, grouped by rule with the devices that have it. |
+| `oadm_config_parameters` | Read | Reads the value of a setting on many devices and groups the devices by value, e.g. capture frequency or capture mode. Find the setting by a word of its name or label, or by its exact parameter name. |
+| `oadm_config_stream_profiles` | Read | Reads the stream profiles of devices (name, description, resolution, frame rate, codec), grouped by profile name with the devices that have it. |
+
+## Edge Recording Export
+
+| Tool | Kind | What it does |
+| --- | --- | --- |
+| `oadm_recordings_search` | Read | Searches the recordings on the SD card or network share of one camera in a time range: the count, the time span, the estimated size, then the recordings oldest first. |
+
+## Image Health Dashboard
+
+| Tool | Kind | What it does |
+| --- | --- | --- |
+| `oadm_image_health_results` | Read | Lists the last image health check of the cameras: the counts, then per camera whether it is blurred, blocked, redirected, too dark or unsuitable. |
+
+## I/O Monitor
+
+| Tool | Kind | What it does |
+| --- | --- | --- |
+| `oadm_io_ports` | Read | Reads the inputs and outputs of one device once: each port's name, direction, state, normal state and whether it is active. |
+
+## Metadata Monitor
+
+| Tool | Kind | What it does |
+| --- | --- | --- |
+| `oadm_metadata_streams` | Read | Lists the event streams the Metadata Monitor page has open on your devices, with their state, message counts and last messages. |
+
+## Dashboards
+
+| Tool | Kind | What it does |
+| --- | --- | --- |
+| `oadm_dashboards_list` | Read | Lists the dashboards by name with how many widgets of each kind they have. |
+| `oadm_dashboards_values` | Read | Shows the widgets of one dashboard with the value each shows now, when it came and why it may be old. |
+
+## Load test
+
+| Tool | Kind | What it does |
+| --- | --- | --- |
+| `oadm_load_test_check` | Read | Shows one load test check: its verdict, the result of each ramp step, then its camera streams worst first with their loss, rate and first problem. |
+| `oadm_load_test_checks` | Read | Lists the kept load test checks, newest first, with the verdict, the peak rate, the worst loss and the progress of the running one. |
+
+## Snapshot report
+
+| Tool | Kind | What it does |
+| --- | --- | --- |
+| `oadm_snapshot_report_sources` | Read | Lists the video sources of chosen cameras as the Snapshot report shows them, with the facts the report prints and why a camera cannot be shown. |
 
 ## Docs
 

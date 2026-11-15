@@ -93,3 +93,9 @@ a fake live video, moving and resizing areas, the preview's draft,
 headless screenshots). The models come from the build into the test output's `Models/`.
 
 Open: the hardware runs on the development cameras; the reader setting "Accurate".
+
+## MCP
+
+The read-only tools `oadm_ocr_readers` and `oadm_ocr_reads` (`Api/OcrTools.cs`, docs/spec/mcp.md "Plugins"): the page's
+reader list and the recent reads of one reader as text (at most 50), through the page's own methods; never a cut-out.
+Tests: `ToolTests`.

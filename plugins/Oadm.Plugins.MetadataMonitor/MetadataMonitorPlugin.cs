@@ -4,6 +4,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 
 using Oadm.Plugins.MetadataMonitor.Streaming;
+using Oadm.Plugins.MetadataMonitor.Tools;
 using Oadm.Sdk.Devices;
 using Oadm.Sdk.Plugins;
 
@@ -49,6 +50,12 @@ public sealed partial class MetadataMonitorPlugin : ICorePlugin, IAsyncDisposabl
     public CorePluginGroup Group => CorePluginGroup.Monitoring;
 
     public IReadOnlyList<ITaskPlugin> TaskPlugins => [];
+
+    /// <summary>The read-only tool <c>oadm_metadata_streams</c> (docs/spec/mcp.md "Plugins"), with the page's rule.</summary>
+    public IReadOnlyList<PluginTool> Tools => MetadataTools.All;
+
+    /// <summary>The tools are named <c>oadm_metadata_...</c>.</summary>
+    public string? ToolArea => "metadata";
 
     /// <summary>Running streams (tests, diagnostics).</summary>
     public int StreamCount => _sessions.Count;
@@ -119,6 +126,8 @@ public sealed partial class MetadataMonitorPlugin : ICorePlugin, IAsyncDisposabl
                 await StopStreamAsync(stopped.Id).ConfigureAwait(false); // closed when Stop answers
                 stopped.Cancel();
                 return null;
+            case var _ when method == MetadataTools.Streams.Method:
+                return await StreamsToolAsync(caller, payloadJson, ct).ConfigureAwait(false);
             case MetadataMethods.KeepAlive:
                 // A job the host still knows whose stream ended (its lease expired) answers like an unknown one: the page
                 // shows it as stopped, never as live without events.
@@ -142,6 +151,36 @@ public sealed partial class MetadataMonitorPlugin : ICorePlugin, IAsyncDisposabl
     /// </summary>
     internal static string? RefusalFor(IDeviceInfo device) => DeviceMessages.Refusal(device);
 
+
+    /// <summary>
+    /// The tool's look at the open event streams of the caller's devices (any user's page opened them): their state, counts and
+    /// last messages, from memory. It opens no stream and never touches a device; a device outside the caller's view is
+    /// refused like an unknown one.
+    /// </summary>
+    private async Task<string> StreamsToolAsync(ICallContext caller, string? payloadJson, CancellationToken ct)
+    {
+        var args = PluginJson.Parse<MetadataTools.StreamsArgs>(string.IsNullOrWhiteSpace(payloadJson) ? "{}" : payloadJson, MetadataTools.Json);
+        if (args.DeviceId is { } only && only != Guid.Empty && await caller.Devices.FindAsync(only, ct).ConfigureAwait(false) is null)
+        {
+            return caller.HasAllDevices ? PluginToolErrors.Answer([new("device_id", DeviceMessages.NoLongerAvailable(1))]) : throw new DevicesNotAvailableException();
+        }
+
+        var sessions = new List<MonitorSession>();
+        foreach (var session in _sessions.Values.OrderBy(s => s.DeviceLabel, StringComparer.OrdinalIgnoreCase).ThenBy(s => s.Id, StringComparer.Ordinal))
+        {
+            if (args.DeviceId is { } id && id != Guid.Empty && session.DeviceId != id)
+            {
+                continue;
+            }
+
+            if (caller.HasAllDevices || await caller.Devices.FindAsync(session.DeviceId, ct).ConfigureAwait(false) is not null)
+            {
+                sessions.Add(session);
+            }
+        }
+
+        return MetadataTools.Answer(sessions, args.DeviceId is { } chosen && chosen != Guid.Empty);
+    }
 
     /// <summary>The user's stream job; another user's id and an unknown one answer alike.</summary>
     private IPluginJob FindJob(ICallContext caller, string? streamId) =>

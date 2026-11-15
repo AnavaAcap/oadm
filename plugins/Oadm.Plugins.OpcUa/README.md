@@ -14,3 +14,8 @@ Id `oadm.opcua`, server only, always on. Event rule action **Write OPC UA value*
 - BadSecurityChecksFailed has no finer status: only the text tells the stack's password refusal, and a client certificate can be refused only when one went out. Everything else gets a neutral text.
 - No reconnect: `Dropped` goes to the pool, which opens a new session. A connect that ends after the pool gave up closes its session itself.
 - The stack decides a drop in its keep alive: one read takes at most two intervals, and nothing back for one interval plus a second also counts. At 5 s a stall of the server process of 6 s is a drop; the pool reconnects.
+
+## MCP
+
+Its recipients and their connection are in the host tool `oadm_recipients_list` (docs/spec/mcp.md): target as scheme, host
+and port, "has_password" only, the rules that use them. An action plugin has no tools of its own.

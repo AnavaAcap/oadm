@@ -25,7 +25,8 @@ public sealed class TagGrpcService(
     DeviceViewFactory views,
     DeviceGroupStore groups,
     AuditLog audit,
-    IHostApplicationLifetime lifetime) : Proto.TagService.TagServiceBase
+    IHostApplicationLifetime lifetime,
+    DeviceFactsSource facts) : Proto.TagService.TagServiceBase
 {
     public override async Task<Proto.TagList> List(Proto.Empty request, ServerCallContext context)
     {
@@ -157,7 +158,7 @@ public sealed class TagGrpcService(
         IReadOnlyList<Core.Devices.Device> devices;
         try
         {
-            devices = await DeviceSearch.MatchesAsync(view, request.Filter ?? new Proto.DeviceFilter(), withApis: false, ct).ConfigureAwait(false);
+            devices = await DeviceSearch.MatchesAsync(view, request.Filter ?? new Proto.DeviceFilter(), facts.Now(), withApis: false, ct).ConfigureAwait(false);
         }
         catch (ArgumentException ex)
         {

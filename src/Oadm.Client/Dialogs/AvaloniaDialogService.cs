@@ -207,6 +207,19 @@ public sealed class AvaloniaDialogService(IOadmApi api, Shell.UserSession? sessi
         await window.ShowDialog(owner).ConfigureAwait(true);
     }
 
+    public async Task ShowAccessKeysAsync(Settings.AccessKeysViewModel keys)
+    {
+        ArgumentNullException.ThrowIfNull(keys);
+        if (CurrentOwner() is not { } owner)
+        {
+            return;
+        }
+
+        var window = new Settings.AccessKeysWindow();
+        window.Attach(keys);
+        await window.ShowDialog(owner).ConfigureAwait(true);
+    }
+
     public async Task ShowAccessKeyFormAsync(Settings.AccessKeyFormViewModel form)
     {
         ArgumentNullException.ThrowIfNull(form);

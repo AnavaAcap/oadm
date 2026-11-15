@@ -540,9 +540,7 @@ public sealed class ConfigureDevicesTask : ITaskPlugin, ITaskPluginQuery
         .. payload.Rules.SelectMany(r => r.Action.Parameters).Where(p => IsSecretName(p.Name)).Select(p => p.Value),
     ];
 
-    private static bool IsSecretName(string name) =>
-        name.Contains("pass", StringComparison.OrdinalIgnoreCase) || name.Contains("secret", StringComparison.OrdinalIgnoreCase)
-        || name.Contains("community", StringComparison.OrdinalIgnoreCase);
+    private static bool IsSecretName(string name) => SecretNames.IsSecret(name);
 
     private static string Joined(params string?[] parts) => string.Join(", ", parts.Where(p => !string.IsNullOrEmpty(p)));
 

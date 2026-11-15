@@ -355,7 +355,9 @@ internal static class DeviceChangeTools
 
     private static bool IsEmpty(Proto.DeviceFilter filter) =>
         filter.Ids.Count == 0 && string.IsNullOrWhiteSpace(filter.Search) && filter.Tags.Count == 0 && filter.Sites.Count == 0 && filter.Models.Count == 0
-        && string.IsNullOrWhiteSpace(filter.FirmwareBelow) && string.IsNullOrWhiteSpace(filter.FirmwareAtLeast) && filter.Statuses.Count == 0 && filter.Categories.Count == 0;
+        && string.IsNullOrWhiteSpace(filter.FirmwareBelow) && string.IsNullOrWhiteSpace(filter.FirmwareAtLeast) && filter.Statuses.Count == 0 && filter.Categories.Count == 0
+        && filter.Clock.Count == 0 && filter.ClockOffsetOverSeconds == 0 && filter.NtpStates.Count == 0 && !filter.HasCertificateExpiresWithinDays && filter.CertificateTrust.Count == 0
+        && filter.Socs.Count == 0 && string.IsNullOrWhiteSpace(filter.Vulnerabilities) && string.IsNullOrWhiteSpace(filter.VulnerabilityMinSeverity) && string.IsNullOrWhiteSpace(filter.Cve);
 
     private static async Task<JsonObject> CredentialsPreviewAsync(ToolCall call, ToolHandles handles)
     {

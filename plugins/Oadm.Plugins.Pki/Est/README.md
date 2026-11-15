@@ -95,3 +95,9 @@ A PRO part of the PKI plugin (`../README.md`, `docs/spec/pki.md` "One plugin"). 
   `PageTests`, `RenewalTests`, `ListenTests`, `ServerCertificateTrustTests`; `DeviceGroupTests`: the `PluginCanary`, the
   filtered lists and certificate, the events per group, the names of a device a group user added, the page for a group
   user; `EstHardwareWriteTests` and `EstEventProbeTests`, HardwareWrite).
+
+## MCP
+
+The read-only tool `oadm_est_enrollments` (`Tools/EstTools.cs`, docs/spec/mcp.md "Plugins"): the state, the certificate
+count, Not renewed and the enrollments of the caller's devices, newest first, paged; while the server is off its state
+only. Tests: `ToolTests`.

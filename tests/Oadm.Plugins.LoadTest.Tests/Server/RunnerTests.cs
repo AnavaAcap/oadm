@@ -397,7 +397,7 @@ public sealed class RunnerTests
         var cancelled = await rig.CallAsync<RunSummary>(rig.Admin, LoadTestMethods.Cancel);
 
         Assert.Equal(RunState.Cancelled, cancelled.State);
-        Assert.Equal(0, rig.Probes.OpensWaiting); // the open was stopped
+        await Eventually.TrueAsync(() => rig.Probes.OpensWaiting == 0, "the open stopped"); // its cancel unwinds on another thread
         Assert.All(rig.Probes.Opened, p => Assert.True(p.IsDisposed));
         Assert.All(rig.Ctx.Cameras.Values, c => Assert.Equal(0, c.Writes));
         Assert.Null(rig.Service.Runner);

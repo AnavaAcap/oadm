@@ -1,4 +1,5 @@
 using Oadm.Plugins.AppManagement.Reading;
+using Oadm.Plugins.AppManagement.Tools;
 using Oadm.Plugins.Shared;
 using Oadm.Sdk.Plugins;
 
@@ -69,6 +70,9 @@ public sealed class AppManagementPlugin : ICorePlugin, IAsyncDisposable
         new(AppManagementInfo.ViewPermission, "View applications", "See the applications of the chosen devices. Changes need the rights of Applications (ACAP)."),
     ];
 
+    /// <summary>The applications tool (docs/spec/mcp.md "Plugins"): what the page read last in the caller's session; it reads no device.</summary>
+    public IReadOnlyList<PluginTool> Tools => AppTools.All;
+
     /// <summary>Every method needs "view"; the actions also need the Applications plugin's task rights (checked by the run).</summary>
     public string? RequiredPermission(string method) => AppManagementInfo.ViewPermission;
 
@@ -78,6 +82,12 @@ public sealed class AppManagementPlugin : ICorePlugin, IAsyncDisposable
         ArgumentNullException.ThrowIfNull(caller);
         var service = _service ?? throw new InvalidOperationException(NotRunning);
         var jobs = _ctx?.Jobs ?? throw new InvalidOperationException("This OADM server cannot read applications.");
+        if (method == AppTools.Applications.Method)
+        {
+            var (rows, state) = await service.SnapshotAsync(caller, ct).ConfigureAwait(false);
+            return AppTools.Answer(rows, state, payloadJson);
+        }
+
         switch (method)
         {
             case AppManagementMethods.Read:

@@ -47,6 +47,8 @@ public sealed class McpSecretTests
             ["oadm_devices_search"] = new() { ["fields"] = new JsonArray([.. Oadm.Server.Tools.DeviceTools.ExtraFields.Select(f => (JsonNode)f)]) },
             ["oadm_devices_get"] = new() { ["device_id"] = device.Id.ToString() },
             ["oadm_tasks_list"] = [],
+            ["oadm_tasks_summary"] = [],
+            ["oadm_server_status"] = new() { ["plugins"] = "all" },
             ["oadm_tasks_get"] = new() { ["task_id"] = Guid.NewGuid().ToString() },
             ["oadm_logs_search"] = new() { ["text"] = "MCP" },
             ["oadm_logs_audit"] = [],

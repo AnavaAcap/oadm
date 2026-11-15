@@ -2,6 +2,7 @@ using System.Text.Json;
 
 using Microsoft.Extensions.Logging;
 
+using Oadm.Plugins.Dashboards.Tools;
 using Oadm.Plugins.Shared;
 using Oadm.Sdk.Devices;
 using Oadm.Sdk.Events;
@@ -108,10 +109,14 @@ public sealed class DashboardsPlugin : ICorePlugin, IDynamicEventSource, IDispos
     public string? RequiredPermission(string method) => method switch
     {
         DashboardsMethods.List or DashboardsMethods.Catalog or DashboardsMethods.Devices or DashboardsMethods.Watch or DashboardsMethods.Unwatch or DashboardsMethods.Tables => PermissionKeys.Show,
+        _ when DashboardTools.All.Any(t => t.Calls(method)) => PermissionKeys.Show,
         DashboardsMethods.Save or DashboardsMethods.Delete => DashboardsPluginInfo.ManageKey,
         DashboardsMethods.Press => DashboardsPluginInfo.PressKey,
         _ => null,
     };
+
+    /// <summary>The read-only tools <c>oadm_dashboards_list</c> and <c>oadm_dashboards_values</c> (docs/spec/mcp.md "Plugins"): "show".</summary>
+    public IReadOnlyList<PluginTool> Tools => DashboardTools.All;
 
     /// <summary>Saves, deletes and every press of a button.</summary>
     public bool IsAudited(string method) => DashboardsMethods.IsAudited(method);
@@ -271,6 +276,10 @@ public sealed class DashboardsPlugin : ICorePlugin, IDynamicEventSource, IDispos
                 return Serialize(await PressAsync(caller, Read<PressRequest>(payloadJson), ct).ConfigureAwait(false));
             case DashboardsMethods.Tables:
                 return Serialize(await TablesAsync(caller, Read<TablesRequest>(payloadJson), ct).ConfigureAwait(false));
+            case var _ when method == DashboardTools.List.Method:
+                return DashboardTools.ListAnswerOf((await ListAsync(caller, ct).ConfigureAwait(false)).Dashboards, payloadJson);
+            case var _ when method == DashboardTools.Values.Method:
+                return await ValuesToolAsync(caller, payloadJson, ct).ConfigureAwait(false);
             default:
                 throw new ArgumentException($"Unknown method '{method}'.", nameof(method));
         }
@@ -311,6 +320,49 @@ public sealed class DashboardsPlugin : ICorePlugin, IDynamicEventSource, IDispos
 
         var devices = (await caller.Devices.ListAsync(ct).ConfigureAwait(false)).Select(d => d.Id).ToHashSet();
         return new DashboardList([.. Sorted(mine.Select(d => Within(d, devices)))]);
+    }
+
+    /// <summary>
+    /// The tool's look at one dashboard: its widgets as the caller's page shows them (a group user: the group's dashboards with
+    /// the group's devices) with the value of each now, from memory. Values of events the caller does not see are left out,
+    /// like a watch leaves them out. Nothing is watched or kept.
+    /// </summary>
+    private async Task<string> ValuesToolAsync(ICallContext caller, string? payloadJson, CancellationToken ct)
+    {
+        var (id, errors) = DashboardTools.DashboardIdOf(payloadJson);
+        if (errors is not null)
+        {
+            return errors;
+        }
+
+        var dashboard = (await ListAsync(caller, ct).ConfigureAwait(false)).Dashboards.FirstOrDefault(d => d.Id == id);
+        if (dashboard is null)
+        {
+            return PluginToolErrors.Answer([new("dashboard_id", DashboardTools.NoDashboard)]);
+        }
+
+        var reach = await ReachOfAsync(caller, ct).ConfigureAwait(false);
+        var types = Types();
+        var rows = new List<DashboardTools.WidgetRow>(dashboard.Widgets.Count);
+        for (var i = 0; i < dashboard.Widgets.Count; i++)
+        {
+            var widget = dashboard.Widgets[i];
+            var device = DeviceOf(widget);
+            if (!widget.IsValue || widget.TypeId is null)
+            {
+                rows.Add(DashboardTools.WidgetOf(widget, i, device, null));
+                continue;
+            }
+
+            if (reach is not null && (types.TryGetValue(widget.TypeId, out var type) ? !reach.Sees(type) : device is null))
+            {
+                continue; // an event the caller does not see: never its value
+            }
+
+            rows.Add(DashboardTools.WidgetOf(widget, i, device, Snapshot(new ValueKey(widget.TypeId, device, widget.Split))));
+        }
+
+        return DashboardTools.ValuesAnswerOf(dashboard, rows, payloadJson);
     }
 
     /// <summary>Creates or changes a dashboard (tests: a user with all devices).</summary>

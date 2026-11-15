@@ -44,6 +44,9 @@ public interface IDialogService
     /// <summary>The dialog Create access key of the Settings card AI, section MCP; it shows the new key once.</summary>
     Task ShowAccessKeyFormAsync(Oadm.Client.Settings.AccessKeyFormViewModel form) => Task.CompletedTask;
 
+    /// <summary>The dialog Access keys of the card MCP: the list with Create access key and Delete.</summary>
+    Task ShowAccessKeysAsync(Oadm.Client.Settings.AccessKeysViewModel keys) => Task.CompletedTask;
+
     /// <summary>The "RTSP port in OADM" dialog of the context menu's OADM submenu; true when saved.</summary>
     Task<bool> ShowRtspPortAsync(Oadm.Client.Devices.RtspPortViewModel rtspPort);
 

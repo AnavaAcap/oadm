@@ -36,7 +36,7 @@ public static class AssistantTexts
 
     public const int MaxMessageLength = 8_000;
     public const int MaxSelectedDevices = 10_000;
-    public const int MaxToolCallsPerMessage = 20;
+    public const int MaxToolCallsPerMessage = 20; // the default of Steps per answer
     public const int MaxPicturesToModel = 5;
     public const int MaxTableRows = 50;
     public const int MaxAttachments = 10;
@@ -92,6 +92,17 @@ public static class AssistantTexts
 
     public const long MinDailyLimit = 1_000;
     public const long MaxDailyLimit = 1_000_000_000;
+
+    /// <summary>Steps per answer (the model's tool calls of one message), set on the card; 0 from an older client: the default.</summary>
+    public const int MinStepsPerAnswer = 1;
+    public const int MaxStepsPerAnswer = 50;
+    public const string StepsRange = "Enter 1 to 50.";
+
+    /// <summary>The longest one answer may take, in seconds, set on the card; 0 from an older client: the default.</summary>
+    public const int DefaultAnswerSeconds = 120;
+    public const int MinAnswerSeconds = 30;
+    public const int MaxAnswerSeconds = 600;
+    public const string AnswerSecondsRange = "Enter 30 to 600 seconds.";
 
     /// <summary>The start suggestions of an empty panel.</summary>
     public static IReadOnlyList<string> Suggestions { get; } =

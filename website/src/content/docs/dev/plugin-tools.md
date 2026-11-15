@@ -62,6 +62,32 @@ before. Return the rows in the order of that key, `Take` stops at the limit and 
 and `next`, the key of the last row (null at the end). The host adds `limit` and `cursor` to the input, signs `next` into
 `next_cursor`, and refuses a cursor of another caller or another search.
 
+## Tools on devices
+
+Set `DeviceFilter` for a tool that works on devices the caller chooses. The host adds `filter`, the same device filter as
+its own device tools (ids, search, tags, sites, models, AXIS OS, status, the assistant's selection), finds the matching
+devices of the caller's view and hands your method their ids instead, at most `PluginTool.MaxDevices` (500), sorted by
+address:
+
+```csharp
+var devices = PluginToolDevices.Of(payloadJson); // Ids, Total, Left
+foreach (var id in devices.Ids)
+{
+    if (await caller.Devices.FindAsync(id, ct) is not { } device)
+    {
+        continue; // no longer there or outside the caller's devices
+    }
+}
+```
+
+Your input type has no property `filter`, `device_ids` or `devices_total`. Read the devices with bounded parallelism and a
+time budget, and answer what you read with a count of the devices you did not read, so a call over many devices never
+hangs the caller.
+
+Set `TaskPlugin` to the id of a task of your package when the tool reads what that task's dialog reads: the host then lists
+the tool only for a role with one of the task's permissions. A page call reaches your method without the host's list, so
+check `caller.Has(...)` again there.
+
 ## Changes
 
 Set `Changes` and the host makes two tools, `<name>_preview` and `<name>_run`. Implement two methods:

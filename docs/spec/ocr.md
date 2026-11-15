@@ -663,6 +663,8 @@ server, the traffic light ("Runtime stats") is the real guard.
 - **View text recognition**: the page, the readers and their results. Pause needs the host's **Live view** too.
 - **Change text readers**: New, Delete, Save, Read now, moving and drawing areas, Use GPU (with all devices).
 - Running the action is part of the event rules' own permissions.
+- MCP and the assistant ([mcp.md](mcp.md) "Plugins"): the read-only tools `oadm_ocr_readers` and `oadm_ocr_reads` (the
+  page's list and the recent reads of one reader as text, never a picture), "View text recognition".
 
 ## Accuracy
 

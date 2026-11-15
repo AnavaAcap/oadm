@@ -55,6 +55,13 @@ unknown one fail alike ("The live reading has ended.", `IoMonitorMethods.StreamE
 shared only by pages of the same device scope and reads through their call, so when the device leaves their view the
 pages get "1 device is no longer available." and the reading ends. See [Device groups](../../docs/spec/device-scope.md).
 
+## MCP
+
+`Tools/IoMonitorTools` (`ICorePlugin.Tools`, area `io`, docs/spec/mcp.md): the read-only tool `oadm_io_ports` reads one
+device's ports once (`getPorts`, the page's timeout and refusals): per port its id, name, direction, state, normal state,
+active and usage, and the counts. It starts no stream; the live reading stays in the page. A device outside the caller's
+view answers like an unknown one. It also answers "outputs per device" for the Outputs action.
+
 ## Tests
 
 `tests/Oadm.Plugins.IoMonitor.Tests`: recorded A9210 answer, pushes only on change, errors and recovery, stop and lease,

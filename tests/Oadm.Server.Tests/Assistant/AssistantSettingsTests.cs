@@ -29,6 +29,10 @@ public sealed class AssistantSettingsTests
         { "api_key", s => s.ApiKey = new string('k', 501), AssistantTexts.ApiKeyTooLong },
         { "daily_limit", s => s.DailyLimit = 10, AssistantTexts.DailyLimitRange },
         { "user_daily_limit", s => s.UserDailyLimit = 5, AssistantTexts.UserDailyLimitRange },
+        { "steps_per_answer", s => s.StepsPerAnswer = 51, AssistantTexts.StepsRange },
+        { "steps_per_answer", s => s.StepsPerAnswer = -1, AssistantTexts.StepsRange },
+        { "answer_seconds", s => s.AnswerSeconds = 29, AssistantTexts.AnswerSecondsRange },
+        { "answer_seconds", s => s.AnswerSeconds = 601, AssistantTexts.AnswerSecondsRange },
     };
 
     [Theory]

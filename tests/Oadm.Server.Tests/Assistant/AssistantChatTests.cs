@@ -371,6 +371,28 @@ public sealed class AssistantChatTests
     }
 
     [Fact]
+    public async Task StepsPerAnswerAndAnswerTimeAreTheCardsSettingsAndAnOlderClientKeepsTheDefaults()
+    {
+        await using var server = await AssistantTestServer.StartAsync();
+        var settings = AssistantTestServer.Settings();
+        settings.StepsPerAnswer = 3;
+        settings.AnswerSeconds = 300;
+        var state = await server.SetAsync(settings);
+        Assert.Equal((3, 300), (state.Settings.StepsPerAnswer, state.Settings.AnswerSeconds));
+
+        server.Model
+            .Call([.. Enumerable.Range(0, 5).Select(_ => ("oadm_server_info", (JsonObject?)null))])
+            .Say("Enough.");
+        var events = await server.ChatAsync("Look a lot");
+        Assert.Equal(3, events.Count(e => Kind(e) == Proto.AssistantEvent.KindOneofCase.Tool));
+        Assert.Equal(2, server.Model.Requests[1].Results().Values.Count(r => r["error"]?.GetValue<string>() == AssistantTexts.ToolLimit));
+
+        // A client without the two fields sends 0: the defaults, never a refusal.
+        state = await server.SetAsync(AssistantTestServer.Settings());
+        Assert.Equal((AssistantTexts.MaxToolCallsPerMessage, AssistantTexts.DefaultAnswerSeconds), (state.Settings.StepsPerAnswer, state.Settings.AnswerSeconds));
+    }
+
+    [Fact]
     public async Task TheMessageIsCheckedAndASecondMessageWaitsUntilStopEndsTheFirst()
     {
         await using var server = await AssistantTestServer.StartAsync();

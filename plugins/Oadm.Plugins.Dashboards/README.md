@@ -99,6 +99,15 @@ Open gate on Gate house"). Video needs "Live view"; without it the widget says "
   `IDeviceScopes.Changed` for the group or after 5 minutes; the pushes check a device with `IDeviceScopes.Contains(key,
   id)`, never by reading the device table. At most 1,000 watches, 8 per session (a new one replaces the session's oldest).
 
+## MCP
+
+`Tools/DashboardTools` (`ICorePlugin.Tools`, area `dashboards`, docs/spec/mcp.md): the read-only tools
+`oadm_dashboards_list` (the caller's dashboards by name with the widget counts per kind, paged, `search`) and
+`oadm_dashboards_values` (one dashboard's widgets in order with the value each shows now from the value store: on,
+the field's value cut at 200 characters, unit, time, why it may be old). A group user gets the group's dashboards with the
+group's devices, never a value of an event the group does not see. Nothing is watched; saving and pressing stay in the
+page. Right "show".
+
 ## Tests
 
 `tests/Oadm.Plugins.Dashboards.Tests`: `SplitServerTests` (a value per split value, the key limit also at 100,000 (Perf), a table per split value and shared only with the same one, the widget stores no device and follows the event, tables after a change of the event and a restart, older stored dashboards), `SplitPageTests` (the panel with Area and no Device row, a single area, an older widget, the reader's camera changed, an area renamed, two widgets on two areas, `plugin-dashboards-areas.png`, `-area-panel`, `-area-choose`), `DeviceGroupTests` (the fixed device's checks, a reader that left the group, an unknown event), `TableServerTests` (a row per event, the 1,000 cap with the oldest dropped, a burst between two pushes keeps every row, reads of what is new, the text cut, memory only, 10 tables, group users), `TablePageTests` (the cap and one list change per batch, the search, a value made a table in the panel with rows arriving live, the list stays virtualized, `plugin-dashboards-table.png`, `-table-search.png`); `DeviceGroupTests` (the plugin canary; dashboards, catalog, devices and values per

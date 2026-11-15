@@ -56,6 +56,14 @@ whether the camera is still in the group's devices now (`IDeviceScopes.Devices`)
 `DevicesNotAvailableException` (`ViewBoundStream`). See
 [Device groups](../../docs/spec/device-scope.md).
 
+## MCP
+
+`Tools/RecordingTools` (`ICorePlugin.Tools`, area `recordings`, docs/spec/mcp.md): the read-only tool
+`oadm_recordings_search` is the page's Search of one camera (`device_id`, optional `start` and `stop`): the problem and the
+disk's problem, the format, the estimated size, the first and last time, the counts by type, then the recordings oldest
+first, paged by start time. Every page searches the camera again, like the page. Right "show"; the export stays in the
+page.
+
 ## Tests
 
 `tests/Oadm.Plugins.EdgeRecordingExport.Tests`: parsing of the recorded answers, the server part against a fake camera

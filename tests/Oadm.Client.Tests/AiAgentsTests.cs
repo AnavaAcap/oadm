@@ -157,7 +157,6 @@ public sealed class AiAgentsTests
                 var view = Assert.Single(window.GetVisualDescendants().OfType<AiPageView>(), c => c.IsEffectivelyVisible);
                 Pump();
                 var texts = view.GetVisualDescendants().OfType<TextBlock>().Where(t => t.IsEffectivelyVisible).Select(t => t.Text).ToList();
-                Assert.Contains(AiAgentsViewModel.Intro, texts);
                 Assert.Equal(role == UserRole.Admin, view.FindControl<Button>("McpSave")!.IsEffectivelyVisible);
                 Assert.Equal(role == UserRole.Admin, view.FindControl<TextBox>("McpPort")!.IsEffectivelyVisible);
                 Save(window, outDir, name);
@@ -215,7 +214,9 @@ public sealed class AiAgentsTests
             Assert.True(view.FindControl<Control>("ConnectAgent")!.IsEffectivelyVisible);
             Assert.True(view.FindControl<Button>("McpDownloadSkill")!.IsEffectivelyVisible);
             Assert.DoesNotContain(view.GetVisualDescendants().OfType<Oadm.Sdk.Client.Controls.CodeView>(), c => c.IsEffectivelyVisible); // one compact row each, no file blocks
-            Assert.Equal(["Claude Code", ".mcp.json", "VS Code"], view.FindControl<Control>("ConnectAgent")!.GetVisualDescendants().OfType<Oadm.Sdk.Client.Controls.FormField>().Where(c => c.IsEffectivelyVisible).Select(c => c.Label));
+            Assert.Equal(["Claude Code", ".mcp.json", "VS Code"], view.FindControl<ComboBox>("ConnectClient")!.Items.OfType<AgentConnection>().Select(c => c.Title));
+            Assert.Equal(0, view.FindControl<ComboBox>("ConnectClient")!.SelectedIndex);
+            Assert.True(view.FindControl<Button>("ConnectCopy")!.IsEffectivelyVisible);
             var texts = view.GetVisualDescendants().OfType<TextBlock>().Where(t => t.IsEffectivelyVisible).Select(t => t.Text).ToList();
             Assert.Contains("Connect an agent", texts);
             Save(window, outDir, "client-page-ai-mcp-connect.png");
@@ -390,17 +391,26 @@ public sealed class AiAgentsTests
             Pump();
             var view = Assert.Single(window.GetVisualDescendants().OfType<AiPageView>(), c => c.IsEffectivelyVisible);
             Pump();
-            Assert.True(view.FindControl<Control>("AccessKeys")!.IsEffectivelyVisible);
-            var grid = view.FindControl<DataGrid>("KeysGrid")!;
-            Assert.Equal(["Name", "Role", "Devices", "Created", "Expires", "Last used"], grid.Columns.Take(6).Select(c => c.Header as string));
-            var texts = view.GetVisualDescendants().OfType<TextBlock>().Where(t => t.IsEffectivelyVisible).Select(t => t.Text).ToList();
-            Assert.Contains("MCP", texts);
-            Assert.Contains(AccessKeyWords.Title, texts);
+            Assert.True(view.FindControl<Button>("McpAccessKeys")!.IsEffectivelyVisible); // the list is a dialog now
+            Assert.Null(view.FindControl<DataGrid>("KeysGrid"));
             Save(window, outDir, "client-page-ai-mcp.png");
+            await card.ShowAccessKeysCommand.ExecuteAsync(null);
+            await dialogs.Received(1).ShowAccessKeysAsync(card.Keys);
+
+            var keysWindow = new AccessKeysWindow();
+            keysWindow.Attach(card.Keys);
+            keysWindow.Show();
+            Pump();
+            var grid = keysWindow.FindControl<DataGrid>("KeysGrid")!;
+            Assert.Equal(["Name", "Role", "Devices", "Created", "Expires", "Last used"], grid.Columns.Take(6).Select(c => c.Header as string));
+            Assert.True(keysWindow.FindControl<Control>("CreateAccessKey")!.IsEffectivelyVisible);
+            Save(keysWindow, outDir, "client-access-keys-dialog.png");
 
             await card.Keys.DeleteCommand.ExecuteAsync(card.Keys.Keys.Single(k => k.Name == "Yard"));
             await dialogs.Received(1).ConfirmAsync("Delete access key", "Agents that use Yard can no longer connect.", "Delete"); // red: starts with Delete
             Assert.Equal(["Health check", "Lobby-bot"], card.Keys.Keys.Select(k => k.Name));
+            card.Keys.CloseCommand.Execute(null); // Close of the dialog
+            Assert.False(keysWindow.IsVisible);
             window.Close();
             return true;
         }, CancellationToken.None);
@@ -433,7 +443,7 @@ public sealed class AiAgentsTests
     }
 
     [Fact]
-    public async Task ConnectRowsCopyTheTextAndDownloadTheFiles()
+    public async Task ConnectAnAgentCopiesTheChosenConfiguration()
     {
         using var api = new FakeOadmApi(TimeSpan.FromMilliseconds(5));
         var dialogs = Substitute.For<IDialogService>();
@@ -448,18 +458,15 @@ public sealed class AiAgentsTests
         Assert.Equal(code.Text, code.Line); // the command in one line
         Assert.Equal(("For a project folder", "For .vscode/mcp.json"), (project.Line, vsCode.Line));
 
-        await card.DownloadConnectionCommand.ExecuteAsync(project);
-        await dialogs.Received(1).SaveFileAsync("Download .mcp.json", ".mcp.json", Arg.Any<FileType>(),
-            Arg.Is<byte[]>(b => System.Text.Encoding.UTF8.GetString(b).Contains("\"mcpServers\"", StringComparison.Ordinal)));
-        Assert.Equal("Saved .mcp.json.", card.Message);
-        await card.DownloadConnectionCommand.ExecuteAsync(vsCode);
-        await dialogs.Received(1).SaveFileAsync("Download mcp.json", "mcp.json", Arg.Any<FileType>(),
-            Arg.Is<byte[]>(b => System.Text.Encoding.UTF8.GetString(b).Contains("\"servers\"", StringComparison.Ordinal)));
-        await card.DownloadConnectionCommand.ExecuteAsync(code); // the command is no file
-        await dialogs.Received(2).SaveFileAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<FileType>(), Arg.Any<byte[]>());
-
-        await card.CopyCommand.ExecuteAsync(vsCode);
+        await card.CopySelectedCommand.ExecuteAsync(null); // Claude Code is chosen first
+        await clipboard.Received(1).SetTextAsync(code.Text);
+        card.SelectedConnection = 2;
+        await card.CopySelectedCommand.ExecuteAsync(null);
         await clipboard.Received(1).SetTextAsync(vsCode.Text);
+        Assert.Equal("Copied VS Code.", card.Message);
+        card.SelectedConnection = 1;
+        await card.CopySelectedCommand.ExecuteAsync(null);
+        await clipboard.Received(1).SetTextAsync(Arg.Is<string>(t => t.Contains("\"mcpServers\"", StringComparison.Ordinal)));
     }
 
     private static void Pump()

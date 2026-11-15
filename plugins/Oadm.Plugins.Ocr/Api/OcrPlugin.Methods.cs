@@ -22,6 +22,24 @@ public sealed partial class OcrPlugin
         var ctx = _ctx ?? throw new InvalidOperationException(ReaderRules.NotRunning);
         var store = _store ?? throw new InvalidOperationException(ReaderRules.NotRunning);
         var runtime = _runtime ?? throw new InvalidOperationException(ReaderRules.NotRunning);
+        if (method == OcrTools.Readers.Method)
+        {
+            // The page's list with its rules (a reader of a camera the caller cannot see shows no text).
+            return OcrTools.ReadersAnswerOf(OcrJson.Deserialize<ReaderList>(await InvokeAsync(caller, OcrMethods.ListReaders, null, ct).ConfigureAwait(false)), payloadJson);
+        }
+
+        if (method == OcrTools.Reads.Method)
+        {
+            if (OcrTools.ReaderIdOf(payloadJson, out var errors) is not { } readerId)
+            {
+                return errors;
+            }
+
+            // The page's reading (the reader's camera must be the caller's); only the texts leave, never a cut-out.
+            var reading = await InvokeAsync(caller, OcrMethods.GetReading, OcrJson.Serialize(new ReaderRequest { ReaderId = readerId }), ct).ConfigureAwait(false);
+            return OcrTools.ReadsAnswerOf(OcrJson.Deserialize<ReadingReply>(reading));
+        }
+
         switch (method)
         {
             case OcrMethods.ListReaders:

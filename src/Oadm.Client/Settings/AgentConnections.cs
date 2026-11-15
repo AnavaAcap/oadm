@@ -40,9 +40,6 @@ public static class AgentConnections
     /// <summary>The variable the agent's computer holds the access key in.</summary>
     public const string KeyVariable = "OADM_KEY";
 
-    /// <summary>Shown below the configurations: the agent's computer trusts the CA once.</summary>
-    public const string TrustCa = "Download the CA certificate and trust it on the agent's computer. Claude Code reads the file named in NODE_EXTRA_CA_CERTS.";
-
     /// <summary>
     /// The name agents connect to: a name of the certificate, else one of its addresses (agents refuse a name the certificate
     /// does not hold). Null while the certificate names are not known.

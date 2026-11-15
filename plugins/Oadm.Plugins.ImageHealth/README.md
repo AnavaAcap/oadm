@@ -87,6 +87,14 @@ devices). `check` and `getState` answer only rows of cameras the caller sees now
 that left the group drops out at once, before the group's rows are pruned, and its removal goes out with the next batch.
 See [Device groups](../../docs/spec/device-scope.md).
 
+## MCP
+
+`Tools/ImageHealthTools` (`ICorePlugin.Tools`, area `image_health`, docs/spec/mcp.md): the read-only tool
+`oadm_image_health_results` answers the caller's last check: the counts (app running, not running, without the app,
+failed, and per detection), then one row per camera with the app state and blur, block, redirect, under-exposure and
+unsuitability (`ok`, `pending`, `detected`, `off`), paged by device id, filter `detected` (one detection or `any`). It
+asks no camera; the page's rule (Operator).
+
 ## Tests
 
 `tests/Oadm.Plugins.ImageHealth.Tests`: `DeviceGroupTests` (the plugin canary, one table per group); the three recorded
