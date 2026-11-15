@@ -29,7 +29,10 @@ have the fact, and say why.
 | Clock and NTP | `oadm_devices_search` with field `clock_offset_ms`; `oadm_ntp_status` |
 | Certificates | `oadm_devices_search` with `certificate_expires`, `certificate_trust`; `oadm_pki_certificates` |
 | Vulnerabilities | `oadm_vulnerabilities_summary`, `oadm_vulnerabilities`; the device filter `vulnerabilities` |
-| Compliance | `oadm_compliance_summary`, `oadm_compliance_checks` |
+| Compliance | `oadm_compliance_summary`, `oadm_compliance_checks`, `oadm_compliance_devices` (which devices fail a check) |
+| A device's users, network, applications, time now | `oadm_task_query` (asks the device) |
+| Waiting list of Add devices | `oadm_waiting_list` |
+| New OADM version | `oadm_update_check` |
 | Tasks and failures | `oadm_tasks_summary`, `oadm_tasks_list`, `oadm_tasks_get` |
 | Logs and who did what | `oadm_logs_search`, `oadm_logs_audit` |
 | Event rules | `oadm_rules_list`, `oadm_rules_get`, `oadm_events_log` |
@@ -99,6 +102,24 @@ job.
 
 Vulnerabilities: `oadm_vulnerabilities_summary` first, then `oadm_vulnerabilities` for the devices and their CVEs.
 "Possible" CVEs are not counted: report them apart and point to the Axis advisory.
+
+More changes, each a preview and a run like the others:
+
+- Tags: rename or recolor `oadm_tags_update_preview`, delete `oadm_tags_delete_preview`.
+- Add devices: `oadm_devices_add_preview` with `discovery`, a `range` or `addresses` (an imported file's list, up to 1,000);
+  the waiting list `oadm_waiting_remove_preview`.
+- Task history: `oadm_tasks_delete_preview`, `oadm_tasks_delete_all_preview`.
+- Event rules: on or off `oadm_rules_enable_preview`, copy `oadm_rules_duplicate_preview`, send one action as a test
+  `oadm_rules_test_action_preview`, clear the event log `oadm_events_clear_log_preview`.
+- Recipients: `oadm_recipients_types` for the fields, then `oadm_recipients_save_preview`, `oadm_recipients_test_preview`,
+  `oadm_recipients_delete_preview`. Passwords are set in OADM.
+- Compliance: on or off `oadm_compliance_enable_preview`; checks with `oadm_compliance_kinds` and
+  `oadm_compliance_check_save_preview`, `oadm_compliance_check_enable_preview`, `oadm_compliance_check_delete_preview`;
+  Check now `oadm_compliance_check_now_preview`.
+- Sites: `oadm_sites_rename_preview`. Vulnerability list: `oadm_vulnerabilities_update_preview`.
+- Camera: read `oadm_devices_optics` or `oadm_devices_ptz` first, then `oadm_devices_optics_preview` (zoom, focus) or
+  `oadm_devices_ptz_preview` (home, preset, zoom, center). The camera moves: say so. RTSP port: `oadm_devices_rtsp_port_preview`.
+
 What the pages show (read only, while their plugin is on): SD cards `oadm_edge_storage_cards`, recordings of a camera
 `oadm_recordings_search`, image health `oadm_image_health_results`, inputs and outputs `oadm_io_ports`, open event
 streams `oadm_metadata_streams`, dashboards `oadm_dashboards_list` and `oadm_dashboards_values`, load tests
@@ -130,7 +151,7 @@ it (or with the `task_id`) and run its `command` in your shell; the file never p
 - **Limits.** Answers are cut at 32 KB. When an answer says there is more, narrow the filter. A key has call limits per
   second and per minute. On "too many calls", wait.
 - **Not over MCP.** Users, roles, device groups, access keys, changing the license, plugins on or off, server settings, backup
-  restore, live video and data resets are done in OADM only.
+  restore, live video, Delete all devices and Install now of a new version are done in OADM only.
 
 ## Workflows
 

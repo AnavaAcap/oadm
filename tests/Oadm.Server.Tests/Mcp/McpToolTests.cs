@@ -33,25 +33,25 @@ public sealed partial class McpToolTests
     ];
 
     /// <summary>The tools of the areas stage 3 (tags, sites, compliance, event rules, the event log): <see cref="McpAreaToolTests"/>.</summary>
-    private static readonly string[] AreaTools = McpAreaToolTests.ToolNames;
+    private static readonly string[] AreaTools = [.. McpAreaToolTests.ToolNames, .. McpHostActionTests.ToolNames];
 
     /// <summary>The tools that change something (rule 2: each with its preview).</summary>
     private static readonly string[] WriteTools =
     [
         "oadm_devices_add_run", "oadm_devices_credentials_run", "oadm_devices_refresh_run", "oadm_devices_remove_run", "oadm_files_delete_run",
         "oadm_files_upload_link", "oadm_task_run", "oadm_tasks_cancel_run",
-        .. McpAreaToolTests.RunTools,
+        .. McpAreaToolTests.RunTools, .. McpHostActionTests.RunTools,
     ];
 
     /// <summary>The runs that replace, stop or remove something (<c>destructiveHint</c>): a task run, a cancel, a file delete, credentials, a removal, tag removal, a replaced or deleted rule. Add only adds, Refresh only reads again.</summary>
     private static readonly string[] DestructiveTools =
     [
         "oadm_devices_credentials_run", "oadm_devices_remove_run", "oadm_files_delete_run", "oadm_task_run", "oadm_tasks_cancel_run",
-        .. McpAreaToolTests.RunTools,
+        .. McpAreaToolTests.RunTools, .. McpHostActionTests.RunTools.Except(McpHostActionTests.AddingRuns),
     ];
 
     /// <summary>Previews that act outside OADM (the add scan): no plain read, so not announced as one.</summary>
-    private static readonly string[] ActsOutsideTools = ["oadm_devices_add_preview"];
+    private static readonly string[] ActsOutsideTools = ["oadm_devices_add_preview", .. McpHostActionTests.ActsOutside];
 
     [GeneratedRegex("^oadm_[a-z0-9_]+$")]
     private static partial Regex ToolName();
@@ -86,7 +86,8 @@ public sealed partial class McpToolTests
     {
         switch (schema["type"]?.GetValue<string>())
         {
-            case "object" when where is "oadm_task_preview.input" or "oadm_rules_save_preview.rule.actions[].settings":
+            case "object" when where is "oadm_task_preview.input" or "oadm_rules_save_preview.rule.actions[].settings" or "oadm_task_query.input"
+                or "oadm_recipients_save_preview.settings" or "oadm_compliance_check_save_preview.settings":
                 // The task's input and an action's settings: their own strict schema comes with oadm_tasks_catalog and oadm_rules_catalog
                 // (the action's fields), and the preview checks the input against it.
                 Assert.True(schema["additionalProperties"]!.GetValue<bool>());
@@ -106,7 +107,7 @@ public sealed partial class McpToolTests
             case "string":
                 Assert.True(schema["maxLength"] is not null || schema["enum"] is not null, where);
                 break;
-            case "integer":
+            case "integer" or "number":
                 Assert.NotNull(schema["minimum"]);
                 Assert.NotNull(schema["maximum"]);
                 break;
@@ -136,7 +137,7 @@ public sealed partial class McpToolTests
     ];
 
     /// <summary>The gRPC methods the tools of the areas call (<see cref="McpAreaToolTests.Methods"/>).</summary>
-    private static readonly string[] AreaMethods = McpAreaToolTests.Methods;
+    private static readonly string[] AreaMethods = [.. McpAreaToolTests.Methods, .. McpHostActionTests.Methods];
 
     [Fact]
     public async Task NoToolReachesUsersRolesDeviceGroupsAccessKeysLicensePluginsSettingsChangesBackupsOrResets()
@@ -155,9 +156,11 @@ public sealed partial class McpToolTests
             "BackupService", "UpdateService", "SupportService",
         ];
         // License, plugins and MCP: only the reads of oadm_server_status (what every signed-in user sees), never a change.
-        string[] readsOfGuiServices = ["/oadm.v1.LicenseService/GetLicense", "/oadm.v1.PluginService/ListPackages", "/oadm.v1.McpService/Get"];
+        // The version check reads what the new version dialog shows (decision 2026-11-15); Install now stays in OADM.
+        string[] readsOfGuiServices = ["/oadm.v1.LicenseService/GetLicense", "/oadm.v1.PluginService/ListPackages", "/oadm.v1.McpService/Get", "/oadm.v1.UpdateService/Get"];
         Assert.DoesNotContain(methods, m => !readsOfGuiServices.Contains(m) && guiOnly.Any(s => m.StartsWith("/oadm.v1." + s + "/", StringComparison.Ordinal)));
-        Assert.DoesNotContain(methods, m => m is "/oadm.v1.SettingsService/Set" or "/oadm.v1.TaskService/DeleteAll" or "/oadm.v1.DeviceService/RemoveAll");
+        // Delete all tasks is a preview and a run since the decision of 2026-11-15; Delete all devices stays in OADM.
+        Assert.DoesNotContain(methods, m => m is "/oadm.v1.SettingsService/Set" or "/oadm.v1.DeviceService/RemoveAll");
     }
 
     [Fact]

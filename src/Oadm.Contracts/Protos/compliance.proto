@@ -37,6 +37,25 @@ service ComplianceService {
   rpc SetEnabled (SetComplianceEnabledRequest) returns (ComplianceCheckList);
   // ListChecks with the counts of the devices of a filter only (in the caller's view). NOT_FOUND for an id outside the view.
   rpc Summarize (SummarizeComplianceRequest) returns (ComplianceCheckList);
+  // A page of one check's results for the devices of a filter (in the caller's view), in device id order (the tools: which
+  // devices fail a check). NOT_FOUND for a check the caller does not see, INVALID_ARGUMENT for a bad filter.
+  rpc ListResults (ListComplianceResultsRequest) returns (ComplianceResultPage);
+  // Checks a check like SaveCheck and answers it as it would be saved, without saving (the tools' preview). The limit of
+  // checks and the version are checked only by SaveCheck. The errors of SaveCheck.
+  rpc PlanCheck (ComplianceCheckDetail) returns (ComplianceCheckSummary);
+}
+
+message ListComplianceResultsRequest {
+  string check_id = 1;
+  repeated ComplianceOutcome outcomes = 2;   // empty: every outcome
+  DeviceFilter filter = 3;                   // unset: every device of the caller's view
+  string after_device_id = 4;                // the last device of the page before; empty: from the start
+  int32 limit = 5;                           // 1 to 500 (0: 50)
+}
+
+message ComplianceResultPage {
+  repeated ComplianceResultEntry results = 1;
+  int32 total = 2;                           // results that match (every page)
 }
 
 message SummarizeComplianceRequest { DeviceFilter filter = 1; }

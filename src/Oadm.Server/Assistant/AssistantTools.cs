@@ -50,6 +50,13 @@ internal static class AssistantTools
             "oadm_tasks_list" or "oadm_tasks_get" => "Looking at tasks",
             "oadm_tasks_catalog" => "Looking at the tasks the devices can run",
             "oadm_logs_search" or "oadm_logs_audit" or "oadm_events_log" => "Reading the logs",
+            "oadm_waiting_list" => "Looking at the waiting list",
+            "oadm_compliance_devices" => "Looking at compliance results",
+            "oadm_compliance_kinds" => "Looking at the kinds of check",
+            "oadm_recipients_types" or "oadm_recipients_certificates" => "Looking at recipients",
+            "oadm_task_query" => "Reading the device",
+            "oadm_devices_optics" or "oadm_devices_ptz" => "Reading the camera",
+            "oadm_update_check" => "Checking for a new version",
             _ when IsPreview(tool.Name) => "Preparing the plan",
             _ => tool.Title,
         };

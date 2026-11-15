@@ -125,7 +125,8 @@ used again.
     another certificate than shown. Nothing was changed."; another serial: "Another device answers at this address.".
     Reply `results` {device_id, ok, message} in request order; audit "Trusted new device certificate" {"3 devices",
     "2 trusted"}; INVALID_ARGUMENT without devices.
-- **`DiscoveryService`** (`discovery.proto`): `StartZeroConf`, `StartRangeScan(from, to)`, `ProbeAddress(address,
+- **`DiscoveryService`** (`discovery.proto`): `StartZeroConf(no_logins)` (`ZeroConfRequest` replaced `Empty`, wire compatible;
+  `no_logins` as for the range scan: the AI agents' add preview only looks), `StartRangeScan(from, to)`, `ProbeAddress(address,
   user_name = 2, password = 3, expected_serial = 4)` (one IP or host name, optional port and scheme; INVALID_ARGUMENT for an
   unusable or unresolvable address, only one of user name (1..64) and password (1..256), or an expected serial that is not
   12 hex). The credentials of an imported line belong to that session only: tried first, then the credential list, server
@@ -305,7 +306,9 @@ used again.
   used, `docs/spec/recipient-sessions.md`), `ListRecipientCertificates` (like `SaveRule`: the certificates of PKI for the recipient dialog, both
   lists empty while PKI is not running; ids and texts only, never a key). `GetCatalog` also gives `recipient_types` (`persistent`: one shared connection).
   - `CheckRule(SaveRuleRequest)` (like `SaveRule`): the rule editor's checks, answers the rule's summary or INVALID_ARGUMENT
-    with the first problem; nothing is saved. `ListLog` takes `before_id` (the page before that entry) and `skip_total`.
+    with the first problem; nothing is saved. `CheckRecipient(SaveRecipientRequest)` (like `SaveRecipient`): the recipient
+    dialog's checks (the type's fields, the stored values, the name, the count), answers the recipient as it would be saved
+    (its target, never a password) or the errors of `SaveRecipient`; nothing is saved or audited (the tools' preview). `ListLog` takes `before_id` (the page before that entry) and `skip_total`.
 - **`ServerLogService`** (`logs.proto`, permission `logs.server`, users with all devices): `List` (the server's log
   files, a page newest first; `not_after = 5`: only lines at or before that ISO 8601 time, the page after a line, which new
   lines never move; INVALID_ARGUMENT for another text), see `docs/spec/main-window.md` "Logs page".
@@ -327,6 +330,12 @@ used again.
   empty lists = the view.
   - `Summarize(filter)` (like `ListChecks`): every check with the pass, fail and unknown counts of the filter's devices in
     the caller's view.
+  - `ListResults(check_id, outcomes, filter, after_device_id, limit)` (like `ListChecks`): one check's results of the
+    filter's devices in the caller's view, a page (1 to 500, default 50) in device id order after `after_device_id`, and the
+    `total`; the filter's ids are checked first (NOT_FOUND "1 device is no longer available."), then the check (NOT_FOUND for
+    one the caller does not see). The tools' "which devices fail a check".
+  - `PlanCheck(ComplianceCheckDetail)` (like `SaveCheck`): every check of `SaveCheck` except the limit of 50 checks and the
+    version, answers the check as it would be saved (its summary, no results); nothing is saved (the tools' preview).
 - **`TagService`** (`tags.proto`, `docs/spec/tags.md`): `List` (every definition sorted by name with its `device_count`
   in the caller's view and, for users with all devices, the `group_names` that use it; then names used on devices of the
   view without a definition, `defined = false`), `Watch` (the whole `TagList` on subscribe and after every change of the

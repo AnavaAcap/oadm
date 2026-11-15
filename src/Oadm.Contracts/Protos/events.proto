@@ -47,6 +47,9 @@ service EventService {
   rpc SaveRecipient (SaveRecipientRequest) returns (RecipientEntry);
   // Audited. FAILED_PRECONDITION with the rule names while a rule uses it. NOT_FOUND.
   rpc DeleteRecipient (RecipientId) returns (Empty);
+  // Checks a recipient like SaveRecipient and answers it as it would be saved (its target), without saving or auditing (the
+  // tools' preview). The errors of SaveRecipient.
+  rpc CheckRecipient (SaveRecipientRequest) returns (RecipientEntry);
   // Sends the type's test action once now with the action's default values and sample event values (audited); a persistent
   // type only connects. Refused checks: INVALID_ARGUMENT with the trailer, like SaveRecipient.
   rpc TestRecipient (SaveRecipientRequest) returns (TestActionReply);

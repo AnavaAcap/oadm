@@ -69,7 +69,7 @@ internal static partial class RuleTools
 
     /// <summary>Header and key names that carry a login or a token: never taken over MCP.</summary>
     [GeneratedRegex("(authorization|token|secret|passw|api[-_ ]?key|cookie|credential)", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
-    private static partial Regex SensitiveName();
+    internal static partial Regex SensitiveName();
 
     public static IEnumerable<OadmTool> Create(ToolCursors cursors, ToolHandles handles)
     {
@@ -422,7 +422,7 @@ internal static partial class RuleTools
         ["available"] = action.Available,
     };
 
-    private static JsonObject FieldRow(Proto.ActionFieldEntry field)
+    internal static JsonObject FieldRow(Proto.ActionFieldEntry field)
     {
         var row = new JsonObject
         {
@@ -466,7 +466,7 @@ internal static partial class RuleTools
     };
 
     /// <summary>Kinds whose values may hold a login or a token: never shown, kept as they are on a change.</summary>
-    private static bool IsHidden(Proto.ActionFieldKind kind) =>
+    internal static bool IsHidden(Proto.ActionFieldKind kind) =>
         kind is Proto.ActionFieldKind.ActionFieldPassword or Proto.ActionFieldKind.ActionFieldCode or Proto.ActionFieldKind.ActionFieldKeyValues or Proto.ActionFieldKind.ActionFieldFile;
 
     [GeneratedRegex("(url|uri|endpoint|webhook|link)", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
@@ -476,10 +476,10 @@ internal static partial class RuleTools
     private static partial Regex AddressInText();
 
     [GeneratedRegex(@"^\s*[a-z][a-z0-9+.\-]*://[^/?#\s]*@", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
-    private static partial Regex AddressWithLogin();
+    internal static partial Regex AddressWithLogin();
 
     /// <summary>A text field that holds an address (URL, host) and can carry a login or a token: shown as scheme, host and port only.</summary>
-    private static bool IsAddressText(Proto.ActionFieldEntry field) =>
+    internal static bool IsAddressText(Proto.ActionFieldEntry field) =>
         field.Kind is Proto.ActionFieldKind.ActionFieldText
         && (field.Format is Proto.ActionTextFormat.Url or Proto.ActionTextFormat.OpcEndpoint or Proto.ActionTextFormat.Host || AddressName().IsMatch(field.Key));
 
@@ -514,6 +514,9 @@ internal static partial class RuleTools
         var cut = t.IndexOfAny(['/', '?', '#']);
         return cut >= 0 ? t[..cut] : t;
     }
+
+    /// <summary>A server text with every address cut to scheme, host and port (a server's answer can name a URL with a token).</summary>
+    internal static string ScrubText(string text) => ScrubAddresses(text);
 
     /// <summary>A server text with every address cut to scheme, host and port.</summary>
     private static string ScrubAddresses(string text) =>

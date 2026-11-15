@@ -79,6 +79,10 @@ public sealed class McpSecretTests
         };
         var areaKey = await server.CreateKeyAsync(name: "canary-areas"); // a key allows 20 calls a second: the areas' tools use their own
         var areaCalls = McpAreaToolTests.SecretScanCalls();
+        foreach (var (tool, arguments) in McpHostActionTests.SecretScanCalls(device.Id.ToString()))
+        {
+            areaCalls[tool] = arguments;
+        }
         Assert.Equal(calls.Keys.Concat(areaCalls.Keys).Order(StringComparer.Ordinal), await server.ToolNamesAsync(key));
         // 20 calls a second per key: ten calls with each key.
         var keys = new List<string> { key };

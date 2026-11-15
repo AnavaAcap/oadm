@@ -219,6 +219,13 @@ public static partial class OadmServerHost
                     .. Tools.VulnerabilityTools.Create(cursors, facts),
                     .. Tools.RuleTools.Create(cursors, sp.GetRequiredService<Tools.ToolHandles>()),
                     .. Tools.RecipientTools.Create(cursors),
+                    .. Tools.RecipientChangeTools.Create(sp.GetRequiredService<Tools.ToolHandles>()),
+                    .. Tools.RuleTools.CreateActions(sp.GetRequiredService<Tools.ToolHandles>()),
+                    .. Tools.ComplianceChangeTools.Create(cursors, sp.GetRequiredService<Tools.ToolHandles>()),
+                    .. Tools.WaitingTools.Create(cursors, sp.GetRequiredService<Tools.ToolHandles>()),
+                    .. Tools.TaskChangeTools.Create(sp.GetRequiredService<Tools.ToolHandles>()),
+                    .. Tools.LiveViewTools.Create(sp.GetRequiredService<Tools.ToolHandles>()),
+                    .. Tools.HostActionTools.Create(sp.GetRequiredService<Tools.ToolHandles>()),
                     .. Tools.DeviceChangeTools.Create(sp.GetRequiredService<Tools.ToolHandles>(), sp.GetRequiredService<TimeProvider>()),
                     .. Tools.SettingsTools.Create(),
                     Tools.ServerStatusTool.Create(call => call.CallAsync<Mcp.McpGrpcService, Oadm.Contracts.V1.Empty, Oadm.Contracts.V1.McpState>(

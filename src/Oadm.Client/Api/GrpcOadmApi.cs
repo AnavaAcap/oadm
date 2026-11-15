@@ -399,7 +399,7 @@ public sealed class GrpcOadmApi : IOadmApi, IDisposable
         (await C.Devices.GetWebUiUrlAsync(new DeviceId { Id = deviceId }, cancellationToken: ct)).Url;
 
     public async Task<string> StartZeroConfAsync(CancellationToken ct) =>
-        (await C.Discovery.StartZeroConfAsync(new Empty(), cancellationToken: ct)).SessionId;
+        (await C.Discovery.StartZeroConfAsync(new ZeroConfRequest(), cancellationToken: ct)).SessionId;
 
     public async Task<string> StartRangeScanAsync(string firstAddress, string lastAddress, CancellationToken ct) =>
         (await C.Discovery.StartRangeScanAsync(new RangeScanRequest { From = firstAddress, To = lastAddress }, cancellationToken: ct)).SessionId;
