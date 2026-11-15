@@ -107,9 +107,13 @@ public sealed class SendTcpActionTests
     [Fact]
     public async Task Tls_needs_a_trusted_certificate_unless_allowed()
     {
-        await using var server = new MiniTcpServer(tls: true);
+        // The server answers and the action waits for it: a TLS 1.3 server sends its session tickets after the handshake, and
+        // a client that closes with them unread ends with a reset on Windows, which can drop the message before it is read.
+        await using var server = new MiniTcpServer(tls: true) { Answer = "OK" };
         var settings = Settings(server.Port, "hello");
         settings["tls"] = true;
+        settings["waitAnswer"] = true;
+        settings["expect"] = "OK";
 
         var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => new SendTcpAction().ExecuteAsync(new TestContext(), Run.Invocation(settings), CancellationToken.None));
         Assert.StartsWith("The certificate of 127.0.0.1:" + server.Port + " is not trusted", ex.Message, StringComparison.Ordinal);
