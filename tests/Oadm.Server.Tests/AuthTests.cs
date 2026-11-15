@@ -118,7 +118,7 @@ public sealed class AuthTests
         Assert.Equal(AccessRule.Admin.ForAllDevices(), AccessPolicy.For("/oadm.v1.McpService/Set"));
         Assert.All(Proto.AccessKeyService.Descriptor.Methods, m => Assert.Equal(AccessRule.Admin, AccessPolicy.For($"/oadm.v1.AccessKeyService/{m.Name}")));
         // The assistant (docs/spec/assistant.md): the chat with its permission, the settings read by every role, set up by administrators.
-        Assert.All(Proto.AssistantService.Descriptor.Methods.Select(d => d.Name).Where(n => n is "Chat" or "Stop" or "Run" or "End"), m => Assert.Equal(AccessRule.Needs(Oadm.Core.Auth.HostPermissions.AssistantUse), AccessPolicy.For($"/oadm.v1.AssistantService/{m}")));
+        Assert.All(Proto.AssistantService.Descriptor.Methods.Select(d => d.Name).Where(n => n is "Chat" or "Stop" or "Run" or "End" or "ListModels"), m => Assert.Equal(AccessRule.Needs(Oadm.Core.Auth.HostPermissions.AssistantUse), AccessPolicy.For($"/oadm.v1.AssistantService/{m}")));
         Assert.Equal(AccessRule.SignedIn, AccessPolicy.For("/oadm.v1.AssistantService/GetSettings"));
         Assert.Equal(AccessRule.Admin.ForAllDevices(), AccessPolicy.For("/oadm.v1.AssistantService/SetSettings"));
         Assert.Equal(AccessRule.Admin.ForAllDevices(), AccessPolicy.For("/oadm.v1.AssistantService/Test"));

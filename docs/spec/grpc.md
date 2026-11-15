@@ -358,21 +358,26 @@ used again.
   RESOURCE_EXHAUSTED at 100 keys; an Administrator key gets all devices; the reply holds the key once; audited "Created
   access key"), `Delete` (ends the key at once, audited "Deleted access key"; NOT_FOUND "The access key no longer exists.";
   answers every key). No answer holds a key or its hash; the id is the key's identity.
-- **`AssistantService`** (`assistant.proto`, `docs/spec/assistant.md`): `Chat`, `Stop`, `Run` and `End` need "Use the
-  assistant" (`assistant.use`); FAILED_PRECONDITION "The assistant is off." (or "Choose a model.") while it is off.
-  `Chat` (server-streaming; one message of 1 to 8,000 characters, at most 10,000 selected devices, at most 10 attached
+- **`AssistantService`** (`assistant.proto`, `docs/spec/assistant.md`): `Chat`, `Stop`, `Run`, `End` and `ListModels`
+  need "Use the assistant" (`assistant.use`); FAILED_PRECONDITION "The assistant is off." while it is off.
+  `Chat` (server-streaming; the model the user chose, 1 to 200 characters, else INVALID_ARGUMENT "Choose a model." with
+  `oadm-field` = `model`; one message of 1 to 8,000 characters, at most 10,000 selected devices, at most 10 attached
   files of the caller's own uploads, else INVALID_ARGUMENT; FAILED_PRECONDITION "Wait for the answer or stop it." while
   the chat streams; RESOURCE_EXHAUSTED "The assistant reached today's limit. It works again tomorrow."): text pieces, tool
-  lines, preview cards, pictures, tables, a notice once, then `done` with the tokens and the error in plain words.
+  lines, preview cards, pictures, tables, a notice once, then `done` with the tokens and the error in plain words ("This
+  model cannot use tools. Choose another one." when the chosen model refuses the tools). The model may change between
+  messages; the chat stays. `ListModels`: the provider's models (cached 10 minutes, waits at most 2 s), `editable` when it
+  offers none, `suggested` (`claude-opus-5-5` for Anthropic when listed, else the first).
   `Stop` ends the answer that streams (`done.stopped`), `End` forgets the chat, both always succeed. `Run` (the chat's
   preview handle, once): the run tool of the preview as the caller; NOT_FOUND "This preview has ended. Ask again." for a
   handle of another chat, session or user, one that ran or ended; FAILED_PRECONDITION with the run's refusal; the reply
-  names the batch and the first 10,000 task ids. `GetSettings` (signed in: the settings without the key, `has_api_key`,
-  the tokens of today, the status; the provider's models for the Administrator role only). `SetSettings` and `Test` (Admin,
-  all devices; INVALID_ARGUMENT with the trailer `oadm-field` = `provider`, `address`, `model`, `api_key`, `daily_limit` or
+  names the batch and the first 10,000 task ids. `GetSettings` (signed in: the settings without the key and without a
+  model, `has_api_key`, the tokens of today, the status On or Off). `SetSettings` and `Test` (Admin,
+  all devices; INVALID_ARGUMENT with the trailer `oadm-field` = `provider`, `address`, `api_key`, `daily_limit` or
   `user_daily_limit`; an empty `api_key` keeps the saved one of the same provider). `SetSettings` is audited "Changed
-  assistant" (never the key) and ends every chat when the assistant is turned off or its provider, address or model
-  changes. `Test` makes one short call with a tool and never saves.
+  assistant" (never the key) and ends every chat when the assistant is turned off or its provider or address changes.
+  `Test` reads the provider's model list (no model needed; an OpenAI-compatible server without a list counts as an
+  answer) and says "The provider answered." or the error in plain words; it never saves.
 - **`SupportService`** (`support.proto`, `docs/spec/settings-backup.md` "Support report"): `CreateReport` (Admin, audited
   "Created support report"; stream of `DownloadChunk`: name and length first, 256 KB chunks, uncompressed).
 - **`BackupService`** (`backup.proto`, Admin): `GetState`, `SetSchedule`, `Create`, `Download`, `Delete`, `Inspect`,

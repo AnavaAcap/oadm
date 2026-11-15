@@ -26,8 +26,6 @@ public sealed class AssistantSettingsTests
         { "provider", s => s.Provider = "gemini", AssistantTexts.ChooseProvider },
         { "address", s => { s.Provider = AssistantTexts.Ollama; s.Address = string.Empty; }, AssistantTexts.EnterAddress },
         { "address", s => { s.Provider = AssistantTexts.OpenAiCompatible; s.Address = "ftp://10.0.0.5"; }, AssistantTexts.AddressNotValid },
-        { "model", s => s.Model = string.Empty, AssistantTexts.EnterModel },
-        { "model", s => s.Model = new string('m', 201), AssistantTexts.ModelTooLong },
         { "api_key", s => s.ApiKey = new string('k', 501), AssistantTexts.ApiKeyTooLong },
         { "daily_limit", s => s.DailyLimit = 10, AssistantTexts.DailyLimitRange },
         { "user_daily_limit", s => s.UserDailyLimit = 5, AssistantTexts.UserDailyLimitRange },
@@ -56,7 +54,6 @@ public sealed class AssistantSettingsTests
         Assert.True(state.HasApiKey);
         Assert.Empty(state.Settings.ApiKey);
         Assert.Equal(AssistantTexts.On, state.Status);
-        Assert.Equal(["model-a", "model-b"], state.Models);
 
         // Saved again without a key: the saved one stays (Turn on with Anthropic needs one).
         var again = AssistantTestServer.Settings();
@@ -85,25 +82,27 @@ public sealed class AssistantSettingsTests
     }
 
     [Fact]
-    public async Task TestAsksForAToolCallAndSaysWhenTheModelCannotUseTools()
+    public async Task TestReadsTheModelListWithoutAModelAndNeverSaves()
     {
         await using var server = await AssistantTestServer.StartAsync(turnOn: false);
-        server.Model.Call(("oadm_test", null));
         var ok = await server.Service().TestAsync(AssistantTestServer.Settings());
         Assert.True(ok.Ok, ok.Message);
-        Assert.Equal(AssistantGrpcService.TestAnswered, ok.Message);
-        Assert.Equal("oadm_test", Assert.Single(server.Model.Requests[0].Tools));
+        Assert.Equal(AssistantTexts.ProviderAnswered, ok.Message);
+        Assert.Equal(AssistantTestServer.ApiKey, server.Providers.Connections[^1].ApiKey);
+        Assert.Empty(server.Model.Requests); // no chat call: nothing needs a model
 
-        server.Model.Say("I cannot do that.");
-        var noTools = await server.Service().TestAsync(AssistantTestServer.Settings());
-        Assert.False(noTools.Ok);
-        Assert.Equal(AssistantTexts.CannotUseTools, noTools.Message);
+        // An OpenAI-compatible server without a list answered too.
+        server.Providers.Read = _ => null;
+        Assert.True((await server.Service().TestAsync(AssistantTestServer.Settings(AssistantTexts.OpenAiCompatible))).Ok);
 
-        server.Model.Then((_, _) => throw new HttpRequestException("nope", null, System.Net.HttpStatusCode.NotFound));
-        var unknown = await server.Service().TestAsync(AssistantTestServer.Settings());
-        Assert.Equal(AssistantProviderErrors.NotFound, unknown.Message);
+        server.Providers.Read = _ => throw new HttpRequestException("nope " + AssistantTestServer.ApiKey, null, System.Net.HttpStatusCode.Unauthorized);
+        var refused = await server.Service().TestAsync(AssistantTestServer.Settings());
+        Assert.False(refused.Ok);
+        Assert.Equal(AssistantProviderErrors.KeyRefused, refused.Message);
 
-        // Test never saves.
+        server.Providers.Read = _ => throw new HttpRequestException("no route", new System.Net.Sockets.SocketException());
+        Assert.Equal(AssistantProviderErrors.Unreachable, (await server.Service().TestAsync(AssistantTestServer.Settings(AssistantTexts.Ollama))).Message);
+
         Assert.False((await server.Service().GetSettingsAsync(new Proto.Empty())).Settings.Enabled);
     }
 

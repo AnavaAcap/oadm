@@ -267,6 +267,7 @@ public static class AccessPolicy
         ["/oadm.v1.AssistantService/Stop"] = AccessRule.Needs(HostPermissions.AssistantUse),
         ["/oadm.v1.AssistantService/Run"] = AccessRule.Needs(HostPermissions.AssistantUse),
         ["/oadm.v1.AssistantService/End"] = AccessRule.Needs(HostPermissions.AssistantUse),
+        ["/oadm.v1.AssistantService/ListModels"] = AccessRule.Needs(HostPermissions.AssistantUse),
         ["/oadm.v1.AssistantService/GetSettings"] = AccessRule.SignedIn,
         ["/oadm.v1.AssistantService/SetSettings"] = AccessRule.Admin.ForAllDevices(),
         ["/oadm.v1.AssistantService/Test"] = AccessRule.Admin.ForAllDevices(),

@@ -15,7 +15,7 @@ public static class AssistantTexts
     /// <summary>Every provider id, in the order of the Settings card.</summary>
     public static IReadOnlyList<string> Providers { get; } = [Anthropic, OpenAi, Ollama, OpenAiCompatible];
 
-    /// <summary>The model the card suggests for Anthropic.</summary>
+    /// <summary>The model the panel suggests for Anthropic when the provider lists it.</summary>
     public const string AnthropicDefaultModel = "claude-opus-5-5";
 
     /// <summary>The name of a provider as the card and the notice show it ("Anthropic").</summary>
@@ -45,7 +45,6 @@ public static class AssistantTexts
     // Status of GetSettings.
     public const string On = "On";
     public const string Off = "Off";
-    public const string ChooseModel = "Choose a model.";
 
     // Refusals and errors (gRPC status details and AssistantDone.error).
     public const string IsOff = "The assistant is off.";
@@ -59,13 +58,19 @@ public static class AssistantTexts
     public const string FileGone = "This file is no longer there. Attach it again.";
     public const string TooManyFiles = "Attach at most 10 files.";
     public const string ToolLimit = "The assistant used 20 tools for this message. Ask again in smaller steps.";
+    /// <summary>The done error of an answer whose chosen model refused the tools.</summary>
     public const string CannotUseTools = "This model cannot use tools. Choose another one.";
+
+    /// <summary>Test: the provider read the model list (address and key work).</summary>
+    public const string ProviderAnswered = "The provider answered.";
+
+    /// <summary>Chat without a model (trailer oadm-field "model").</summary>
+    public const string ChooseModel = "Choose a model.";
 
     // Field errors of SetSettings (trailer oadm-field).
     public const string ChooseProvider = "Choose a provider.";
     public const string EnterAddress = "Enter the address, e.g. http://10.0.0.5:11434.";
     public const string AddressNotValid = "Enter an address that starts with http:// or https://.";
-    public const string EnterModel = "Enter a model.";
     public const string ModelTooLong = "Use at most 200 characters.";
     public const string EnterApiKey = "Enter the API key.";
     public const string ApiKeyTooLong = "Use at most 500 characters.";

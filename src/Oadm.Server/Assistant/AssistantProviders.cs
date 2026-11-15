@@ -28,13 +28,19 @@ internal interface IAssistantProviders
 
     /// <summary>The models the provider offers; empty when it offers no list or does not answer in time (best effort).</summary>
     Task<IReadOnlyList<string>> ModelsAsync(AssistantConnection connection, CancellationToken ct);
+
+    /// <summary>
+    /// Reads the model list now (Test): the list; null when the provider offers none (HTTP 404); the provider's refusal as
+    /// <see cref="HttpRequestException"/> with its status, or the connection's error.
+    /// </summary>
+    Task<IReadOnlyList<string>?> ReadModelsAsync(AssistantConnection connection, CancellationToken ct);
 }
 
 /// <summary>
 /// The real providers: Anthropic through the official <c>Anthropic</c> SDK's <see cref="IChatClient"/>, OpenAI and
 /// OpenAI-compatible ones through <c>Microsoft.Extensions.AI.OpenAI</c>, Ollama through <c>OllamaSharp</c>. One HTTP handler
 /// for all of them (never to a device); the time limit of an answer is the caller's token. The models lists are read over
-/// plain HTTP, kept for 10 minutes and never wait longer than <see cref="ModelsWait"/>.
+/// plain HTTP, kept for 10 minutes for the panel's picker and never wait longer than <see cref="ModelsWait"/>.
 /// </summary>
 [SuppressMessage("ApiDesign", "RS0030:Do not use banned APIs", Justification = "The AI provider the administrator chose, never a device.")]
 internal sealed class AssistantProviders(TimeProvider time) : IAssistantProviders, IDisposable
@@ -110,6 +116,20 @@ internal sealed class AssistantProviders(TimeProvider time) : IAssistantProvider
         try
         {
             using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10), time);
+            return await ReadModelsAsync(connection, cts.Token).ConfigureAwait(false) ?? [];
+        }
+#pragma warning disable CA1031 // A models list is best effort: whatever goes wrong, the panel lets the user type a model.
+        catch (Exception)
+#pragma warning restore CA1031
+        {
+            return [];
+        }
+    }
+
+    public async Task<IReadOnlyList<string>?> ReadModelsAsync(AssistantConnection connection, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(connection);
+        {
             using var http = Http();
             using var request = connection.Provider switch
             {
@@ -128,14 +148,19 @@ internal sealed class AssistantProviders(TimeProvider time) : IAssistantProvider
                 request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", connection.ApiKey);
             }
 
-            using var response = await http.SendAsync(request, cts.Token).ConfigureAwait(false);
-            if (!response.IsSuccessStatusCode)
+            using var response = await http.SendAsync(request, ct).ConfigureAwait(false);
+            if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
             {
-                return [];
+                return null; // no list at this address
             }
 
-            await using var stream = await response.Content.ReadAsStreamAsync(cts.Token).ConfigureAwait(false);
-            using var json = await JsonDocument.ParseAsync(stream, cancellationToken: cts.Token).ConfigureAwait(false);
+            if (!response.IsSuccessStatusCode)
+            {
+                throw new HttpRequestException("The provider refused the models list.", null, response.StatusCode);
+            }
+
+            await using var stream = await response.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
+            using var json = await JsonDocument.ParseAsync(stream, cancellationToken: ct).ConfigureAwait(false);
             var (list, field) = connection.Provider == AssistantTexts.Ollama ? ("models", "name") : ("data", "id");
             if (!json.RootElement.TryGetProperty(list, out var items) || items.ValueKind != JsonValueKind.Array)
             {
@@ -152,12 +177,6 @@ internal sealed class AssistantProviders(TimeProvider time) : IAssistantProvider
                     .Order(StringComparer.Ordinal)
                     .Take(200),
             ];
-        }
-#pragma warning disable CA1031 // A models list is best effort: whatever goes wrong, the card shows no list.
-        catch (Exception)
-#pragma warning restore CA1031
-        {
-            return [];
         }
     }
 

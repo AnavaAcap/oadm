@@ -102,6 +102,17 @@ public sealed partial class AssistantChats
             throw GrpcGuard.InvalidArgument(NoChatId);
         }
 
+        var model = message.Model?.Trim() ?? string.Empty;
+        if (model.Length == 0)
+        {
+            throw FieldError("model", AssistantTexts.ChooseModel);
+        }
+
+        if (model.Length > 200)
+        {
+            throw FieldError("model", AssistantTexts.ModelTooLong);
+        }
+
         if (text.Length == 0)
         {
             throw GrpcGuard.InvalidArgument(AssistantTexts.EmptyMessage);
@@ -160,7 +171,7 @@ public sealed partial class AssistantChats
                 await emit(new Proto.AssistantEvent { Notice = AssistantTexts.Notice(settings.Provider) }).ConfigureAwait(false);
             }
 
-            await AnswerAsync(settings, conversation, ToolCallerOf(caller, selection), UserMessage(conversation, text, selection, files), emit, streaming, ct).ConfigureAwait(false);
+            await AnswerAsync(settings, model, conversation, ToolCallerOf(caller, selection), UserMessage(conversation, text, selection, files), emit, streaming, ct).ConfigureAwait(false);
         }
         finally
         {
@@ -174,7 +185,7 @@ public sealed partial class AssistantChats
         }
     }
 
-    /// <summary>The settings while the assistant is on and has a model; FAILED_PRECONDITION else.</summary>
+    /// <summary>The settings while the assistant is on; FAILED_PRECONDITION else.</summary>
     private async Task<AssistantSettings> OnAsync(CancellationToken ct)
     {
         var settings = await SettingsAsync(ct).ConfigureAwait(false);
@@ -183,7 +194,7 @@ public sealed partial class AssistantChats
             throw GrpcGuard.FailedPrecondition(AssistantTexts.IsOff);
         }
 
-        return string.IsNullOrWhiteSpace(settings.Model) ? throw GrpcGuard.FailedPrecondition(AssistantTexts.ChooseModel) : settings;
+        return settings;
     }
 
     /// <summary>The selected devices the caller may see, in address order (others are dropped like everywhere).</summary>
@@ -254,7 +265,7 @@ public sealed partial class AssistantChats
         return new ChatMessage(ChatRole.User, contents);
     }
 
-    private async Task AnswerAsync(AssistantSettings settings, AssistantConversation conversation, ToolCaller caller, ChatMessage user,
+    private async Task AnswerAsync(AssistantSettings settings, string model, AssistantConversation conversation, ToolCaller caller, ChatMessage user,
         Func<Proto.AssistantEvent, Task> emit, CancellationTokenSource streaming, CancellationToken ct)
     {
         var apiKey = settings.ApiKey(_protector);
@@ -273,7 +284,7 @@ public sealed partial class AssistantChats
         var finished = false;
         try
         {
-            using var client = _providers.Create(new AssistantConnection(settings.Provider, settings.Address, settings.Model, apiKey));
+            using var client = _providers.Create(new AssistantConnection(settings.Provider, settings.Address, model, apiKey));
             for (var step = 0; step <= AssistantTexts.MaxToolCallsPerMessage + 1; step++)
             {
                 var messages = Context(system, conversation, turn);
@@ -342,7 +353,8 @@ public sealed partial class AssistantChats
         }
         catch (Exception ex) when (ex is not OperationCanceledException && ex is not RpcException)
         {
-            error = AssistantProviderErrors.Plain(ex, apiKey);
+            // A model that refuses tools ends the answer with the one text that says to choose another (once, as its error).
+            error = declarations.Count > 0 && AssistantProviderErrors.RejectsTools(ex) ? AssistantTexts.CannotUseTools : AssistantProviderErrors.Plain(ex, apiKey);
             LogProviderError(AssistantTexts.ProviderName(settings.Provider), error);
         }
         finally
@@ -686,6 +698,32 @@ public sealed partial class AssistantChats
             conversation.Notes.Add("The user pressed Run on a preview of " + runTool + ". The run answered: " + answer.ToJsonString(ToolAnswers.Json));
         }
 
+        return reply;
+    }
+
+    private static RpcException FieldError(string field, string message) =>
+        new(new Status(StatusCode.InvalidArgument, message), new Metadata { { AssistantTexts.FieldTrailer, field } });
+
+    // ---- ListModels ----------------------------------------------------------------------------------------------------
+
+    /// <summary>
+    /// The models of the provider for the panel's picker: the cached list (never waits long); editable when the provider offers
+    /// none; suggested: for Anthropic <see cref="AssistantTexts.AnthropicDefaultModel"/> when listed, else the first.
+    /// </summary>
+    public async Task<Proto.AssistantModelList> ListModelsAsync(CancellationToken ct)
+    {
+        var settings = await OnAsync(ct).ConfigureAwait(false);
+        IReadOnlyList<string> models = [];
+        if (!AssistantSettings.NeedsAddress(settings.Provider) || !string.IsNullOrEmpty(settings.Address))
+        {
+            models = await _providers.ModelsAsync(new AssistantConnection(settings.Provider, settings.Address, string.Empty, settings.ApiKey(_protector)), ct).ConfigureAwait(false);
+        }
+
+        var reply = new Proto.AssistantModelList { Editable = models.Count == 0 };
+        reply.Models.AddRange(models);
+        reply.Suggested = settings.Provider == AssistantTexts.Anthropic && models.Contains(AssistantTexts.AnthropicDefaultModel)
+            ? AssistantTexts.AnthropicDefaultModel
+            : models.Count > 0 ? models[0] : (settings.Provider == AssistantTexts.Anthropic ? AssistantTexts.AnthropicDefaultModel : string.Empty);
         return reply;
     }
 

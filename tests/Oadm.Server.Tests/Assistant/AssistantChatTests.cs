@@ -88,7 +88,6 @@ public sealed class AssistantChatTests
         var state = await server.Service(operatorUser).GetSettingsAsync(new Proto.Empty());
         Assert.True(state.Settings.Enabled);
         Assert.Empty(state.Settings.ApiKey);
-        Assert.Empty(state.Models);
         var set = await Assert.ThrowsAsync<RpcException>(async () => await server.Service(operatorUser).SetSettingsAsync(AssistantTestServer.Settings()));
         Assert.Equal(StatusCode.PermissionDenied, set.StatusCode);
     }
@@ -316,7 +315,7 @@ public sealed class AssistantChatTests
         await AssertRefusedAsync(() => server.ChatAsync("Hi", selected: Enumerable.Range(0, 10_001).Select(_ => Guid.NewGuid().ToString())), StatusCode.InvalidArgument, AssistantTexts.TooManySelected);
 
         server.Model.Hang();
-        using var first = service.Chat(new Proto.AssistantMessage { ConversationId = "chat-1", Text = "Take long" });
+        using var first = service.Chat(new Proto.AssistantMessage { ConversationId = "chat-1", Text = "Take long", Model = "test-model" });
         Assert.True(await first.ResponseStream.MoveNext());
         Assert.Equal(Proto.AssistantEvent.KindOneofCase.Notice, first.ResponseStream.Current.KindCase); // Anthropic: the first message
         Assert.True(await first.ResponseStream.MoveNext());
@@ -374,6 +373,54 @@ public sealed class AssistantChatTests
         await server.SetAsync(AssistantTestServer.Settings(AssistantTexts.Ollama));
         Assert.DoesNotContain(await server.ChatAsync("Three", conversation: "chat-3"), e => Kind(e) == Proto.AssistantEvent.KindOneofCase.Notice);
         Assert.Equal("http://10.0.0.5:11434", server.Providers.Connections[^1].Address);
+    }
+
+    [Fact]
+    public async Task EveryMessageNamesItsModelAndAnotherModelKeepsTheChat()
+    {
+        await using var server = await AssistantTestServer.StartAsync();
+        var refused = await Assert.ThrowsAsync<RpcException>(() => server.ChatAsync("Hi", model: " "));
+        Assert.Equal(StatusCode.InvalidArgument, refused.StatusCode);
+        Assert.Equal(AssistantTexts.ChooseModel, refused.Status.Detail);
+        Assert.Equal("model", refused.Trailers.GetValue(AssistantTexts.FieldTrailer));
+
+        server.Model.Say("First.").Say("Second.");
+        await server.ChatAsync("Remember lobby", model: "model-a");
+        await server.ChatAsync("And now?", model: "model-b");
+        Assert.Equal(["model-a", "model-b"], server.Providers.Connections.Select(c => c.Model));
+        Assert.Contains("Remember lobby", server.Model.Requests[^1].AllText(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task AModelThatRefusesToolsSaysSoOnceAsTheAnswersError()
+    {
+        await using var server = await AssistantTestServer.StartAsync(provider: AssistantTexts.Ollama);
+        server.Model.Then((_, _) => throw new HttpRequestException("registry.ollama.ai/library/llama2:latest does not support tools", null, System.Net.HttpStatusCode.BadRequest));
+
+        var events = await server.ChatAsync("Hi", model: "llama2");
+
+        Assert.Equal(AssistantTexts.CannotUseTools, events[^1].Done.Error);
+        Assert.DoesNotContain(events, e => Kind(e) == Proto.AssistantEvent.KindOneofCase.Notice || Kind(e) == Proto.AssistantEvent.KindOneofCase.Text);
+        Assert.False(AssistantProviderErrors.RejectsTools(new HttpRequestException("tools not supported", null, System.Net.HttpStatusCode.Unauthorized)));
+    }
+
+    [Fact]
+    public async Task TheModelListNeedsThePermissionAndSuggestsAModel()
+    {
+        await using var server = await AssistantTestServer.StartAsync();
+        server.Providers.Models = ["claude-haiku-5", AssistantTexts.AnthropicDefaultModel];
+        var list = await server.Service().ListModelsAsync(new Proto.Empty());
+        Assert.Equal(["claude-haiku-5", AssistantTexts.AnthropicDefaultModel], list.Models);
+        Assert.False(list.Editable);
+        Assert.Equal(AssistantTexts.AnthropicDefaultModel, list.Suggested);
+
+        server.Providers.Models = [];
+        var none = await server.Service().ListModelsAsync(new Proto.Empty());
+        Assert.True(none.Editable);
+        Assert.Empty(none.Models);
+
+        var operatorUser = await server.Host.InvokerForUserAsync("olga", Oadm.Sdk.Plugins.UserRole.Operator);
+        await AssertRefusedAsync(async () => await server.Service(operatorUser).ListModelsAsync(new Proto.Empty()), StatusCode.PermissionDenied, "Your role does not allow: Use the assistant.");
     }
 
     [Fact]

@@ -33,14 +33,14 @@ shows the chat.
   invocation done by OADM, not by the library): the user's message, the tool list of the user (the registry's list for that
   caller, read and preview tools only, `AssistantTools.Offered`), the model's answer, tool calls run in process, until the
   model answers in text. One conversation per open panel, in server memory only (`AssistantConversations`), ended when the
-  panel closes (`End`), the session ends, the assistant is turned off or gets another provider or model, or after 30
+  panel closes (`End`), the session ends, the assistant is turned off or gets another provider or address, or after 30
   minutes without a message. A Run reaches the model with the next message, as data.
 - The texts and limits the client shows too live in `Oadm.Contracts.Assistant.AssistantTexts`.
 - Providers (`AssistantProviders`): Anthropic (the official `Anthropic` SDK's `IChatClient`), OpenAI and
   OpenAI-compatible (`Microsoft.Extensions.AI.OpenAI`), Ollama (`OllamaSharp`). Only the server references them.
 - **Client**: the panel. gRPC `AssistantService` (`src/Oadm.Contracts/Protos/assistant.proto`): `Chat` server-streaming
   (the answer's text as it comes, short tool lines, preview cards, pictures, tables, the end of the answer), `Stop`, `Run`
-  (a preview's handle; streams the run's tasks like any task), `End`, `GetSettings`, `SetSettings`, `Test`. Run goes
+  (a preview's handle; streams the run's tasks like any task), `End`, `ListModels`, `GetSettings`, `SetSettings`, `Test`. Run goes
   through the same tool registry (the run tool of the preview), not through the model.
 
 ## What the user gives with a message

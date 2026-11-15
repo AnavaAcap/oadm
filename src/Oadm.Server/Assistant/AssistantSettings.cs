@@ -27,8 +27,6 @@ public sealed record AssistantSettings
     /// <summary>The address of Ollama and of an OpenAI-compatible provider; null for the others.</summary>
     public string? Address { get; init; }
 
-    public string Model { get; init; } = string.Empty;
-
     /// <summary>The API key, encrypted (base64 of AES-256-GCM with the master key); null without one.</summary>
     public string? ProtectedApiKey { get; init; }
 
@@ -94,11 +92,11 @@ public sealed record AssistantSettings
     /// <summary>The provider needs an API key (all but Ollama).</summary>
     public static bool NeedsApiKey(string provider) => provider is not AssistantTexts.Ollama;
 
-    /// <summary>"On", "Off" or "Choose a model." for the Settings card.</summary>
+    /// <summary>"On" or "Off" for the Settings card (the model is chosen in the panel).</summary>
     [System.Text.Json.Serialization.JsonIgnore]
-    public string Status => !Enabled ? AssistantTexts.Off : string.IsNullOrWhiteSpace(Model) ? AssistantTexts.ChooseModel : AssistantTexts.On;
+    public string Status => Enabled ? AssistantTexts.On : AssistantTexts.Off;
 
-    /// <summary>"Turned on, model a -> b, API key changed" for the audit log (never the key).</summary>
+    /// <summary>"Turned on, provider Anthropic -> OpenAI, API key changed" for the audit log (never the key).</summary>
     public static string Changes(AssistantSettings before, AssistantSettings after)
     {
         ArgumentNullException.ThrowIfNull(before);
@@ -117,11 +115,6 @@ public sealed record AssistantSettings
         if (!string.Equals(before.Address ?? string.Empty, after.Address ?? string.Empty, StringComparison.Ordinal))
         {
             changes.Add($"Address {Or(before.Address)} -> {Or(after.Address)}");
-        }
-
-        if (!string.Equals(before.Model, after.Model, StringComparison.Ordinal))
-        {
-            changes.Add($"Model {Or(before.Model)} -> {Or(after.Model)}");
         }
 
         if (!string.Equals(before.ProtectedApiKey, after.ProtectedApiKey, StringComparison.Ordinal))

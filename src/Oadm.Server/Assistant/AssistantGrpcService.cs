@@ -1,7 +1,5 @@
 using Grpc.Core;
 
-using Microsoft.Extensions.AI;
-
 using Oadm.Contracts.Assistant;
 using Oadm.Core.Auth;
 using Oadm.Server.Auth;
@@ -21,7 +19,6 @@ public sealed class AssistantGrpcService(AssistantChats chats, AuditLog audit) :
     /// <summary>The longest Test takes.</summary>
     public static readonly TimeSpan TestTimeout = TimeSpan.FromSeconds(30);
 
-    public const string TestAnswered = "The model answered and can use tools.";
 
     public override async Task Chat(Proto.AssistantMessage request, IServerStreamWriter<Proto.AssistantEvent> responseStream, ServerCallContext context)
     {
@@ -44,11 +41,13 @@ public sealed class AssistantGrpcService(AssistantChats chats, AuditLog audit) :
         return Task.FromResult(new Proto.Empty());
     }
 
+    public override Task<Proto.AssistantModelList> ListModels(Proto.Empty request, ServerCallContext context) =>
+        chats.ListModelsAsync(context.CancellationToken);
+
     public override async Task<Proto.AssistantSettingsState> GetSettings(Proto.Empty request, ServerCallContext context)
     {
-        var caller = AuthInterceptor.CallerOf(context);
         var settings = await chats.SettingsAsync(context.CancellationToken).ConfigureAwait(false);
-        return await StateAsync(settings, caller.IsAdmin, context.CancellationToken).ConfigureAwait(false);
+        return await StateAsync(settings).ConfigureAwait(false);
     }
 
     public override async Task<Proto.AssistantSettingsState> SetSettings(Proto.AssistantSettings request, ServerCallContext context)
@@ -58,14 +57,18 @@ public sealed class AssistantGrpcService(AssistantChats chats, AuditLog audit) :
         var after = Checked(request, before, requireAll: request.Enabled);
         await after.SaveAsync(chats.Store, ct).ConfigureAwait(false);
         await audit.WriteAsync(AuditActions.AssistantChanged, "Assistant", AssistantSettings.Changes(before, after), ct).ConfigureAwait(false);
-        if (!after.Enabled || after.Provider != before.Provider || after.Model != before.Model || after.Address != before.Address)
+        if (!after.Enabled || after.Provider != before.Provider || after.Address != before.Address)
         {
-            chats.Conversations.EndAll(); // the chats of another provider or model start again
+            chats.Conversations.EndAll(); // the chats of another provider start again (a user's other model keeps the chat)
         }
 
-        return await StateAsync(after, admin: true, ct).ConfigureAwait(false);
+        return await StateAsync(after).ConfigureAwait(false);
     }
 
+    /// <summary>
+    /// Checks the address and the key by reading the provider's model list (no model is chosen here). An OpenAI-compatible
+    /// server without a list answered too (404): reachable, and its key is checked by the first message.
+    /// </summary>
     public override async Task<Proto.AssistantTestReply> Test(Proto.AssistantSettings request, ServerCallContext context)
     {
         var ct = context.CancellationToken;
@@ -76,31 +79,12 @@ public sealed class AssistantGrpcService(AssistantChats chats, AuditLog audit) :
         {
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
             timeout.CancelAfter(TestTimeout);
-            using var client = chats.Providers.Create(new AssistantConnection(settings.Provider, settings.Address, settings.Model, apiKey));
-            var options = new ChatOptions
-            {
-                MaxOutputTokens = 200,
-                Tools = [AssistantTools.Declare(TestTool)],
-                ToolMode = ChatToolMode.Auto,
-            };
-            var response = await client.GetResponseAsync(
-                [
-                    new ChatMessage(ChatRole.System, "This is a connection test of OADM."),
-                    new ChatMessage(ChatRole.User, "Call the tool oadm_test once, without arguments."),
-                ], options, timeout.Token).ConfigureAwait(false);
-            chats.Usage.Add(AuthInterceptor.CallerOf(context).UserId, response.Usage?.TotalTokenCount ?? 0);
-            var called = response.Messages.SelectMany(m => m.Contents).OfType<FunctionCallContent>().Any(c => c.Name == TestTool.Name);
-            return called
-                ? new Proto.AssistantTestReply { Ok = true, Message = TestAnswered }
-                : new Proto.AssistantTestReply { Ok = false, Message = AssistantTexts.CannotUseTools };
+            _ = await chats.Providers.ReadModelsAsync(new AssistantConnection(settings.Provider, settings.Address, string.Empty, apiKey), timeout.Token).ConfigureAwait(false);
+            return new Proto.AssistantTestReply { Ok = true, Message = AssistantTexts.ProviderAnswered };
         }
         catch (OperationCanceledException) when (!ct.IsCancellationRequested)
         {
             return new Proto.AssistantTestReply { Ok = false, Message = AssistantTexts.NoAnswer };
-        }
-        catch (NotSupportedException)
-        {
-            return new Proto.AssistantTestReply { Ok = false, Message = AssistantTexts.CannotUseTools };
         }
         catch (Exception ex) when (ex is not OperationCanceledException && ex is not RpcException)
         {
@@ -108,13 +92,7 @@ public sealed class AssistantGrpcService(AssistantChats chats, AuditLog audit) :
         }
     }
 
-    /// <summary>The tool of Test: no argument, never run.</summary>
-    private static readonly Tools.OadmTool TestTool = new(
-        "oadm_test", "Test", "A test of the connection. Call it once.",
-        Tools.ToolSchema.Object(null, []), Tools.ToolSchema.OutObject(null, []), [],
-        _ => Task.FromResult(new System.Text.Json.Nodes.JsonObject()));
-
-    private async Task<Proto.AssistantSettingsState> StateAsync(AssistantSettings settings, bool admin, CancellationToken ct)
+    private Task<Proto.AssistantSettingsState> StateAsync(AssistantSettings settings)
     {
         var state = new Proto.AssistantSettingsState
         {
@@ -123,7 +101,6 @@ public sealed class AssistantGrpcService(AssistantChats chats, AuditLog audit) :
                 Enabled = settings.Enabled,
                 Provider = settings.Provider,
                 Address = settings.Address ?? string.Empty,
-                Model = settings.Model,
                 SendPictures = settings.SendPictures,
                 DailyLimit = settings.DailyLimit,
                 UserDailyLimit = settings.UserDailyLimit,
@@ -132,20 +109,13 @@ public sealed class AssistantGrpcService(AssistantChats chats, AuditLog audit) :
             UsedToday = chats.Usage.UsedToday(),
             Status = settings.Status,
         };
-        if (admin && (settings.HasApiKey || !AssistantSettings.NeedsApiKey(settings.Provider))
-            && (!AssistantSettings.NeedsAddress(settings.Provider) || !string.IsNullOrEmpty(settings.Address)))
-        {
-            state.Models.AddRange(await chats.Providers.ModelsAsync(
-                new AssistantConnection(settings.Provider, settings.Address, settings.Model, settings.ApiKey(chats.Protector)), ct).ConfigureAwait(false));
-        }
-
-        return state;
+        return Task.FromResult(state);
     }
 
     /// <summary>
     /// The settings of <paramref name="request"/> on top of <paramref name="saved"/>: the saved key when none is given (dropped when
-    /// the provider changes), field errors with the trailer <c>oadm-field</c>. <paramref name="requireAll"/>: the model and, but for
-    /// Ollama, a key are required (Turn on, Test).
+    /// the provider changes), field errors with the trailer <c>oadm-field</c>. <paramref name="requireAll"/>: Anthropic and OpenAI
+    /// need a key (Turn on, Test).
     /// </summary>
     private AssistantSettings Checked(Proto.AssistantSettings request, AssistantSettings saved, bool requireAll)
     {
@@ -168,17 +138,6 @@ public sealed class AssistantGrpcService(AssistantChats chats, AuditLog audit) :
             {
                 throw Field("address", AssistantTexts.AddressNotValid);
             }
-        }
-
-        var model = request.Model?.Trim() ?? string.Empty;
-        if (model.Length > 200)
-        {
-            throw Field("model", AssistantTexts.ModelTooLong);
-        }
-
-        if (requireAll && model.Length == 0)
-        {
-            throw Field("model", AssistantTexts.EnterModel);
         }
 
         var key = request.ApiKey?.Trim() ?? string.Empty;
@@ -214,7 +173,6 @@ public sealed class AssistantGrpcService(AssistantChats chats, AuditLog audit) :
             Enabled = request.Enabled,
             Provider = provider,
             Address = address,
-            Model = model,
             ProtectedApiKey = protectedKey,
             SendPictures = request.SendPictures,
             DailyLimit = request.DailyLimit,

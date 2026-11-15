@@ -167,6 +167,19 @@ internal sealed class FakeProviders(FakeChatClient model) : IAssistantProviders
     }
 
     public Task<IReadOnlyList<string>> ModelsAsync(AssistantConnection connection, CancellationToken ct) => Task.FromResult(Models);
+
+    /// <summary>What Test reads: the list, null (no list) or the provider's refusal.</summary>
+    public Func<AssistantConnection, IReadOnlyList<string>?> Read { get; set; } = _ => ["model-a", "model-b"];
+
+    public Task<IReadOnlyList<string>?> ReadModelsAsync(AssistantConnection connection, CancellationToken ct)
+    {
+        lock (_gate)
+        {
+            _connections.Add(connection);
+        }
+
+        return Task.FromResult(Read(connection));
+    }
 }
 
 /// <summary>The real server with the fake model and the assistant turned on by the administrator.</summary>
@@ -213,7 +226,6 @@ internal sealed class AssistantTestServer : IAsyncDisposable
         Enabled = enabled,
         Provider = provider,
         Address = AssistantSettings.NeedsAddress(provider) ? "http://10.0.0.5:11434" : string.Empty,
-        Model = "test-model",
         ApiKey = AssistantSettings.NeedsApiKey(provider) ? ApiKey : string.Empty,
         SendPictures = sendPictures,
         DailyLimit = dailyLimit,
@@ -226,9 +238,9 @@ internal sealed class AssistantTestServer : IAsyncDisposable
 
     /// <summary>One message and every event of its answer.</summary>
     public async Task<List<Proto.AssistantEvent>> ChatAsync(string text, string conversation = "chat-1", CallInvoker? invoker = null,
-        IEnumerable<string>? selected = null, IEnumerable<Proto.AssistantAttachment>? attachments = null)
+        IEnumerable<string>? selected = null, IEnumerable<Proto.AssistantAttachment>? attachments = null, string model = "test-model")
     {
-        var message = new Proto.AssistantMessage { ConversationId = conversation, Text = text };
+        var message = new Proto.AssistantMessage { ConversationId = conversation, Text = text, Model = model };
         message.SelectedDeviceIds.AddRange(selected ?? []);
         message.Attachments.AddRange(attachments ?? []);
         using var call = Service(invoker).Chat(message);

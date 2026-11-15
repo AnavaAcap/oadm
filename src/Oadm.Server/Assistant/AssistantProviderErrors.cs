@@ -52,6 +52,23 @@ internal static class AssistantProviderErrors
         return "The provider answered with an error: " + (text.Length == 0 ? exception.GetType().Name : text);
     }
 
+    /// <summary>
+    /// The chosen model refused the tools: the providers answer 400 with a text like "llama2 does not support tools" (Ollama)
+    /// or "tools is not supported with this model" (OpenAI-compatible servers); an SDK may say NotSupported.
+    /// </summary>
+    public static bool RejectsTools(Exception exception)
+    {
+        ArgumentNullException.ThrowIfNull(exception);
+        if (StatusOf(exception) is { } status && status is not (400 or 422 or 501))
+        {
+            return false;
+        }
+
+        return Chain(exception).Any(e => e is NotSupportedException
+            || (e.Message.Contains("tool", StringComparison.OrdinalIgnoreCase)
+                && (e.Message.Contains("support", StringComparison.OrdinalIgnoreCase) || e.Message.Contains("not allowed", StringComparison.OrdinalIgnoreCase))));
+    }
+
     /// <summary>The HTTP status of the SDKs' errors: <see cref="HttpRequestException.StatusCode"/> or a <c>Status</c> / <c>StatusCode</c> property.</summary>
     private static int? StatusOf(Exception exception)
     {
