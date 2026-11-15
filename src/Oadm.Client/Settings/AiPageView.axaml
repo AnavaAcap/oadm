@@ -5,17 +5,20 @@
              xmlns:net="using:Oadm.Sdk.Network"
              xmlns:settings="using:Oadm.Client.Settings"
              xmlns:a="using:Oadm.Client.Assistant"
-             x:Class="Oadm.Client.Settings.AiAgentsCardView"
+             x:Class="Oadm.Client.Settings.AiPageView"
              x:DataType="settings:AiAgentsViewModel">
-  <!-- Settings page, every user (docs/spec/mcp.md): the card AI with its section MCP, then the section Assistant
-       (docs/spec/assistant.md "Settings").
+  <!-- Rail page AI, every user (docs/spec/mcp.md, docs/spec/assistant.md "Settings"): the card MCP left, the card Assistant
+       right (stacked on a narrow page, AiPageView.axaml.cs).
        Administrators turn the MCP server on and set the port and interface (Save); the certificate is the one the PKI policy
        MCP server picks. The status sits left of the buttons it reports on, like the EST server's. Access keys (administrators
        only), then Connect an agent: one compact row per client. -->
-  <c:CollapsibleCard Title="AI">
+  <Grid RowDefinitions="Auto,*">
+    <c:PageTitleBar Grid.Row="0" Title="AI" Subtitle="{x:Static settings:AiAgentsViewModel.PageSubtitle}" Margin="0,0,0,16" />
+    <ScrollViewer Grid.Row="1">
+    <Grid x:Name="Columns" ColumnDefinitions="*,16,*" RowDefinitions="Auto,Auto" VerticalAlignment="Top">
+    <Border Grid.Column="0" Classes="card" VerticalAlignment="Top">
     <StackPanel Classes="form">
-      <!-- Section MCP -->
-      <TextBlock x:Name="McpSection" Classes="sectionTitle" Text="MCP" />
+      <TextBlock x:Name="McpSection" Classes="cardTitle" Text="MCP" />
       <TextBlock Classes="secondary" Text="{x:Static settings:AiAgentsViewModel.Intro}" TextWrapping="Wrap" />
       <StackPanel Classes="form" IsVisible="{Binding IsAdmin}">
         <ui:FormField Label="Port">
@@ -55,7 +58,7 @@
 
       <!-- Access keys (administrators, docs/spec/mcp.md "Access keys"): Create access key opens the form that shows the key
            once; Delete asks first and ends the key at once. -->
-      <StackPanel x:Name="AccessKeys" Classes="form" DataContext="{Binding Keys}" IsVisible="{Binding $parent[settings:AiAgentsCardView].((settings:AiAgentsViewModel)DataContext).IsAdmin}"
+      <StackPanel x:Name="AccessKeys" Classes="form" DataContext="{Binding Keys}" IsVisible="{Binding $parent[settings:AiPageView].((settings:AiAgentsViewModel)DataContext).IsAdmin}"
                   x:DataType="settings:AccessKeysViewModel">
         <StackPanel Orientation="Horizontal" Spacing="4">
           <TextBlock Classes="sectionTitle" Text="{x:Static settings:AccessKeyWords.Title}" VerticalAlignment="Center" Margin="0,0,12,0" />
@@ -78,7 +81,7 @@
               <DataGridTemplateColumn.CellTemplate>
                 <DataTemplate x:DataType="settings:AccessKeyRow">
                   <Button Classes="toolbar iconOnly danger" ToolTip.Tip="Delete" Margin="6,0" HorizontalAlignment="Left"
-                          Command="{Binding $parent[settings:AiAgentsCardView].((settings:AiAgentsViewModel)DataContext).Keys.DeleteCommand}" CommandParameter="{Binding}">
+                          Command="{Binding $parent[settings:AiPageView].((settings:AiAgentsViewModel)DataContext).Keys.DeleteCommand}" CommandParameter="{Binding}">
                     <ui:OadmIcon Data="{StaticResource Icon.remove}" />
                   </Button>
                 </DataTemplate>
@@ -106,11 +109,11 @@
                   <!-- Copy always rightmost, so the Copy buttons of all rows line up; Download left of it for a file. -->
                   <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="4" Margin="4,0,0,0" VerticalAlignment="Center">
                     <Button Classes="toolbar iconOnly" ToolTip.Tip="{Binding DownloadTip}" IsVisible="{Binding IsFile}"
-                            Command="{Binding $parent[settings:AiAgentsCardView].((settings:AiAgentsViewModel)DataContext).DownloadConnectionCommand}" CommandParameter="{Binding}">
+                            Command="{Binding $parent[settings:AiPageView].((settings:AiAgentsViewModel)DataContext).DownloadConnectionCommand}" CommandParameter="{Binding}">
                       <ui:OadmIcon Data="{StaticResource Icon.download}" />
                     </Button>
                     <Button Classes="toolbar iconOnly" ToolTip.Tip="{Binding CopyTip}"
-                            Command="{Binding $parent[settings:AiAgentsCardView].((settings:AiAgentsViewModel)DataContext).CopyCommand}" CommandParameter="{Binding}">
+                            Command="{Binding $parent[settings:AiPageView].((settings:AiAgentsViewModel)DataContext).CopyCommand}" CommandParameter="{Binding}">
                       <ui:OadmIcon Data="{StaticResource Icon.copy}" />
                     </Button>
                   </StackPanel>
@@ -134,12 +137,14 @@
       <TextBlock Text="{Binding Message}" Classes.error="{Binding MessageIsError}" Classes.secondary="{Binding !MessageIsError}" TextWrapping="Wrap"
                  IsVisible="{Binding Message, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
 
-      <!-- Section Assistant (docs/spec/assistant.md "Settings"): administrators edit, every other user reads it. The status sits
-           left of the buttons it reports on, like the section MCP. -->
-      <Border Classes="separator" IsVisible="{Binding Assistant.IsAvailable}" />
-      <StackPanel x:Name="AssistantSection" Classes="form" DataContext="{Binding Assistant}" x:DataType="a:AssistantSettingsViewModel"
-                  IsVisible="{Binding IsAvailable}">
-        <TextBlock Classes="sectionTitle" Text="{x:Static a:AssistantTexts.Title}" />
+    </StackPanel>
+    </Border>
+
+      <!-- Card Assistant (docs/spec/assistant.md "Settings"): administrators edit, every other user reads it. The status sits
+           left of the buttons it reports on, like the card MCP. -->
+      <Border x:Name="AssistantCard" Grid.Column="2" Classes="card" VerticalAlignment="Top" IsVisible="{Binding Assistant.IsAvailable}">
+      <StackPanel x:Name="AssistantSection" Classes="form" DataContext="{Binding Assistant}" x:DataType="a:AssistantSettingsViewModel">
+        <TextBlock Classes="cardTitle" Text="{x:Static a:AssistantTexts.Title}" />
         <TextBlock Classes="secondary" Text="{x:Static a:AssistantTexts.SectionIntro}" TextWrapping="Wrap" />
         <StackPanel Classes="form" IsVisible="{Binding IsAdmin}">
           <ui:FormField Label="Provider" InputWidth="320" Hint="{Binding PrivacyNote}">
@@ -194,6 +199,8 @@
         <TextBlock Classes="error" Text="{Binding Message}" TextWrapping="Wrap"
                    IsVisible="{Binding Message, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
       </StackPanel>
-    </StackPanel>
-  </c:CollapsibleCard>
+      </Border>
+    </Grid>
+    </ScrollViewer>
+  </Grid>
 </UserControl>

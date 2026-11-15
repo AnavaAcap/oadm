@@ -18,13 +18,16 @@ using Oadm.Sdk.Network;
 namespace Oadm.Client.Settings;
 
 /// <summary>
-/// The Settings card AI, section MCP (docs/spec/mcp.md "Transport and certificate"): off by default; Turn on,
+/// The rail page AI, card MCP (docs/spec/mcp.md "Transport and certificate"), and its card Assistant: MCP is off by default; Turn on,
 /// Port and Listen on for administrators (Save), the certificate the PKI policy MCP server picks, and Download CA certificate
 /// for the agent's computer. Without PKI: "PKI is not running. The server log says why." and no Turn on. Every user sees the state.
 /// </summary>
 public sealed partial class AiAgentsViewModel : ValidatingViewModel
 {
+    /// <summary>The key of the rail page AI.</summary>
+    public const string PageKey = "ai";
     public const string Intro = "AI agents such as Claude Code connect to OADM over MCP with an access key.";
+    public const string PageSubtitle = "Agents and the Assistant work with your devices.";
     public const string ChooseCertificate = McpTexts.CertificateOnTurnOn;
     public const string NoCertificate = "None";
     public const string PortRange = McpTexts.PortRange;
@@ -42,7 +45,7 @@ public sealed partial class AiAgentsViewModel : ValidatingViewModel
     private McpState? _state;
 
     public AiAgentsViewModel(IOadmApi api, IDialogService dialogs, UserSession? session = null, IClipboardService? clipboard = null,
-        Assistant.AssistantSettingsViewModel? assistant = null)
+        Assistant.AssistantSettingsViewModel? assistant = null, ServerConnection? connection = null)
     {
         _api = api;
         Assistant = assistant ?? new Assistant.AssistantSettingsViewModel(api, session);
@@ -50,6 +53,11 @@ public sealed partial class AiAgentsViewModel : ValidatingViewModel
         _clipboard = clipboard;
         Keys = new AccessKeysViewModel(api, dialogs, clipboard);
         _session = session;
+        if (connection is not null)
+        {
+            connection.Connected += (_, _) => _ = LoadAsync(); // the page loads on connect, like the other pages
+        }
+
         if (session is not null)
         {
             session.PropertyChanged += (_, e) =>
@@ -80,7 +88,7 @@ public sealed partial class AiAgentsViewModel : ValidatingViewModel
     /// <summary>Administrators change it; the server checks it too.</summary>
     public bool IsAdmin => _session?.IsAdmin ?? true;
 
-    /// <summary>The section Assistant below MCP (docs/spec/assistant.md "Settings").</summary>
+    /// <summary>The card Assistant right of MCP (docs/spec/assistant.md "Settings").</summary>
     public Assistant.AssistantSettingsViewModel Assistant { get; }
 
     /// <summary>The section Access keys (administrators).</summary>

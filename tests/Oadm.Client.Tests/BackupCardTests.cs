@@ -223,8 +223,7 @@ public sealed class BackupCardTests
             var settings = new Oadm.Client.Settings.SettingsViewModel(f.Api, connection, Microsoft.Extensions.Logging.Abstractions.NullLogger<Oadm.Client.Settings.SettingsViewModel>.Instance,
                 session, backup: new BackupViewModel(api, Substitute.For<IDialogService>()),
                 license: new Oadm.Client.Licensing.LicenseViewModel(api, Substitute.For<IDialogService>(), session: session),
-                support: new Oadm.Client.Support.SupportViewModel(api, Substitute.For<IDialogService>(), Path.GetTempPath()),
-                aiAgents: new Oadm.Client.Settings.AiAgentsViewModel(api, Substitute.For<IDialogService>(), session)); // every card, as the app builds the page (website screenshot)
+                support: new Oadm.Client.Support.SupportViewModel(api, Substitute.For<IDialogService>(), Path.GetTempPath())); // every card, as the app builds the page (website screenshot)
             await settings.LoadAsync();
             Assert.True(settings.ShowBackup);
             Assert.Equal(2, settings.Backup!.Backups.Count); // loaded with the page
