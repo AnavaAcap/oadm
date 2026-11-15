@@ -83,7 +83,12 @@ One table per device scope (`DeviceSweeps<StorageRow>`): the users of a device g
 
 The read-only tool `oadm_edge_storage_cards` (`Tools/StorageTools.cs`, docs/spec/mcp.md "Plugins"): the table the page
 read last for the caller's device scope, with the five counts, filtered by state or used share, paged by device id. It
-never reads a camera: Refresh stays in the page. Tests: `ToolTests`.
+never reads a camera. Tests: `ToolTests`.
+
+`oadm_edge_storage_read` (`Tools/StoragePageTools.cs`, `PluginPageTools`, decision 2026-11-15) is the page's Read with the
+rule of `read` ("show"): the host's device filter (at most 500 cameras) or `all_devices`, a group user's cameras must all
+be in the view; it answers the progress, the rows follow in `oadm_edge_storage_cards`. One tool, no preview: the page reads
+without asking. Check, repair, format, encryption and retention stay the storage task (the task tools). Tests: `PageToolTests`.
 
 ## Shared code
 
