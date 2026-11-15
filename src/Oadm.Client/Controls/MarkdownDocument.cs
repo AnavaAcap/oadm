@@ -149,6 +149,26 @@ public static class MarkdownDocument
         return blocks;
     }
 
+    /// <summary>A text that tells two blocks apart (the same key: the same look), for building only the changed blocks.</summary>
+    public static string Key(MarkdownBlock block)
+    {
+        const char Start = '\u0001', End = '\u0002', Item = '\u0003';
+
+        static string Spans(IEnumerable<MarkdownSpan> spans) =>
+            string.Concat(spans.Select(s => (s.Bold ? "b" : "") + (s.Italic ? "i" : "") + (s.Code ? "c" : "") + Start + s.Text + End));
+
+        return block switch
+        {
+            MarkdownHeading h => "h" + h.Level + Spans(h.Spans),
+            MarkdownParagraph p => "p" + Spans(p.Spans),
+            MarkdownList l => "l" + (l.Ordered ? "o" : "u") + l.Start + string.Concat(l.Items.Select(i => Item + Spans(i))),
+            MarkdownCode c => "c" + c.Language + Start + c.Text,
+            MarkdownTable t => "t" + string.Concat(t.RightAligned.Select(r => r ? "r" : "l")) + string.Concat(t.Header.Select(Spans))
+                + string.Concat(t.Rows.Select(r => Item + string.Concat(r.Select(Spans)))),
+            _ => block.ToString() ?? string.Empty,
+        };
+    }
+
     /// <summary>The plain text of spans (tests, copy).</summary>
     public static string PlainText(IEnumerable<MarkdownSpan> spans) => string.Concat(spans.Select(s => s.Text));
 

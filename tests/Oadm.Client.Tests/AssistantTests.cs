@@ -474,6 +474,88 @@ public sealed class AssistantTests
         Assert.Equal(Oadm.Contracts.Assistant.AssistantTexts.CannotUseTools, error.Text);
     }
 
+    [Fact]
+    public async Task FourThousandStreamedPiecesRenderABoundedNumberOfTimes()
+    {
+        using var api = new FakeOadmApi(TimeSpan.FromMilliseconds(5));
+        var time = new Microsoft.Extensions.Time.Testing.FakeTimeProvider();
+        api.AssistantScript = (_, ct) => Pieces(ct);
+        var availability = new AssistantAvailability();
+        availability.Apply(new AssistantSettingsState { Settings = new AssistantSettings { Enabled = true, Provider = "anthropic" } });
+        var ui = new Oadm.Client.Infrastructure.ImmediateUiDispatcher();
+        var panel = new AssistantPanelViewModel(api, availability, Session(admin: true), ui: ui, time: time);
+        panel.Open();
+        await panel.LoadModelsAsync(CancellationToken.None);
+        var renders = 0;
+        panel.Items.CollectionChanged += (_, e) =>
+        {
+            foreach (var answer in e.NewItems?.OfType<AssistantAnswerItem>() ?? [])
+            {
+                answer.PropertyChanged += (_, p) => renders += p.PropertyName == nameof(AssistantAnswerItem.Text) ? 1 : 0;
+            }
+        };
+
+        await panel.SendSuggestionCommand.ExecuteAsync("Tell me a lot");
+        var answer = Assert.Single(panel.Items.OfType<AssistantAnswerItem>());
+        Assert.Equal(4_000 * 3, answer.Text.Length); // everything shows at the end
+        // 4,000 pieces over 4 s (1 ms each): at most one render per 100 ms plus the first and the last.
+        Assert.InRange(renders, 2, 4_000 / 100 + 2);
+
+        async IAsyncEnumerable<AssistantEvent> Pieces([EnumeratorCancellation] CancellationToken ct)
+        {
+            for (int i = 0; i < 4_000; i++)
+            {
+                await Task.Yield();
+                ct.ThrowIfCancellationRequested();
+                time.Advance(TimeSpan.FromMilliseconds(1));
+                yield return new AssistantEvent { Text = "ab " };
+            }
+        }
+    }
+
+    [Fact]
+    public void AGrowingAnswerBuildsOnlyTheBlocksThatChanged()
+    {
+        var first = MarkdownDocument.Parse("Intro.\n\n- one\n- two").Select(MarkdownDocument.Key).ToList();
+        var grown = MarkdownDocument.Parse("Intro.\n\n- one\n- two\n- thr").Select(MarkdownDocument.Key).ToList();
+        Assert.Equal(first[0], grown[0]); // the paragraph stays
+        Assert.NotEqual(first[1], grown[1]); // only the list changes
+    }
+
+    [Fact]
+    public void OnlyTheNewestReadyCardsRunIsTheMainButtonAndADeleteIsRed()
+    {
+        using var api = new FakeOadmApi(TimeSpan.FromMilliseconds(5));
+        var panel = new AssistantPanelViewModel(api, new AssistantAvailability());
+        var older = new AssistantPreviewItem(new AssistantPreviewCard { Handle = "a", Title = "Save rule", CountText = "1 rule", Details = { "Event: Motion" } });
+        var newer = new AssistantPreviewItem(new AssistantPreviewCard { Handle = "b", Title = "Restart", DeviceCount = 3, Skipped = { "1 device: Site offline" } });
+        panel.Items.AddRange([older, newer]);
+        Assert.Equal((false, true), (older.RunIsPrimary, newer.RunIsPrimary));
+        Assert.True(older.RunIsSecondary);
+        Assert.Equal(("1 rule", "3 devices"), (older.CountText, newer.CountText));
+        Assert.Equal(["Event: Motion"], older.Details);
+        Assert.Equal([AssistantTexts.Skipped("1 device: Site offline")], newer.Skipped);
+
+        panel.CancelPreviewCommand.Execute(newer);
+        Assert.True(older.RunIsPrimary); // the older one is the newest ready one now
+
+        var delete = new AssistantPreviewItem(new AssistantPreviewCard { Handle = "c", Title = "Delete tags", CountText = "2 tags", Destructive = true });
+        panel.Items.Add(delete);
+        Assert.True(delete.IsDestructive);
+        Assert.False(delete.RunIsPrimary); // red, never the accent
+        Assert.False(older.RunIsPrimary);
+    }
+
+    [Fact]
+    public void TheTableShowsEightRowsAndCountsTheRestFromItsTotal()
+    {
+        var table = new AssistantTable { Total = 812 };
+        table.Rows.AddRange(Enumerable.Range(1, 50).Select(i => new AssistantDeviceRow { DeviceId = $"d{i}", Name = $"10.0.0.{i}" }));
+        var item = new AssistantTableItem(table);
+        Assert.Equal(AssistantTableItem.MaxShownRows, item.ShownRows.Count);
+        Assert.Equal(AssistantTexts.More(812 - 8), item.MoreText);
+    }
+
     // ------------------------------------------------------------ settings
 
     [Fact]
@@ -520,6 +602,22 @@ public sealed class AssistantTests
         Assert.False(form.IsOn);
         Assert.False(availability.IsOn);
         Assert.True(form.ShowTurnOn);
+
+        // Turn on saves the form: off while a field has an error, the tooltip says which.
+        form.DailyLimit = "12";
+        Assert.False(form.TurnOnCommand.CanExecute(null));
+        Assert.Equal(AssistantTexts.LimitRange, form.TurnOnTip);
+        form.DailyLimit = "600,000";
+        Assert.True(form.TurnOnCommand.CanExecute(null));
+        await form.TurnOnCommand.ExecuteAsync(null);
+        Assert.Equal(600_000, (await api.GetAssistantSettingsAsync(CancellationToken.None)).Settings.DailyLimit);
+
+        // Turn off sends the saved settings, never the edits.
+        form.DailyLimit = "700000";
+        form.Address = "http://10.9.9.9:11434";
+        await form.TurnOffCommand.ExecuteAsync(null);
+        var off = (await api.GetAssistantSettingsAsync(CancellationToken.None)).Settings;
+        Assert.Equal((false, 600_000L, "http://10.0.0.5:11434"), (off.Enabled, off.DailyLimit, off.Address));
     }
 
     [Fact]
@@ -693,8 +791,37 @@ public sealed class AssistantTests
             Assert.Contains("Running: 2 of 3 ended", texts);
             Save(window, outDir, "assistant-panel-preview-run.png");
 
-            panel.EnlargeCommand.Execute(new AssistantPictureItem(devices[0].Id, devices[0].Address, Jpeg()));
-            Assert.NotNull(panel.Enlarged?.Picture);
+            var picture = new AssistantPictureItem(devices[0].Id, devices[0].Address, Jpeg());
+            using (var thumbnail = picture.Thumbnail)
+            {
+                Assert.True(thumbnail!.PixelSize.Width <= AssistantPictureItem.ThumbnailWidth);
+            }
+
+            panel.EnlargeCommand.Execute(picture);
+            var full = panel.EnlargedPicture;
+            Assert.Equal(320, full!.PixelSize.Width); // full size only while enlarged
+            panel.CloseEnlargedCommand.Execute(null);
+            Assert.Null(panel.EnlargedPicture);
+
+            // A rule to save and tags to delete: what Run does above the devices, the server's unit, a red Run for the
+            // delete; only the newest ready card's Run is the main button.
+            panel.NewChatCommand.Execute(null);
+            api.AssistantScript = null;
+            panel.Draft = "Save a rule and delete the old tags";
+            await panel.SendCommand.ExecuteAsync(null);
+            Pump();
+            var cards = panel.Items.OfType<AssistantPreviewItem>().ToList();
+            Assert.Equal(["1 rule", "2 tags"], cards.Select(c => c.CountText));
+            Assert.Contains("Sends to: http://10.0.0.5/hook", VisibleTexts(window));
+            var runs = view.GetVisualDescendants().OfType<Button>().Where(b => b.Name == "RunPreview" && b.IsEffectivelyVisible).ToList();
+            Assert.Equal(2, runs.Count);
+            Assert.Contains("secondary", runs[0].Classes); // the older card
+            Assert.Contains("danger", runs[1].Classes); // the newest one deletes: red
+            Assert.DoesNotContain(window.GetVisualDescendants().OfType<Button>(), b => b.IsEffectivelyVisible && b.Classes.Contains("primary"));
+            var cardScroller = view.FindControl<ListBox>("Conversation")!.GetVisualDescendants().OfType<ScrollViewer>().First();
+            scroller.Offset = new Avalonia.Vector(0, 0);
+            Pump();
+            Save(window, outDir, "assistant-panel-preview-rule.png");
             window.Close();
             return true;
         }, CancellationToken.None);

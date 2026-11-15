@@ -22,7 +22,11 @@ public sealed class AssistantUserItem(string text, IReadOnlyList<string> files) 
     public bool HasFiles => FilesText.Length > 0;
 }
 
-/// <summary>A part of the model's answer, as Markdown; grows while it streams. Copy copies its text.</summary>
+/// <summary>
+/// A part of the model's answer, as Markdown; grows while it streams. Pieces collect in a buffer (<see cref="Append"/>) and
+/// reach <see cref="Text"/> (and the view's Markdown) only on <see cref="Flush"/>: the panel flushes at most every 100 ms
+/// while it streams and once at the end. Copy copies its text.
+/// </summary>
 public sealed partial class AssistantAnswerItem : AssistantItem
 {
     private readonly StringBuilder _text = new();
@@ -30,10 +34,18 @@ public sealed partial class AssistantAnswerItem : AssistantItem
     [ObservableProperty]
     public partial string Text { get; private set; } = string.Empty;
 
-    public void Append(string piece)
+    /// <summary>Text not shown yet.</summary>
+    public bool HasPending => _text.Length != Text.Length;
+
+    public void Append(string piece) => _text.Append(piece);
+
+    /// <summary>Shows what arrived since the last flush (one change of <see cref="Text"/>); nothing new: nothing.</summary>
+    public void Flush()
     {
-        _text.Append(piece);
-        Text = _text.ToString();
+        if (HasPending)
+        {
+            Text = _text.ToString();
+        }
     }
 }
 
@@ -53,11 +65,15 @@ public sealed class AssistantNoticeItem(string text, bool isError = false) : Ass
     public bool IsError { get; } = isError;
 }
 
-/// <summary>A camera picture: shown small in the answer, a click shows it larger. Never stored.</summary>
-public sealed class AssistantPictureItem(string deviceId, string deviceName, byte[] jpeg) : AssistantItem, IDisposable
+/// <summary>
+/// A camera picture: shown small in the answer, a click shows it larger. Never stored. Only the JPEG stays with the chat:
+/// the list decodes a picture at the panel's width when it shows the entry (<see cref="Thumbnail"/>), the enlarged view
+/// decodes the full size (<see cref="Decode"/>) and lets it go when it closes.
+/// </summary>
+public sealed class AssistantPictureItem(string deviceId, string deviceName, byte[] jpeg) : AssistantItem
 {
-    private Bitmap? _picture;
-    private bool _decoded;
+    /// <summary>The width the list decodes to (the panel's content width).</summary>
+    public const int ThumbnailWidth = 560;
 
     public string DeviceId { get; } = deviceId;
 
@@ -65,33 +81,21 @@ public sealed class AssistantPictureItem(string deviceId, string deviceName, byt
 
     public byte[] Jpeg { get; } = jpeg;
 
-    /// <summary>The decoded picture (on first use, the view's thread); null when it cannot be read.</summary>
-    public Bitmap? Picture
+    /// <summary>A new bitmap of at most <see cref="ThumbnailWidth"/> pixels wide for the list (not kept here); null when it cannot be read.</summary>
+    public Bitmap? Thumbnail => Decode(ThumbnailWidth);
+
+    /// <summary>A new bitmap of the picture, full size or at most <paramref name="width"/> wide; the caller owns it.</summary>
+    public Bitmap? Decode(int? width = null)
     {
-        get
+        try
         {
-            if (!_decoded)
-            {
-                _decoded = true;
-                try
-                {
-                    using var stream = new MemoryStream(Jpeg);
-                    _picture = new Bitmap(stream);
-                }
-                catch (Exception ex) when (ex is ArgumentException or InvalidOperationException or IOException or NotSupportedException)
-                {
-                    _picture = null;
-                }
-            }
-
-            return _picture;
+            using var stream = new MemoryStream(Jpeg);
+            return width is { } w ? Bitmap.DecodeToWidth(stream, w) : new Bitmap(stream);
         }
-    }
-
-    public void Dispose()
-    {
-        _picture?.Dispose();
-        _picture = null;
+        catch (Exception ex) when (ex is ArgumentException or InvalidOperationException or IOException or NotSupportedException)
+        {
+            return null;
+        }
     }
 }
 
@@ -179,10 +183,30 @@ public sealed partial class AssistantPreviewItem : AssistantItem, IDisposable
         Handle = card.Handle;
         Title = card.Title;
         DeviceCount = card.DeviceCount;
+        CountText = card.CountText.Length > 0 ? card.CountText : AssistantTexts.Devices(card.DeviceCount);
         FirstDevices = [.. card.FirstDevices];
-        Skipped = [.. card.Skipped];
+        Skipped = [.. card.Skipped.Select(AssistantTexts.Skipped)];
         Warnings = [.. card.Warnings];
+        Details = [.. card.Details];
+        IsDestructive = card.Destructive;
     }
+
+    /// <summary>What Run does, one line per key field, from the server's preview ("Sends to: http://10.0.0.5/hook").</summary>
+    public IReadOnlyList<string> Details { get; }
+
+    public bool HasDetails => Details.Count > 0;
+
+    /// <summary>Run deletes or removes: its button is red.</summary>
+    public bool IsDestructive { get; }
+
+    /// <summary>The newest card that waits for Run: its Run is the panel's main button; older ones are secondary.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(RunIsPrimary), nameof(RunIsSecondary))]
+    public partial bool IsNewestReady { get; internal set; }
+
+    public bool RunIsPrimary => IsNewestReady && !IsDestructive;
+
+    public bool RunIsSecondary => !IsNewestReady && !IsDestructive;
 
     public string Handle { get; }
 
@@ -190,7 +214,8 @@ public sealed partial class AssistantPreviewItem : AssistantItem, IDisposable
 
     public int DeviceCount { get; }
 
-    public string CountText => AssistantTexts.Devices(DeviceCount);
+    /// <summary>"3 devices", "2 tasks", "1 rule" (the server's unit; without one the device count).</summary>
+    public string CountText { get; }
 
     public IReadOnlyList<string> FirstDevices { get; }
 

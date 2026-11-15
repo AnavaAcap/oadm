@@ -1352,9 +1352,11 @@
   <Style Selector="ui|FormField > CheckBox">
     <Setter Property="MinHeight" Value="{StaticResource Oadm.ControlHeight}" />
   </Style>
-  <!-- A hint or error below a check box sits 6 px below the box like below any input (the box is 16 px in a 32 px row, which stays for the label) -->
-  <Style Selector="ui|FormField:message > CheckBox">
-    <Setter Property="Margin" Value="0,0,0,-16" />
+  <!-- A check box without a label that has a hint or error below it: as tall as the box, so the message sits below the box
+       like below any input and the row starts like the others (with a label the row keeps 32 px to stay level with it) -->
+  <Style Selector="ui|FormField:message:noLabel > CheckBox">
+    <!-- the 16 px box sits centred in the 32 px check box: take the 8 px above and below it out of the row -->
+    <Setter Property="Margin" Value="0,-8,0,-8" />
   </Style>
   <Style Selector="TextBlock.fieldLabel">
     <Setter Property="Foreground" Value="{StaticResource Oadm.TextSecondaryBrush}" />

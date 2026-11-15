@@ -12,7 +12,8 @@ namespace Oadm.Client.Controls;
 /// Markdown shown as text (the Assistant's answers): paragraphs, headings, lists, bold, italic, inline code, code blocks
 /// (<see cref="CodeView"/>) and tables, from <see cref="MarkdownDocument"/>. Text is selectable. The look comes from the
 /// theme (<c>StackPanel.markdown</c>, <c>:is(TextBlock).mdHeading</c>, <c>Border.mdCell</c>, <c>Border.mdHeaderCell</c>);
-/// inline code uses <c>Oadm.FontFamilyMono</c>. Rebuilt when <see cref="Markdown"/> changes (an answer that streams).
+/// inline code uses <c>Oadm.FontFamilyMono</c>. When <see cref="Markdown"/> changes (an answer that streams) only the blocks
+/// that changed are built again (usually the last one).
 /// </summary>
 public sealed class MarkdownText : StackPanel
 {
@@ -35,11 +36,25 @@ public sealed class MarkdownText : StackPanel
         set => SetValue(MarkdownProperty, value);
     }
 
+    private List<string> _keys = [];
+
+    /// <summary>How many blocks were built since the control was made (tests: a growing answer builds only what changed).</summary>
+    internal int BuiltBlocks { get; private set; }
+
     private void Rebuild()
     {
-        Children.Clear();
-        foreach (var block in MarkdownDocument.Parse(Markdown))
+        var blocks = MarkdownDocument.Parse(Markdown);
+        var keys = blocks.Select(MarkdownDocument.Key).ToList();
+        int same = 0;
+        while (same < keys.Count && same < _keys.Count && same < Children.Count && keys[same] == _keys[same])
         {
+            same++;
+        }
+
+        Children.RemoveRange(same, Children.Count - same);
+        foreach (var block in blocks.Skip(same))
+        {
+            BuiltBlocks++;
             Children.Add(block switch
             {
                 MarkdownHeading heading => Text(heading.Spans, "mdHeading"),
@@ -54,6 +69,8 @@ public sealed class MarkdownText : StackPanel
                 _ => new TextBlock(),
             });
         }
+
+        _keys = keys;
     }
 
     private SelectableTextBlock Text(IReadOnlyList<MarkdownSpan> spans, string? style = null)

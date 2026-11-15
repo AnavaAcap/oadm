@@ -219,7 +219,7 @@
     <Border x:Name="AssistantPicture" Grid.RowSpan="2" Classes="pictureOverlay"
             IsVisible="{Binding Assistant.Enlarged, Converter={x:Static ObjectConverters.IsNotNull}, FallbackValue=False}">
       <Button Classes="picture" Command="{Binding Assistant.CloseEnlargedCommand, FallbackValue={x:Null}}" ToolTip.Tip="{x:Static assistant:AssistantTexts.Close}">
-        <Image Source="{Binding Assistant.Enlarged.Picture, FallbackValue={x:Null}}" Stretch="Uniform" />
+        <Image Source="{Binding Assistant.EnlargedPicture, FallbackValue={x:Null}}" Stretch="Uniform" />
       </Button>
     </Border>
   </Grid>

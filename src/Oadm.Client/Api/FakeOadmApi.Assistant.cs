@@ -366,6 +366,29 @@ public sealed partial class FakeOadmApi
 
             yield return new AssistantEvent { Text = "Here is the picture of " + (camera?.Address ?? "the camera") + "." };
         }
+        else if (text.Contains("rule", StringComparison.Ordinal) || text.Contains("delete", StringComparison.Ordinal))
+        {
+            // A rule to save and tags to delete: what Run does in lines, the unit of the count, a red Run for the delete.
+            yield return new AssistantEvent { Tool = new AssistantToolLine { Text = "Preparing the rule" } };
+            await Task.Delay(_tick, ct).ConfigureAwait(false);
+            var rule = new AssistantPreviewCard
+            {
+                Handle = AddAssistantPreview([]), Title = "Save rule Lobby motion", CountText = "1 rule",
+                Details = { "Event: Motion detected", "Sends to: http://10.0.0.5/hook", "Schedule: Every day 18:00 to 06:00" },
+            };
+            yield return new AssistantEvent { Preview = rule };
+            if (text.Contains("delete", StringComparison.Ordinal))
+            {
+                var delete = new AssistantPreviewCard
+                {
+                    Handle = AddAssistantPreview([]), Title = "Delete tags", CountText = "2 tags", Destructive = true,
+                    Details = { "Deletes: Lobby old, Yard test" }, Warnings = { "The devices keep their other tags." },
+                };
+                yield return new AssistantEvent { Preview = delete };
+            }
+
+            yield return new AssistantEvent { Text = "Press **Run** on a card to apply it." };
+        }
         else if (text.Contains("restart", StringComparison.Ordinal))
         {
             var chosen = message.SelectedDeviceIds.Count > 0 ? [.. message.SelectedDeviceIds] : devices.Take(3).Select(d => d.Id).ToList();

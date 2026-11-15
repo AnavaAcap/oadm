@@ -30,6 +30,15 @@ public static class AssistantTexts
     public const string RemoveFile = "Remove file";
     public const string Enlarge = "Show larger";
 
+    // The columns of a device table in the chat.
+    public const string ColumnName = "Name";
+    public const string ColumnAddress = "Address";
+    public const string ColumnModel = "Model";
+    public const string ColumnStatus = "Status";
+
+    /// <summary>A skipped line of a preview card: "Skipped: 3 devices: Site offline".</summary>
+    public static string Skipped(string reason) => "Skipped: " + reason;
+
     /// <summary>The four start suggestions of an empty panel; a click sends one.</summary>
     public static IReadOnlyList<string> Suggestions => Shared.Suggestions;
 

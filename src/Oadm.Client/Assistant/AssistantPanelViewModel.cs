@@ -53,12 +53,21 @@ public sealed partial class AssistantPanelViewModel : ObservableObject
     private readonly HashSet<string> _notices = new(StringComparer.Ordinal);
     private CancellationTokenSource? _chat;
     private AssistantAnswerItem? _answer;
+    private readonly Infrastructure.IUiDispatcher? _ui;
+    private readonly TimeProvider _time;
+    private long _lastFlush = long.MinValue;
+    private ITimer? _flushTimer;
+
+    /// <summary>An answer that streams shows its new text at most this often (one Markdown render), and once at the end.</summary>
+    public static readonly TimeSpan FlushInterval = TimeSpan.FromMilliseconds(100);
 
     public AssistantPanelViewModel(IOadmApi api, AssistantAvailability availability, UserSession? session = null, DevicesViewModel? devices = null,
         TaskStore? tasks = null, IDialogService? dialogs = null, IClipboardService? clipboard = null, ServerConnection? connection = null,
-        Infrastructure.IClientSettingsStore? settings = null)
+        Infrastructure.IClientSettingsStore? settings = null, Infrastructure.IUiDispatcher? ui = null, TimeProvider? time = null)
     {
         _settings = settings;
+        _ui = ui;
+        _time = time ?? TimeProvider.System;
         ArgumentNullException.ThrowIfNull(api);
         ArgumentNullException.ThrowIfNull(availability);
         _api = api;
@@ -105,7 +114,7 @@ public sealed partial class AssistantPanelViewModel : ObservableObject
         Items.CollectionChanged += (_, _) =>
         {
             OnPropertyChanged(nameof(IsEmpty));
-            OnPropertyChanged(nameof(HasReadyPreview));
+            OnPreviewsChanged();
         };
     }
 
@@ -119,6 +128,26 @@ public sealed partial class AssistantPanelViewModel : ObservableObject
 
     /// <summary>A preview card waits for Run: its Run is the panel's main button, Send turns secondary.</summary>
     public bool HasReadyPreview => Items.OfType<AssistantPreviewItem>().Any(p => p.IsReady);
+
+    /// <summary>Only the newest card that waits for Run has the accent Run; Send turns secondary while one waits.</summary>
+    private void OnPreviewsChanged()
+    {
+        AssistantPreviewItem? newest = null;
+        for (int i = Items.Count - 1; i >= 0 && newest is null; i--)
+        {
+            if (Items[i] is AssistantPreviewItem { IsReady: true } ready)
+            {
+                newest = ready;
+            }
+        }
+
+        foreach (var preview in Items.OfType<AssistantPreviewItem>())
+        {
+            preview.IsNewestReady = ReferenceEquals(preview, newest);
+        }
+
+        OnPropertyChanged(nameof(HasReadyPreview));
+    }
 
     /// <summary>The empty panel shows the start suggestions.</summary>
     public bool IsEmpty => Items.Count == 0;
@@ -226,6 +255,9 @@ public sealed partial class AssistantPanelViewModel : ObservableObject
 
     /// <summary>The picture shown larger over the window; null: none.</summary>
     [ObservableProperty] public partial AssistantPictureItem? Enlarged { get; private set; }
+
+    /// <summary>The full-size bitmap of <see cref="Enlarged"/>, decoded on Enlarge and released on close.</summary>
+    [ObservableProperty] public partial Avalonia.Media.Imaging.Bitmap? EnlargedPicture { get; private set; }
 
     /// <summary>"Copied." after Copy, or a problem with an attachment.</summary>
     [ObservableProperty] public partial string? Message { get; private set; }
@@ -405,6 +437,7 @@ public sealed partial class AssistantPanelViewModel : ObservableObject
         {
             if (ReferenceEquals(_chat, chat))
             {
+                FlushAnswer(); // the end: whatever is left shows once
                 _chat = null;
                 _answer = null;
                 IsStreaming = false;
@@ -427,6 +460,7 @@ public sealed partial class AssistantPanelViewModel : ObservableObject
                 }
 
                 _answer.Append(e.Text);
+                FlushSoon();
                 return;
             case AssistantEvent.KindOneofCase.Tool:
                 Add(new AssistantToolItem(e.Tool.Text, e.Tool.Failed));
@@ -465,8 +499,39 @@ public sealed partial class AssistantPanelViewModel : ObservableObject
 
     private void Add(AssistantItem item)
     {
+        FlushAnswer();
         _answer = null;
         Items.Add(item);
+    }
+
+    /// <summary>
+    /// Streamed text shows at most every <see cref="FlushInterval"/>: at once when the last flush is older, else by a timer
+    /// (on the UI thread); every other entry and the end of the answer flush too.
+    /// </summary>
+    private void FlushSoon()
+    {
+        long now = _time.GetTimestamp();
+        if (_lastFlush == long.MinValue || _time.GetElapsedTime(_lastFlush, now) >= FlushInterval)
+        {
+            FlushAnswer();
+            return;
+        }
+
+        if (_flushTimer is null && _ui is { } ui)
+        {
+            _flushTimer = _time.CreateTimer(_ => ui.Post(FlushAnswer), null, FlushInterval - _time.GetElapsedTime(_lastFlush, now), Timeout.InfiniteTimeSpan);
+        }
+    }
+
+    private void FlushAnswer()
+    {
+        _flushTimer?.Dispose();
+        _flushTimer = null;
+        if (_answer is { HasPending: true } answer)
+        {
+            answer.Flush();
+            _lastFlush = _time.GetTimestamp();
+        }
     }
 
     private bool CanStop => IsStreaming;
@@ -501,7 +566,7 @@ public sealed partial class AssistantPanelViewModel : ObservableObject
         }
 
         preview.MarkStarting();
-        OnPropertyChanged(nameof(HasReadyPreview));
+        OnPreviewsChanged();
         try
         {
             var reply = await _api.AssistantRunAsync(conversation, preview.Handle, CancellationToken.None).ConfigureAwait(true);
@@ -519,7 +584,7 @@ public sealed partial class AssistantPanelViewModel : ObservableObject
         if (preview is { IsReady: true })
         {
             preview.MarkCancelled(); // the handle simply ends on the server
-            OnPropertyChanged(nameof(HasReadyPreview));
+            OnPreviewsChanged();
         }
     }
 
@@ -570,10 +635,21 @@ public sealed partial class AssistantPanelViewModel : ObservableObject
     }
 
     [RelayCommand]
-    private void Enlarge(AssistantPictureItem? picture) => Enlarged = picture;
+    private void Enlarge(AssistantPictureItem? picture)
+    {
+        CloseEnlarged();
+        Enlarged = picture;
+        EnlargedPicture = picture?.Decode();
+    }
 
     [RelayCommand]
-    private void CloseEnlarged() => Enlarged = null;
+    private void CloseEnlarged()
+    {
+        var picture = EnlargedPicture;
+        Enlarged = null;
+        EnlargedPicture = null;
+        picture?.Dispose();
+    }
 
     private bool CanAttach => !IsUploading && Attachments.Count < AssistantTexts.MaxAttachments;
 
@@ -645,6 +721,9 @@ public sealed partial class AssistantPanelViewModel : ObservableObject
             IsStreaming = false;
         }
 
+        _flushTimer?.Dispose();
+        _flushTimer = null;
+        _lastFlush = long.MinValue;
         _answer = null;
         foreach (var item in Items.OfType<IDisposable>())
         {
@@ -654,7 +733,7 @@ public sealed partial class AssistantPanelViewModel : ObservableObject
         Items.Clear();
         Attachments.Clear();
         _notices.Clear();
-        Enlarged = null;
+        CloseEnlarged();
         Message = null;
         Draft = string.Empty;
         if (ConversationId is { } conversation)

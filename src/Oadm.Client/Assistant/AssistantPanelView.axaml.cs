@@ -64,7 +64,7 @@ public partial class AssistantPanelView : UserControl
         if (e.Action == NotifyCollectionChangedAction.Add && _vm is { Items.Count: > 0 } vm)
         {
             var last = vm.Items[^1];
-            Dispatcher.UIThread.Post(() => ScrollToEnd(last), DispatcherPriority.Background);
+            RequestScrollToEnd();
             if (last is AssistantAnswerItem answer)
             {
                 answer.PropertyChanged += (_, _) => FollowEnd(answer);
@@ -72,10 +72,32 @@ public partial class AssistantPanelView : UserControl
         }
     }
 
-    private void ScrollToEnd(AssistantItem last)
+    private bool _scrollPending;
+    private ScrollViewer? _scroller;
+
+    /// <summary>One scroll per burst of changes (a post only when none waits).</summary>
+    private void RequestScrollToEnd()
     {
-        Conversation.ScrollIntoView(last);
-        Conversation.GetVisualDescendants().OfType<ScrollViewer>().FirstOrDefault()?.ScrollToEnd();
+        if (_scrollPending)
+        {
+            return;
+        }
+
+        _scrollPending = true;
+        Dispatcher.UIThread.Post(ScrollToEnd, DispatcherPriority.Background);
+    }
+
+    private void ScrollToEnd()
+    {
+        _scrollPending = false;
+        if (_vm is not { Items.Count: > 0 } vm)
+        {
+            return;
+        }
+
+        Conversation.ScrollIntoView(vm.Items[^1]);
+        _scroller ??= Conversation.GetVisualDescendants().OfType<ScrollViewer>().FirstOrDefault();
+        _scroller?.ScrollToEnd();
     }
 
     /// <summary>A streaming answer grows: the list stays at its end while the answer is the last entry.</summary>
@@ -83,7 +105,7 @@ public partial class AssistantPanelView : UserControl
     {
         if (_vm is { Items.Count: > 0 } vm && ReferenceEquals(vm.Items[^1], answer))
         {
-            Dispatcher.UIThread.Post(() => ScrollToEnd(answer), DispatcherPriority.Background);
+            RequestScrollToEnd();
         }
     }
 }

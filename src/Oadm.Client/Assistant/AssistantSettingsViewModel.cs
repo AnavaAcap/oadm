@@ -188,7 +188,8 @@ public sealed partial class AssistantSettingsViewModel : ValidatingViewModel
     [RelayCommand(CanExecute = nameof(CanSave))]
     private Task SaveAsync() => SetAsync(IsOn);
 
-    private bool CanTurnOn => IsLoaded && IsAdmin && !IsBusy;
+    /// <summary>Turn on saves the form too: off while any field has an error (its tooltip says which).</summary>
+    private bool CanTurnOn => IsLoaded && IsAdmin && !IsBusy && Validation.IsValid;
 
     [RelayCommand(CanExecute = nameof(CanTurnOn))]
     private Task TurnOnAsync() => SetAsync(true);
@@ -196,7 +197,7 @@ public sealed partial class AssistantSettingsViewModel : ValidatingViewModel
     private bool CanTurnOff => IsLoaded && IsAdmin && !IsBusy;
 
     [RelayCommand(CanExecute = nameof(CanTurnOff))]
-    private Task TurnOffAsync() => SetAsync(false);
+    private Task TurnOffAsync() => SetAsync(false, savedValues: true);
 
     private bool CanTest => IsLoaded && IsAdmin && !IsBusy && !IsTesting
         && Validation.IsValidFor(nameof(Provider), nameof(Address), nameof(ApiKey));
@@ -230,9 +231,10 @@ public sealed partial class AssistantSettingsViewModel : ValidatingViewModel
         }
     }
 
-    private async Task SetAsync(bool enabled)
+    /// <param name="savedValues">Turn off: the saved settings with only Enabled changed, never the edited fields.</param>
+    private async Task SetAsync(bool enabled, bool savedValues = false)
     {
-        if (!Validation.IsValid)
+        if (!savedValues && !Validation.IsValid)
         {
             Validation.ShowAll();
             return;
@@ -242,7 +244,10 @@ public sealed partial class AssistantSettingsViewModel : ValidatingViewModel
         NotifyCommands();
         try
         {
-            Apply(await _api.SetAssistantSettingsAsync(Build(enabled), CancellationToken.None).ConfigureAwait(true));
+            var settings = savedValues && _state?.Settings is { } saved ? saved.Clone() : Build(enabled);
+            settings.Enabled = enabled;
+            settings.ApiKey = savedValues ? string.Empty : settings.ApiKey; // empty keeps the saved key
+            Apply(await _api.SetAssistantSettingsAsync(settings, CancellationToken.None).ConfigureAwait(true));
             Message = null;
         }
         catch (RpcException ex) when (ex.StatusCode == StatusCode.InvalidArgument && FieldOf(ex) is { } field)

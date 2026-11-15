@@ -251,7 +251,8 @@ public static class ServiceRegistration
             sp.GetRequiredService<IDialogService>(),
             sp.GetRequiredService<IClipboardService>(),
             sp.GetRequiredService<ServerConnection>(),
-            sp.GetRequiredService<IClientSettingsStore>()));
+            sp.GetRequiredService<IClientSettingsStore>(),
+            sp.GetRequiredService<IUiDispatcher>()));
         services.AddSingleton<MainWindowViewModel>();
         return services.BuildServiceProvider();
     }

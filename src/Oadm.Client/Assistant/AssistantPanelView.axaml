@@ -139,7 +139,7 @@
               <Button Classes="picture" HorizontalAlignment="Left" ToolTip.Tip="{x:Static a:AssistantTexts.Enlarge}"
                       Command="{Binding $parent[a:AssistantPanelView].((a:AssistantPanelViewModel)DataContext).EnlargeCommand}" CommandParameter="{Binding}">
                 <Border Classes="chatPicture">
-                  <Image Source="{Binding Picture}" Stretch="Uniform" />
+                  <Image Source="{Binding Thumbnail}" Stretch="Uniform" />
                 </Border>
               </Button>
               <TextBlock Classes="secondary small" Text="{Binding DeviceName}" />
@@ -150,10 +150,10 @@
               <DataGrid ItemsSource="{Binding ShownRows}" SelectedItem="{Binding SelectedRow, Mode=TwoWay}" IsReadOnly="True" SelectionMode="Single"
                         CanUserReorderColumns="False" CanUserSortColumns="True" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Disabled">
                 <DataGrid.Columns>
-                  <DataGridTextColumn Header="Name" Width="*" Binding="{Binding Name}" x:DataType="a:AssistantTableRow" />
-                  <DataGridTextColumn Header="Address" Width="110" Binding="{Binding Address}" x:DataType="a:AssistantTableRow" />
-                  <DataGridTextColumn Header="Model" Width="100" Binding="{Binding Model}" x:DataType="a:AssistantTableRow" />
-                  <DataGridTextColumn Header="Status" Width="100" Binding="{Binding Status}" x:DataType="a:AssistantTableRow" />
+                  <DataGridTextColumn Header="{x:Static a:AssistantTexts.ColumnName}" Width="*" Binding="{Binding Name}" x:DataType="a:AssistantTableRow" />
+                  <DataGridTextColumn Header="{x:Static a:AssistantTexts.ColumnAddress}" Width="110" Binding="{Binding Address}" x:DataType="a:AssistantTableRow" />
+                  <DataGridTextColumn Header="{x:Static a:AssistantTexts.ColumnModel}" Width="100" Binding="{Binding Model}" x:DataType="a:AssistantTableRow" />
+                  <DataGridTextColumn Header="{x:Static a:AssistantTexts.ColumnStatus}" Width="100" Binding="{Binding Status}" x:DataType="a:AssistantTableRow" />
                 </DataGrid.Columns>
               </DataGrid>
               <StackPanel Orientation="Horizontal" Spacing="8" IsVisible="{Binding HasMore}">
@@ -170,11 +170,18 @@
                   <TextBlock Classes="sectionTitle" Text="{Binding Title}" TextWrapping="Wrap" />
                   <TextBlock Classes="secondary" Text="{Binding CountText}" />
                 </StackPanel>
+                <ItemsControl ItemsSource="{Binding Details}" IsVisible="{Binding HasDetails}">
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="x:String">
+                      <TextBlock Text="{Binding}" TextWrapping="Wrap" />
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
                 <TextBlock Text="{Binding DevicesText}" TextWrapping="Wrap" IsVisible="{Binding HasDevices}" />
                 <ItemsControl ItemsSource="{Binding Skipped}" IsVisible="{Binding HasSkipped}">
                   <ItemsControl.ItemTemplate>
                     <DataTemplate x:DataType="x:String">
-                      <TextBlock Classes="secondary" Text="{Binding StringFormat='Skipped: {0}'}" TextWrapping="Wrap" />
+                      <TextBlock Classes="secondary" Text="{Binding}" TextWrapping="Wrap" />
                     </DataTemplate>
                   </ItemsControl.ItemTemplate>
                 </ItemsControl>
@@ -191,7 +198,8 @@
                 <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right" IsVisible="{Binding IsReady}">
                   <Button Classes="secondary" Content="{x:Static a:AssistantTexts.Cancel}"
                           Command="{Binding $parent[a:AssistantPanelView].((a:AssistantPanelViewModel)DataContext).CancelPreviewCommand}" CommandParameter="{Binding}" />
-                  <Button Classes="primary" Content="{x:Static a:AssistantTexts.Run}"
+                  <Button x:Name="RunPreview" Classes.primary="{Binding RunIsPrimary}" Classes.secondary="{Binding RunIsSecondary}"
+                          Classes.danger="{Binding IsDestructive}" Content="{x:Static a:AssistantTexts.Run}"
                           Command="{Binding $parent[a:AssistantPanelView].((a:AssistantPanelViewModel)DataContext).RunPreviewCommand}" CommandParameter="{Binding}" />
                 </StackPanel>
                 <DockPanel IsVisible="{Binding HasStatus}">
