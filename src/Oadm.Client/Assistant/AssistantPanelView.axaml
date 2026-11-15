@@ -228,7 +228,11 @@
                   <DataGridTextColumn Header="{x:Static a:AssistantTexts.ColumnName}" Width="*" Binding="{Binding Name}" x:DataType="a:AssistantTableRow" />
                   <DataGridTextColumn Header="{x:Static a:AssistantTexts.ColumnAddress}" Width="110" Binding="{Binding Address}" x:DataType="a:AssistantTableRow" />
                   <DataGridTextColumn Header="{x:Static a:AssistantTexts.ColumnModel}" Width="100" Binding="{Binding Model}" x:DataType="a:AssistantTableRow" />
-                  <DataGridTextColumn Header="{x:Static a:AssistantTexts.ColumnStatus}" Width="100" Binding="{Binding Status}" x:DataType="a:AssistantTableRow" />
+                  <DataGridTextColumn Width="100" Binding="{Binding Fourth}" x:DataType="a:AssistantTableRow">
+                    <DataGridTextColumn.Header>
+                      <TextBlock Text="{Binding $parent[DataGrid].((a:AssistantTableItem)DataContext).FourthHeader}" />
+                    </DataGridTextColumn.Header>
+                  </DataGridTextColumn>
                 </DataGrid.Columns>
               </DataGrid>
               <StackPanel Orientation="Horizontal" Spacing="8" IsVisible="{Binding HasMore}">

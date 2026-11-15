@@ -712,6 +712,48 @@ public sealed class AssistantTests
     // ------------------------------------------------------------ headless
 
     [Fact]
+    public async Task ATableOfAFactShowsItInTheFourthColumnUnderItsNameInsteadOfTheStatus()
+    {
+        var outDir = Environment.GetEnvironmentVariable("OADM_SCREENSHOT_DIR");
+        var done = await HeadlessSession.Shared.Dispatch(async () =>
+        {
+            var api = new FakeOadmApi(TimeSpan.FromMilliseconds(5), seedSampleData: false);
+            using var f = new DevicesFixture(api);
+            var devices = Devices(2);
+            f.SeedDevices(devices);
+            var panel = await PanelAsync(api, f);
+            var window = PanelWindow(panel);
+            window.Show();
+            Pump();
+            var table = Table(2, devices);
+            table.DetailHeader = "Clock";
+            table.Rows[0].Detail = "50 s ahead";
+            table.Rows[1].Detail = "NTP not synced";
+            api.AssistantScript = (_, ct) => Script(
+            [
+                new AssistantEvent { Tool = new AssistantToolLine { Text = "Looking at devices" } },
+                new AssistantEvent { Table = table },
+                new AssistantEvent { Text = "Two clocks are off." },
+            ], ct);
+            panel.Draft = "Which devices are not NTP synced or have a drift?";
+            await panel.SendCommand.ExecuteAsync(null);
+            Pump();
+            var texts = VisibleTexts(window);
+            Assert.Contains("Clock", texts);
+            Assert.Contains("50 s ahead", texts);
+            Assert.Contains("NTP not synced", texts);
+            Assert.DoesNotContain("Unreachable", texts); // the status gives way to the fact
+            var item = panel.Items.OfType<AssistantTableItem>().Single();
+            Assert.Equal("Clock", item.FourthHeader);
+            Assert.Equal(AssistantTexts.ColumnStatus, new AssistantTableItem(Table(2, devices)).FourthHeader); // no fact: the status
+            Save(window, outDir, "assistant-panel-table-clock.png");
+            window.Close();
+            return true;
+        }, CancellationToken.None);
+        Assert.True(done);
+    }
+
+    [Fact]
     public async Task ThePanelShowsSuggestionsAnAnswerWithATableAndAPictureAndAPreviewCardBeforeAndAfterRun()
     {
         var outDir = Environment.GetEnvironmentVariable("OADM_SCREENSHOT_DIR");

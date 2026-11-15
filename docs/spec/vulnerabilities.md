@@ -109,11 +109,17 @@ lists out, and a server whose clock is behind still takes a client's list. The c
 
 ## Where
 
-- `src/Oadm.Contracts/Vulnerabilities`: the format and its limits, the version compare, the matcher and the feed (NVD +
-  cve.org, `HttpClient` given by the caller); shared by server, client and the tool.
+- `src/Oadm.Contracts/Vulnerabilities`: the format and its limits, the version compare, the matcher, a device's result
+  (`DeviceVulnerabilities`: the column's text, counted and possible) and the feed (NVD + cve.org, `HttpClient` given by the
+  caller); shared by server, client and the tool.
 - `src/Oadm.Server/Vulnerabilities`: `VulnerabilityStore` (base list, stored list, newest wins), `VulnerabilityGrpcService`
   (`Get` signed in, `Upload` signed in and only while the setting is "clients", `Refresh` administrators and only while it
-  is "server"), `VulnerabilityUpdater` (the daily fetch by the server, `IVulnerabilitySource`).
+  is "server"), `VulnerabilityUpdater` (the daily fetch by the server, `IVulnerabilitySource`); `VulnerabilityStore.Matcher`
+  for the device filter and counts of `DeviceService.Search` (`Devices/DeviceFacts`).
+- Agents and the Assistant (`src/Oadm.Server/Tools/VulnerabilityTools`, docs/spec/mcp.md): `oadm_vulnerabilities_summary`
+  and `oadm_vulnerabilities`, the device filter `vulnerabilities` and the row field `vulnerabilities`; the same list,
+  matcher and inputs as the column (model, AXIS OS, the chip; the raw chip and the column's short one compare the same),
+  so an agent says what the column says; possible ones apart and never counted.
 - `src/Oadm.Client/Vulnerabilities`: `VulnerabilityCatalog` (the client's copy, the per-row match), `VulnerabilityUpdates`
   (the fetch by the clients), `ServerConnection`'s loop (at connect, then hourly); the column, the search, the Settings card
   (`SettingsViewModel.Vulnerabilities.cs`), the context menu entry and its window (`DeviceVulnerabilitiesViewModel`,

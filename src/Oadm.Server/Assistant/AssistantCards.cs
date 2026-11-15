@@ -182,6 +182,39 @@ internal static class AssistantCards
     /// <summary>"Ping: run" of a plugin's run tool becomes "Ping".</summary>
     public static string TitleOf(string runTitle) => runTitle.EndsWith(": run", StringComparison.Ordinal) ? runTitle[..^": run".Length] : runTitle;
 
+    /// <summary>The tool that lists devices with their CVEs (a device table with the Vulnerabilities column).</summary>
+    public const string VulnerabilitiesTool = "oadm_vulnerabilities";
+
+    /// <summary>
+    /// The 4th column of a device table (docs/spec/assistant.md "What the panel shows"): the fact the question filtered by, as
+    /// the device grid names its column, and the row field that holds it; null: the status.
+    /// </summary>
+    public static (string Header, string Field)? DetailOf(string tool, Proto.DeviceFilter filter)
+    {
+        ArgumentNullException.ThrowIfNull(filter);
+        if (tool == VulnerabilitiesTool)
+        {
+            return ("Vulnerabilities", "vulnerabilities");
+        }
+
+        foreach (var field in DeviceTools.FieldsOf(filter))
+        {
+            switch (field)
+            {
+                case "vulnerabilities":
+                    return ("Vulnerabilities", field);
+                case "clock":
+                    return ("Clock", field);
+                case "certificate_expires_in":
+                    return ("Certificate expires", field);
+                case "soc":
+                    return ("SoC", field);
+            }
+        }
+
+        return null;
+    }
+
     public static string NameOf(JsonObject row) =>
         new[] { Text(row["host_name"]), Text(row["upnp_name"]), Text(row["name"]), Text(row["address"]), Text(row["id"]) }.FirstOrDefault(n => !string.IsNullOrEmpty(n)) ?? string.Empty;
 

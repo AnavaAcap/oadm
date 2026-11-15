@@ -29,9 +29,9 @@ and runs after the user agreed.
 | `oadm_devices_refresh_run` | Run (changes) | Queues a full refresh of the devices of a preview. The results show in oadm_devices_search as they arrive. |
 | `oadm_devices_remove_preview` | Preview | Shows which devices OADM would stop managing. Nothing is changed; then call oadm_devices_remove_run with the handle. |
 | `oadm_devices_remove_run` | Run (changes) | Removes the devices of a preview from OADM, with their stored logins and tags. The devices themselves are not changed. |
-| `oadm_devices_search` | Read | Your devices that match a filter, a page at a time with the total and a cursor. Narrow with a filter after oadm_devices_summary; pass next_cursor for the next page. |
+| `oadm_devices_search` | Read | Your devices that match a filter, a page at a time with the total and a cursor. Filter by what OADM knows (clock, certificate, chip, CVEs) instead of asking the devices; a filter adds its fields to the rows. |
 | `oadm_devices_snapshot` | Read | One JPEG of a camera now, at most 1280 pixels wide, as an image. Take the device id from oadm_devices_search. |
-| `oadm_devices_summary` | Read | Counts of your devices by status, model, AXIS OS version, site, tag or category. Call it before oadm_devices_search to see where the devices are. |
+| `oadm_devices_summary` | Read | Counts of your devices by status, model, AXIS OS, site, tag, category, chip, clock, NTP, certificate, vulnerabilities or CVE, and what needs a look (clocks, certificates, CVEs). Call it first: OADM already knows this without asking the devices. |
 
 ## Tasks
 
@@ -74,6 +74,13 @@ and runs after the user agreed.
 | --- | --- | --- |
 | `oadm_compliance_checks` | Read | The compliance checks you see, turned on or off, with what each one checks, its severity and which devices it is for. |
 | `oadm_compliance_summary` | Read | Per check how many devices of a filter pass, fail or are unknown, the worst check first. Devices come only as counts; use oadm_devices_search to list them. |
+
+## Vulnerabilities
+
+| Tool | Kind | What it does |
+| --- | --- | --- |
+| `oadm_vulnerabilities` | Read | Your devices with the Axis CVEs that affect them (id, level, score, the version that fixes it), the possible ones apart, a page at a time. Without a vulnerabilities filter: devices with any CVE. |
+| `oadm_vulnerabilities_summary` | Read | How many of your devices the published Axis CVEs affect, by the worst level, and the CVEs that affect the most devices. Possible ones are kept apart. Then oadm_vulnerabilities lists the devices. |
 
 ## Event rules
 
@@ -129,7 +136,7 @@ and runs after the user agreed.
 | --- | --- | --- |
 | `oadm_vapix_command_preview` | Preview | Runs one command of oadm_vapix_commands on devices from oadm_devices_search, one task per device. Read the results with oadm_tasks_get. Nothing is changed. Call oadm_vapix_command_run with the handle to apply it. |
 | `oadm_vapix_command_run` | Run (changes) | Applies the plan of oadm_vapix_command_preview, which checks everything again. |
-| `oadm_vapix_commands` | Read | Lists the VAPIX Commander commands an agent may run, with their fields. Run one with oadm_vapix_command_preview. |
+| `oadm_vapix_commands` | Read | Lists the VAPIX Commander commands an agent may run, with their fields. Use one only for what oadm_devices_search does not already show (clock, certificate, chip, CVEs); run it with oadm_vapix_command_preview. |
 
 ## Docs
 

@@ -194,29 +194,33 @@ public static partial class OadmServerHost
 
         // The tools (docs/spec/mcp.md "Tools and MCP"): one registry that calls the gRPC services in process as its caller and
         // knows no channel. Agents reach it through MCP: access keys and the MCP server on its own port (off by default).
+        services.AddSingleton<Devices.DeviceFactsSource>();
         services.AddSingleton<InProcessCalls>();
         services.AddSingleton<Tools.ToolCursors>();
+        services.AddSingleton(sp => new Tools.ToolFacts(sp.GetRequiredService<TimeProvider>()));
         services.AddSingleton(sp => new Tools.ToolHandles(sp.GetRequiredService<TimeProvider>()));
         services.AddSingleton<Tools.PluginTools>();
         services.AddSingleton(sp =>
         {
             var roles = sp.GetRequiredService<Core.Auth.RoleStore>();
             var cursors = sp.GetRequiredService<Tools.ToolCursors>();
+            var facts = sp.GetRequiredService<Tools.ToolFacts>();
             return new Tools.ToolRegistry(
                 [
                     Tools.ServerInfoTool.Create(() => roles.Catalog),
-                    .. Tools.DeviceTools.Create(cursors),
+                    .. Tools.DeviceTools.Create(cursors, facts),
                     .. Tools.TaskTools.Create(cursors),
                     .. Tools.LogTools.Create(cursors),
                     .. Tools.TaskRunTools.Create(sp.GetRequiredService<Tools.ToolHandles>()),
                     .. Tools.TagTools.Create(cursors, sp.GetRequiredService<Tools.ToolHandles>()),
                     .. Tools.SiteTools.Create(cursors),
                     .. Tools.ComplianceTools.Create(),
+                    .. Tools.VulnerabilityTools.Create(cursors, facts),
                     .. Tools.RuleTools.Create(cursors, sp.GetRequiredService<Tools.ToolHandles>()),
                     .. Tools.DeviceChangeTools.Create(sp.GetRequiredService<Tools.ToolHandles>(), sp.GetRequiredService<TimeProvider>()),
                     .. Tools.SettingsTools.Create(),
                     .. Tools.FileTools.Create(cursors, sp.GetRequiredService<Tools.ToolHandles>()),
-                    .. Tools.SelectionTools.Create(cursors),
+                    .. Tools.SelectionTools.Create(cursors, facts),
                     .. Tools.DocsTools.Create(() => Assistant.DocsIndex.Shipped),
                 ],
                 sp.GetRequiredService<InProcessCalls>(),

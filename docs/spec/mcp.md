@@ -148,8 +148,19 @@ Every tool that works on devices takes one **device filter**, resolved on the se
 
 ```json
 { "ids": [], "search": "lobby", "tags": ["Lobby"], "sites": ["Parking"], "models": ["M3085-V"],
-  "firmware": { "below": "12.11" }, "status": ["Ok", "Unreachable"], "categories": ["Camera"] }
+  "firmware": { "below": "12.11" }, "status": ["Ok", "Unreachable"], "categories": ["Camera"],
+  "clock": ["off"], "clock_offset_over_seconds": 10, "ntp": ["NotSynced"],
+  "certificate": { "expires_within_days": 30, "trust": ["SelfSigned"] }, "socs": ["A8"],
+  "vulnerabilities": { "state": "affected", "min_severity": "High", "cve": "CVE-2024-6509" } }
 ```
+
+**What OADM knows comes from OADM.** Every fact the device grid shows that the server holds without asking the device (the
+clock against the allowed difference and NTP, the certificate's end and trust, the chip, the AXIS OS and its CVEs) is a
+filter, a count and a row field, so an agent never sends a VAPIX command for it. A filter on such a fact adds its fields to
+the rows by itself (`DeviceTools.FieldsOf`): the clock filter `clock`, `clock_off`, `clock_offset_ms`, `ntp`; the
+certificate filter `certificate_expires_in` (the column's text), `certificate_state`, `certificate_trust`; `socs` the
+`soc`; a vulnerability filter `vulnerabilities` (the column's text). The filter runs on the server (`DeviceSearch`,
+`Devices/DeviceFacts`), so it holds for previews and task plans too.
 
 All fields optional and combined with AND; an empty filter means every device the caller sees: a list of them comes page by
 page, every page with the total and a cursor. `"selection": true` means the devices the user selected in the client's
@@ -159,10 +170,13 @@ selected is a refusal ("No devices are selected. Select them in the device list 
 nothing is selected.
 
 - `oadm_server_info`: version, who calls ("MCP <key name>"), role, the permissions, the limits, the device count. The first call.
-- `oadm_devices_summary(filter, group_by)`: counts by status, model, AXIS OS version, site, tag or category (at most 50 groups,
-  the rest as "Other").
+- `oadm_devices_summary(filter, group_by)`: counts by status, model, AXIS OS version, site, tag, category, chip, clock,
+  NTP, certificate, vulnerabilities or CVE (at most 50 groups, the rest as "Other"), and always `needs_a_look`: not Ok,
+  clock off and not measured, certificates expired, expiring soon (the device's warning days) and not trusted, vulnerable,
+  Critical or High, possible only. One call answers "how is my fleet".
 - `oadm_devices_search(filter, fields, sort, cursor, limit)`: rows with id, address, host name, UPnP name, model, AXIS OS
-  version, status and the requested fields; `total`, `next_cursor`. A device has no one name: its address, host name and
+  version, status and the requested fields (also `clock`, `clock_off`, `ntp`, `certificate_expires_in`,
+  `certificate_state`, `vulnerabilities` as the grid shows them) and those of the filter; `total`, `next_cursor`. A device has no one name: its address, host name and
   UPnP name are separate fields and the search matches each. The cursor is the last row's sort key and id, bound to the key
   and the search, so a device added, removed or changed elsewhere never moves the rows between pages. Truncated answers say
   how to narrow ("312 more. Add a filter, e.g. site or model.").
@@ -192,7 +206,12 @@ nothing is selected.
 ### Other areas
 
 Each a few tools with the same rules (summary or search first, preview/run for changes): tags, sites (read), compliance
-(results, checks), event rules (the catalog of events and actions `oadm_rules_catalog`, list, get, create, change,
+(results, checks), vulnerabilities (read, `Tools/VulnerabilityTools`, docs/spec/vulnerabilities.md:
+`oadm_vulnerabilities_summary(filter)` the list's date, source and size, the devices affected (counted), possible only and
+not affected, affected devices by their worst level and the 10 CVEs that affect the most devices;
+`oadm_vulnerabilities(filter, cursor, limit)` the devices with any CVE unless the filter says otherwise, each with its
+counted CVEs (id, level, CVSS, fixed in) and its possible ones apart, pages with the total and a cursor; the same matcher
+and inputs as the client's column), event rules (the catalog of events and actions `oadm_rules_catalog`, list, get, create, change,
 delete, the event log), logs (server log search with `since`, `level`, `text`, at most 200 lines; audit log), files
 (`oadm_files_upload_link`, list, delete), settings (read only), PKI policies (read only, `oadm_pki_policies`, a tool of
 the PKI plugin), the user docs (`oadm_docs_search(query)`: at most 5 pages of oadm.app with title, address and the best
@@ -492,6 +511,10 @@ The website gets a user page (Administration > MCP server, `admin/mcp-server`, n
   `dev/plugin-tools` (how a plugin adds tools).
 - **Tests**: `McpSkillTests` (resources, the ZIP, the tool names the skill uses exist, the Wording rules), client
   `AiAgentsTests` (the configurations, headless screenshots).
+- **Device facts and vulnerabilities** (2026-11-15): the fact filters, counts and row fields above, the vulnerability
+  tools, the skill's line "read OADM's data first" (the VAPIX Commander tools say it too), the Assistant table's 4th column.
+  Tests: `McpDeviceFactsTests` (the counts, possible ones apart and not counted, the column's text for the same devices,
+  the clock, certificate and chip filters and fields, the device group, paging, the Assistant's table).
 
 ## Open points
 

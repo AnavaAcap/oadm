@@ -264,10 +264,10 @@ public sealed partial class AssistantPanelViewModel : IMarkdownActions
         }
 
         var csv = new StringBuilder();
-        Infrastructure.Csv.AppendRecord(csv, [AssistantTexts.ColumnName, AssistantTexts.ColumnAddress, AssistantTexts.ColumnModel, AssistantTexts.ColumnStatus]);
+        Infrastructure.Csv.AppendRecord(csv, [AssistantTexts.ColumnName, AssistantTexts.ColumnAddress, AssistantTexts.ColumnModel, table.FourthHeader]);
         foreach (var row in table.Rows)
         {
-            Infrastructure.Csv.AppendRecord(csv, [row.Name, row.Address, row.Model, row.Status]);
+            Infrastructure.Csv.AppendRecord(csv, [row.Name, row.Address, row.Model, row.Fourth]);
         }
 
         return csv.ToString();
