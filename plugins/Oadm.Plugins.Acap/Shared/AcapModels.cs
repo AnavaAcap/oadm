@@ -44,7 +44,7 @@ public sealed record AcapPackageFile(
     [property: Description("The SHA-256 the upload answered."), MaxLength(64)] string? Sha256 = null,
     [property: Description("Several packages: the architecture of this one (aarch64, armv7hf, ...)."), MaxLength(32)] string? Architecture = null);
 
-/// <summary>What the Applications task may do for AI agents: not license keys (secrets); settings without passwords.</summary>
+/// <summary>What the Applications task may do for AI agents; passwords and license keys are entered by the person.</summary>
 public enum AcapMcpAction
 {
     Install = 0,
@@ -52,25 +52,37 @@ public enum AcapMcpAction
     Start = 2,
     Stop = 3,
 
+    /// <summary>Install a license key the person enters (<see cref="AcapAction.InstallLicense"/>), for one device.</summary>
+    InstallLicense = 4,
+
     /// <summary>Change settings (<see cref="AcapAction.Settings"/>); a password setting is refused.</summary>
     Settings = 5,
 }
 
 /// <summary>
 /// The input of "Applications (ACAP)" for AI agents (docs/spec/mcp.md): install or upgrade from uploaded packages, remove,
-/// start, stop and change settings. License keys are done in OADM, and so are password settings: this record has no
-/// <see cref="AcapPayload.PasswordsAllowed"/>, so the task refuses a value for a setting the application declares as a
-/// password, and <see cref="AppSettings.OfflineProblems"/> refuses a name that points to a secret. The task reads the same
-/// text as an <see cref="AcapPayload"/>.
+/// start, stop, change settings and install a license key. A password setting goes in <see cref="Passwords"/> by name and a
+/// license key is a secret: the person enters both (docs/spec/mcp.md "Secrets", <see cref="AcapTaskPlugin.SecretsOf"/>). This
+/// record has no <see cref="AcapPayload.PasswordsAllowed"/>, so the task refuses a value in <see cref="Values"/> for a
+/// setting the application declares as a password, and <see cref="AppSettings.OfflineProblems"/> refuses a name there that
+/// points to a secret. The task reads the same text as an <see cref="AcapPayload"/>.
 /// </summary>
-[Description("Install, upgrade, remove, start or stop an application, or change its settings.")]
+[Description("Install, upgrade, remove, start or stop an application, change its settings, or install its license key.")]
 public sealed record AcapMcpPayload(
     [property: Description("Install also upgrades. Settings changes values of one installed application.")] AcapMcpAction Action,
     [property: Description("Remove, Start, Stop and Settings: the package name of the application (as oadm_devices_get lists it). Install: leave it out."), MaxLength(64)] string? Application = null,
     [property: Description("Install: the uploaded .eap package, or one per architecture."), MaxLength(AcapPayload.MaxFiles)] IReadOnlyList<AcapPackageFile>? Files = null,
     [property: Description("Install: allow an older version than the installed one.")] bool AllowDowngrade = false,
     [property: Description("Install: start the application afterwards.")] bool StartAfterInstall = false,
-    [property: Description("Settings: the new values by setting name, as text (at most 200). Each device checks them against the application's settings before anything is written. Passwords are set in OADM.")] IReadOnlyDictionary<string, string>? Values = null);
+    [property: Description("Settings: the new values by setting name, as text (at most 200). Each device checks them against the application's settings before anything is written. Passwords go in passwords.")] IReadOnlyDictionary<string, string>? Values = null,
+    [property: Description("Settings: the password settings to set, by name; the user enters each value (at most 8)."), MaxLength(AcapPayload.MaxPasswords)] IReadOnlyList<AcapPasswordSetting>? Passwords = null,
+    [property: Oadm.Sdk.Tasks.Secret(Label = "license key")] string? LicenseKey = null);
+
+/// <summary>A password setting of an agent's Settings change: its name; the value is the person's (<see cref="AcapTaskPlugin.SecretsOf"/>).</summary>
+[Description("A password setting; the user enters its value.")]
+public sealed record AcapPasswordSetting(
+    [property: Description("The setting's name, as for values."), MinLength(1), MaxLength(128)] string Name,
+    [property: Oadm.Sdk.Tasks.Secret] string? Value = null);
 
 /// <summary>Task payload produced by the dialog. Contains no passwords; license keys are kept in memory like every payload.</summary>
 public sealed record AcapPayload
@@ -98,8 +110,37 @@ public sealed record AcapPayload
     /// </summary>
     public IReadOnlyDictionary<string, string>? Values { get; init; }
 
-    // TODO(secret-handle): when the secret channel of feat/agent-transfer lands, an agent's password value arrives as a
-    // secret handle; resolve it server side (in memory only) and allow that one setting instead of refusing it.
+    /// <summary>
+    /// Settings of an agent: password settings by name whose values the person entered through the secret channel
+    /// (<see cref="AcapTaskPlugin.SecretsOf"/>); written like <see cref="Values"/>, these names also when they are passwords.
+    /// </summary>
+    public IReadOnlyList<AcapPasswordSetting>? Passwords { get; init; }
+
+    /// <summary>InstallLicense of an agent: the text of one license key file the person entered; added to <see cref="LicenseKeys"/> by <see cref="Parse(string?, bool)"/>.</summary>
+    [System.Text.Json.Serialization.JsonPropertyName("licenseKey")]
+    public string? AgentLicenseKey { get; init; }
+
+    /// <summary>Most password settings of one agent's change (the secret channel's slots of one preview).</summary>
+    public const int MaxPasswords = 8;
+
+    public const string EnterPassword = "Enter the password.";
+    public const string EnterLicenseKey = "Enter the license key.";
+    public const string BadLicenseKey = "This is not a license key file.";
+
+    /// <summary>The values to write: <see cref="Values"/> and the entered <see cref="Passwords"/>.</summary>
+    public IReadOnlyDictionary<string, string> AllValues()
+    {
+        var all = new Dictionary<string, string>(Values ?? new Dictionary<string, string>(), StringComparer.Ordinal);
+        foreach (var password in Passwords ?? [])
+        {
+            all[password.Name] = password.Value ?? string.Empty;
+        }
+
+        return all;
+    }
+
+    /// <summary>The names of <see cref="Passwords"/>: the person entered their values, so they may be passwords.</summary>
+    public IReadOnlySet<string> EnteredPasswords() => (Passwords ?? []).Select(p => p.Name).ToHashSet(StringComparer.Ordinal);
 
     /// <summary>
     /// Settings: a person typed the values in OADM's Change settings dialog, so password settings may be among them. False (the
@@ -226,7 +267,13 @@ public sealed record AcapPayload
     }
 
     /// <summary>Parses and validates a payload. Throws <see cref="ArgumentException"/> for invalid input; nothing has been changed then.</summary>
-    public static AcapPayload Parse(string? json)
+    public static AcapPayload Parse(string? json) => Parse(json, requireSecrets: true);
+
+    /// <summary>
+    /// <see cref="Parse(string?)"/>; with <paramref name="requireSecrets"/> false an agent's password and license key may still be
+    /// empty (the plan of a preview, before the person entered them).
+    /// </summary>
+    public static AcapPayload Parse(string? json, bool requireSecrets)
     {
         if (string.IsNullOrWhiteSpace(json))
         {
@@ -249,6 +296,36 @@ public sealed record AcapPayload
         }
 
         payload = payload with { LicenseKeys = payload.LicenseKeys ?? [] };
+        if (!string.IsNullOrEmpty(payload.AgentLicenseKey))
+        {
+            LicenseKey key;
+            try
+            {
+                key = LicenseKey.Parse(payload.AgentLicenseKey);
+            }
+            catch (FormatException)
+            {
+                throw new ArgumentException(BadLicenseKey + " Nothing was changed.", nameof(json));
+            }
+
+            payload = payload with { LicenseKeys = [.. payload.LicenseKeys, new LicenseKeyEntry(key.DeviceId, payload.AgentLicenseKey)], LicenseApplicationId = payload.LicenseApplicationId ?? key.ApplicationId };
+        }
+
+        if (payload.Passwords is { Count: > 0 } passwords)
+        {
+            if (payload.Action != AcapAction.Settings || passwords.Count > MaxPasswords
+                || passwords.Any(p => p is null || !AppSettings.IsValidName(p.Name))
+                || passwords.Select(p => p.Name).Distinct(StringComparer.Ordinal).Count() != passwords.Count
+                || passwords.Any(p => payload.Values?.ContainsKey(p.Name) == true))
+            {
+                throw new ArgumentException("The password settings of the task are not valid. Nothing was changed.", nameof(json));
+            }
+
+            if (requireSecrets && passwords.Any(p => string.IsNullOrEmpty(p.Value)))
+            {
+                throw new ArgumentException(EnterPassword + " Nothing was changed.", nameof(json));
+            }
+        }
 
         if (payload.Action == AcapAction.Install)
         {
@@ -259,7 +336,7 @@ public sealed record AcapPayload
             throw new ArgumentException("The application name is not valid. Nothing was changed.", nameof(json));
         }
 
-        if (payload.Action == AcapAction.InstallLicense && payload.LicenseKeys.Count == 0)
+        if (payload.Action == AcapAction.InstallLicense && payload.LicenseKeys.Count == 0 && requireSecrets)
         {
             throw new ArgumentException("Choose the license key files. Nothing was changed.", nameof(json));
         }
@@ -272,7 +349,7 @@ public sealed record AcapPayload
 
         if (payload.Action == AcapAction.Settings)
         {
-            if (payload.Values is not { Count: > 0 } values)
+            if (payload.AllValues() is not { Count: > 0 } values)
             {
                 throw new ArgumentException("Choose at least one setting to change. Nothing was changed.", nameof(json));
             }

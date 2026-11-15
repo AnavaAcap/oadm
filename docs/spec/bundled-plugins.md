@@ -635,7 +635,8 @@ only while Edge storage is on.
 - MCP ([mcp.md](mcp.md)): the read-only tool `oadm_edge_storage_cards` (the table the page read last for the caller's
   device scope, with its counts; it reads no camera).
 - AI agents: the hidden task is offered to the task tools with `StorageMcpPayload` (check, repair, retention, format,
-  encryption off; never Encrypt, which needs a passphrase), the page method's rules in `ValidatePayload`, the page's rights
+  encryption on and off; Encrypt's passphrase is entered by the user through the secret channel, never by the agent), the
+  page method's rules in `ValidatePayload`, the page's rights
   through `PagePermissions` (check and retention `manage`, the others `format`) and a plan that says format and encryption
   off delete every recording.
 - Page actions as tools (decision 2026-11-15, [mcp.md](mcp.md) "Page actions"), with the page's rights: `oadm_edge_storage_read` (the page's Read; check, repair and format stay the storage task).
@@ -690,8 +691,9 @@ import, `/config/rest/$export`, `$import`, like its web interface), **Configure 
   devices of the caller's view; Configure devices' permissions (`configure` or `dangerous`); passwords, secrets,
   community strings and tokens are never answered; bounded (8 devices at a time, 40 s, then the rest counts as not read;
   at most 20 rows, about 30 KB). The four tasks have agent inputs (`AgentPayloads.cs`, decision 2026-11-15), offered by
-  the host's task tools: an agent never sends a password or a secret value ("Set the password in OADM."; a password
-  parameter is skipped on the device whatever its name) and never a device address; Configure devices' `dangerous` and
+  the host's task tools: an agent never sends a password or a secret value (a setting or action parameter with a secret
+  name is a slot of the secret channel the user fills; a password parameter whose name is no secret name is skipped on the
+  device) and never a device address; Configure devices' `dangerous` and
   Import's `connection` rights hold as in the dialogs; Import takes one uploaded `.json` for every device of its model
   (no ZIP); the plans come from the cached devices and the uploaded file only and carry the dialogs' warnings.
 - Device groups: the source device of Configure devices and Create configuration file is read with the user's query
@@ -720,9 +722,11 @@ version and a valid license; the choices are read from one device.
   (16 files, 2 GB, counted while writing), entry names are never paths, then the checks and the upload of loose files run
   unchanged (`docs/spec/app-management.md` "A ZIP of packages"). Change settings: every name must be a setting of the installed application and every value fit its type and
   range before the one write, read back afterwards (passwords never read back); setting values never appear in a log,
-  step text, task name or the audit log. AI agents change settings through the task tools without passwords: a setting
-  the application declares as a password, or whose name points to a secret, is refused before any write; only the
-  Applications page may send one (`passwordsAllowed`).
+  step text, task name or the audit log. AI agents change settings through the task tools and never send a password: a
+  value in `values` for a setting the application declares as a password, or whose name points to a secret, is refused
+  before any write; a password setting the agent lists in `passwords` gets its value from the user through the secret
+  channel (docs/spec/mcp.md "Secrets"); only the Applications page sends typed ones (`passwordsAllowed`). An agent's
+  license key (`installLicense`) is one key file the user enters, for one device.
 
 ## Outputs, Notifications, Modbus, MQTT and OPC UA (event rule actions)
 

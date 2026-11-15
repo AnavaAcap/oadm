@@ -53,21 +53,30 @@ public sealed class AgentTaskInputTests
     // ---- Configure devices ----
 
     [Fact]
-    public void Configure_refuses_passwords_addresses_and_broken_values_at_their_fields()
+    public void Configure_refuses_addresses_and_broken_values_at_their_fields_and_waits_for_entered_passwords()
     {
         var task = new ConfigureDevicesTask();
         var errors = Errors(task, Json(new JsonObject
         {
             ["settings"] = new JsonArray(
                 new JsonObject { ["name"] = "Network.IPAddress", ["value"] = "10.0.0.99" },
-                new JsonObject { ["name"] = "RemoteService.ProxyPassword", ["value"] = "secret1" },
-                new JsonObject { ["name"] = "SNMP.V2ReadCommunity", ["value"] = "public" },
+                new JsonObject { ["name"] = "RemoteService.ProxyPassword", ["value"] = string.Empty },
+                new JsonObject { ["name"] = "SNMP.V2ReadCommunity", ["value"] = string.Empty },
                 new JsonObject { ["name"] = "Image.I0.Appearance.Compression", ["value"] = "3\n0" }),
         }));
         Assert.Equal(DangerousParameters.AddressNote, errors["settings[0].name"]);
-        Assert.Equal(ConfigurePayload.SetPasswordInOadm, errors["settings[1].value"]);
-        Assert.Equal(ConfigurePayload.SetPasswordInOadm, errors["settings[2].value"]);
         Assert.Equal("Line breaks and control characters are not allowed.", errors["settings[3].value"]);
+        Assert.DoesNotContain("settings[1].value", errors.Keys); // the other problems first: the preview ignores the secrets' fields
+
+        // A secret's value is entered by the person (the run's payload has it); an empty one is refused at its field only.
+        var passwords = Errors(task, """{"settings":[{"name":"RemoteService.ProxyPassword","value":""},{"name":"SNMP.V2ReadCommunity","value":""}]}""");
+        Assert.Equal(ConfigurePayload.EnterPassword, passwords["settings[0].value"]);
+        Assert.Equal(ConfigurePayload.EnterPassword, passwords["settings[1].value"]);
+        Assert.Empty(Errors(task, """{"settings":[{"name":"RemoteService.ProxyPassword","value":"entered"}]}"""));
+        Assert.Equal(ConfigurePayload.TooManySecrets, Errors(task, Json(new JsonObject
+        {
+            ["settings"] = new JsonArray([.. Enumerable.Range(0, 9).Select(i => (JsonNode)new JsonObject { ["name"] = "Mqtt.Password" + i, ["value"] = string.Empty })]),
+        }))["settings"]);
 
         Assert.Equal(ConfigurePayload.BadParameter, Errors(task, """{"settings":[{"name":"A.B","value":"1"},{"name":"A.B","value":"2"}]}""")["settings[1].name"]);
         Assert.Equal(ConfigurePayload.NothingToApply, Errors(task, """{"settings":[]}""")[string.Empty]);
@@ -83,10 +92,10 @@ public sealed class AgentTaskInputTests
             {
                 ["name"] = "Mail",
                 ["template"] = "com.axis.action.fixed.notification.smtp",
-                ["parameters"] = new JsonArray(new JsonObject { ["name"] = "password", ["value"] = "pw1" }),
+                ["parameters"] = new JsonArray(new JsonObject { ["name"] = "password", ["value"] = string.Empty }),
             },
         };
-        Assert.Equal(ConfigurePayload.SetPasswordInOadm, Errors(task, Json(new JsonObject { ["actionRules"] = new JsonArray(rule) }))["actionRules[0].action.parameters[0].value"]);
+        Assert.Equal(ConfigurePayload.EnterPassword, Errors(task, Json(new JsonObject { ["actionRules"] = new JsonArray(rule) }))["actionRules[0].action.parameters[0].value"]);
         Assert.Equal(ConfigurePayload.BadRule, Errors(task, """{"actionRules":[{"name":"x","enabled":true,"conditions":null,"action":{"name":"a","template":"t","parameters":[]}}]}""")["actionRules[0]"]);
         Assert.Equal(ConfigurePayload.SameProfileName, Errors(task, """{"streamProfiles":[{"name":"A","parameters":"fps=1"},{"name":"A","parameters":"fps=2"}]}""")["streamProfiles[1].name"]);
     }
@@ -105,6 +114,40 @@ public sealed class AgentTaskInputTests
         Assert.True(parsed.FromAgent);
         Assert.Equal([new NameValue("ImageSource.I0.Sensor.CaptureFrequency", "50Hz")], parsed.Parameters);
         Assert.Equal("Configure 1 parameter, 1 profile", task.GetTaskName(agent));
+    }
+
+    [Fact]
+    public async Task Configure_declares_a_secret_per_password_setting_and_action_parameter_and_plans_without_their_values()
+    {
+        var task = new ConfigureDevicesTask();
+        var agent = """{"settings":[{"name":"Image.I0.Appearance.Compression","value":"30"},{"name":"RemoteService.ProxyPassword","value":""}],"actionRules":[{"name":"Mail","enabled":true,"conditions":[],"action":{"name":"Mail","template":"com.axis.action.fixed.notification.smtp","parameters":[{"name":"host","value":"mail"},{"name":"password","value":""}]}}]}""";
+        Assert.Equal(
+            [
+                new TaskSecret("setting_1", "password for RemoteService.ProxyPassword", "settings[1].value"),
+                new TaskSecret("rule_0_parameter_1", "password for password", "actionRules[0].action.parameters[1].value"),
+            ],
+            task.SecretsOf(agent));
+        Assert.Empty(task.SecretsOf(new ConfigurePayload { Parameters = [new NameValue("RemoteService.ProxyPassword", "typed")] }.ToJson())); // the dialog's form
+        Assert.Empty(task.SecretsOf("not json"));
+        Assert.True(ConfigurePayload.SecretLabel("root." + new string('A', 80) + ".Password").Length <= 64);
+
+        var plan = await task.PlanAsync(agent, [new FakeDevice()], CancellationToken.None);
+        Assert.Null(Assert.Single(plan.Devices).SkipReason);
+        Assert.Contains("Sets RemoteService.ProxyPassword, Mail: password with the values the user enters.", plan.Warnings);
+    }
+
+    [Fact]
+    public async Task Configure_writes_an_entered_password_and_never_shows_it()
+    {
+        const string canary = "canary-config-pw-77";
+        var camera = new ConfigureCamera();
+        var ctx = new RecordingContext(camera, new MemoryUploads());
+        await StepRun.RunAsync(ctx.Steps, () => new ConfigureDevicesTask().ExecuteAsync(ctx, new FakeDevice(),
+            "{\"settings\":[{\"name\":\"RemoteService.ProxyPassword\",\"value\":\"" + canary + "\"}]}", CancellationToken.None));
+
+        Assert.Equal(canary, camera.Values["RemoteService.ProxyPassword"]);
+        Assert.DoesNotContain(canary, string.Join("|", StepRun.Lines(ctx.Steps)), StringComparison.Ordinal);
+        Assert.DoesNotContain(canary, string.Join("|", ctx.Logs.Select(l => l.Message)), StringComparison.Ordinal);
     }
 
     [Fact]
@@ -150,7 +193,7 @@ public sealed class AgentTaskInputTests
         var camera = new ConfigureCamera();
         var ctx = new RecordingContext(camera, new MemoryUploads());
         await Assert.ThrowsAsync<ArgumentException>(() => new ConfigureDevicesTask().ExecuteAsync(ctx, new FakeDevice(),
-            """{"settings":[{"name":"RemoteService.ProxyPassword","value":"secret1"}]}""", CancellationToken.None));
+            """{"settings":[{"name":"RemoteService.ProxyPassword","value":""}]}""", CancellationToken.None)); // no password entered
         Assert.Empty(camera.Requests);
         Assert.Empty(camera.Updates);
     }

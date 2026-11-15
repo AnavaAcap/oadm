@@ -78,10 +78,18 @@ public sealed class ConfigureDevicesTask : ITaskPlugin, ITaskPluginQuery
     }
 
     /// <summary>
-    /// The input for AI agents (SDK 0.13.0): parameters, action rules, schedules and stream profiles, never a password
-    /// (<see cref="ConfigurePayload.SetPasswordInOadm"/>; TODO(secret-handle)).
+    /// The input for AI agents (SDK 0.13.0): parameters, action rules, schedules and stream profiles. A password value is sent
+    /// empty: the person enters it through the secret channel (<see cref="SecretsOf"/>).
     /// </summary>
     public Type? PayloadType => typeof(ConfigureMcpPayload);
+
+    /// <summary>One secret per setting and action parameter with a secret name of an agent's payload (<see cref="ConfigurePayload.SecretsOf"/>).</summary>
+    public IReadOnlyList<Oadm.Sdk.Tasks.TaskSecret> SecretsOf(string? payloadJson) => ConfigurePayload.SecretsOf(payloadJson);
+
+    /// <summary>"Sets root.Mqtt.Password with the value the user enters." (never the value).</summary>
+    public static string SecretsNote(IReadOnlyList<string> names) =>
+        "Sets " + string.Join(", ", names.Take(MaxNamed)) + (names.Count > MaxNamed ? string.Create(CultureInfo.InvariantCulture, $" (+{names.Count - MaxNamed} more)") : string.Empty)
+        + (names.Count == 1 ? " with the value the user enters." : " with the values the user enters.");
 
     /// <summary>The names the task reads.</summary>
     public System.Text.Json.JsonSerializerOptions? PayloadJsonOptions => ConfigurePayload.JsonOptions;
@@ -105,7 +113,8 @@ public sealed class ConfigureDevicesTask : ITaskPlugin, ITaskPluginQuery
     public Task<Oadm.Sdk.Tasks.TaskPlan> PlanAsync(string? payloadJson, IReadOnlyList<IDeviceInfo> devices, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(devices);
-        var payload = ConfigurePayload.Parse(payloadJson);
+        var (checkedPayload, errors) = ConfigurePayload.Check(payloadJson, requireSecrets: false); // the person enters the secrets later
+        var payload = errors.Count > 0 ? throw new ArgumentException(errors[0].Message) : checkedPayload!;
         var plan = Oadm.Sdk.Tasks.TaskPlan.ByCanRun(this, devices);
         if (devices.Count > 1 && payload.Parameters.Any(p => DangerousParameters.IsPerDevice(p.Name)))
         {
@@ -122,6 +131,15 @@ public sealed class ConfigureDevicesTask : ITaskPlugin, ITaskPluginQuery
         if (payload.Parameters.Count > 0)
         {
             warnings.Add(CheckedOnDeviceNote);
+        }
+
+        var secretNames = payload.FromAgent
+            ? payload.Parameters.Select(p => p.Name).Where(SecretNames.IsSecret)
+                .Concat(payload.Rules.SelectMany(r => r.Action.Parameters.Where(p => SecretNames.IsSecret(p.Name)).Select(p => r.Name + ": " + p.Name))).ToList()
+            : [];
+        if (secretNames.Count > 0)
+        {
+            warnings.Add(SecretsNote(secretNames));
         }
 
         if (payload.Rules.Count > 0)
@@ -432,9 +450,9 @@ public sealed class ConfigureDevicesTask : ITaskPlugin, ITaskPluginQuery
                 {
                     skipped.Add(parameter.Name + " (not on this device)");
                 }
-                else if (noPasswords && definition.Kind == ParamKind.Password)
+                else if (noPasswords && definition.Kind == ParamKind.Password && !SecretNames.IsSecret(parameter.Name))
                 {
-                    // An agent's payload never sets a password, whatever its name says (TODO(secret-handle): a secret handle).
+                    // An agent's own value for a device password: only a secret name's value comes from the person (SecretsOf).
                     skipped.Add($"{parameter.Name} ({ConfigurePayload.SetPasswordInOadm.TrimEnd('.')})");
                 }
                 else if (ParamRules.Problem(definition, parameter.Value) is { } problem)
