@@ -127,6 +127,34 @@ public sealed class McpDeviceChangeTests
     private static async Task<IReadOnlyDictionary<string, string>> ListAsync(TestServerHost host) =>
         (await host.Devices.ListAsync(new Proto.Empty())).Devices.ToDictionary(d => d.Address, d => d.Id);
 
+    [Fact]
+    public async Task AnAddWhoseTypedPasswordWentForNewerPreviewsIsRefusedAndAddsNothing()
+    {
+        await using var server = await StartAsync(Network());
+        var user = (await server.Host.Get<UserStore>().FindByNameAsync(TestServerHost.AdminUserName, CancellationToken.None))!;
+        var binding = AuthTokenStore.HashOf(server.Host.AdminToken);
+        var admin = new ToolCaller(new AuthenticatedCaller(user.Id, user.UserName, user.RoleId, PermissionSet.All, "127.0.0.1", "assistant-session", binding), binding);
+        var registry = server.Host.Get<ToolRegistry>();
+        var preview = await registry.CallAsync(admin, "oadm_devices_add_preview",
+            System.Text.Json.JsonSerializer.SerializeToElement(new JsonObject { ["addresses"] = new JsonArray("10.9.0.1"), ["user_name"] = "root" }), CancellationToken.None);
+        Assert.False(preview.IsError, preview.Error);
+        var handle = preview.Answer!["handle"]!.GetValue<string>();
+        Assert.Null(registry.Secrets!.Set(admin.BindingKey, handle, "password", Password)); // the person typed the login's password
+
+        // Newer previews of another kind (task runs) that need secrets too: the oldest slots go, the add's handle stays.
+        for (var i = 0; i < ToolSecrets.MaxPerCaller; i++)
+        {
+            registry.Secrets.Declare(admin.BindingKey, "task-preview-" + i, "oadm_task_run", [new ToolSecretSlot("password", "password")]);
+        }
+
+        var run = await registry.CallAsync(admin, "oadm_devices_add_run",
+            System.Text.Json.JsonSerializer.SerializeToElement(new JsonObject { ["handle"] = handle }), CancellationToken.None);
+        Assert.True(run.IsError);
+        Assert.Equal(AreaListing.PreviewEnded, run.Error);
+        Assert.Contains(run.Fields, f => f.Field == "handle");
+        Assert.Empty(await ListAsync(server.Host)); // nothing added, no login tried without the password
+    }
+
     // ---- audit: snapshots count, memberships name the key ------------------------------------------------------------------
 
     private static async Task<(McpTestServer Server, FakeCamera Camera, Microsoft.Extensions.Time.Testing.FakeTimeProvider Time)> StartWithClockAsync()

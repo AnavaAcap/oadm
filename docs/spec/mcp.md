@@ -515,7 +515,9 @@ without ever passing through the AI model.
   them with `call.Secret("password")` and never echoes one in an answer, a log line or the audit log.
 - **Held** in server memory only (`ToolSecrets`), encrypted with the master key (AES-256-GCM, the binding key, the handle
   and the slot as associated data), bound to the caller and the preview's run tool, ended with the handle (10 minutes,
-  `FakeTimeProvider` in the tests), at most 20 previews with slots per caller; zeroed when taken or ended.
+  `FakeTimeProvider` in the tests), at most 20 previews with slots per caller; zeroed when taken or ended. A preview whose
+  slots went for newer ones (its handle may live on: handles count per kind) refuses its run, "This preview has ended or
+  already ran." (`ToolSecrets.WasDropped`): a run never goes on without the secrets its preview declared.
 - **Checked when entered.** A slot may carry the run's own check of a value (`ToolSecretSlot.Check`: a passphrase policy, a
   PKCS#12 password that opens its file, the plugin's rules). It runs before the value is taken: MCP answers 400 with the
   refusal and the link stays; the assistant's card shows it below the field and stays. The run checks everything again.
