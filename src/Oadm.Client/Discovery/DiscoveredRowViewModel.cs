@@ -2,6 +2,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 
 using Oadm.Client.Devices;
 using Oadm.Contracts.Sites;
+using Oadm.Contracts.Devices;
 using Oadm.Contracts.V1;
 
 namespace Oadm.Client.Discovery;

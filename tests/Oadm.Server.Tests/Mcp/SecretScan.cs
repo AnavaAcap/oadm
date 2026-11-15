@@ -60,7 +60,10 @@ internal static class SecretScan
             Assert.DoesNotContain(part, tasks.ToString(), StringComparison.Ordinal);
             foreach (var encoded in new[] { Encoding.UTF8.GetBytes(part), Encoding.Unicode.GetBytes(part) })
             {
-                Assert.DoesNotContain(files, f => f.Bytes.AsSpan().IndexOf(encoded) >= 0);
+                foreach (var (path, bytes) in files)
+                {
+                    Assert.False(bytes.AsSpan().IndexOf(encoded) >= 0, "The secret is in " + path);
+                }
             }
         }
     }

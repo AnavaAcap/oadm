@@ -12,8 +12,17 @@ using Proto = Oadm.Contracts.V1;
 
 namespace Oadm.Server.Tools;
 
-/// <summary>What a recipient save preview fixed: the request the run sends (its passwords empty: the stored ones stay).</summary>
-internal sealed record PlannedRecipientSave(string Id, string Name, string TypeId, string SettingsJson, bool Created);
+/// <summary>
+/// What a recipient save preview fixed: the request the run sends (its passwords empty: the stored ones stay) and the secrets
+/// the person enters for it (never a value).
+/// </summary>
+internal sealed record PlannedRecipientSave(string Id, string Name, string TypeId, string SettingsJson, bool Created)
+{
+    public IReadOnlyList<RecipientSecret> Secrets { get; init; } = [];
+}
+
+/// <summary>A secret of a recipient save: its slot, the field it goes to and, for a header field, the header's name.</summary>
+internal sealed record RecipientSecret(string Slot, string Label, string Field, string? Header);
 
 /// <summary>The recipient a delete or test preview fixed.</summary>
 internal sealed record PlannedRecipient(string Id);
@@ -24,10 +33,11 @@ internal sealed record PlannedRecipient(string Id);
 /// delete (<c>DeleteRecipient</c>, refused while a rule uses it) and Test (<c>TestRecipient</c>, it really sends or connects),
 /// each change a preview and a run. Users with all devices and the permission to change rules.
 /// <para>
-/// Secrets (rule 4): a password field takes no value over the tools: a change keeps the stored one and a new password is
-/// refused with <see cref="RuleTools.SetInOadm"/>. Fields that may hold a login or a token (headers, files) are never shown
-/// and keep their stored values. TODO(feat/agent-transfer): when the secret channel exists, a password field may take
-/// <c>{"secret": "&lt;handle&gt;"}</c>; <see cref="SecretOf"/> is the hook that turns the handle into the value, in memory only.
+/// Secrets (rule 4, docs/spec/mcp.md "Secrets"): a password field or a header value takes no value as an argument. The
+/// preview names the ones the person enters (<c>set_secrets</c>, and every required password of a new recipient) as slots of
+/// the secret channel; each value is checked with <c>CheckRecipient</c> when it is entered, and the run puts it into the
+/// request in memory only. A change keeps the stored values of the fields it does not set. Fields that may hold a login or a
+/// token (headers, files) are never shown.
 /// </para>
 /// </summary>
 internal static class RecipientChangeTools
@@ -44,12 +54,10 @@ internal static class RecipientChangeTools
     public const string NeedsNameAndType = "A new recipient needs a name and a type.";
     public const string InUse = "Rules use this recipient. Change those rules first.";
     public const string LoginInAddress = "Do not put a login in an address. Set it in OADM.";
-
-    /// <summary>
-    /// The secret channel's hook (TODO feat/agent-transfer): the value of a secret handle the caller sent, null when there is no
-    /// such handle. Null now: no channel exists, so a password field takes no value.
-    /// </summary>
-    internal static Func<ToolCaller, string, string?>? SecretOf { get; set; }
+    public const string NotASecretField = "This field takes no secret. Pass a password field, or a header field with the header's name.";
+    public const string HeaderName = "Enter the header's name: letters, digits and - only.";
+    public const string SecretTwice = "Name each secret once.";
+    public const string UseSetSecrets = "Leave the value out and name the field in set_secrets: the user enters it.";
 
     public static IEnumerable<OadmTool> Create(ToolHandles handles)
     {
@@ -94,7 +102,12 @@ internal static class RecipientChangeTools
                 P("recipient_id", Text("The recipient to change; leave it out for a new one.", 36, "uuid")),
                 P("name", Text("Its name.", Oadm.Sdk.Actions.RecipientType.MaxNameLength, minLength: 1)),
                 P("type_id", Text("The type of a new recipient, from oadm_recipients_types.", 128, minLength: 1)),
-                P("settings", OpenObject("The fields by key, as oadm_recipients_types lists them. A change keeps the fields left out. Passwords are set in OADM.")),
+                P("settings", OpenObject("The fields by key, as oadm_recipients_types lists them. A change keeps the fields left out. Never a password or header value.")),
+                P("set_secrets", List("The passwords and header values the user enters (never you): a password field by its key, a header by its field and name.", Object(null,
+                [
+                    P("field", Text("The key of a password or header field.", 128, minLength: 1)),
+                    P("header", Text("For a header field: the header's name, e.g. Authorization.", 128, minLength: 1)),
+                ], "field"), ToolSecrets.MaxSlots)),
             ]),
             OutObject(null,
             [
@@ -104,8 +117,10 @@ internal static class RecipientChangeTools
                 P("target", Out("string", "Where it sends to: scheme, host and port only.")),
                 P("has_password", Out("boolean", "A password is stored (never shown).")),
                 P("used_by", OutList("Rules that use it.", Out("string", "A rule name."))),
+                P("secrets", OutList("What the user enters for the run, never a value.", Out("string", "e.g. password, value of the header Authorization."))),
                 .. ToolChanges.HandleOutput("oadm_recipients_save_run"),
-            ], ToolChanges.Required("change", "name", "type", "target", "has_password", "used_by")),
+                .. ToolSecretAnswers.OutputProperties(),
+            ], ToolChanges.Required("change", "name", "type", "target", "has_password", "used_by", "secrets")),
             [RuleTools.RecipientsPath, RuleTools.CatalogPath, CheckPath, SavePath],
             call => SavePreviewAsync(call, handles));
 
@@ -266,15 +281,10 @@ internal static class RecipientChangeTools
 
                 if (entry.Kind == Proto.ActionFieldKind.ActionFieldPassword)
                 {
-                    // TODO(feat/agent-transfer): {"secret": "<handle>"} through SecretOf; until then no password passes the tools.
-                    if (SecretOf is { } secrets && field.Value.ValueKind == JsonValueKind.Object && field.Value.TryGetProperty("secret", out var handle)
-                        && handle.ValueKind == JsonValueKind.String && secrets(call.Caller, handle.GetString()!) is { } secret)
+                    // A password never passes the model: the person enters it through the secret channel (set_secrets).
+                    if (!(field.Value.ValueKind == JsonValueKind.String && field.Value.GetString()!.Length == 0))
                     {
-                        settings[field.Name] = secret;
-                    }
-                    else if (!(field.Value.ValueKind == JsonValueKind.String && field.Value.GetString()!.Length == 0))
-                    {
-                        errors.Add(new ToolFieldError(path, RuleTools.SetInOadm));
+                        errors.Add(new ToolFieldError(path, UseSetSecrets));
                     }
 
                     continue;
@@ -282,7 +292,8 @@ internal static class RecipientChangeTools
 
                 if (RuleTools.IsHidden(entry.Kind))
                 {
-                    errors.Add(new ToolFieldError(path, RuleTools.SetInOadm)); // headers and files may hold a login: set in OADM
+                    // Headers and files may hold a login: a header's value is entered by the person (set_secrets).
+                    errors.Add(new ToolFieldError(path, entry.Kind == Proto.ActionFieldKind.ActionFieldKeyValues ? UseSetSecrets : RuleTools.SetInOadm));
                     continue;
                 }
 
@@ -296,10 +307,22 @@ internal static class RecipientChangeTools
             }
         }
 
-        // A new recipient whose type needs a password is made in OADM: the tools never take one.
-        if (existing is null && type.Fields.Any(f => f.Kind == Proto.ActionFieldKind.ActionFieldPassword && f.Required && settings[f.Key] is null))
+        // The secrets the person enters: the ones named, and every required password of a new recipient.
+        var secrets = SecretsOf(call, fields, errors);
+        if (existing is null)
         {
-            errors.Add(new ToolFieldError("settings", RuleTools.SetInOadm));
+            foreach (var required in type.Fields.Where(f => f.Kind == Proto.ActionFieldKind.ActionFieldPassword && f.Required && settings[f.Key] is null))
+            {
+                if (!secrets.Any(s => s.Field == required.Key && s.Header is null))
+                {
+                    secrets.Add(new RecipientSecret(Slot(required.Key, secrets), Label(required), required.Key, null));
+                }
+            }
+        }
+
+        if (secrets.Count > ToolSecrets.MaxSlots)
+        {
+            errors.Add(new ToolFieldError("set_secrets", SecretTwice));
         }
 
         if (errors.Count > 0)
@@ -316,8 +339,24 @@ internal static class RecipientChangeTools
         catch (RpcException ex) when (ex.StatusCode == StatusCode.InvalidArgument)
         {
             var field = ex.Trailers.GetValue(EventGrpcService.RecipientField) ?? string.Empty;
-            var path = field.Length == 0 ? "settings" : field == "name" ? "name" : "settings." + field;
-            throw new ToolException(ToolAnswers.FieldsMessage, [new ToolFieldError(path, ex.Status.Detail)]);
+            if (!secrets.Any(s => s.Field == field) && fields.TryGetValue(field, out var asked) && asked.Kind == Proto.ActionFieldKind.ActionFieldPassword
+                && secrets.Count < ToolSecrets.MaxSlots)
+            {
+                secrets.Add(new RecipientSecret(Slot(asked.Key, secrets), Label(asked), asked.Key, null)); // e.g. a new target needs the password again
+            }
+
+            if (secrets.Any(s => s.Field == field))
+            {
+                // The value the person enters later: its own check runs then (the check of the rest waits for the run).
+                checkedEntry = new Proto.RecipientEntry { Target = existing?.Target ?? string.Empty };
+                checkedEntry.UsedBy.AddRange(existing?.UsedBy ?? []);
+                checkedEntry.StoredSecretFields.AddRange(existing?.StoredSecretFields ?? []);
+            }
+            else
+            {
+                var path = field.Length == 0 ? "settings" : field == "name" ? "name" : "settings." + field;
+                throw new ToolException(ToolAnswers.FieldsMessage, [new ToolFieldError(path, ex.Status.Detail)]);
+            }
         }
 
         var answer = new JsonObject
@@ -326,8 +365,9 @@ internal static class RecipientChangeTools
             ["name"] = request.Name,
             ["type"] = type.DisplayName,
             ["target"] = RuleTools.ReduceAddress(checkedEntry.Target) ?? string.Empty,
-            ["has_password"] = checkedEntry.StoredSecretFields.Count > 0,
+            ["has_password"] = checkedEntry.StoredSecretFields.Count > 0 || secrets.Any(s => s.Header is null),
             ["used_by"] = Names(checkedEntry.UsedBy),
+            ["secrets"] = new JsonArray([.. secrets.Select(s => (JsonNode)JsonValue.Create(s.Label)!)]),
         };
         List<string> warnings = [];
         if (existing is not null && checkedEntry.UsedBy.Count > 0)
@@ -335,15 +375,149 @@ internal static class RecipientChangeTools
             warnings.Add("Rules that use this recipient send to the changed target from their next run.");
         }
 
-        var plan = new PlannedRecipientSave(request.Id, request.Name, request.TypeId, request.SettingsJson, existing is null);
-        return ToolChanges.WithHandle(answer, call, handles, "oadm_recipients_save_run", plan, warnings);
+        var plan = new PlannedRecipientSave(request.Id, request.Name, request.TypeId, request.SettingsJson, existing is null) { Secrets = secrets };
+        ToolChanges.WithHandle(answer, call, handles, "oadm_recipients_save_run", plan, warnings);
+        if (secrets.Count > 0)
+        {
+            // Each value is checked with the dialog's rules when the person enters it (CheckRecipient, in memory only).
+            var calls = call.Calls;
+            var caller = call.Caller;
+            ToolSecretAnswers.Declare(call, answer, answer["handle"]!.GetValue<string>(), "oadm_recipients_save_run", [.. secrets.Select(s => new ToolSecretSlot(s.Slot, s.Label, ToolSecrets.MaxBytes)
+            {
+                Check = (value, ct) => CheckSecretAsync(calls, caller, request, s, value, ct),
+            })]);
+        }
+
+        return answer;
+    }
+
+    /// <summary>The secrets <c>set_secrets</c> names: a password field by its key, a header field with the header's name.</summary>
+    private static List<RecipientSecret> SecretsOf(ToolCall call, Dictionary<string, Proto.ActionFieldEntry> fields, List<ToolFieldError> errors)
+    {
+        var secrets = new List<RecipientSecret>();
+        if (call.Element("set_secrets") is not { ValueKind: JsonValueKind.Array } list)
+        {
+            return secrets;
+        }
+
+        var i = 0;
+        foreach (var item in list.EnumerateArray())
+        {
+            var path = "set_secrets[" + i++.ToString(System.Globalization.CultureInfo.InvariantCulture) + "]";
+            var key = item.GetProperty("field").GetString()!;
+            var header = item.TryGetProperty("header", out var named) ? named.GetString() : null;
+            if (!fields.TryGetValue(key, out var entry)
+                || (entry.Kind == Proto.ActionFieldKind.ActionFieldPassword) == (header is not null)
+                || entry.Kind is not (Proto.ActionFieldKind.ActionFieldPassword or Proto.ActionFieldKind.ActionFieldKeyValues))
+            {
+                errors.Add(new ToolFieldError(path, NotASecretField));
+                continue;
+            }
+
+            if (header is not null && !header.All(c => char.IsAsciiLetterOrDigit(c) || c == '-'))
+            {
+                errors.Add(new ToolFieldError(path + ".header", HeaderName));
+                continue;
+            }
+
+            if (secrets.Any(s => s.Field == key && string.Equals(s.Header, header, StringComparison.OrdinalIgnoreCase)))
+            {
+                errors.Add(new ToolFieldError(path, SecretTwice));
+                continue;
+            }
+
+            secrets.Add(header is null
+                ? new RecipientSecret(Slot(key, secrets), Label(entry), key, null)
+                : new RecipientSecret(Slot("header", secrets), "value of the header " + header, key, header));
+        }
+
+        return secrets;
+    }
+
+    /// <summary>A slot name from a field key (lower case words with underscores), unique among <paramref name="taken"/>.</summary>
+    private static string Slot(string key, IReadOnlyList<RecipientSecret> taken)
+    {
+        var name = Sdk.Tasks.TaskSecrets.SlotName(key);
+        name = name.Length == 0 || !char.IsAsciiLetterLower(name[0]) ? "secret" : name;
+        var slot = name;
+        for (var n = 2; taken.Any(s => s.Slot == slot); n++)
+        {
+            slot = name + "_" + n.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        }
+
+        return slot;
+    }
+
+    /// <summary>The field's label as the person is asked for it, in lower case at its start ("password", "API token").</summary>
+    private static string Label(Proto.ActionFieldEntry entry)
+    {
+        var label = string.IsNullOrWhiteSpace(entry.Label) ? "password" : entry.Label.Trim();
+        return label.Length > 1 && char.IsUpper(label[0]) && !char.IsUpper(label[1]) ? char.ToLowerInvariant(label[0]) + label[1..] : label;
+    }
+
+    /// <summary>The settings with the entered values: a password at its key, a header's value in its row (replaced or added).</summary>
+    internal static string WithSecrets(string settingsJson, IReadOnlyList<(RecipientSecret Secret, string Value)> values)
+    {
+        var settings = JsonNode.Parse(settingsJson) as JsonObject ?? [];
+        foreach (var (secret, value) in values)
+        {
+            if (secret.Header is null)
+            {
+                settings[secret.Field] = value;
+                continue;
+            }
+
+            var rows = settings[secret.Field] as JsonArray ?? [];
+            var row = rows.OfType<JsonObject>().FirstOrDefault(r => string.Equals(r["name"]?.GetValue<string>(), secret.Header, StringComparison.OrdinalIgnoreCase));
+            if (row is null)
+            {
+                rows.Add(new JsonObject { ["name"] = secret.Header, ["value"] = value });
+            }
+            else
+            {
+                row["value"] = value;
+            }
+
+            settings[secret.Field] = rows;
+        }
+
+        return settings.ToJsonString();
+    }
+
+    /// <summary>The dialog's refusal of an entered value at its field (<c>CheckRecipient</c>, in memory only); null when it fits.</summary>
+    private static async Task<string?> CheckSecretAsync(InProcessCalls calls, ToolCaller caller, Proto.SaveRecipientRequest request, RecipientSecret secret, string value, CancellationToken ct)
+    {
+        var filled = request.Clone();
+        filled.SettingsJson = WithSecrets(request.SettingsJson, [(secret, value)]);
+        try
+        {
+            await calls.CallAsync<EventGrpcService, Proto.SaveRecipientRequest, Proto.RecipientEntry>(caller.User, CheckPath, filled, (s, r, c) => s.CheckRecipient(r, c), ct).ConfigureAwait(false);
+            return null;
+        }
+        catch (RpcException ex) when (ex.StatusCode == StatusCode.InvalidArgument)
+        {
+            return ex.Trailers.GetValue(EventGrpcService.RecipientField) == secret.Field ? ex.Status.Detail : null; // another field waits for its own value
+        }
     }
 
     private static async Task<JsonObject> SaveRunAsync(ToolCall call, ToolHandles handles)
     {
         var plan = ToolChanges.Take<PlannedRecipientSave>(call, handles);
+        var settings = plan.SettingsJson;
+        if (plan.Secrets.Count > 0)
+        {
+            // The values the person entered go into the request here, for this save only (the server encrypts the passwords).
+            var values = plan.Secrets.Select(s => (Secret: s, Value: call.Secret(s.Slot))).ToList();
+            if (values.Any(v => v.Value is null))
+            {
+                throw new ToolException(AreaListing.PreviewEnded, [new ToolFieldError("handle", AreaListing.PreviewEnded)]);
+            }
+
+            settings = WithSecrets(settings, [.. values.Select(v => (v.Secret, v.Value!))]);
+        }
+
         var saved = await call.CallAsync<EventGrpcService, Proto.SaveRecipientRequest, Proto.RecipientEntry>(SavePath,
-            new Proto.SaveRecipientRequest { Id = plan.Id, Name = plan.Name, TypeId = plan.TypeId, SettingsJson = plan.SettingsJson }, (s, r, c) => s.SaveRecipient(r, c)).ConfigureAwait(false);
+            new Proto.SaveRecipientRequest { Id = plan.Id, Name = plan.Name, TypeId = plan.TypeId, SettingsJson = settings }, (s, r, c) => s.SaveRecipient(r, c)).ConfigureAwait(false);
         return new JsonObject { ["recipient_id"] = saved.Id, ["target"] = RuleTools.ReduceAddress(saved.Target) ?? string.Empty };
     }
 

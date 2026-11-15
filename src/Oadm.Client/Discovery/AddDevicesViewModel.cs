@@ -14,6 +14,7 @@ using Microsoft.Extensions.Logging;
 using Oadm.Client.Api;
 using Oadm.Client.Devices;
 using Oadm.Client.Infrastructure;
+using Oadm.Contracts.Devices;
 using Oadm.Contracts.V1;
 using Oadm.Sdk.Client.Validation;
 
