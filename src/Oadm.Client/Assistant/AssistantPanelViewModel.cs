@@ -777,6 +777,9 @@ public sealed partial class AssistantPanelViewModel : ObservableObject
             case AssistantEvent.KindOneofCase.Preview:
                 Add(new AssistantPreviewItem(e.Preview));
                 return;
+            case AssistantEvent.KindOneofCase.File:
+                Add(new AssistantFileItem(e.File));
+                return;
             case AssistantEvent.KindOneofCase.Picture:
                 Add(new AssistantPictureItem(e.Picture.DeviceId, e.Picture.DeviceName, e.Picture.Jpeg.ToByteArray()));
                 return;
@@ -898,16 +901,94 @@ public sealed partial class AssistantPanelViewModel : ObservableObject
             return;
         }
 
+        if (!preview.CanRun)
+        {
+            foreach (var secret in preview.Secrets)
+            {
+                secret.ShowError(); // the empty field says so below itself
+            }
+
+            return;
+        }
+
         preview.MarkStarting();
         OnPreviewsChanged();
         try
         {
-            var reply = await _api.AssistantRunAsync(conversation, preview.Handle, CancellationToken.None).ConfigureAwait(true);
+            // The card's secrets go with Run straight to the server, never into the chat (docs/spec/mcp.md "Secrets").
+            var request = new AssistantRunRequest { ConversationId = conversation, Handle = preview.Handle };
+            request.Secrets.Add(preview.SecretValues());
+            var reply = await _api.AssistantRunAsync(request, CancellationToken.None).ConfigureAwait(true);
+            preview.ClearSecrets();
             preview.Follow([.. reply.TaskIds], _tasks);
+        }
+        catch (RpcException ex) when (preview.HasSecrets && ex.StatusCode is StatusCode.FailedPrecondition or StatusCode.InvalidArgument
+            && ex.Trailers.GetValue(Contracts.Assistant.AssistantTexts.FieldTrailer) is { Length: > 0 } field)
+        {
+            preview.MarkSecretRefused(field, ex.Status.Detail); // the card stays: the error below its field
+            OnPreviewsChanged();
         }
         catch (RpcException ex)
         {
+            preview.ClearSecrets();
             preview.MarkRefused(ex.Status.Detail);
+        }
+    }
+
+    /// <summary>A file card's Save: where to keep it, then the file fetched now with the user's rights (never through the model).</summary>
+    [RelayCommand]
+    private async Task SaveFileAsync(AssistantFileItem? file)
+    {
+        if (file is null or { IsSaving: true } || ConversationId is not { } conversation || _dialogs is null)
+        {
+            return;
+        }
+
+        var extension = Path.GetExtension(file.Name).TrimStart('.');
+        var type = new Dialogs.FileType(extension.Length > 0 ? extension.ToUpperInvariant() + " file" : "File", extension.Length > 0 ? extension : "*",
+            file.ContentType.Length > 0 ? file.ContentType : "application/octet-stream");
+        var target = await _dialogs.CreateFileAsync(AssistantTexts.SaveFileTitle, file.Name, type).ConfigureAwait(true);
+        if (target is null)
+        {
+            return;
+        }
+
+        file.IsSaving = true;
+        file.HasFailed = false;
+        file.StatusText = AssistantTexts.Saving;
+        var saved = false;
+        try
+        {
+            await using (target.Content.ConfigureAwait(true))
+            {
+                var download = await _api.AssistantDownloadAsync(conversation, file.FileRef, CancellationToken.None).ConfigureAwait(true);
+                await using (download.ConfigureAwait(true))
+                {
+                    await download.Content.CopyToAsync(target.Content).ConfigureAwait(true);
+                }
+            }
+
+            saved = true;
+            file.IsSaved = true;
+            file.StatusText = AssistantTexts.FileSaved;
+        }
+        catch (RpcException ex)
+        {
+            file.HasFailed = true;
+            file.StatusText = ex.Status.Detail;
+        }
+        catch (IOException ex)
+        {
+            file.HasFailed = true;
+            file.StatusText = ex.Message;
+        }
+        finally
+        {
+            file.IsSaving = false;
+            if (!saved && target.Delete is { } delete)
+            {
+                await delete().ConfigureAwait(true); // never a cut file
+            }
         }
     }
 

@@ -19,6 +19,12 @@ public static class AssistantTexts
     public const string Copy = "Copy";
     public const string Copied = "Copied.";
     public const string Run = "Run";
+
+    /// <summary>The file card's button and its outcome.</summary>
+    public const string SaveFile = "Save";
+    public const string SaveFileTitle = "Save file";
+    public const string FileSaved = "Saved.";
+    public const string Saving = "Saving the file";
     public const string Cancel = "Cancel";
     public const string ShowTasks = "Show tasks";
     public const string SelectAllInGrid = "Select all in the grid";
