@@ -41,6 +41,9 @@
     <ProjectReference Include="..\..\plugins\Oadm.Plugins.NtpServer\Oadm.Plugins.NtpServer.csproj" />
     <ProjectReference Include="..\..\plugins\Oadm.Plugins.DhcpServer\Oadm.Plugins.DhcpServer.csproj" />
     <ProjectReference Include="..\..\plugins\Oadm.Plugins.HardeningScan\Oadm.Plugins.HardeningScan.csproj" />
+    <ProjectReference Include="..\..\plugins\Oadm.Plugins.EdgeStorage\Oadm.Plugins.EdgeStorage.csproj" />
+    <!-- It holds its own copy of the Applications plugin's shared types: used only through the alias. -->
+    <ProjectReference Include="..\..\plugins\Oadm.Plugins.AppManagement\Oadm.Plugins.AppManagement.csproj" Aliases="appmanagement" />
     <!-- The real OADM Site Node in the same process (sites tests). -->
     <ProjectReference Include="..\..\src\Oadm.SiteNode\Oadm.SiteNode.csproj" />
   </ItemGroup>

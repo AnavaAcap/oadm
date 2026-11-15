@@ -2,6 +2,7 @@ using Microsoft.Extensions.Logging;
 
 using Oadm.Plugins.EdgeStorage.Device;
 using Oadm.Plugins.EdgeStorage.Disks;
+using Oadm.Plugins.EdgeStorage.Tools;
 using Oadm.Plugins.Shared;
 using Oadm.Sdk.Devices;
 using Oadm.Sdk.Plugins;
@@ -61,9 +62,13 @@ public sealed partial class EdgeStoragePlugin : ICorePlugin, IAsyncDisposable
         },
     ];
 
+    /// <summary>The SD card tool (docs/spec/mcp.md "Plugins"): the table the page read last, "show" like the page; it reads no camera.</summary>
+    public IReadOnlyList<PluginTool> Tools => StorageTools.All;
+
     public string? RequiredPermission(string method) => method switch
     {
         EdgeStorageMethods.Read or EdgeStorageMethods.GetState => PermissionKeys.Show,
+        _ when method == StorageTools.Cards.Method => PermissionKeys.Show,
         EdgeStorageMethods.Change => EdgeStorageMethods.ManagePermission,
         EdgeStorageMethods.Format => EdgeStorageMethods.FormatPermission,
         _ => null,
@@ -120,6 +125,8 @@ public sealed partial class EdgeStoragePlugin : ICorePlugin, IAsyncDisposable
 
                 sweeps.For(caller)?.Start(ids);
                 return EdgeStorageJson.Serialize(await StateAsync(caller, ct).ConfigureAwait(false));
+            case var _ when method == StorageTools.Cards.Method:
+                return StorageTools.Answer(await StateAsync(caller, ct).ConfigureAwait(false), payloadJson); // what the page read last, no camera
             case EdgeStorageMethods.GetState:
                 return EdgeStorageJson.Serialize(await StateAsync(caller, ct).ConfigureAwait(false));
             case EdgeStorageMethods.Change or EdgeStorageMethods.Format:
