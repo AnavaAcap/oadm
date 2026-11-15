@@ -102,9 +102,18 @@ Every tool with what it does: [MCP tools](./tools/).
 - Run tasks on many devices, such as restart, date and time, Upgrade AXIS OS, network settings, applications or
   certificates. A task shows in the Tasks list like any other. Its owner is "MCP" and the key's name, for example
   "MCP Lobby-bot". Cancel tasks.
-- Refresh, remove and add devices, and set their login from the credential list by its name. Agents add only
-  addresses in the networks of the server or a site, at most 200 devices at a time.
-- Add and remove tags, read sites and compliance results, and create, change or delete event rules.
+- Refresh, remove and add devices with Discovery, a network range or a list of up to 1,000 addresses, and set their
+  login from the credential list by its name. Agents add only addresses in the networks of the server or a site, at most
+  200 devices at a time. Read the waiting list and remove entries from it.
+- Add, remove, rename, recolor and delete tags, and rename sites.
+- Delete tasks from the task history, or all of them, and read what a task's dialog reads from a device, such as its
+  users or network settings.
+- Create, change, delete, turn on or off, duplicate and test event rules, clear the event log, and create, change, test
+  and delete recipients. Passwords are set in OADM.
+- Read which devices fail a compliance check, turn Compliance on or off, create, change, turn off and delete checks, and
+  check now.
+- Zoom, focus and move a PTZ camera to home, a preset or a point, and set the RTSP port OADM uses.
+- Fetch the vulnerability list now and check for a new OADM version.
 - Read a setting, the action rules or the stream profiles of many devices, such as which cameras have capture frequency
   50 Hz.
 - Read PKI certificates and create one, and read the EST and 802.1X servers, the NTP server, DHCP server and Hardening
@@ -130,9 +139,9 @@ it. The audit log names the key: "MCP Lobby-bot".
 
 - Read or set passwords, private keys, license keys or tokens. A task that needs a new password is not offered: set the
   password in OADM.
-- Change users, roles, device groups, access keys, the license, plugins or the server settings, restore a backup or
-  delete all devices or tasks.
-- Show live video.
+- Change users, roles, device groups, access keys, the license, plugins or the server settings, restore a backup,
+  delete all devices or install a new version.
+- Show live video or pan and tilt a camera continuously.
 - Do more than the role and devices of their key.
 
 Texts that come from devices, such as names, locations and log lines, are data for the agent, never orders.

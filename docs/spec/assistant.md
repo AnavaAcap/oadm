@@ -121,7 +121,10 @@ shows the chat.
   its unit ("3 devices", "2 tasks", "1 rule"), one line per key field (a task's name, its input without secrets and its
   files; a rule's name, what it watches and does, where it sends, its problem; the tags added and removed; the files,
   rules or devices deleted or removed; a plugin's preview: its plain fields one level deep), each line at most 200
-  characters, at most 12 lines with "+N more". Run is red for a delete or removal (`destructive`).
+  characters, at most 12 lines with "+N more". Run is red for a delete or removal (`destructive`). The previews of the host
+  actions (decision 2026-11-15, docs/spec/mcp.md "Host actions as built") each have their card: tags, the waiting list, tasks
+  deleted, a rule turned on or off, copied or tested, the event log cleared, recipients, compliance and its checks, a site
+  renamed, zoom, focus, PTZ, the RTSP port and the vulnerability list ("2 addresses", "1 rule", "3 devices").
 - **Pictures**: a camera picture (`oadm_devices_snapshot`) shows in the answer, click to enlarge; never stored.
 - **Tables**: a device list the model got from a tool (`oadm_devices_search`, `oadm_selection`, `oadm_vulnerabilities`)
   shows as a result card "7 devices" with a small table (name, address, model, status) where a click on a row selects

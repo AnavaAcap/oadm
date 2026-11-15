@@ -4,12 +4,14 @@ Status: **all four stages built** (stage 1: the endpoint, the card MCP of the ra
 server, access keys and the read tools; stage 2: the SDK members for tasks, `ValidatePayload` in `TaskService.Run`, the task catalog,
 preview and run, the schemas of the bundled tasks without secrets, cancel, file links; stage 3: device actions, tags,
 sites, compliance, event rules, plugin tools; stage 4: the skill, Connect an agent, the website pages; see the "as built"
-sections). Not offered on purpose: see "Open points".
+sections), and the host actions of "everything a user can do" (decision 2026-11-15, stage 1: see "Host actions as built").
+Not offered on purpose: see "Not over MCP" and "Open points".
 
 Part of the OADM spec (`CLAUDE.md` "Feature specs"): read it before you change this area, update it in the same change.
 
 An AI agent (Claude Code, VS Code, any MCP client) can do through MCP what a user can do in the client, with the role,
-device group, checks and audit log of its access key. "MCP" is the name of this feature in the UI (the rail page MCP & Assistant, card
+device group, checks and audit log of its access key (decision 2026-11-15: everything a user can do in the client, with the
+caller's rights, every change as a preview then a run; the Assistant never runs, the user presses Run on its card). "MCP" is the name of this feature in the UI (the rail page MCP & Assistant, card
 MCP; the PKI policy MCP server). The MCP server is part of the OADM server (core, free,
 Apache-2.0), off by default. Plugins add their own tools through the SDK, so a new plugin is usable by agents without a
 host change.
@@ -32,7 +34,8 @@ host change.
 5. **Least rights.** The tool list shows only what the key may do now (its role and device group, plugins on); a role like
    Viewer gives a look-only agent; a role that may run no task (no `task:` right) lists no task or file tool and is refused
    "Your role may run no task." (`TaskRunTools.NoTaskRight`). An agent can never raise rights: users, roles, device groups, access keys, license, plugins on/off, server
-   settings, backups (create, download, restore) and data resets are GUI only.
+   settings, backups (create, download, restore) and Delete all devices are GUI only. Delete all tasks and Clear the event
+   log are a preview and a run with their own permissions (decision 2026-11-15).
 6. **Device data is data.** Texts written by devices or other users (names, locations, tags, event texts, log lines) are
    returned only as JSON field values, never inside tool descriptions or messages to the agent, and the skill says they are
    never instructions.
@@ -185,9 +188,10 @@ nothing is selected.
   page with a note.
 - `oadm_devices_get(device_id)`: one device with its details (the client's device details, no credentials).
 - `oadm_devices_snapshot(device_id)`: one JPEG of the camera as image content (Live view permission, at most 1280 px wide).
-- Refresh, Remove, Set credentials (by stored credential name), Add devices (Network range, Add manually, the waiting
-  list; logins with the credential list; only addresses inside a network of the server or of a connected site, at most
-  200 devices a run) as preview/run pairs.
+- Refresh, Remove, Set credentials (by stored credential name), Add devices (Discovery, Network range, Add manually and
+  Import from file as up to 1,000 addresses, the waiting list; logins with the credential list; only addresses inside a
+  network of the server or of a connected site, at most 200 devices a run) as preview/run pairs; the waiting list itself
+  (list, remove).
 
 ### Tasks
 
@@ -211,7 +215,7 @@ nothing is selected.
 
 ### Other areas
 
-Each a few tools with the same rules (summary or search first, preview/run for changes): tags, sites (read), compliance
+Each a few tools with the same rules (summary or search first, preview/run for changes): tags, sites, compliance
 (results, checks), vulnerabilities (read, `Tools/VulnerabilityTools`, docs/spec/vulnerabilities.md:
 `oadm_vulnerabilities_summary(filter)` the list's date, source and size, the devices affected (counted), possible only and
 not affected, affected devices by their worst level and the 10 CVEs that affect the most devices;
@@ -303,9 +307,9 @@ the two halves of a change (the load test's are `checks` and `check`).
 ### Not over MCP
 
 Live video, Live View tabs, Dashboards live updates, Metadata Monitor and I/O Monitor streams (their state and one read
-are offered, see "Plugins"), Web View; users, roles, device groups, access keys, license changes, plugins on/off, Forget
-server; Settings changes; backup restore, Delete all tasks, Delete all devices (reading the license and plugin state is
-`oadm_server_status`). Backups stay GUI only: no tool creates, downloads or restores one (decision 2026-11-15).
+are offered, see "Plugins"), continuous pan and tilt (a held button), Web View; users, roles, device groups, access keys,
+license changes, plugins on/off, Forget server; Settings changes; backup restore, Delete all devices, Install now of a new
+version (reading the license and plugin state is `oadm_server_status`, the version `oadm_update_check`). Backups stay GUI only: no tool creates, downloads or restores one (decision 2026-11-15).
 
 ## Files
 
@@ -525,7 +529,7 @@ The website gets a user page (Administration > MCP server, `admin/mcp-server`, n
   `oadm_devices_refresh_preview`/`_run`; `oadm_devices_remove_preview`/`_run` (a filter is required, an empty one is
   refused); `oadm_devices_credentials_preview`/`_run` (an entry of the credential list by its name, never a password; the
   credential list is the Administrator's, a name two entries share is refused); `oadm_devices_add_preview`/`_run` (exactly
-  one of a range (at most 65,536 addresses, as the client), up to 100 addresses or `try_waiting`; `keep_waiting` puts
+  one of `discovery`, a range (at most 65,536 addresses, as the client), up to 1,000 addresses or `try_waiting`; `keep_waiting` puts
   addresses that do not answer on the waiting list; IP addresses only, no names, schemes or ports, and only inside a
   network of the server's own interfaces or of a connected site, otherwise a field error names the allowed networks; the
   preview only looks (it sends no login and stores nothing), waits at most 90 s and then says the scan is incomplete; it
@@ -592,10 +596,71 @@ The website gets a user page (Administration > MCP server, `admin/mcp-server`, n
   Tests: `McpDeviceFactsTests` (the counts, possible ones apart and not counted, the column's text for the same devices,
   the clock, certificate and chip filters and fields, the device group, paging, the Assistant's table).
 
+## Host actions as built
+
+Decision 2026-11-15: agents do everything a user can do in the client. Stage 1 brings the host's own actions
+(`Tools/TagTools`, `WaitingTools`, `TaskChangeTools`, `RuleActionTools`, `RecipientChangeTools`, `ComplianceChangeTools`,
+`HostActionTools`, `LiveViewTools`, `DeviceChangeTools`; the shared parts in `ToolChanges`). Every change is a preview that
+writes nothing and a run that takes only its handle, through the gRPC service the client calls, so its permission, device
+group, checks and audit are the client's. The Assistant shows each preview as a card (`AssistantCards`: the count with its
+unit, the key fields, red Run for deletes and removals) and a short status line for the reads (`AssistantTools.LineOf`).
+
+- **Tags** (Change tags, users with all devices): `oadm_tags_update_preview`/`_run` (rename and recolor, `TagService.Update`;
+  a name in use is refused, the device groups that use it are named) and `oadm_tags_delete_preview`/`_run`
+  (`TagService.Delete`; the device groups whose devices leave are named).
+- **Add devices**: `discovery` in `oadm_devices_add_preview` (`StartZeroConf` with `no_logins`: the devices that announce
+  themselves, only looked at; the session ends with the preview); up to 1,000 addresses, probed 32 at a time with the short
+  first contact of an import. The waiting list: `oadm_waiting_list` (pages in address order, `has_login` only) and
+  `oadm_waiting_remove_preview`/`_run` (ids or `all`, `WaitingDeviceService.Remove`).
+- **Tasks**: `oadm_tasks_delete_preview`/`_run` (a batch or up to 200 ids of the caller's devices, `TaskService.Delete`; waiting
+  and running ones are cancelled first), `oadm_tasks_delete_all_preview`/`_run` (Delete all tasks, users with all devices,
+  `TaskService.DeleteAll`, audited "Deleted all tasks"). `oadm_task_query(task, device_id, method, input)`: a task dialog's
+  read of one device (`TaskService.Query`, `ITaskPluginQuery`, read only by contract) with the task's own permission and a
+  task right; the reads of Device configuration (a device's configuration can hold passwords) are refused ("This read is
+  not offered over MCP."), and every property or name/value pair that names a secret is left out of the answer (`hidden`
+  counts them). It asks the device, so it counts as a change.
+- **Event rules**: `oadm_rules_enable_preview`/`_run` (`SetRuleEnabled`; the preview names off actions and device changes),
+  `oadm_rules_duplicate_preview`/`_run` (`DuplicateRule`: the server copies the stored passwords, the copy is off),
+  `oadm_rules_test_action_preview`/`_run` (Send test of one action of a saved rule with its stored settings, `TestAction`;
+  it really sends, so it is a run; an action that acts on devices is tested in OADM), `oadm_events_clear_log_preview`/`_run`
+  (`ClearLog`, Clear the event log).
+- **Recipients** (users with all devices, Change rules): `oadm_recipients_types` (the types and their fields),
+  `oadm_recipients_certificates` (`ListRecipientCertificates`, ids and texts), `oadm_recipients_save_preview`/`_run` (the
+  preview is `EventService.CheckRecipient`: the dialog's checks without saving; a change keeps the fields left out and the
+  stored password; a password, header or file value is refused "Set this in OADM.", and so is a new recipient whose type
+  needs a password; an address with a login is refused), `oadm_recipients_delete_preview`/`_run` (no handle while rules
+  use it, their names in `used_by`), `oadm_recipients_test_preview`/`_run` (`TestRecipient` with the stored values).
+- **Compliance**: `oadm_compliance_devices(check_id, outcomes, filter)` (which devices fail a check, or pass, or are unknown,
+  pages with the total and the result's detail, `ComplianceService.ListResults`), `oadm_compliance_kinds` (the kinds and
+  their fields), `oadm_compliance_enable_preview`/`_run` (`SetEnabled`, users with all devices),
+  `oadm_compliance_check_save_preview`/`_run` (`PlanCheck` then `SaveCheck`; a change starts from the stored check, its
+  settings never shown; a password or file field is set in OADM), `oadm_compliance_check_delete_preview`/`_run` and
+  `oadm_compliance_check_enable_preview`/`_run` (a default check is never deleted or turned off),
+  `oadm_compliance_check_now_preview`/`_run` (`CheckNow` on checks and a filter).
+- **Sites**: `oadm_sites_rename_preview`/`_run` (Administrator, `RenameSite`; a name in use is refused).
+- **Live view** (device safety: the preview reads what the camera supports and refuses the rest): `oadm_devices_optics`
+  and `oadm_devices_ptz` (reads of the camera now), `oadm_devices_optics_preview`/`_run` (one change: zoom within the
+  camera's range, focus, autofocus, an autofocus area or the default focus; Optics control), `oadm_devices_ptz_preview`/`_run`
+  (home, a preset by name, zoom, center on a point; continuous moves stay in the live view),
+  `oadm_devices_rtsp_port_preview`/`_run` (the port OADM stores for at most 1,000 devices of a filter, `SetRtspPort`; the
+  devices are not changed).
+- **Vulnerabilities**: `oadm_vulnerabilities_update_preview`/`_run` (Check now, `VulnerabilityService.Refresh`,
+  Administrator; no handle unless Update online is By the server).
+- **Version**: `oadm_update_check` (`UpdateService.Get`, Administrator: the server's version, the latest release, whether
+  Install now is offered; Install now stays in OADM).
+- **gRPC** (docs/spec/grpc.md): `ComplianceService.ListResults` and `PlanCheck`, `EventService.CheckRecipient`,
+  `StartZeroConf(ZeroConfRequest)`; each with its `AccessPolicy` rule and its device group canary case.
+- **Tests**: `McpHostActionTests` (the preview writes nothing, the run does it once and only with its own preview's handle,
+  handles end after 10 minutes and belong to their caller, the audit lines, refusals, a role without the rights and a group
+  user list none of the changes and a group sees only its devices, Discovery only looks, the scrub of a task read, every
+  card), and `McpToolTests` / `McpSecretTests` / `McpSkillTests` over every new tool.
+
 ## Open points
 
 - Client support for the MCP tasks extension: if it spreads, `oadm_task_run` may answer a task handle instead of polling.
-- Not offered yet: changing recipients, changing compliance checks, turning a rule on or off by itself; the waiting list keeps no
-  tags or site for a device an agent puts there.
+- The waiting list keeps no tags or site for a device an agent puts there.
+- A recipient's password and a check's password or configuration file take no value over the tools until the secret channel
+  (feat/agent-transfer) exists: `RecipientChangeTools.SecretOf` is its hook (a password field `{"secret": "<handle>"}`).
+- Stage 2 of "everything a user can do": the plugin pages' changes and the client's remaining dialogs.
 - The skills extension is declared without fields; when its schema settles, `McpSkill` may list the skill there too.
 
