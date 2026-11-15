@@ -58,12 +58,13 @@
 
       <!-- Access keys (administrators, docs/spec/mcp.md "Access keys"): Create access key opens the form that shows the key
            once; Delete asks first and ends the key at once. -->
+      <Border Classes="separator" IsVisible="{Binding IsAdmin}" />
       <StackPanel x:Name="AccessKeys" Classes="form" DataContext="{Binding Keys}" IsVisible="{Binding $parent[settings:AiPageView].((settings:AiAgentsViewModel)DataContext).IsAdmin}"
                   x:DataType="settings:AccessKeysViewModel">
         <StackPanel Orientation="Horizontal" Spacing="4">
           <TextBlock Classes="sectionTitle" Text="{x:Static settings:AccessKeyWords.Title}" VerticalAlignment="Center" Margin="0,0,12,0" />
           <ui:ToolbarButton x:Name="CreateAccessKey" Text="{x:Static settings:AccessKeyWords.Create}" IconKey="add" Command="{Binding CreateCommand}"
-                            VerticalAlignment="Center" />
+                            VerticalAlignment="Center" Margin="0,3,0,0" />
         </StackPanel>
         <ui:ProgressRow Text="Reading the access keys" IsVisible="{Binding IsLoading}" />
         <TextBlock Classes="secondary" Text="{x:Static settings:AccessKeyWords.Empty}" TextWrapping="Wrap" IsVisible="{Binding IsEmpty}" />
@@ -95,8 +96,9 @@
 
       <!-- Connect an agent (docs/spec/mcp.md): one row: the client (Claude Code, .mcp.json, VS Code) and Copy, which puts its
            command or file text with this server's address on the clipboard; then the CA certificate and the skill. -->
+      <Border Classes="separator" />
       <StackPanel x:Name="ConnectAgent" Classes="form">
-        <TextBlock Classes="sectionTitle subsection" Text="Connect an agent" />
+        <TextBlock Classes="sectionTitle" Text="Connect an agent" />
         <WrapPanel Orientation="Horizontal">
           <ComboBox x:Name="ConnectClient" Width="180" Margin="0,0,8,8" IsVisible="{Binding HasConnections}"
                     ItemsSource="{Binding Connections}" SelectedIndex="{Binding SelectedConnection}">
