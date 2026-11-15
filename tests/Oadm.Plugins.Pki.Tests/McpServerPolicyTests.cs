@@ -38,7 +38,8 @@ public sealed class McpServerPolicyTests
             Assert.Null(load.Problem);
             Assert.True(load.Chain[0].HasPrivateKey);
             Assert.Equal(PkiService.McpServerCertificateName, load.Chain[0].GetNameInfo(System.Security.Cryptography.X509Certificates.X509NameType.SimpleName, false));
-            Assert.Equal(["10.0.0.17", Environment.MachineName], PkiService.NamesOf(load.Chain[0]));
+            // The server's addresses and name, and the loopback names: an agent on this computer connects to localhost.
+            Assert.Equal(new[] { "10.0.0.17", "127.0.0.1", "::1", Environment.MachineName, "localhost" }.Order(StringComparer.Ordinal), PkiService.NamesOf(load.Chain[0]).Order(StringComparer.Ordinal));
             Assert.Contains(load.Chain[0].Extensions.OfType<System.Security.Cryptography.X509Certificates.X509EnhancedKeyUsageExtension>().Single().EnhancedKeyUsages.Cast<System.Security.Cryptography.Oid>(),
                 o => o.Value == "1.3.6.1.5.5.7.3.1"); // server authentication
             using (var key = System.Security.Cryptography.X509Certificates.ECDsaCertificateExtensions.GetECDsaPublicKey(load.Chain[0]))

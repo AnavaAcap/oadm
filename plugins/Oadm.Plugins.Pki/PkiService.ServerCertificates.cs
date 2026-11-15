@@ -300,7 +300,9 @@ public sealed partial class PkiService
                 return; // another load was quicker, or no CA can issue yet (the status says why)
             }
 
-            List<string> all = [.. Policies.McpServerNames?.Invoke() ?? [.. Oadm.Plugins.Est.Serving.ServerCertificates.LocalAddresses(), Environment.MachineName]];
+            // The loopback names last: an agent on this computer connects to localhost; the address of Connect an agent stays the
+            // computer's own name (the first host name).
+            List<string> all = [.. Policies.McpServerNames?.Invoke() ?? [.. Oadm.Plugins.Est.Serving.ServerCertificates.LocalAddresses(), Environment.MachineName], .. LoopbackNames];
             var ips = all.Where(n => IPAddress.TryParse(n, out _)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
             var dns = all.Where(n => !IPAddress.TryParse(n, out _) && CertificateNames.IsPlainHostName(n)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
             var (id, error) = await MakeServerCertificateAsync(McpServerCertificateName, ca, ips, dns, "OADM", ct).ConfigureAwait(false);
@@ -317,6 +319,9 @@ public sealed partial class PkiService
             _serverCertificateGate.Release();
         }
     }
+
+    /// <summary>The names an agent on the server's own computer connects with; in every MCP Server Certificate.</summary>
+    internal static readonly string[] LoopbackNames = ["localhost", "127.0.0.1", "::1"];
 
     /// <summary>
     /// The shared server certificate a server policy shows now (made by OADM under <see cref="SharedServerCertificateName"/>),

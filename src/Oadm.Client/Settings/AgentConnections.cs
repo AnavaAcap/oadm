@@ -50,7 +50,10 @@ public static class AgentConnections
     public static string? HostOf(IReadOnlyList<string> certificateNames)
     {
         ArgumentNullException.ThrowIfNull(certificateNames);
-        var names = certificateNames.Where(n => !string.IsNullOrWhiteSpace(n)).Select(n => n.Trim()).ToList();
+        // localhost and the loopback addresses are for an agent on the server's own computer, never the address to hand out.
+        var names = certificateNames.Where(n => !string.IsNullOrWhiteSpace(n)).Select(n => n.Trim())
+            .Where(n => !string.Equals(n, "localhost", StringComparison.OrdinalIgnoreCase) && !(IPAddress.TryParse(n, out var a) && IPAddress.IsLoopback(a)))
+            .ToList();
         var chosen = names.FirstOrDefault(n => !IPAddress.TryParse(n, out _)) ?? names.FirstOrDefault();
         return chosen is not null && IPAddress.TryParse(chosen, out var ip) && ip.AddressFamily == AddressFamily.InterNetworkV6 ? "[" + chosen + "]" : chosen;
     }

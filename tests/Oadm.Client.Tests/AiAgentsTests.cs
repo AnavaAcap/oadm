@@ -236,6 +236,8 @@ public sealed class AiAgentsTests
     [InlineData("10.0.0.17", "10.0.0.17")]
     [InlineData("fd00::17", "[fd00::17]")]
     [InlineData("", null)]
+    [InlineData("10.0.0.17|127.0.0.1|::1|oadm-server.local|localhost", "oadm-server.local")] // the loopback names are never handed out
+    [InlineData("127.0.0.1|::1|10.0.0.17|localhost", "10.0.0.17")]
     public void TheAgentConnectsToANameOfTheCertificate(string names, string? host) =>
         Assert.Equal(host, AgentConnections.HostOf(names.Split('|', StringSplitOptions.RemoveEmptyEntries)));
 
