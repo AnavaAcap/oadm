@@ -252,8 +252,10 @@ public sealed class DeviceTriggersTests
         rig.Cameras[a.Id].Declarations = Fixture.Recorded.Replace("<VirtualInput ", "<VirtualInputGone ", StringComparison.Ordinal).Replace("</VirtualInput>", "</VirtualInputGone>", StringComparison.Ordinal);
         rig.Cameras[a.Id].Drop();
 
-        await Wait.UntilAsync(() => rig.Publisher.Lines.Contains($"set lost {a.Id} on reason=The event is no longer on the device"), "connection lost");
-        Assert.Equal("The event is no longer on the device", rig.Plugin.Runtime!.StatesOf(trigger).Single().Problem);
+        // "Connection lost" carries the problem of that moment: the drop itself, or already the event missing on the
+        // reconnect, depending on which comes first on a busy machine (as in ALostConnectionTurnsConnectionLostOn...).
+        await Wait.UntilAsync(() => rig.Publisher.Lines.Any(l => l.StartsWith($"set lost {a.Id} on", StringComparison.Ordinal)), "connection lost");
+        await Wait.UntilAsync(() => rig.Plugin.Runtime!.StatesOf(trigger).Single().Problem == "The event is no longer on the device", "the missing event");
     }
 
     [Fact]
