@@ -17,6 +17,35 @@ A tool that is not in your list is not allowed for this key. Say so. Do not look
    cursor. Add a filter (site, tag, model, firmware, status) instead of paging through everything.
 4. Ask the user when the scope is not clear (which site, which models). Do not pick one.
 
+## Read what OADM knows first
+
+OADM already holds most facts: it polls every device, keeps the task history, the logs and the results of its pages.
+Answer from these tools. Ask the devices (`oadm_vapix_command_preview`, `oadm_devices_snapshot`) only when OADM does not
+have the fact, and say why.
+
+| Question | Tool |
+| --- | --- |
+| Devices, status, models, AXIS OS | `oadm_devices_summary`, `oadm_devices_search` |
+| Clock and NTP | `oadm_devices_search` with field `clock_offset_ms`; `oadm_ntp_status` |
+| Certificates | `oadm_devices_search` with `certificate_expires`, `certificate_trust`; `oadm_pki_certificates` |
+| Vulnerabilities | `oadm_devices_search` rows (TODO: the vulnerability tools of the device tools branch) |
+| Compliance | `oadm_compliance_summary`, `oadm_compliance_checks` |
+| Tasks and failures | `oadm_tasks_summary`, `oadm_tasks_list`, `oadm_tasks_get` |
+| Logs and who did what | `oadm_logs_search`, `oadm_logs_audit` |
+| Event rules | `oadm_rules_list`, `oadm_rules_get`, `oadm_events_log` |
+| Sites | `oadm_sites_list` |
+| PKI, EST, 802.1X | `oadm_pki_certificates`, `oadm_pki_policies`, `oadm_est_enrollments`, `oadm_radius_log` |
+| Applications | `oadm_app_management_applications` |
+| SD cards | `oadm_edge_storage_cards` |
+| DHCP | `oadm_dhcp_status`, `oadm_dhcp_leases` |
+| Hardening | `oadm_hardening_results` |
+| Device settings, action rules, stream profiles | `oadm_config_parameters`, `oadm_config_action_rules`, `oadm_config_stream_profiles` (TODO: planned, verify the names) |
+| Server, license, plugins | `oadm_server_info`, `oadm_server_status`, `oadm_settings_get` |
+| How OADM works | `oadm_docs_search` |
+
+A plugin tool is listed only while its plugin is on. A page tool that answers nothing read yet (applications, SD cards)
+means the page has not read the devices: tell the user to open the page and choose the devices.
+
 ## The device filter
 
 Every tool that works on devices takes the same filter. All fields are optional and combined with AND. An empty filter
@@ -67,7 +96,7 @@ job.
 - **Look-only keys.** A key with a look-only role (such as Viewer) lists no tool that changes something.
 - **Limits.** Answers are cut at 32 KB. When an answer says there is more, narrow the filter. A key has call limits per
   second and per minute. On "too many calls", wait.
-- **Not over MCP.** Users, roles, device groups, access keys, license, plugins on or off, server settings, backup
+- **Not over MCP.** Users, roles, device groups, access keys, changing the license, plugins on or off, server settings, backup
   restore, live video and data resets are done in OADM only.
 
 ## Workflows
@@ -78,3 +107,10 @@ Read the file for the job you are doing.
 - [Network change](network-change.md)
 - [Certificates](certificates.md)
 - [Health check](health-check.md)
+- [Troubleshoot one device](troubleshoot-device.md)
+- [Vulnerabilities](vulnerabilities.md)
+- [Failed tasks](failed-tasks.md)
+- [Event rules](event-rules.md)
+- [Applications](applications.md)
+- [SD cards](storage.md)
+- [Sites](sites.md)
