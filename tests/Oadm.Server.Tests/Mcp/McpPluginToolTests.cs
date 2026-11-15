@@ -316,6 +316,30 @@ public sealed class McpPluginToolTests
     private static readonly string ToolsPage = Oadm.Tests.Shared.TestRepository.Path("website", "src", "content", "docs", "admin", "mcp-server", "tools.mdx");
 
     [Fact]
+    public async Task APluginsFileIsAReferenceWhoseLinkFetchesThePluginsDownloadAsTheKey()
+    {
+        // The plugin's answer names its download; the caller gets a file reference, and the bytes come only through the link
+        // (PluginService.Download in process as the key: its rights of then and the plugin's own audit).
+        await using var server = await StartBundledAsync();
+        var key = await server.CreateKeyAsync(name: "csv-bot");
+        var answer = await server.ToolAsync(key, "oadm_hardening_results_csv", new JsonObject());
+        var file = Assert.IsType<JsonObject>(answer["file"]);
+        Assert.Null(file["method"]); // never the plugin's method or payload
+        Assert.Null(file["payload_json"]);
+        Assert.Equal("text/csv", file["content_type"]!.GetValue<string>());
+        var link = await server.ToolAsync(key, ToolFiles.LinkTool, new JsonObject { ["file_ref"] = file["file_ref"]!.GetValue<string>() });
+        using var client = server.Http();
+        using var request = new HttpRequestMessage(HttpMethod.Get, new Uri(link["url"]!.GetValue<string>()).PathAndQuery);
+        request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", key);
+        using var fetched = await client.SendAsync(request);
+        Assert.Equal(System.Net.HttpStatusCode.OK, fetched.StatusCode);
+        var csv = System.Text.Encoding.UTF8.GetString(await fetched.Content.ReadAsByteArrayAsync());
+        Assert.Contains("Address", csv, StringComparison.Ordinal);
+        var audit = (await server.Host.Audit.ListAsync(new Proto.ListAuditRequest())).Entries;
+        Assert.Contains(audit, e => e.Action == AuditActions.FileDownloaded && e.UserName == AccessKeyStore.AgentNameOf("csv-bot"));
+    }
+
+    [Fact]
     public async Task TheToolsPageOfTheDocsListsEveryToolAsTheServerOffersIt()
     {
         await using var server = await StartBundledAsync();
