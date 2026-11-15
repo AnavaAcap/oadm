@@ -265,7 +265,7 @@ public sealed partial class PolicyStore : IDisposable
     /// Saves <paramref name="request"/> (a new one goes last: it is the newest) after the checks, as <paramref name="userName"/>;
     /// applies at once for the 802.1X server (<see cref="Changed"/>).
     /// </summary>
-    public async Task<PolicySaveResult> SaveAsync(PkiPolicy request, string userName, IReadOnlyList<PolicyCipherSuite> suites, CancellationToken ct)
+    public async Task<PolicySaveResult> SaveAsync(PkiPolicy request, string userName, IReadOnlyList<PolicyCipherSuite> suites, CancellationToken ct, bool dryRun = false)
     {
         ArgumentNullException.ThrowIfNull(request);
         ArgumentNullException.ThrowIfNull(suites);
@@ -394,6 +394,11 @@ public sealed partial class PolicyStore : IDisposable
                 }
             }
 
+            if (dryRun)
+            {
+                return new PolicySaveResult(policy with { Id = before?.Id ?? Guid.Empty }, null); // a tool's preview: every check, nothing written
+            }
+
             policy = policy with { Id = before?.Id ?? Guid.NewGuid(), SavedBy = userName, Revision = (before?.Revision ?? 0) + 1 };
             if (index >= 0)
             {
@@ -427,7 +432,7 @@ public sealed partial class PolicyStore : IDisposable
     }
 
     /// <summary>Deletes the policy <paramref name="id"/>; the error when it no longer exists.</summary>
-    public async Task<PolicySaveResult> DeleteAsync(Guid id, string userName, CancellationToken ct)
+    public async Task<PolicySaveResult> DeleteAsync(Guid id, string userName, CancellationToken ct, bool dryRun = false)
     {
         PkiPolicy? removed;
         await _gate.WaitAsync(ct).ConfigureAwait(false);
@@ -448,6 +453,11 @@ public sealed partial class PolicyStore : IDisposable
             if (await DeleteRefusalAsync(removed, stored.Policies, ct).ConfigureAwait(false) is { } refusal)
             {
                 return Refused(PolicyFields.Name, refusal);
+            }
+
+            if (dryRun)
+            {
+                return new PolicySaveResult(removed, null); // a tool's preview: every check, nothing written
             }
 
             await StoreAsync(stored with { Policies = [.. stored.Policies.Where(p => p.Id != id)] }, ct).ConfigureAwait(false);

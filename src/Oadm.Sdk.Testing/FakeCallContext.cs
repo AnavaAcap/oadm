@@ -132,7 +132,7 @@ public sealed class FakeCallContext : ICallContext
     public IDeviceEventStreams? EventStreams { get; }
 
     /// <summary>The caller's uploads (a tool's file argument, SDK 0.13.0): a <see cref="FakeUploadedFiles"/>, empty by default.</summary>
-    public IUploadedFiles Uploads { get; init; } = new FakeUploadedFiles();
+    public IUploadedFiles Uploads { get; set; } = new FakeUploadedFiles();
 
     /// <summary>How many requests named devices outside the group (each was refused before anything ran).</summary>
     public int Refused => Volatile.Read(ref _refused);

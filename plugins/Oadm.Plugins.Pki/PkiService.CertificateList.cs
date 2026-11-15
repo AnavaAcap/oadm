@@ -354,6 +354,15 @@ public sealed partial class PkiService
         return index;
     }
 
+    /// <summary>
+    /// A CA row of the Certificates list (<c>ca:&lt;SHA-256&gt;</c>, the id the tools name a CA by): its authority id, name,
+    /// whether it is a root CA, whether PKI holds its key, and the SHA-256 of its certificate; null when it is not listed.
+    /// </summary>
+    internal (string AuthorityId, string Name, bool IsRoot, bool HasKey, string Fingerprint)? AuthorityOfRow(string? rowId) =>
+        rowId is not null && Issuers().AuthorityRows.FirstOrDefault(r => r.Row.Id == rowId) is { Row.AuthorityId: { } authority } row
+            ? (authority, row.Row.Name ?? authority, row.Row.IsRootCa, row.Row.HasKey, Convert.ToHexString(SHA256.HashData(row.Der)))
+            : null;
+
     /// <summary>The DER of a CA row (<c>ca:&lt;SHA-256&gt;</c>); null when it is no longer listed.</summary>
     private byte[]? AuthorityDer(string rowId) =>
         Issuers().AuthorityRows.FirstOrDefault(r => r.Row.Id == rowId)?.Der;

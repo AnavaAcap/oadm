@@ -316,6 +316,11 @@ server whole when it serves a use OADM sets up.
 **AI agents** ([mcp.md](mcp.md) "Tasks"): Set up and Remove through the task tools with the same permission; no clock
 answer (a camera whose clock is behind refuses); the replacement of the network access certificate only when the agent
 asks for it, and the plan warns that such cameras drop off the network if the RADIUS server does not trust its CA.
+The server's page as tools (decision 2026-11-15, [mcp.md](mcp.md) "Page actions"): Turn on (OADM PRO) and Turn off, the
+Server card's Save and a profile's save and delete, each a preview with the page's checks that writes nothing and a run with
+the page's rights (Administrator, "Change the EST server", users with all devices) and audit; the plans warn that Turn off
+and a new address or port stop the cameras' enrollments and renewals, and that a deleted profile's cameras can no longer
+renew there.
 
 **Hardware test:** `tests/Oadm.Plugins.Est.Tests/EstHardwareWriteTests.cs` (`OADM_EST_HARDWARE_WRITE=1`,
 `OADM_EST_SERVER_ADDRESS`, `OADM_DEV_CAMERAS`): a real EST server on this computer with a test CA, the real task on

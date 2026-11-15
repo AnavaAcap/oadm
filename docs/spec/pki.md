@@ -622,6 +622,11 @@ Rules:
   device, as View lists them), refuses an empty choice or an Axis factory name before any task starts, and its plan says
   how many certificates go from how many devices, that they cannot be restored and that one in use is never deleted.
   Install certificates (a password) and Install CA certificates (a new trust anchor the person checks) stay in OADM.
+- AI agents and the page (decision 2026-11-15, [mcp.md](mcp.md) "Page actions"): Create CA, Import CA (a file the agent
+  uploaded, its password only through the secret channel), Delete CA (refused while a policy names it, as on the page), Back
+  up a CA's key (its password through the secret channel, the PKCS#12 handed out once over a download link, the only
+  private-key file a tool gives), Install in the server's trust, and the policies' Save and Delete, each a preview with the
+  page's checks that writes nothing and a run with the page's rights and audit (`plugins/Oadm.Plugins.Pki/README.md` "Tools").
 - The task payload carries only the policy id (and the clock answer); the run uses the policy's stored values and checks
   them like a saved policy before the first write. Without a policy id (older clients) the first of the kind. A policy
   deleted after the dialog fails in Check compatibility: "The chosen policy no longer exists. Start the task again. Nothing

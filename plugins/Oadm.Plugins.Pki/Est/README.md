@@ -117,3 +117,11 @@ The page's Delete all as `oadm_est_enrollments_clear_preview` / `_run` (`Tools/E
 2026-11-15): the rights of `clearEnrollments` (Administrator, "manage", users with all devices, the run audited, the preview
 not); the preview counts the entries and deletes nothing, an empty list is refused ("The enrollments list is empty.").
 Tests: `PageToolTests`.
+
+The server's actions (decision 2026-11-15, same file): `oadm_est_enable` (Turn on with OADM PRO, Turn off; audited as
+`turnOn` / `turnOff`), `oadm_est_settings_save` (port, interface, enrollments kept), `oadm_est_profile_save` (adds the
+profile or changes the one with its name: use, issuing policy, on) and `oadm_est_profile_delete`. Each builds the whole
+configuration from the stored one and checks it with `EstService.SaveRefusal` (the checks of Save without saving; the
+page's texts, `profiles[i].x` as `name`, `use`, `policy_id`); while the server is off the settings and profiles are refused
+("The EST server is off. Turn it on first."), like the page. Rights of `save` and the switch (Administrator, "manage", users
+with all devices), the run audited with its page method. Tests: `PageToolTests`.

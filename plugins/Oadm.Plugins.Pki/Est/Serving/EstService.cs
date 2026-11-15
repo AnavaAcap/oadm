@@ -538,6 +538,25 @@ public sealed partial class EstService : IAsyncDisposable
     private IEnumerable<ServerNetworkInterface> UsableInterfaces() =>
         _host.Interfaces.List().Where(n => n.IsUp && !n.IsLoopback && ListenAddresses(n).Count > 0);
 
+    /// <summary>
+    /// The checks of <see cref="SaveAsync"/> without saving (a tool's preview): the field and its error, null when the save
+    /// would go through.
+    /// </summary>
+    internal (string Field, string Message)? SaveRefusal(EstConfig config)
+    {
+        ArgumentNullException.ThrowIfNull(config);
+        if (Validate(config, _host.Policies()) is { } error)
+        {
+            return error;
+        }
+
+        return InterfaceOptions.IsAll(config.InterfaceId)
+            || UsableInterfaces().Any(n => string.Equals(n.Id, config.InterfaceId, StringComparison.Ordinal))
+            || string.Equals(config.InterfaceId, _store.Config.InterfaceId, StringComparison.Ordinal)
+            ? null
+            : ("interface", "This interface is not available on the server.");
+    }
+
     public async Task<SaveReply> SaveAsync(SaveRequest request, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(request);

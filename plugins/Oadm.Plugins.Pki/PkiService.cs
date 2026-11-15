@@ -419,41 +419,10 @@ public sealed partial class PkiService : IAsyncDisposable
             return await ErrorAsync("The CA cannot be stored on this server.", ct).ConfigureAwait(false);
         }
 
-        var errors = new Dictionary<string, string>(StringComparer.Ordinal);
-        Add(errors, PkiFields.CommonName, PkiValidation.CommonName(request.CommonName));
-        Add(errors, PkiFields.ValidityYears, PkiValidation.ValidityYears(request.ValidityYears));
-        Add(errors, PkiFields.Key, request.Key is { } key && CaKeys.All.Contains(key, StringComparer.Ordinal) ? null : "Choose a key.");
-        CaMaterial? issuer = null;
-        if (request.Intermediate)
-        {
-            issuer = IssuingCa(request.IssuerId);
-            if (issuer is null)
-            {
-                errors[PkiFields.Issuer] = "Choose a CA with its key.";
-            }
-            else if (issuer.Certificate.NotAfter.ToUniversalTime() <= Now.UtcDateTime)
-            {
-                errors[PkiFields.Issuer] = "This CA has expired.";
-            }
-            else if (CaGenerator.CannotSignCa(issuer.Certificate) is { } cannot)
-            {
-                errors[PkiFields.Issuer] = cannot;
-            }
-        }
-
-        if (!errors.ContainsKey(PkiFields.CommonName) && Authorities().Any(a => string.Equals(a.Name, request.CommonName!.Trim(), StringComparison.OrdinalIgnoreCase)))
-        {
-            errors[PkiFields.CommonName] = "Another CA has this name.";
-        }
-
+        var errors = CreateAuthorityErrors(request, out var issuer);
         if (errors.Count > 0)
         {
             return new PkiReply { Errors = errors };
-        }
-
-        if (_imported.Count >= PkiPluginInfo.MaxImportedCas)
-        {
-            return new PkiReply { Errors = One(PkiFields.CommonName, $"At most {PkiPluginInfo.MaxImportedCas} CAs can be created or imported. Delete one first.") };
         }
 
         var now = Now;
@@ -486,6 +455,54 @@ public sealed partial class PkiService : IAsyncDisposable
         CaChanged?.Invoke(this, EventArgs.Empty);
         await PublishAsync().ConfigureAwait(false);
         return new PkiReply { Ok = true, State = await GetStateAsync(ct).ConfigureAwait(false) };
+    }
+
+    /// <summary>
+    /// The checks of Create CA (field errors by <see cref="PkiFields"/>; empty when it may be made) and the CA that signs an
+    /// intermediate; nothing is written (also a tool's preview).
+    /// </summary>
+    internal Dictionary<string, string> CreateAuthorityErrors(CreateCaRequest request, out CaMaterial? issuer)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        issuer = null;
+        var errors = new Dictionary<string, string>(StringComparer.Ordinal);
+        if (Unavailable)
+        {
+            errors[PkiFields.CommonName] = "The CA cannot be stored on this server.";
+            return errors;
+        }
+
+        Add(errors, PkiFields.CommonName, PkiValidation.CommonName(request.CommonName));
+        Add(errors, PkiFields.ValidityYears, PkiValidation.ValidityYears(request.ValidityYears));
+        Add(errors, PkiFields.Key, request.Key is { } key && CaKeys.All.Contains(key, StringComparer.Ordinal) ? null : "Choose a key.");
+        if (request.Intermediate)
+        {
+            issuer = IssuingCa(request.IssuerId);
+            if (issuer is null)
+            {
+                errors[PkiFields.Issuer] = "Choose a CA with its key.";
+            }
+            else if (issuer.Certificate.NotAfter.ToUniversalTime() <= Now.UtcDateTime)
+            {
+                errors[PkiFields.Issuer] = "This CA has expired.";
+            }
+            else if (CaGenerator.CannotSignCa(issuer.Certificate) is { } cannot)
+            {
+                errors[PkiFields.Issuer] = cannot;
+            }
+        }
+
+        if (!errors.ContainsKey(PkiFields.CommonName) && Authorities().Any(a => string.Equals(a.Name, request.CommonName!.Trim(), StringComparison.OrdinalIgnoreCase)))
+        {
+            errors[PkiFields.CommonName] = "Another CA has this name.";
+        }
+
+        if (errors.Count == 0 && _imported.Count >= PkiPluginInfo.MaxImportedCas)
+        {
+            errors[PkiFields.CommonName] = $"At most {PkiPluginInfo.MaxImportedCas} CAs can be created or imported. Delete one first.";
+        }
+
+        return errors;
     }
 
     public async Task<PkiReply> ImportAsync(ImportRequest request, CancellationToken ct)

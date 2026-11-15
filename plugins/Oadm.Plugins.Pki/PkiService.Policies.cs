@@ -272,7 +272,7 @@ public sealed partial class PkiService
     }
 
     /// <summary>Saves one policy as <paramref name="userName"/>; a revoke policy revokes the certificates of its devices with the save.</summary>
-    internal async Task<PolicySaveReply> SavePolicyAsync(PkiPolicy policy, string userName, CancellationToken ct)
+    internal async Task<PolicySaveReply> SavePolicyAsync(PkiPolicy policy, string userName, CancellationToken ct, bool dryRun = false)
     {
         ArgumentNullException.ThrowIfNull(policy);
         if (policy.Kind == PolicyKinds.Dot1xServer && RadiusPolicies.ValidateTls(PolicyRules.Normalize(policy)) is { } tls)
@@ -280,7 +280,7 @@ public sealed partial class PkiService
             return new PolicySaveReply { Error = tls };
         }
 
-        var result = await Policies.SaveAsync(policy, userName, CipherSuites, ct).ConfigureAwait(false);
+        var result = await Policies.SaveAsync(policy, userName, CipherSuites, ct, dryRun).ConfigureAwait(false);
         if (result.Error is { } error)
         {
             return new PolicySaveReply { Error = error };
@@ -289,9 +289,9 @@ public sealed partial class PkiService
         return new PolicySaveReply { Saved = result.Saved, List = await PolicyListAsync(hasAllDevices: true, mayManage: true, ct).ConfigureAwait(false) };
     }
 
-    internal async Task<PolicySaveReply> DeletePolicyAsync(Guid id, string userName, CancellationToken ct)
+    internal async Task<PolicySaveReply> DeletePolicyAsync(Guid id, string userName, CancellationToken ct, bool dryRun = false)
     {
-        var result = await Policies.DeleteAsync(id, userName, ct).ConfigureAwait(false);
+        var result = await Policies.DeleteAsync(id, userName, ct, dryRun).ConfigureAwait(false);
         return result.Error is { } error
             ? new PolicySaveReply { Error = error }
             : new PolicySaveReply { List = await PolicyListAsync(hasAllDevices: true, mayManage: true, ct).ConfigureAwait(false) };

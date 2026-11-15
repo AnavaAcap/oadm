@@ -20,7 +20,7 @@ namespace Oadm.Plugins.Radius;
 /// kinds once, at the first start (<see cref="RadiusPolicies.DefaultPolicies"/>). Events: "Device authenticated",
 /// "Authentication failed".
 /// </summary>
-public sealed class RadiusPlugin : ICorePlugin, IEventSource, IAsyncDisposable
+public sealed class RadiusPlugin : ICorePlugin, ICorePluginDownloads, IEventSource, IAsyncDisposable
 {
     /// <summary>The plugin id, equal to the id in plugin.json.</summary>
     public const string PluginId = "oadm.radius";
@@ -56,6 +56,27 @@ public sealed class RadiusPlugin : ICorePlugin, IEventSource, IAsyncDisposable
 
     /// <summary>The running server (null while stopped, turned off or without OADM PRO).</summary>
     public RadiusService? Service => _server?.Service;
+
+    /// <summary>The one-time files of the tools' runs (a generated shared secret), in memory only.</summary>
+    internal Pki.Tools.ToolFileStore Files { get; } = new();
+
+    /// <summary>A tool's run is audited with its page method, like the page's own call (Turn on, Turn off, a save).</summary>
+    public string? AuditDetail(string method, string? payloadJson) => RadiusPageTools.AuditDetail(method, payloadJson);
+
+    /// <summary>The one-time file of a tool's run (a generated shared secret), once, for its caller only.</summary>
+    public Task<PluginDownload> OpenDownloadAsync(ICallContext caller, string method, string? payloadJson, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(caller);
+        if (!caller.HasAllDevices || method != Pki.Tools.ToolFileStore.Method)
+        {
+            throw new DeviceAccessRefusedException(); // the host refuses a group user first (RequiresAllDevices); fail closed
+        }
+
+        return Task.FromResult(Files.Take(caller, payloadJson));
+    }
+
+    /// <summary>In-process callers: no file without a caller.</summary>
+    public Task<PluginDownload> OpenDownloadAsync(string method, string? payloadJson, CancellationToken ct) => throw new DeviceAccessRefusedException();
 
     /// <summary>Turn on / Turn off of the server (null while the core plugin is stopped).</summary>
     public ServerSwitch<RadiusService>? Server => _server;
@@ -179,7 +200,7 @@ public sealed class RadiusPlugin : ICorePlugin, IEventSource, IAsyncDisposable
     public bool RequiresAllDevices(string method) => AllDevicesOnly(RadiusPageTools.Set.RulesMethodOf(method));
 
     private static bool AllDevicesOnly(string method) => ServerSwitchMethods.IsChange(method) || method is RadiusMethods.SaveSettings or RadiusMethods.SaveSwitch or RadiusMethods.GenerateSecret
-        or RadiusMethods.DeleteSwitch or RadiusMethods.DeleteLog;
+        or RadiusMethods.DeleteSwitch or RadiusMethods.DeleteLog or Pki.Tools.ToolFileStore.Method;
 
     /// <summary>The page backend with the user's call: rows of devices are filtered to the caller's devices.</summary>
     public async Task<string?> InvokeAsync(ICallContext caller, string method, string? payloadJson, CancellationToken ct)
