@@ -194,6 +194,12 @@ public interface IModelLibrary
     /// <summary>Starts an upload; refuses over the limits. <paramref name="labels"/>: an optional labels file's text.</summary>
     Task<string> BeginUploadAsync(string fileName, long size, string? labels, CancellationToken ct);
 
+    /// <summary>The refusal <see cref="BeginUploadAsync"/> would give (its kind, its size, the limits), without starting one; null when it may start (a tool's preview).</summary>
+    string? CheckUpload(string fileName, long size, string? labels) => null;
+
+    /// <summary>Every check of <see cref="UpdateAsync"/> without storing: the model as it would be stored (a tool's preview); <see cref="ArgumentException"/> with the page's text otherwise.</summary>
+    VisionModel CheckUpdate(VisionModel changed) => changed;
+
     Task AppendAsync(string uploadId, long offset, ReadOnlyMemory<byte> chunk, CancellationToken ct);
 
     /// <summary>Checks the whole file and stores the model, or refuses it (nothing kept).</summary>

@@ -25,7 +25,7 @@ public sealed class ToolTests
         await plugin.StartAsync(ctx, CancellationToken.None);
         ICorePlugin core = plugin;
         Assert.Equal("ntp", core.ToolArea);
-        Assert.Equal("status", Assert.Single(core.Tools).Name);
+        Assert.Equal(["status", "settings_save"], core.Tools.Select(t => t.Name));
         Assert.Equal(UserRole.Operator, core.RequiredRole(NtpTools.Status.Method));
         Assert.False(core.IsAudited(NtpTools.Status.Method));
         Assert.False(core.RequiresAllDevices(NtpTools.Status.Method));
@@ -61,11 +61,11 @@ public sealed class ToolTests
         var before = Stored(ctx);
 
         ICorePlugin core = plugin;
-        Assert.All(core.Tools, t => Assert.False(t.Changes)); // no change tool here: every tool is a read
+        Assert.Equal(["settings_save"], core.Tools.Where(t => t.Changes).Select(t => t.Name)); // its preview only reads
         foreach (var tool in core.Tools)
         {
-            Assert.NotNull(await ctx.InvokeAsync(plugin, admin, tool.Method, null));
-            Assert.NotNull(await ctx.InvokeAsync(plugin, admin, tool.Method, "{}"));
+            Assert.NotNull(await ctx.InvokeAsync(plugin, admin, tool.Changes ? tool.PreviewMethod : tool.Method, null));
+            Assert.NotNull(await ctx.InvokeAsync(plugin, admin, tool.Changes ? tool.PreviewMethod : tool.Method, "{}"));
         }
 
         Assert.Equal(before, Stored(ctx));

@@ -666,7 +666,7 @@ server, the traffic light ("Runtime stats") is the real guard.
 - MCP and the assistant ([mcp.md](mcp.md) "Plugins"): the read-only tools `oadm_ocr_readers` and `oadm_ocr_reads` (the
   page's list and the recent reads of one reader as text, never a picture), "View text recognition". The page's actions
   (decision 2026-11-15, [mcp.md](mcp.md) "Page actions"), with the page's rights: `oadm_ocr_reader_save`, `_reader_delete`
-  and `_reader_read_now` (changes; Read now fires the reader's events and answers the text only).
+  and `_reader_read_now` (changes; Read now fires the reader's events and answers the text only), `_use_gpu` (with all devices).
 
 ## Accuracy
 

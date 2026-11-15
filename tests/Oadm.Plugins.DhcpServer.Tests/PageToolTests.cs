@@ -166,11 +166,74 @@ public sealed class PageToolTests
                      ("tool.static_lease_save", """{"mac":"B8:A4:4F:63:13:39","address":"10.0.0.148"}"""),
                      ("tool.lease_release", $$"""{"mac":"{{Cam}}"}"""),
                      ("tool.lease_make_static.preview", $$"""{"mac":"{{Cam}}"}"""),
+                     ("tool.settings_save.preview", """{"enabled":false}"""),
+                     ("tool.settings_save", """{"enabled":false}"""),
                  })
         {
             await Assert.ThrowsAsync<DeviceAccessRefusedException>(() => ctx.InvokeAsync(plugin, group, method, payload));
         }
 
+        Assert.Equal(before, State(plugin));
+    }
+
+    [Fact]
+    public void Settings_save_has_the_rights_of_the_page_save()
+    {
+        ICorePlugin core = new DhcpServerPlugin();
+        Assert.Equal(DhcpServerMethods.Save, DhcpPageTools.Set.PageMethodOf("tool.settings_save"));
+        Assert.Equal(UserRole.Admin, core.RequiredRole("tool.settings_save.preview"));
+        Assert.Equal(core.RequiredPermission(DhcpServerMethods.Save), core.RequiredPermission("tool.settings_save"));
+        Assert.True(core.RequiresAllDevices("tool.settings_save"));
+        Assert.True(core.IsAudited("tool.settings_save"));
+        Assert.False(core.IsAudited("tool.settings_save.preview"));
+    }
+
+    [Fact]
+    public async Task Settings_save_previews_with_the_warnings_writes_nothing_and_the_run_turns_the_server_on_once()
+    {
+        var (ctx, plugin, _) = await StartAsync();
+        await using var _ = plugin;
+        var admin = ctx.CallAsAllDevices();
+        var payload = """{"enabled":true,"interface":"Ethernet","range_start":"10.0.0.100","range_end":"10.0.0.199","auto_add_axis_devices":true}""";
+        var before = State(plugin);
+
+        var plan = Answer(await ctx.InvokeAsync(plugin, admin, "tool.settings_save.preview", payload));
+        Assert.Equal(("turn_on", "Ethernet", "DHCP server"), (plan["change"]!.GetValue<string>(), plan["interface"]!.GetValue<string>(), plan["unit"]!.GetValue<string>()));
+        var warnings = plan["warnings"]!.AsArray().Select(w => w!.GetValue<string>()).ToList();
+        Assert.Contains(DhcpPageTools.HandsOutAddresses, warnings);
+        Assert.Contains(DhcpPageTools.AddsDevices, warnings);
+        Assert.Equal(before, State(plugin));
+        Assert.False(plugin.Service!.Config.Enabled);
+
+        var done = Answer(await ctx.InvokeAsync(plugin, admin, "tool.settings_save", payload));
+        Assert.True(done["enabled"]!.GetValue<bool>());
+        var config = plugin.Service.Config;
+        Assert.Equal((true, "eth-id", "10.0.0.100", "10.0.0.199", true), (config.Enabled, config.InterfaceId, config.RangeStart, config.RangeEnd, config.AutoAddAxisDevices));
+
+        // A change keeps the fields it leaves out; turning off says what the devices keep.
+        var off = Answer(await ctx.InvokeAsync(plugin, admin, "tool.settings_save.preview", """{"enabled":false}"""));
+        Assert.Equal("turn_off", off["change"]!.GetValue<string>());
+        Assert.Equal([DhcpPageTools.LeasesStay], off["warnings"]!.AsArray().Select(w => w!.GetValue<string>()));
+        Assert.Equal("10.0.0.100", off["range_start"]!.GetValue<string>());
+        await ctx.InvokeAsync(plugin, admin, "tool.settings_save", """{"enabled":false}""");
+        Assert.Equal((false, "10.0.0.100"), (plugin.Service.Config.Enabled, plugin.Service.Config.RangeStart));
+    }
+
+    [Fact]
+    public async Task Settings_save_answers_the_page_texts_under_the_fields_and_changes_nothing()
+    {
+        var (ctx, plugin, _) = await StartAsync();
+        await using var _ = plugin;
+        var admin = ctx.CallAsAllDevices();
+        var before = State(plugin);
+
+        var nic = Answer(await ctx.InvokeAsync(plugin, admin, "tool.settings_save.preview", """{"enabled":true,"interface":"Nowhere"}"""));
+        Assert.Equal(("interface", DhcpPageTools.NoInterface), (nic["errors"]![0]!["field"]!.GetValue<string>(), nic["errors"]![0]!["error"]!.GetValue<string>()));
+
+        var range = Answer(await ctx.InvokeAsync(plugin, admin, "tool.settings_save", """{"enabled":true,"interface":"eth-id","range_start":"10.0.0.x","range_end":"192.168.0.1"}"""));
+        var fields = range["errors"]!.AsArray().Select(e => e!["field"]!.GetValue<string>()).ToList();
+        Assert.Contains("range_start", fields);
+        Assert.Contains("range_end", fields);
         Assert.Equal(before, State(plugin));
     }
 }

@@ -33,7 +33,7 @@ public sealed class PageToolTests
             Assert.Equal(OcrInfo.ChangePermission, core.RequiredPermission(tool.PreviewMethod));
             Assert.True(core.IsAudited(tool.RunMethod), tool.Name);
             Assert.False(core.IsAudited(tool.PreviewMethod), tool.Name); // a preview never writes
-            Assert.False(core.RequiresAllDevices(tool.Method));
+            Assert.Equal(tool.Name == "use_gpu", core.RequiresAllDevices(tool.Method)); // Use GPU is server-wide, as on the page
         }
 
         Assert.NotNull(core.SystemAccessReason("tool.reader_save.preview")); // the page's count of watching readers per site
@@ -142,5 +142,35 @@ public sealed class PageToolTests
         Assert.Equal(key, ocr.Plugin.FindReader(mine["reader_id"]!.GetValue<string>())!.OwnerScopeKey);
         Assert.Equal(2, ocr.Plugin.AllReaders.Count);
         Assert.Equal("Lobby", ocr.Plugin.FindReader(lobby.Id)!.Name);
+    }
+
+    [Fact]
+    public async Task Use_gpu_previews_the_setting_without_storing_and_the_run_sets_it_once()
+    {
+        await using var ocr = await OcrHarness.StartAsync(onGpu: true);
+        var calls = ocr.Recognizer.SetUseGpuCalls;
+
+        var plan = await CallAsync(ocr, "tool.use_gpu.preview", """{"use_gpu":false}""");
+        Assert.Equal((true, false, "setting"), (plan["use_gpu"]!.GetValue<bool>(), plan["new_use_gpu"]!.GetValue<bool>(), plan["unit"]!.GetValue<string>()));
+        Assert.Equal([OcrPageTools.ToProcessor], plan["warnings"]!.AsArray().Select(w => w!.GetValue<string>()));
+        Assert.Equal(calls, ocr.Recognizer.SetUseGpuCalls); // nothing set
+        Assert.True(OcrJson.Deserialize<EngineInfo>(await ocr.CallAsync(OcrMethods.GetEngine)).UseGpu);
+
+        var done = await CallAsync(ocr, "tool.use_gpu", """{"use_gpu":false}""");
+        Assert.False(done["use_gpu"]!.GetValue<bool>());
+        Assert.False(OcrJson.Deserialize<EngineInfo>(await ocr.CallAsync(OcrMethods.GetEngine)).UseGpu);
+
+        var on = await CallAsync(ocr, "tool.use_gpu.preview", """{"use_gpu":true}""");
+        Assert.Equal([OcrPageTools.TriesCard], on["warnings"]!.AsArray().Select(w => w!.GetValue<string>()));
+    }
+
+    [Fact]
+    public async Task Use_gpu_is_refused_for_a_group_user()
+    {
+        await using var ocr = await OcrHarness.StartAsync();
+        var group = ocr.Context.CallAsGroup([ocr.Inside.Id]);
+        await Assert.ThrowsAsync<DeviceAccessRefusedException>(() => ocr.Context.InvokeAsync(ocr.Plugin, group, "tool.use_gpu.preview", """{"use_gpu":false}"""));
+        await Assert.ThrowsAsync<DeviceAccessRefusedException>(() => ocr.Context.InvokeAsync(ocr.Plugin, group, "tool.use_gpu", """{"use_gpu":false}"""));
+        Assert.True(OcrJson.Deserialize<EngineInfo>(await ocr.CallAsync(OcrMethods.GetEngine)).UseGpu);
     }
 }

@@ -213,6 +213,32 @@ public sealed partial class NtpServerService : IAsyncDisposable
     /// Save from the page: validates the interface and the upstream (resolve + one query with the normal timeouts; the
     /// running server keeps serving meanwhile), stores the settings and applies them.
     /// </summary>
+    /// <summary>
+    /// The field errors of <see cref="SaveAsync"/> that need no network ("interface", "upstream"), without changing anything
+    /// (the preview of a tool); the run still asks the upstream server once, as the page does.
+    /// </summary>
+    public IReadOnlyDictionary<string, string> CheckSave(SaveRequest request)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        var errors = new Dictionary<string, string>(StringComparer.Ordinal);
+        var interfaceId = string.IsNullOrWhiteSpace(request.InterfaceId) ? NtpServerPluginInfo.AllInterfaces : request.InterfaceId.Trim();
+        if (!IsAll(interfaceId) && !string.Equals(interfaceId, _config.InterfaceId, StringComparison.Ordinal)
+            && !_options.Interfaces.List().Any(n => string.Equals(n.Id, interfaceId, StringComparison.Ordinal)))
+        {
+            errors["interface"] = InterfaceGone;
+        }
+
+        if (!string.IsNullOrWhiteSpace(request.Upstream) && UpstreamHost.TryParse(request.Upstream.Trim(), out var parseError) is null)
+        {
+            errors["upstream"] = parseError ?? "Enter a host name or an address.";
+        }
+
+        return errors;
+    }
+
+    /// <summary>The page's text for an interface the server does not have.</summary>
+    public const string InterfaceGone = "The selected interface is not available on the server.";
+
     public async Task<SaveReply> SaveAsync(SaveRequest request, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(request);
@@ -223,7 +249,7 @@ public sealed partial class NtpServerService : IAsyncDisposable
             var nic = _options.Interfaces.List().FirstOrDefault(n => string.Equals(n.Id, interfaceId, StringComparison.Ordinal));
             if (nic is null && !string.Equals(interfaceId, _config.InterfaceId, StringComparison.Ordinal))
             {
-                throw new ArgumentException("The selected interface is not available on the server.", nameof(request));
+                throw new ArgumentException(InterfaceGone, nameof(request));
             }
 
             interfaceName = nic?.Name ?? _config.InterfaceName;
