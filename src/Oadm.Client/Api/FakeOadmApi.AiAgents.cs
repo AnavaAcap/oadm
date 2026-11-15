@@ -143,7 +143,7 @@ public sealed partial class FakeOadmApi
             Running = _mcp.Enabled,
             Status = _mcp.Enabled ? Oadm.Contracts.Mcp.McpTexts.Running(_mcp.Port) : Oadm.Contracts.Mcp.McpTexts.Off,
             PkiAvailable = true,
-            Certificate = _mcp.Enabled ? "802.1X and EST server (OADM Root CA FAKE), until 2036-11-14" : string.Empty, // PKI is asked only while on
+            Certificate = _mcp.Enabled ? "MCP Server Certificate (OADM Root CA FAKE), until 2036-11-14" : string.Empty, // PKI is asked only while on
             HasCaCertificate = _mcp.Enabled,
         };
         if (_mcp.Enabled)

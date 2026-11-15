@@ -5,14 +5,14 @@ namespace Oadm.Plugins.Pki.Tests;
 
 /// <summary>
 /// The server policy AI agents (docs/spec/mcp.md "Transport and certificate", docs/spec/pki.md "Server certificates"): a system
-/// policy on every server, not a PRO part, that gets the shared server certificate on the first Turn on (the host's first load)
-/// also without OADM PRO, refusing a certificate that names none of the server's addresses or its host name, and the host's
+/// policy on every server, not a PRO part, that gets its own "MCP Server Certificate" on the first Turn on (the host's first
+/// load) also without OADM PRO and never the shared 802.1X and EST server certificate, refusing a certificate that names none of the server's addresses or its host name, and the host's
 /// certificate through <see cref="IServerCertificates"/>.
 /// </summary>
 public sealed class McpServerPolicyTests
 {
     [Fact]
-    public async Task Every_server_has_the_system_policy_AI_agents_and_its_first_Turn_on_gives_it_the_shared_certificate_also_without_OADM_PRO()
+    public async Task Every_server_has_the_system_policy_AI_agents_and_its_first_Turn_on_makes_its_own_certificate_also_without_OADM_PRO()
     {
         await using var pki = await PkiHarness.StartAsync(pro: false);
         var policy = Assert.Single(pki.Policies.PoliciesOf(PolicyKinds.McpServer));
@@ -28,16 +28,24 @@ public sealed class McpServerPolicyTests
         var second = await pki.Policies.SaveAsync(new PkiPolicy { Name = "Second", Kind = PolicyKinds.McpServer, CertificateId = "x" }, "admin", PkiService.CipherSuites, CancellationToken.None);
         Assert.NotNull(second.Error);
 
-        // The first Turn on (the host loads the certificate only while it is on): the shared server certificate, like the EST server's.
+        // The first Turn on (the host loads the certificate only while it is on): its own certificate, naming this computer.
+        pki.Policies.McpServerNames = () => ["10.0.0.17", Environment.MachineName];
         var host = pki.Core.FakeServices.Find<IServerCertificates>()!;
         var load = await host.LoadAsync(HostServers.Mcp, CancellationToken.None);
-        string shared;
+        string own;
         try
         {
             Assert.Null(load.Problem);
             Assert.True(load.Chain[0].HasPrivateKey);
-            Assert.Equal(PkiService.SharedServerCertificateName, load.Chain[0].GetNameInfo(System.Security.Cryptography.X509Certificates.X509NameType.SimpleName, false));
-            shared = pki.Policies.FirstOf(PolicyKinds.McpServer)!.CertificateId!;
+            Assert.Equal(PkiService.McpServerCertificateName, load.Chain[0].GetNameInfo(System.Security.Cryptography.X509Certificates.X509NameType.SimpleName, false));
+            Assert.Equal(["10.0.0.17", Environment.MachineName], PkiService.NamesOf(load.Chain[0]));
+            Assert.Contains(load.Chain[0].Extensions.OfType<System.Security.Cryptography.X509Certificates.X509EnhancedKeyUsageExtension>().Single().EnhancedKeyUsages.Cast<System.Security.Cryptography.Oid>(),
+                o => o.Value == "1.3.6.1.5.5.7.3.1"); // server authentication
+            using (var key = System.Security.Cryptography.X509Certificates.ECDsaCertificateExtensions.GetECDsaPublicKey(load.Chain[0]))
+            {
+                Assert.Equal(256, key?.KeySize); // ECC P-256
+            }
+            own = pki.Policies.FirstOf(PolicyKinds.McpServer)!.CertificateId!;
         }
         finally
         {
@@ -47,10 +55,12 @@ public sealed class McpServerPolicyTests
             }
         }
 
-        // One certificate for every server: a second load and the PRO servers' own Turn on take the same one, none is made again.
+        // A second load makes none again; the PRO servers' shared certificate is another one and never replaces it.
+        (await host.LoadAsync(HostServers.Mcp, CancellationToken.None)).Chain.ToList().ForEach(c => c.Dispose());
+        Assert.Single(pki.Service.ServerCertificateChoices(), c => c.Name == PkiService.McpServerCertificateName);
         await pki.Service.EnsureServerCertificatesAsync(null, CancellationToken.None);
-        Assert.Equal(shared, pki.Policies.FirstOf(PolicyKinds.EstServer)!.CertificateId);
-        Assert.Single(pki.Service.ServerCertificateChoices(), c => c.Name == PkiService.SharedServerCertificateName);
+        Assert.Equal(own, pki.Policies.FirstOf(PolicyKinds.McpServer)!.CertificateId);
+        Assert.NotEqual(own, pki.Policies.FirstOf(PolicyKinds.EstServer)!.CertificateId);
 
         // Its Certificate field changes it afterwards; the next load keeps the user's choice.
         Assert.Null((await CertificateListTests.CreateAsync(pki, name: "agents", addresses: Environment.MachineName)).Error);
@@ -74,14 +84,22 @@ public sealed class McpServerPolicyTests
     }
 
     [Fact]
-    public async Task With_OADM_PRO_the_policy_takes_the_shared_certificate_the_PRO_servers_already_show()
+    public async Task With_OADM_PRO_a_start_with_AI_agents_off_makes_or_assigns_nothing_for_its_policy()
     {
         await using var pki = await PkiHarness.StartAsync();
-        await pki.Service.EnsureServerCertificatesAsync(null, CancellationToken.None); // OADM PRO: one certificate for every server
+        await pki.Service.EnsureServerCertificatesAsync(null, CancellationToken.None); // OADM PRO: the start, a license change, the server plugins
         var shared = pki.Policies.FirstOf(PolicyKinds.EstServer)!.CertificateId;
         Assert.NotNull(shared);
-        Assert.Equal(shared, pki.Policies.FirstOf(PolicyKinds.McpServer)!.CertificateId);
-        Assert.Single(pki.Service.ServerCertificateChoices(), c => c.Name == PkiService.SharedServerCertificateName);
+        Assert.Null(pki.Policies.FirstOf(PolicyKinds.McpServer)!.CertificateId);
+        Assert.DoesNotContain(pki.Service.ServerCertificateChoices(), c => c.Name == PkiService.McpServerCertificateName);
+
+        // Turn on of AI agents afterwards: its own certificate, never the shared one the PRO servers show.
+        var host = pki.Core.FakeServices.Find<IServerCertificates>()!;
+        (await host.LoadAsync(HostServers.Mcp, CancellationToken.None)).Chain.ToList().ForEach(c => c.Dispose());
+        var own = pki.Policies.FirstOf(PolicyKinds.McpServer)!.CertificateId;
+        Assert.NotNull(own);
+        Assert.NotEqual(shared, own);
+        Assert.Equal(PkiService.McpServerCertificateName, pki.Service.ServerCertificateChoices().Single(c => c.Id == own).Name);
     }
 
     [Fact]
