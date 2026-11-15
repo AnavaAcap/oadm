@@ -18,6 +18,12 @@ public sealed record TaskPluginRunnable(
         : this(plugin, runnable, notRunnable, notRunnable.Count == 0 ? [] : [new NotRunnableReason(Sdk.Plugins.TaskSupportReasons.Default, notRunnable)])
     {
     }
+
+    /// <summary>
+    /// False for a page task that AI agents may start (<see cref="Core.Tasks.TaskRunPermissions.PageRunKeys"/>): listed only
+    /// for the task tools (<c>with_payload_schema</c>), never in the client's menus.
+    /// </summary>
+    public bool InMenus { get; init; } = true;
 }
 
 /// <summary>Not-runnable devices of one task plugin that share a reason.</summary>
@@ -115,7 +121,7 @@ public sealed partial class TaskPluginRunnableCache(
             notRunnable.AddRange(reason.DeviceIds);
         }
 
-        return new TaskPluginRunnable(entry.Plugin, runnable, notRunnable, reasons);
+        return new TaskPluginRunnable(entry.Plugin, runnable, notRunnable, reasons) { InMenus = entry.InMenus };
     }
 
     private sealed record Scoped(IReadOnlyList<TaskPluginRunnable> Source, IReadOnlySet<Guid> Ids, IReadOnlyList<TaskPluginRunnable> Results);
@@ -144,7 +150,8 @@ public sealed partial class TaskPluginRunnableCache(
             var results = new List<TaskPluginRunnable>(plugins.Count);
             foreach (var plugin in plugins)
             {
-                if (!SafeShowInMenus(plugin))
+                var inMenus = SafeShowInMenus(plugin);
+                if (!inMenus && Core.Tasks.TaskRunPermissions.PageRunKeys(registry, plugin, null) is null)
                 {
                     continue; // started by its core plugin's page only
                 }
@@ -188,7 +195,7 @@ public sealed partial class TaskPluginRunnableCache(
                     notRunnable.AddRange(group.DeviceIds);
                 }
 
-                results.Add(new TaskPluginRunnable(plugin, runnable, notRunnable, reasons));
+                results.Add(new TaskPluginRunnable(plugin, runnable, notRunnable, reasons) { InMenus = inMenus });
             }
 
             Computations++;

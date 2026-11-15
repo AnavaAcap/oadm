@@ -126,7 +126,13 @@ public sealed partial class TaskGrpcService(
             : null;
         foreach (var entry in await runnable.GetAsync(view, context.CancellationToken).ConfigureAwait(false))
         {
-            if (!caller.Permissions.HasAny(PermissionCatalog.TaskKeys(entry.Plugin.Plugin)))
+            if (!entry.InMenus && !request.WithPayloadSchema)
+            {
+                continue; // a page task that agents may start: never an entry of the client's menus
+            }
+
+            var keys = entry.InMenus ? PermissionCatalog.TaskKeys(entry.Plugin.Plugin) : TaskRunPermissions.PageRunKeys(registry, entry.Plugin, null) ?? [];
+            if (!caller.Permissions.HasAny(keys))
             {
                 continue;
             }
@@ -142,6 +148,10 @@ public sealed partial class TaskGrpcService(
                 if (request.WithPayloadSchema && TaskPayloadSchemas.Of(entry.Plugin.Plugin) is { } schema)
                 {
                     info.PayloadSchemaJson = schema.ToJsonString();
+                }
+                else if (!entry.InMenus)
+                {
+                    continue; // a page task without a schema stays on its page
                 }
 
                 reply.Add(info);
@@ -209,12 +219,8 @@ public sealed partial class TaskGrpcService(
             throw GrpcGuard.NotFound(UnknownTaskPlugin(request.PluginId));
         }
 
-        if (TaskRunPermissions.IsPageTask(task.Plugin))
-        {
-            throw new RpcException(new Status(StatusCode.PermissionDenied, TaskRunPermissions.PageTaskOnly));
-        }
-
-        TaskRunPermissions.Require(task.Plugin, payload, caller.Permissions, () => roles.Catalog);
+        // A page task plans here only when it names the page permissions a run needs (ITaskPlugin.PagePermissions).
+        TaskRunPermissions.RequireOutsidePage(registry, task, payload, caller.Permissions, () => roles.Catalog);
         var view = await views.ForAsync(context).ConfigureAwait(false);
         var reply = new Proto.TaskPlanReply();
         var errors = PayloadErrors(task.Plugin, payload, engine.CallFor(view, TaskCaller.Of(caller)));
@@ -277,16 +283,11 @@ public sealed partial class TaskGrpcService(
             throw GrpcGuard.NotFound(UnknownTaskPlugin(request.PluginId));
         }
 
-        // A task only its page starts has no run key: the page's methods carry the rights, so Run refuses it for every caller
-        // (a payload sent here would skip them).
-        if (TaskRunPermissions.IsPageTask(task.Plugin))
-        {
-            throw new RpcException(new Status(StatusCode.PermissionDenied, TaskRunPermissions.PageTaskOnly));
-        }
-
         // The same check as call.Tasks of a plugin's call: PERMISSION_DENIED with what the role lacks (the interceptor's answer
-        // to DeviceAccessRefusedException).
-        TaskRunPermissions.Require(task.Plugin, payload, caller.Permissions, () => roles.Catalog);
+        // to DeviceAccessRefusedException). A task only its page starts has no run key: the page's methods carry the rights,
+        // so Run refuses it for every caller unless the task names the page permissions one run needs
+        // (ITaskPlugin.PagePermissions, the agents' task tools); then the role needs exactly those.
+        TaskRunPermissions.RequireOutsidePage(registry, task, payload, caller.Permissions, () => roles.Catalog);
 
         var view = await views.ForAsync(context).ConfigureAwait(false);
         var devices = await view.GetAsync(ids, context.CancellationToken).ConfigureAwait(false);

@@ -100,6 +100,15 @@ public interface ITaskPlugin : IPlugin
     IReadOnlyList<string>? RequiredPermissions(string? payloadJson) => null;
 
     /// <summary>
+    /// For a page task (<see cref="ShowInMenus"/> false, no <see cref="Permissions"/>; SDK 0.13.0): the keys of its own core
+    /// plugin's permissions (<see cref="ICorePlugin.Permissions"/>) one run of <paramref name="payloadJson"/> needs when it is
+    /// started outside its page, by the task tools of AI agents (<c>TaskService.Plan</c> and <c>Run</c>). Read the payload
+    /// only; a payload that cannot be read needs every key that changes something. Null or empty (the default): the task
+    /// starts only from its page. An answer the core plugin does not declare means all of its declared keys (fail closed).
+    /// </summary>
+    IReadOnlyList<string>? PagePermissions(string? payloadJson) => null;
+
+    /// <summary>
     /// Whether this task works for devices at a site; null (the default) = the package's <c>siteSupport</c> in plugin.json.
     /// Set it only when one task of a package differs.
     /// </summary>
