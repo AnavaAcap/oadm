@@ -48,6 +48,7 @@ internal sealed class FakeDevice : IDeviceInfo
     public DeviceCategory Category { get; init; } = DeviceCategory.Camera;
     public bool HasVideo => true;
     public IReadOnlyList<DeviceApi> Apis { get; init; } = Fixtures.P3265ApiList();
+    public string? CredentialUserName { get; init; }
 }
 
 /// <summary>A request as the device would see it. The body is captured at send time because the plugin disposes requests.</summary>
