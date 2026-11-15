@@ -32,8 +32,10 @@ shows the chat.
 - **Server** (`src/Oadm.Server/Assistant/`): the conversation loop (`Microsoft.Extensions.AI` `IChatClient` with function
   invocation done by OADM, not by the library): the user's message, the tool list of the user (the registry's list for that
   caller, read and preview tools only, `AssistantTools.Offered`), the model's answer, tool calls run in process, until the
-  model answers in text. One conversation per open panel, in server memory only, ended when the panel closes (`End`), the
-  session ends or after 30 minutes without a message.
+  model answers in text. One conversation per open panel, in server memory only (`AssistantConversations`), ended when the
+  panel closes (`End`), the session ends, the assistant is turned off or gets another provider or model, or after 30
+  minutes without a message. A Run reaches the model with the next message, as data.
+- The texts and limits the client shows too live in `Oadm.Contracts.Assistant.AssistantTexts`.
 - Providers (`AssistantProviders`): Anthropic (the official `Anthropic` SDK's `IChatClient`), OpenAI and
   OpenAI-compatible (`Microsoft.Extensions.AI.OpenAI`), Ollama (`OllamaSharp`). Only the server references them.
 - **Client**: the panel. gRPC `AssistantService` (`src/Oadm.Contracts/Protos/assistant.proto`): `Chat` server-streaming
@@ -59,7 +61,8 @@ shows the chat.
   follows its tasks live (running, done, failed, from the task stream the client already has) and links to the tasks pane.
 - **Pictures**: a camera picture (`oadm_devices_snapshot`) shows in the answer, click to enlarge; never stored.
 - **Tables**: a device list the model got from a tool shows as a small table (name, address, model, status) where a click
-  on a row selects the device in the device grid; at most 50 rows, then "+N more" with **Select all in the grid**.
+  on a row selects the device in the device grid; at most 50 rows, then "+N more" with **Select all in the grid** (every
+  matching id up to 10,000 comes with the table).
 - **Stop** ends the answer that is streaming; the conversation stays.
 - **New chat** clears it. An empty panel shows four start suggestions ("Which devices are offline?", "Which devices have
   vulnerabilities?", "Which cameras run old AXIS OS?", "Show me a picture of a camera"), clicked they are sent.
@@ -101,10 +104,12 @@ Administrators only; changes audited ("Changed assistant").
 
 ## Limits
 
-Per user one conversation at a time; at most 20 tool calls per message; tool answers at most 32 KB (the tools' own
+Per login session one conversation at a time (a new chat ends the one before) and one answer at a time; at most 20
+tool calls per message (then the model must answer without tools); tool answers at most 32 KB (the tools' own
 limit); the model's context is cut from the oldest messages when it grows too long; a provider timeout of 120 s per
-answer ("The provider did not answer. Try again."); a message at most 8,000 characters; at most 5 pictures per message
-to the model.
+answer with all its rounds ("The provider did not answer. Try again."), 30 s for Test; a message at most 8,000
+characters with at most 10 files; at most 5 pictures per message to the model, and a picture never stays in the later
+context.
 
 ## Tests
 

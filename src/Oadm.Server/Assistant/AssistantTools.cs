@@ -1,0 +1,70 @@
+using System.Text.Json;
+
+using Microsoft.Extensions.AI;
+
+using Oadm.Server.Tools;
+
+namespace Oadm.Server.Assistant;
+
+/// <summary>
+/// The tools the model gets (docs/spec/assistant.md rule 2): the registry's tools of the caller that read or preview. Never a
+/// run tool, never a tool that changes, starts tasks or hands out a link (links need the MCP server's file address): a change
+/// is always a preview whose Run is the user's click.
+/// </summary>
+internal static class AssistantTools
+{
+    public const string PreviewSuffix = "_preview";
+    public const string RunSuffix = "_run";
+
+    /// <summary>The tools of <paramref name="caller"/> the model may call, in the registry's order.</summary>
+    public static IReadOnlyList<OadmTool> Offered(ToolRegistry registry, ToolCaller caller)
+    {
+        ArgumentNullException.ThrowIfNull(registry);
+        return [.. registry.For(caller).Where(IsOffered)];
+    }
+
+    /// <summary>A read or a preview: never a run, a change, a task start or a link.</summary>
+    public static bool IsOffered(OadmTool tool)
+    {
+        ArgumentNullException.ThrowIfNull(tool);
+        return tool.ReadsOnly && !tool.StartsTasks && !tool.Destructive
+            && !tool.Name.EndsWith(RunSuffix, StringComparison.Ordinal)
+            && !tool.Name.EndsWith("_link", StringComparison.Ordinal);
+    }
+
+    public static bool IsPreview(string name) => name.EndsWith(PreviewSuffix, StringComparison.Ordinal);
+
+    /// <summary>The run tool of a preview: <c>oadm_tags_assign_preview</c> to <c>oadm_tags_assign_run</c>.</summary>
+    public static string RunOf(string preview) => preview[..^PreviewSuffix.Length] + RunSuffix;
+
+    /// <summary>The short line the panel shows while a tool runs.</summary>
+    public static string LineOf(OadmTool tool)
+    {
+        ArgumentNullException.ThrowIfNull(tool);
+        return tool.Name switch
+        {
+            "oadm_devices_summary" or "oadm_devices_search" or "oadm_devices_get" or SelectionTools.Name => "Looking at devices",
+            "oadm_devices_snapshot" => "Taking a camera picture",
+            DocsTools.Name => "Searching the docs",
+            "oadm_tasks_list" or "oadm_tasks_get" => "Looking at tasks",
+            "oadm_tasks_catalog" => "Looking at the tasks the devices can run",
+            "oadm_logs_search" or "oadm_logs_audit" or "oadm_events_log" => "Reading the logs",
+            _ when IsPreview(tool.Name) => "Preparing the plan",
+            _ => tool.Title,
+        };
+    }
+
+    /// <summary>The declaration of a tool for the model: its name, description and input schema (OADM runs it, never the library).</summary>
+    public static AITool Declare(OadmTool tool) => new Declaration(tool);
+
+    private sealed class Declaration(OadmTool tool) : AIFunctionDeclaration
+    {
+        private readonly JsonElement _schema = JsonSerializer.SerializeToElement(tool.Input);
+
+        public override string Name => tool.Name;
+
+        public override string Description => tool.Description;
+
+        public override JsonElement JsonSchema => _schema;
+    }
+}

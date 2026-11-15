@@ -97,7 +97,7 @@ public sealed class AuthTests
             Proto.EventService.Descriptor, Proto.RoleService.Descriptor, Proto.DeviceWebService.Descriptor, Proto.BackupService.Descriptor, Proto.WaitingDeviceService.Descriptor, Proto.ServerLogService.Descriptor,
             Proto.ComplianceService.Descriptor, Proto.SiteService.Descriptor, Proto.LicenseService.Descriptor, Proto.SupportService.Descriptor,
             Proto.DeviceGroupService.Descriptor, Proto.VulnerabilityService.Descriptor, Proto.MyAxisService.Descriptor, Proto.UpdateService.Descriptor,
-            Proto.McpService.Descriptor, Proto.AccessKeyService.Descriptor,
+            Proto.McpService.Descriptor, Proto.AccessKeyService.Descriptor, Proto.AssistantService.Descriptor,
         }.SelectMany(s => s.Methods.Select(m => $"/{s.FullName}/{m.Name}")).ToHashSet();
 
         // Both ways: no made-up entry, and no method that falls back to Administrator only by accident.
@@ -117,6 +117,11 @@ public sealed class AuthTests
         // MCP (docs/spec/mcp.md): the card for every role, changes like the server settings; access keys Administrator only.
         Assert.Equal(AccessRule.Admin.ForAllDevices(), AccessPolicy.For("/oadm.v1.McpService/Set"));
         Assert.All(Proto.AccessKeyService.Descriptor.Methods, m => Assert.Equal(AccessRule.Admin, AccessPolicy.For($"/oadm.v1.AccessKeyService/{m.Name}")));
+        // The assistant (docs/spec/assistant.md): the chat with its permission, the settings read by every role, set up by administrators.
+        Assert.All(Proto.AssistantService.Descriptor.Methods.Select(d => d.Name).Where(n => n is "Chat" or "Stop" or "Run" or "End"), m => Assert.Equal(AccessRule.Needs(Oadm.Core.Auth.HostPermissions.AssistantUse), AccessPolicy.For($"/oadm.v1.AssistantService/{m}")));
+        Assert.Equal(AccessRule.SignedIn, AccessPolicy.For("/oadm.v1.AssistantService/GetSettings"));
+        Assert.Equal(AccessRule.Admin.ForAllDevices(), AccessPolicy.For("/oadm.v1.AssistantService/SetSettings"));
+        Assert.Equal(AccessRule.Admin.ForAllDevices(), AccessPolicy.For("/oadm.v1.AssistantService/Test"));
         // Sites: the page with "See sites", every change Administrator only.
         Assert.Equal(AccessRule.Needs(Oadm.Core.Auth.HostPermissions.SitesView), AccessPolicy.For("/oadm.v1.SiteService/WatchSites"));
         Assert.All(Proto.SiteService.Descriptor.Methods.Where(m => m.Name is not ("ListSites" or "WatchSites")),
@@ -139,7 +144,7 @@ public sealed class AuthTests
         // Event rules: every EventService method (rules, the event log, the catalog, Test) only for users with all devices.
         Assert.All(Proto.EventService.Descriptor.Methods, m => Assert.True(AccessPolicy.For($"/oadm.v1.EventService/{m.Name}").AllDevices, m.Name));
         Assert.Equal(
-            ["/oadm.v1.ComplianceService/SetEnabled", "/oadm.v1.DeviceService/SetStoredCredentials", "/oadm.v1.McpService/Set", "/oadm.v1.ServerLogService/List", "/oadm.v1.SettingsService/AddCredential",
+            ["/oadm.v1.AssistantService/SetSettings", "/oadm.v1.AssistantService/Test", "/oadm.v1.ComplianceService/SetEnabled", "/oadm.v1.DeviceService/SetStoredCredentials", "/oadm.v1.McpService/Set", "/oadm.v1.ServerLogService/List", "/oadm.v1.SettingsService/AddCredential",
                 "/oadm.v1.SettingsService/ListCredentials", "/oadm.v1.SettingsService/RemoveCredential", "/oadm.v1.SettingsService/RevealCredential", "/oadm.v1.SettingsService/Set",
                 "/oadm.v1.TagService/Delete", "/oadm.v1.TagService/Update", "/oadm.v1.TaskService/DeleteAll"],
             methods.Where(m => AccessPolicy.For(m).AllDevices && !m.StartsWith("/oadm.v1.EventService/", StringComparison.Ordinal)).Order(StringComparer.Ordinal).ToArray());

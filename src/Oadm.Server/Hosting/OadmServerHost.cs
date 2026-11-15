@@ -149,6 +149,7 @@ public static partial class OadmServerHost
         app.MapGrpcService<Updates.UpdateGrpcService>();
         app.MapGrpcService<AccessKeyGrpcService>();
         app.MapGrpcService<Mcp.McpGrpcService>();
+        app.MapGrpcService<Assistant.AssistantGrpcService>();
         if (app.Environment.IsDevelopment())
         {
             app.MapGrpcReflectionService();
@@ -215,10 +216,20 @@ public static partial class OadmServerHost
                     .. Tools.DeviceChangeTools.Create(sp.GetRequiredService<Tools.ToolHandles>(), sp.GetRequiredService<TimeProvider>()),
                     .. Tools.SettingsTools.Create(),
                     .. Tools.FileTools.Create(cursors, sp.GetRequiredService<Tools.ToolHandles>()),
+                    .. Tools.SelectionTools.Create(cursors),
+                    .. Tools.DocsTools.Create(() => Assistant.DocsIndex.Shipped),
                 ],
                 sp.GetRequiredService<InProcessCalls>(),
                 [sp.GetRequiredService<Tools.PluginTools>()]); // the tools of the plugins that are on
         });
+        // The assistant (docs/spec/assistant.md): a second channel of the same tools, as the signed-in user; chats in memory only.
+        services.AddSingleton<Assistant.IAssistantProviders>(sp => new Assistant.AssistantProviders(sp.GetRequiredService<TimeProvider>()));
+        services.AddSingleton(sp => new Assistant.AssistantConversations(sp.GetRequiredService<TimeProvider>(), sp.GetRequiredService<Core.Auth.AuthTokenStore>()));
+        services.AddSingleton(sp => new Assistant.AssistantUsage(sp.GetRequiredService<TimeProvider>()));
+        services.AddSingleton(sp => new Assistant.AssistantChats(sp.GetRequiredService<Tools.ToolRegistry>(), sp.GetRequiredService<InProcessCalls>(),
+            sp.GetRequiredService<Assistant.IAssistantProviders>(), sp.GetRequiredService<Assistant.AssistantConversations>(), sp.GetRequiredService<Assistant.AssistantUsage>(),
+            sp.GetRequiredService<ServerSettingsStore>(), sp.GetRequiredService<Core.Security.CredentialProtector>(), sp.GetRequiredService<TimeProvider>(),
+            sp.GetRequiredService<ILogger<Assistant.AssistantChats>>()));
         services.AddSingleton<Mcp.McpAccess>();
         services.AddSingleton<Mcp.McpToolAdapter>();
         services.AddSingleton<Mcp.McpFiles>();
