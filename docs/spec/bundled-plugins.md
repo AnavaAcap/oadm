@@ -436,7 +436,9 @@ many devices. Every settings form uses the bundled action catalog (`Catalog/acti
 - Device groups: one table per device scope; every device id of a request in the caller's devices or the whole request
   is refused (NOT_FOUND) before anything is read, saved or started; undo runs per group.
 - MCP ([mcp.md](mcp.md)): the read-only tool `oadm_device_rules_list` (the rules the editor read last for the caller's
-  device scope; it reads no device).
+  device scope and its recent changes; it reads no device); the task takes the agents' input `RuleAgentPayload` (change,
+  on / off, delete, copy, create, undo; rules by name as the editor read them last; no password; the page's rights through
+  `PagePermissions`), run like the page's own runs (saved for undo, the copy read on the server).
 
 ## System report (core plugin without a page)
 
