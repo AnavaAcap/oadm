@@ -258,6 +258,8 @@ used again.
     `AddOnLayout.Digest`, SHA-256 over one "path sha256" line per file sorted by path; NOT_FOUND unknown or not installed;
     FAILED_PRECONDITION over 24 MB or while the same session waits for one already). A server without add-ons
     (UNIMPLEMENTED, an older server): clients hide the card.
+  - `Invoke`: a Read only access key may call only the methods of a plugin's read tools and the previews of its change
+    tools, never a method the plugin audits.
 - **`SettingsService`** (`settings.proto`): `Get`, `Set` (field numbers in `docs/spec/settings-backup.md`; 0 or unset keeps
   the stored value; read-only `server_version = 21` and `key_replaced = 20` in both replies), `ListCredentials`,
   `AddCredential(user_name, password)` (INVALID_ARGUMENT, RESOURCE_EXHAUSTED over 20 entries; an identical pair returns the
@@ -279,7 +281,7 @@ used again.
   is no longer available.", the camera is never asked; the RTSP port methods refuse the whole selection); `Watch` ends
   with that NOT_FOUND when its device leaves the view.
   - `GetSnapshot(device_id, camera, max_width, compression)` (Live view permission, device group): one JPEG of the largest
-    size at most `max_width` (the AI agents' `oadm_devices_snapshot`).
+    size at most `max_width` (the AI agents' `oadm_devices_snapshot`); audited once per user, device and minute with a count.
 - **`EventService`** (`events.proto`, `docs/spec/event-rules.md`; every method `AccessRule.AllDevices`, rules have no
   owner): `GetCatalog`, `ListRules`, `WatchRules`, `GetRule` (password values never included), `SaveRule`, `DeleteRule`,
   `SetRuleEnabled`, `DuplicateRule`, `ListActionChoices`, `ListLog` (newest first, limit 0 = 10,000), `WatchLog`,

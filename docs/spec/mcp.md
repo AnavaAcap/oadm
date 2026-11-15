@@ -100,7 +100,16 @@ preview/run handles and caller rules.
   read counts as a change (`OadmTool.CountsAsChange`: a run, a task start, or a call that acts outside OADM such as the
   add preview). A call is counted as soon as its key is valid, before the role and device view are read. Open handles and
   links: at most 20 of a kind per key, 60 and 16 MB per user, the oldest go first. The file links and the skill also need
-  Use AI agents (403).
+  Use AI agents (403). Camera pictures (`oadm_devices_snapshot`, `OadmTool.CountsAsPicture`) have their own limit: 30 a
+  minute per user, all keys together ("Too many pictures with this access key. Wait a minute.", Retry-After 60). File
+  transfers (PUT and GET on `/files/`) have their own places, 2 at once per key and per user and 8 on the port, and never
+  take the 32 places of `/mcp`; a transfer must move at least 1 KB a second after 10 seconds or it ends. Changes and
+  pictures are counted from the call's own tool name, not from a header, and a refused call counts against no limit.
+  `oadm_server_info` names the change limit `changes_per_minute`. The MCP host logs ASP.NET requests at Warning only, so
+  no upload token reaches the server log.
+- Read only is enforced by the server, not only by the tool list: a Read only key's call of any gRPC method outside the
+  read list (`InProcessCalls.ReadMethods`) answers PERMISSION_DENIED "This access key is Read only.", and so does a plugin
+  method that is not the method of a read tool or a preview, or that the plugin audits.
 
 ## Tools
 
@@ -261,7 +270,7 @@ The website gets a user page (Tools > AI agents, `tools/ai-agents`) and a develo
   "<user>@MCP <key name>"). A tool is listed when the role has "Use AI agents" and `AccessPolicy` allows every gRPC method
   the tool calls (so the logs need "See the server log" and all devices, the audit log the Administrator role); otherwise a
   call answers `isError` with the refusal. Calls per key: 20 a second (429, Retry-After 1) and 4 waiting for their answer at
-  once (429 "Too many calls with this access key at once. Wait for an answer.", Retry-After 1); 10 task runs a minute (stage 2). A refused key is audited once per address and key a minute, the count in the detail; an ended
+  once (429 "Too many calls with this access key at once. Wait for an answer.", Retry-After 1); 10 changes a minute (stage 2). A refused key is audited once per address and key a minute, the count in the detail; an ended
   key keeps its row until the hourly cleanup, so its refusal names "<user> via access key <name>" ("The key has ended. 2
   refused calls"); after 50 refused keys from an address (IPv6 per /64) in 5 minutes it waits until they end (429,
   Retry-After 300), like logins.
@@ -337,7 +346,7 @@ The website gets a user page (Tools > AI agents, `tools/ai-agents`) and a develo
   (400 otherwise), through `FileService.Upload` in process (its limits; the tasks of the same key read the file), answers
   `file_id`, `name`, `size`, `sha256`, audited "Uploaded file" as "<user> via access key <name>"; a Read only key gets 403
   also with a link. Every change an agent causes is audited as "<user> via access key <name>"
-  (`AuthenticatedCaller.AuditUserName`). Runs per key: 10 a minute (429 "Too many task runs with this access key. Wait a
+  (`AuthenticatedCaller.AuditUserName`). Changes per key: 10 a minute (429 "Too many changes with this access key. Wait a
   minute.", Retry-After 60; counted on `Mcp-Method` tools/call and `Mcp-Name` of a tool that starts tasks).
 - **Offered tasks**: Restart and Use OADM NTP server (no settings), Date and time (`DateTimePayload` with its
   descriptions, `PayloadValidator` at the payload's fields; the year is left to the device as in the task). Users has a
@@ -362,14 +371,14 @@ The website gets a user page (Tools > AI agents, `tools/ai-agents`) and a develo
   one answers "This access key is Read only.", and an upload with it is refused; previews stay (they write nothing).
 - **Tests**: `McpTaskToolTests` (the catalog and a secret task, a preview that writes nothing, the handle of another key,
   once, 10 minutes, invalid input from the schema and from the plugin, the same refusal through `TaskService.Run`, Read only
-  keys and every write tool, upload links, 10 runs a minute), `McpToolTests` and `McpSecretTests` over every tool, the canary
+  keys and every write tool, upload links, 10 changes a minute), `McpToolTests` and `McpSecretTests` over every tool, the canary
   case of `TaskService.Plan`.
 
 ## Stage 3 as built
 
 - **Devices** (`Tools/DeviceChangeTools`, `Tools/SettingsTools`): `oadm_devices_snapshot(device_id)` (one JPEG as an image
   result, Live view permission, at most 1280 px wide; over 1 MB it is taken again smaller, then at 640 px; the camera's
-  answer is read up to 4 MB; every snapshot is audited "Took a snapshot");
+  answer is read up to 4 MB; snapshots are audited "Took a snapshot" once per user, device and minute, with the count);
   `oadm_devices_refresh_preview`/`_run`; `oadm_devices_remove_preview`/`_run` (a filter is required, an empty one is
   refused); `oadm_devices_credentials_preview`/`_run` (an entry of the credential list by its name, never a password; the
   credential list is the Administrator's, a name two entries share is refused); `oadm_devices_add_preview`/`_run` (exactly
