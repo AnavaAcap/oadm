@@ -333,7 +333,7 @@ public sealed partial class AssistantFileItem(AssistantFile file) : AssistantIte
 }
 
 /// <summary>
-/// The model found no OADM function and offers to look in the Axis docs online (docs/spec/assistant.md "Looking in the Axis
+/// The model found no OADM function and offers to look it up on axis.com (docs/spec/assistant.md "Looking in the Axis
 /// docs"): the question with Not now and Look up online. Only Look up online sends the offer's id with the next message; Not
 /// now, another message or the offer's end leave it unused (the server forgets it).
 /// </summary>

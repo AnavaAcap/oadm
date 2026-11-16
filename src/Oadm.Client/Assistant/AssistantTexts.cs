@@ -30,8 +30,8 @@ public static class AssistantTexts
     public const string CopyOnce = Oadm.Client.Settings.AccessKeyWords.CopyNow;
     public const string Cancel = "Cancel";
 
-    /// <summary>The card of an offer to look in the Axis docs online (docs/spec/assistant.md "Looking in the Axis docs").</summary>
-    public const string DocsOfferTitle = "Axis docs";
+    /// <summary>The card of an offer to look it up on axis.com (docs/spec/assistant.md "Looking on axis.com").</summary>
+    public const string DocsOfferTitle = "axis.com";
     public const string DocsOfferQuestion = Shared.DocsOfferQuestion;
     public const string LookUpOnline = Shared.LookUpOnline;
     public const string NotNow = Shared.NotNow;

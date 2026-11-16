@@ -5,6 +5,16 @@ Notable changes to OADM, newest first. Format: [Keep a Changelog](https://keepac
 version and date, and the release workflow copies it into the GitHub release (the client's new version notice shows it).
 Each entry is one short line in plain words (what the user gets, not how); no nested lists, no bold, no code.
 
+## [Unreleased]
+
+### Added
+
+- Assistant: ask what a CVE is and it answers from OADM's CVE list, also for agents.
+
+### Changed
+
+- Assistant: Look up online reads all of axis.com, also product pages, datasheets and security advisories.
+
 ## [5.1.0] - 2026-11-16
 
 ### Added

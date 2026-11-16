@@ -154,6 +154,47 @@ public sealed class McpDeviceFactsTests
     }
 
     [Fact]
+    public async Task OneCveSaysWhatItIsAndHowManyOfYourDevicesItAffects()
+    {
+        await using var server = await McpTestServer.StartAsync();
+        var matcher = server.Host.Get<VulnerabilityStore>().Matcher;
+        await AddAsync(server.Host, 1, "M3085-V", Affected);
+        await AddAsync(server.Host, 2, "M3206-LVE", LtsPossible);
+        await AddAsync(server.Host, 3, "M3085-V", Newest);
+        var key = await server.CreateKeyAsync();
+
+        // A counted CVE of the affected device: the record from OADM's list, one device counted.
+        var cve = ColumnOf(matcher, "M3085-V", Affected, null).Items.First(i => !i.Possible).Vulnerability;
+        var one = await server.ToolAsync(key, "oadm_vulnerability", new JsonObject { ["cve"] = cve.Id.ToLowerInvariant() });
+        Assert.Equal(cve.Id, one["cve"]!.GetValue<string>());
+        Assert.Equal(cve.Description, one["description"]!.GetValue<string>());
+        Assert.False(string.IsNullOrWhiteSpace(cve.Description));
+        Assert.Equal(cve.Score, one["cvss"]?.GetValue<double>());
+        if (cve.Advisory is { } advisory && advisory.StartsWith("https://", StringComparison.Ordinal))
+        {
+            Assert.Equal(new Uri(advisory).AbsoluteUri, one["advisory"]!.GetValue<string>());
+        }
+
+        Assert.True(one["devices"]!.GetValue<int>() >= 1);
+        Assert.Equal(one["models"]!.AsArray().Select(m => m!.GetValue<string>()).Order(StringComparer.OrdinalIgnoreCase), one["models"]!.AsArray().Select(m => m!.GetValue<string>()));
+
+        // A possible CVE of the LTS device: not counted, kept apart.
+        var maybe = ColumnOf(matcher, "M3206-LVE", LtsPossible, null).Items.First(i => i.Possible).Vulnerability;
+        var apart = await server.ToolAsync(key, "oadm_vulnerability", new JsonObject { ["cve"] = maybe.Id });
+        Assert.True(apart["possible_devices"]!.GetValue<int>() >= 1);
+
+        // An id the list does not have: a plain error.
+        var unknown = await server.CallToolAsync(key, "oadm_vulnerability", new JsonObject { ["cve"] = "CVE-1999-0001" });
+        Assert.True(unknown["isError"]!.GetValue<bool>());
+
+        // A user of a device group counts only the group's devices.
+        var group = await GroupCallers.ForTagAsync(server.Host, "tech", "Lobby");
+        var groupKey = await server.CreateKeyAsync(group.Invoker);
+        var mine = await server.ToolAsync(groupKey, "oadm_vulnerability", new JsonObject { ["cve"] = cve.Id });
+        Assert.Equal(0, mine["devices"]!.GetValue<int>());
+        Assert.Equal(cve.Description, mine["description"]!.GetValue<string>());    }
+
+    [Fact]
     public async Task TheDeviceToolsFilterShowAndCountTheClockTheCertificateAndTheChipOadmAlreadyKnows()
     {
         await using var server = await McpTestServer.StartAsync();

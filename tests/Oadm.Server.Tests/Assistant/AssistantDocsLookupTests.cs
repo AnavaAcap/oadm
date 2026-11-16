@@ -16,7 +16,7 @@ using Proto = Oadm.Contracts.V1;
 namespace Oadm.Server.Tests.Assistant;
 
 /// <summary>
-/// Looking in the Axis docs (docs/spec/assistant.md "Looking in the Axis docs"): the offer is an assistant-only tool, the
+/// Looking on axis.com (docs/spec/assistant.md "Looking on axis.com"): the offer is an assistant-only tool, the
 /// panel's card asks first, and only the user's Look up online gives exactly one answer the provider's web tools, restricted
 /// to developer.axis.com and help.axis.com. The fake model records the tool list of every request; nothing goes online.
 /// </summary>
@@ -180,7 +180,7 @@ public sealed class AssistantDocsLookupTests
         Assert.All(anthropic, t => Assert.Equal(AssistantTexts.DocsDomains, AssistantDocsLookup.DomainsOf(t)));
         var openAi = Assert.Single(AssistantDocsLookup.ToolsFor(AssistantTexts.OpenAi));
         Assert.Equal(AssistantTexts.DocsDomains, AssistantDocsLookup.DomainsOf(openAi));
-        Assert.Equal(["developer.axis.com", "help.axis.com"], AssistantTexts.DocsDomains);
+        Assert.Equal(["axis.com"], AssistantTexts.DocsDomains); // its subdomains (help, developer, www) are part of it for both providers
     }
 
     [Fact]
