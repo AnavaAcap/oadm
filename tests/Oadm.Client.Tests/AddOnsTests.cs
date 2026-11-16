@@ -173,11 +173,29 @@ public sealed class AddOnsTests : IDisposable
 
         Assert.Equal(1, await sync.SyncAsync(CancellationToken.None));
         Assert.True(sync.CanUsePackage(id));
+        var registry = Substitute.For<IClientPluginRegistry>();
+        var page = Substitute.For<Oadm.Sdk.Client.ICorePluginPage>();
+        page.CreateView(Arg.Any<Oadm.Sdk.Client.ICorePluginClientContext>()).Returns(_ => new Avalonia.Controls.TextBlock());
+        registry.FindPage(id).Returns(page);
+        registry.PackageOf(page).Returns(id);
+        registry.ToolbarPlugins.Returns([]);
+        using var fixture = new DevicesFixture(registry: registry);
+        using var connection = new ServerConnection(fixture.Api, fixture.Store, fixture.Tasks, fixture.Ui, NullLogger<ServerConnection>.Instance);
+        var packages = new PluginPackageStore(api, NullLogger<PluginPackageStore>.Instance, sync);
+        var shell = fixture.CreateShell(connection, packages: packages);
+        CorePluginInfo[] listed = [new() { Id = id, DisplayName = "Sample vendor" }];
+        shell.SyncCorePluginPages(listed);
+        var item = Assert.Single(shell.NavItems, n => n.Key == "plugin:" + id);
+
         fingerprint = "AB:12";
         Assert.False(sync.CanUsePackage(id));
+        Assert.Null(shell.CreatePluginWindowPage(item));
+        shell.SyncCorePluginPages(listed);
+        Assert.DoesNotContain(shell.NavItems, n => n.Key == item.Key);
         Assert.Equal(0, await sync.SyncAsync(CancellationToken.None));
         Assert.Contains(id, sync.RestartNeeded);
         Assert.Single(loader.Loads);
+
         Assert.False(sync.CanUsePackage(id));
 
         fingerprint = Fingerprint;
@@ -189,6 +207,12 @@ public sealed class AddOnsTests : IDisposable
         Assert.False(sync.CanUsePackage(id));
         Assert.Contains(id, sync.RestartNeeded);
         Assert.Single(loader.Loads);
+
+        info.ClientDigest = string.Empty;
+        var reopened = new RecordingLoader();
+        using var next = new AddOnClientSync(api, Cache(), reopened, NullLogger<AddOnClientSync>.Instance, () => fingerprint);
+        Assert.Equal(0, await next.SyncAsync(CancellationToken.None));
+        Assert.Empty(reopened.Loads);
     }
 
     [Fact]

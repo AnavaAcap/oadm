@@ -485,7 +485,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
     internal CorePluginPageViewModel? CreatePluginWindowPage(NavItemViewModel item)
     {
         ArgumentNullException.ThrowIfNull(item);
-        if (item.Page is not CorePluginPageViewModel rail || _plugins.FindPage(rail.PluginId) is not { } page)
+        if (item.Page is not CorePluginPageViewModel rail || !CanUsePluginPage(rail.PluginId)
+            || _plugins.FindPage(rail.PluginId) is not { } page)
         {
             return null;
         }
@@ -831,7 +832,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         {
             await _ui.RunInBackgroundAsync(() =>
             {
-                if (generation == _pageSyncGeneration && !IsShown(plugin.Id))
+                if (generation == _pageSyncGeneration && !IsShown(plugin.Id) && CanUsePluginPage(plugin.Id))
                 {
                     AddCorePluginPage(plugin, corePlugins);
                     OrderCorePluginPages();
@@ -881,7 +882,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
     /// <summary>Removes the rail pages and tabs of plugins not in the list (or now in the other place); returns the plugins with a page.</summary>
     private List<CorePluginInfo> RemoveStalePluginPages(IReadOnlyList<CorePluginInfo> all)
     {
-        List<CorePluginInfo> corePlugins = [.. all.Where(p => !p.NoPage)];
+        List<CorePluginInfo> corePlugins = [.. all.Where(p => !p.NoPage && CanUsePluginPage(p.Id))];
         var changedHosts = new HashSet<string>(StringComparer.Ordinal);
         foreach (TabPage stale in _tabPages.Where(t => !corePlugins.Any(p => p.Id == t.PluginId) || HostOf(t.PluginId, corePlugins) != t.HostId).ToList())
         {
@@ -912,6 +913,10 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
         return corePlugins;
     }
+
+    private bool CanUsePluginPage(string pluginId) =>
+        _packages is null || _plugins.FindPage(pluginId) is not { } page
+            || _packages.CanUseClientPart(_plugins.PackageOf(page));
 
     /// <summary>The host page's context gets its tabs now (in the server's order); its windows close, their tabs changed.</summary>
     private void PushTabs(string hostId)

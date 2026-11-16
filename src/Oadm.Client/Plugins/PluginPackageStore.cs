@@ -63,9 +63,11 @@ public sealed partial class PluginPackageStore(IOadmApi api, ILogger<PluginPacka
 
     public bool IsEnabled(string? packageId) =>
         string.IsNullOrEmpty(packageId)
-        || (addOns?.CanUsePackage(packageId) ?? true)
+        || CanUseClientPart(packageId)
             && (_packages.FirstOrDefault(p => string.Equals(p.Id, packageId, StringComparison.OrdinalIgnoreCase)) is not { } package
                 || package.Enabled);
+
+    internal bool CanUseClientPart(string? packageId) => packageId is null || (addOns?.CanUsePackage(packageId) ?? true);
 
     /// <summary>The sync of the add-ons' client parts the last load started (completes when their pages are in).</summary>
     public Task AddOnsSynced => _addOnsSynced;

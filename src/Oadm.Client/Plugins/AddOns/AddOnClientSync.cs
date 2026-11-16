@@ -169,6 +169,12 @@ public sealed partial class AddOnClientSync(
 
         cache.Unmark(server, addOn.Id);
         bool loadedHere = _loadedVersions.TryGetValue(addOn.Id, out string? loadedVersion);
+        if (!addOn.VendorPublisherKey.IsEmpty &&
+            (addOn.ClientDigest.Length != 64 || !addOn.ClientDigest.All(char.IsAsciiHexDigitLower)))
+        {
+            return 0; // No approval for any cached or downloaded payload on this connection.
+        }
+
         VendorDelivery? vendor = addOn.VendorPublisherKey.IsEmpty ? null : new(server, addOn.Version,
             addOn.ClientDigest, addOn.VendorPublisherKey.ToBase64());
         if (_loadedVendors.TryGetValue(addOn.Id, out var active) && vendor == active)

@@ -13,7 +13,8 @@ public sealed partial class TaskPluginRunner(
     IOadmApi api,
     IClientPluginRegistry registry,
     IDialogService dialogs,
-    ILogger<TaskPluginRunner> logger)
+    ILogger<TaskPluginRunner> logger,
+    PluginPackageStore? packages = null)
 {
     public static string OwnerName => $"{Environment.UserName}@{Environment.MachineName}";
 
@@ -41,6 +42,13 @@ public sealed partial class TaskPluginRunner(
                 LogDialogMissing(logger, plugin.Id);
                 await dialogs.ShowMessageAsync(plugin.DisplayName,
                     $"The task \"{plugin.DisplayName}\" needs a client plugin ({plugin.Id}) that is not installed on this computer.").ConfigureAwait(true);
+                return null;
+            }
+
+            if (packages?.CanUseClientPart(registry.PackageOf(dialog)) == false)
+            {
+                await dialogs.ShowMessageAsync(plugin.DisplayName,
+                    "Restart the desktop client to load the plugin approved by this server.").ConfigureAwait(true);
                 return null;
             }
 

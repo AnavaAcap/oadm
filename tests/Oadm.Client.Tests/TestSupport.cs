@@ -148,7 +148,8 @@ internal sealed class DevicesFixture : IDisposable
 
     /// <summary>The main window view model with every navigation page; <paramref name="session"/> decides the role.</summary>
     public Oadm.Client.Shell.MainWindowViewModel CreateShell(Oadm.Client.Shell.ServerConnection connection, Oadm.Client.Shell.UserSession? session = null, IUiDispatcher? ui = null, Func<Oadm.Client.Shell.HelpWindowViewModel>? help = null,
-        Oadm.Client.MyAxis.MyAxisAccount? myAxis = null, Oadm.Client.Assistant.AssistantPanelViewModel? assistant = null)
+        Oadm.Client.MyAxis.MyAxisAccount? myAxis = null, Oadm.Client.Assistant.AssistantPanelViewModel? assistant = null,
+        PluginPackageStore? packages = null)
     {
         session ??= new Oadm.Client.Shell.UserSession();
         return new Oadm.Client.Shell.MainWindowViewModel(
@@ -166,10 +167,11 @@ internal sealed class DevicesFixture : IDisposable
             session,
             NullLogger<Oadm.Client.Shell.MainWindowViewModel>.Instance,
             pluginList: new Oadm.Client.Settings.PluginsViewModel(
-                new Oadm.Client.Plugins.PluginPackageStore(Api, NullLogger<Oadm.Client.Plugins.PluginPackageStore>.Instance),
+                packages ?? new Oadm.Client.Plugins.PluginPackageStore(Api, NullLogger<Oadm.Client.Plugins.PluginPackageStore>.Instance),
                 NullLogger<Oadm.Client.Settings.PluginsViewModel>.Instance,
                 session),
             ui: ui,
+            packages: packages,
             help: help,
             myAxis: myAxis,
             assistant: assistant);
