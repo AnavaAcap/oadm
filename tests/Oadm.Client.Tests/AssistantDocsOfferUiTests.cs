@@ -11,7 +11,7 @@ using static Oadm.Client.Tests.AssistantTests;
 namespace Oadm.Client.Tests;
 
 /// <summary>
-/// The offer to look in the Axis docs online (docs/spec/assistant.md "Looking in the Axis docs"): a card with the question,
+/// The offer to look it up on axis.com (docs/spec/assistant.md "Looking on axis.com"): a card with the question,
 /// Not now and Look up online; only the click sends the offer's id, Not now and another message send none. Headless
 /// screenshots in OADM_SCREENSHOT_DIR (OADM_TEST_APPEARANCE=Light for the light ones).
 /// </summary>
@@ -56,7 +56,7 @@ public sealed class AssistantDocsOfferUiTests
             Save(window, outDir, $"assistant-docs-offer-{appearance}.png");
 
             // Look up online: the next message carries the offer's id; the card says so and its buttons go.
-            api.AssistantScript = (_, ct) => Script([new AssistantEvent { Tool = new AssistantToolLine { Text = "Looking in the Axis docs" } },
+            api.AssistantScript = (_, ct) => Script([new AssistantEvent { Tool = new AssistantToolLine { Text = "Looking on axis.com" } },
                 new AssistantEvent { Text = "Use **privacymask.cgi** (developer.axis.com/vapix/...)." }], ct);
             await panel.LookUpCommand.ExecuteAsync(offer);
             Pump();

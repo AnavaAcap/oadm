@@ -31,6 +31,7 @@ public sealed class McpAreaToolTests
         "oadm_compliance_checks", "oadm_compliance_summary", "oadm_events_log", "oadm_recipients_list", "oadm_rules_catalog", "oadm_rules_delete_preview",
         "oadm_rules_delete_run", "oadm_rules_get", "oadm_rules_list", "oadm_rules_save_preview", "oadm_rules_save_run", "oadm_sites_list",
         "oadm_tags_assign_preview", "oadm_tags_assign_run", "oadm_tags_list", "oadm_vulnerabilities", "oadm_vulnerabilities_summary",
+        "oadm_vulnerability",
     ];
 
     /// <summary>The tools that change something: each takes only the handle of its preview.</summary>
@@ -68,6 +69,7 @@ public sealed class McpAreaToolTests
         ["oadm_events_log"] = [],
         ["oadm_vulnerabilities_summary"] = [],
         ["oadm_vulnerabilities"] = [],
+        ["oadm_vulnerability"] = new() { ["cve"] = "CVE-1999-0001" },
         ["oadm_recipients_list"] = [],
     };
 

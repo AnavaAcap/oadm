@@ -543,8 +543,8 @@ public sealed partial class AssistantPanelViewModel : ObservableObject
     private bool CanLookUp(AssistantDocsOfferItem? offer) => offer is { IsReady: true } && CanSendSuggestion(AssistantTexts.LookUpMessage);
 
     /// <summary>
-    /// Look up online: the user's yes to the offer (docs/spec/assistant.md "Looking in the Axis docs"). Only this click sends
-    /// the offer's id, so only the next answer may read the Axis docs online.
+    /// Look up online: the user's yes to the offer (docs/spec/assistant.md "Looking on axis.com"). Only this click sends
+    /// the offer's id, so only the next answer may read axis.com.
     /// </summary>
     [RelayCommand(CanExecute = nameof(CanLookUp))]
     private Task LookUpAsync(AssistantDocsOfferItem? offer) =>

@@ -44,8 +44,8 @@ internal sealed class AssistantSources
         }
     }
 
-    /// <summary>The chip of the Axis docs online (a lookup the user said yes to read a page).</summary>
-    public const string AxisDocs = "Axis docs";
+    /// <summary>The chip of axis.com (a lookup the user said yes to read a page).</summary>
+    public const string AxisDocs = "axis.com";
 
     /// <summary>An area that is no tool of the registry (the provider's web tools of a lookup).</summary>
     public void AddArea(string area)

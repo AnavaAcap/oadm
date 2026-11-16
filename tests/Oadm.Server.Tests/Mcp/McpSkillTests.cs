@@ -34,7 +34,7 @@ public sealed partial class McpSkillTests
         "oadm_rules_delete_preview", "oadm_rules_delete_run", "oadm_events_log", "oadm_pki_certificates",
         "oadm_pki_certificate_create_preview", "oadm_pki_certificate_create_run", "oadm_ntp_status", "oadm_dhcp_status",
         "oadm_dhcp_leases", "oadm_hardening_results", "oadm_vapix_commands", "oadm_vapix_command_preview", "oadm_vapix_command_run",
-        "oadm_selection", "oadm_docs_search", "oadm_vulnerabilities_summary", "oadm_vulnerabilities",
+        "oadm_selection", "oadm_docs_search", "oadm_vulnerabilities_summary", "oadm_vulnerabilities", "oadm_vulnerability",
         "oadm_tasks_summary", "oadm_server_status", "oadm_pki_policies", "oadm_est_enrollments",
         "oadm_radius_log", "oadm_app_management_applications", "oadm_edge_storage_cards", "oadm_rules_catalog",
         .. AddOnToolNames,
