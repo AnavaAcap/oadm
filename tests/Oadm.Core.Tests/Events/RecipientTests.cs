@@ -749,9 +749,16 @@ public sealed class RecipientTests
     public async Task SendHTTPRequestAndSendEmailReadTheirTargetThroughTheMerge()
     {
         await using var rig = await NotificationsRigAsync();
-        using var held = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
-        held.Bind(new IPEndPoint(IPAddress.Loopback, 0)); // bound, never listening: the error names the target the action got
-        var port = ((IPEndPoint)held.LocalEndPoint!).Port;
+        // A free port, closed again: every OS refuses the connection at once (a socket bound without listening is refused on
+        // Windows and Linux but silently dropped on macOS, so the test waited for the timeouts there). The error names the
+        // target the action got.
+        int port;
+        using (var free = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp))
+        {
+            free.Bind(new IPEndPoint(IPAddress.Loopback, 0));
+            port = ((IPEndPoint)free.LocalEndPoint!).Port;
+        }
+
         var (http, _) = await rig.Rules.SaveRecipientAsync(null, "Hook", NotificationRecipients.HttpType, new JsonObject { ["url"] = $"http://127.0.0.1:{port}/in", ["auth"] = "none" }, CancellationToken.None);
         var (mail, _) = await rig.Rules.SaveRecipientAsync(
             null,

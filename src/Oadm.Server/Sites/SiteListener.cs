@@ -143,8 +143,10 @@ internal sealed partial class SiteListener : IAsyncDisposable
             {
                 socket = await _listener.AcceptSocketAsync(_stopping).ConfigureAwait(false);
             }
-            catch (Exception e) when (e is OperationCanceledException or ObjectDisposedException or SocketException)
+            catch (Exception e) when (e is OperationCanceledException or ObjectDisposedException or SocketException
+                || (e is InvalidOperationException && _stopping.IsCancellationRequested))
             {
+                // Stopping: the listener can stop between the check above and this accept ("Not listening", seen on macOS).
                 return;
             }
 
