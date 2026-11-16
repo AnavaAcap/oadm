@@ -405,8 +405,6 @@ public sealed class AssistantChatTests
         server.Model.Hang();
         using var first = service.Chat(new Proto.AssistantMessage { ConversationId = "chat-1", Text = "Take long", Model = "test-model" });
         Assert.True(await first.ResponseStream.MoveNext());
-        Assert.Equal(Proto.AssistantEvent.KindOneofCase.Notice, first.ResponseStream.Current.KindCase); // Anthropic: the first message
-        Assert.True(await first.ResponseStream.MoveNext());
         Assert.Equal("Working", first.ResponseStream.Current.Text);
         await AssertRefusedAsync(() => server.ChatAsync("Again"), StatusCode.FailedPrecondition, AssistantTexts.Busy);
 
@@ -451,11 +449,11 @@ public sealed class AssistantChatTests
     }
 
     [Fact]
-    public async Task TheNoticeOfACloudProviderShowsOnceAndOllamaShowsNone()
+    public async Task NoNoticeOfWhereTheDataGoesInTheChatForAnyProvider()
     {
+        // Decision 2026-11-16: the panel shows no "Your messages ... go to Anthropic." line; the user docs say where the data goes.
         await using var server = await AssistantTestServer.StartAsync();
-        var first = await server.ChatAsync("One");
-        Assert.Equal("Your messages and the data the assistant reads go to Anthropic.", Assert.Single(first, e => Kind(e) == Proto.AssistantEvent.KindOneofCase.Notice).Notice);
+        Assert.DoesNotContain(await server.ChatAsync("One"), e => Kind(e) == Proto.AssistantEvent.KindOneofCase.Notice);
         Assert.DoesNotContain(await server.ChatAsync("Two"), e => Kind(e) == Proto.AssistantEvent.KindOneofCase.Notice);
 
         await server.SetAsync(AssistantTestServer.Settings(AssistantTexts.Ollama));

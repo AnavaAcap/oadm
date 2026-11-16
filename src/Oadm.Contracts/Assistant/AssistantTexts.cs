@@ -32,7 +32,6 @@ public static class AssistantTexts
     public static bool IsCloud(string? provider) => provider is Anthropic or OpenAi or OpenAiCompatible;
 
     /// <summary>The notice of a user's first message after the panel opened (cloud providers).</summary>
-    public static string Notice(string? provider) => $"Your messages and the data the assistant reads go to {ProviderName(provider)}.";
 
     public const int MaxMessageLength = 8_000;
     public const int MaxSelectedDevices = 10_000;

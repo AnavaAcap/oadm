@@ -74,7 +74,7 @@ shows the chat.
 - **The live status line** (decision 2026-11-15, replaces the list of tool lines): right after Send one line at the end of
   the list, a small ring and "Thinking"; each tool line the server sends replaces its text ("Looking at devices", no
   ellipsis like every progress text). Streamed text takes its place (the text shows that the answer runs); the next tool
-  brings it back; cards, pictures and tables go above it. The notice where the data goes shows above it.
+  brings it back; cards, pictures and tables go above it.
 - **Steps**: when the answer ended, its tool lines become one row "Steps (5)" at its top (below the question and the
   notice) with the chevron of a section (`ToggleButton.sectionExpander steps`); a click opens the list (a check per step,
   a failed one with a red triangle and its text in red; the row shows a red triangle too). Closed, unless the answer
@@ -196,8 +196,8 @@ shows the chat.
 - **Markdown tables** are cards too, titled with their row count ("3 rows"), with **Copy as CSV** and **Save as CSV** of
   their cells. A device table's CSV holds every device of the table the client knows (up to 10,000) in the columns of
   Export devices, only for a role with Export devices.
-- A user's first message after the panel opened shows once: "Your messages and the data the assistant reads go to
-  <provider>." (not for Ollama).
+- No line in the chat says where the data goes (decision 2026-11-16: the user knows it from setting up the provider;
+  the user docs say it in "Set it up").
 
 ## Questions about OADM
 
@@ -259,8 +259,8 @@ Administrators only (an administrator's agent too: `oadm_assistant_settings_prev
 - No model here (decision 2026-11-15): each user picks it in the panel.
 - **Test**: checks the address and key by reading the provider's model list (Ollama, OpenAI-compatible without a list:
   one short call); "The provider answered." or the provider's error in plain words.
-- No intro and no note under the provider on the card (decision 2026-11-15): the panel shows where the data goes
-  (the notice of the first answer).
+- No intro and no note under the provider on the card (decision 2026-11-15) and no notice in the chat (2026-11-16): the
+  user docs say where the data goes.
 - Who may use it: permission **Use the assistant** (on for Administrator, off for the other built-in roles).
 
 ## The panel

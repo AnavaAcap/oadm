@@ -217,21 +217,6 @@ public sealed partial class AssistantChats
             var selection = await SelectionAsync(caller, message.SelectedDeviceIds, ct).ConfigureAwait(false);
             var mentioned = await SelectionAsync(caller, message.MentionedDeviceIds, ct).ConfigureAwait(false);
             var files = await FilesAsync(caller, message.Attachments, ct).ConfigureAwait(false);
-            var showNotice = false;
-            lock (conversation.Gate)
-            {
-                if (!conversation.NoticeShown && AssistantTexts.IsCloud(settings.Provider))
-                {
-                    conversation.NoticeShown = true;
-                    showNotice = true;
-                }
-            }
-
-            if (showNotice)
-            {
-                await emit(new Proto.AssistantEvent { Notice = AssistantTexts.Notice(settings.Provider) }).ConfigureAwait(false);
-            }
-
             await AnswerAsync(settings, model, conversation, ToolCallerOf(caller, selection), UserMessage(conversation, text, selection, mentioned, files), emit, streaming, spend,
                 lookupTopic, ct).ConfigureAwait(false);
         }

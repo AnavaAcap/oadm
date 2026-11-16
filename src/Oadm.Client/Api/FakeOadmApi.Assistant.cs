@@ -471,11 +471,6 @@ public sealed partial class FakeOadmApi
             devices = [.. _devices.Select(d => d.Clone())];
         }
 
-        if (AssistantMessages.Count == 1 && _assistant.Provider != "ollama")
-        {
-            yield return new AssistantEvent { Notice = Contracts.Assistant.AssistantTexts.Notice(_assistant.Provider) };
-        }
-
         if (text.Contains("offline", StringComparison.Ordinal))
         {
             yield return new AssistantEvent { Tool = new AssistantToolLine { Text = "Looking at devices" } };
