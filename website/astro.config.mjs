@@ -174,6 +174,7 @@ export default defineConfig({
 						{ label: 'PKI', slug: 'tools/pki' },
 						{ label: 'Snapshot report', slug: 'tools/snapshot-report' },
 						{ label: 'System report', slug: 'tools/system-report' },
+						{ label: 'VPN Fleet', slug: 'tools/vpn-fleet', badge: { text: 'Community', variant: 'note' } },
 						{
 							label: 'Text recognition',
 							collapsed: true,

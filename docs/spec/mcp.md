@@ -392,6 +392,8 @@ start on devices takes the device filter or `all_devices` (more than 500 matches
 changes (`will_change`, `unit`) for the Assistant's card. Bundled:
 
 - Hardening scan: `scan_start`, `scan_stop` ("Run scans"), `detail` (one device's checks, "show").
+- VPN Fleet: `results` (paged), `read`, `releases`, `settings` (never a secret value), `install` and `settings_save`
+  (refuses secrets: "change secrets on the VPN Fleet page"); setting up many cameras with keys stays on the page.
 - Image health: `check` (Check now). Edge storage: `read` (the storage task stays a task). Applications: `read`, `log`
   (newest lines of one device's application), `settings` (grouped values, shown only with the right to change ACAP
   settings, never a secret value); settings writes and installs stay tasks.

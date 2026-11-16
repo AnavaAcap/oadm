@@ -1,0 +1,107 @@
+---
+title: VPN Fleet
+description: The VPN apps of your cameras in one table. Set them up, install and upgrade them on many cameras.
+---
+
+import { Steps, Aside, Badge } from '@astrojs/starlight/components';
+import { Image } from 'astro:assets';
+import shot from '../../../assets/screens/vpn-fleet.png';
+import cameraShot from '../../../assets/screens/vpn-fleet-camera.png';
+import installShot from '../../../assets/screens/vpn-fleet-install.png';
+import setupShot from '../../../assets/screens/vpn-fleet-setup.png';
+
+<Badge text="Community plugin" variant="note" /> Made by [Mo3he](https://github.com/Mo3he), who also makes the VPN apps.
+Questions and feature requests: [github.com/Mo3he](https://github.com/Mo3he).
+
+VPN Fleet shows the VPN apps on your cameras: whether each camera is connected, its address in the VPN and the app
+version. Change the settings of one camera, set up many cameras at once, and install or upgrade the apps from GitHub.
+
+It works with these apps: [Tailscale](https://github.com/Mo3he/Axis_Cam_Tailscale),
+[NetBird](https://github.com/Mo3he/Axis_Cam_NetBird), [ZeroTier](https://github.com/Mo3he/Axis_Cam_ZeroTier),
+[WireGuard](https://github.com/Mo3he/Axis_Cam_WireGuard), [OpenVPN](https://github.com/Mo3he/Axis_Cam_OpenVPN) and
+[WireGuard Server](https://github.com/Mo3he/Axis_Cam_WireGuard_Server).
+
+<Image src={shot} alt="VPN Fleet with connected cameras, an update and a camera without a VPN app" class="screen" />
+
+<Aside>
+VPN Fleet is off by default. An administrator turns it on on the **Plugins** page.
+</Aside>
+
+## See your cameras
+
+<Steps>
+
+1. Open **VPN Fleet** in the navigation rail and choose the cameras with **Choose devices**: all devices, tags, or single
+   cameras. OADM reads the chosen cameras once; click **Refresh** to read them again.
+2. Read the table. Each VPN app on a camera has a row:
+   - **Connected**: the tunnel is up. **VPN address** is the camera's address in the VPN.
+   - **Connecting**, **Not set up**, **App stopped**, **Not connected**: **Details** says why.
+   - **No VPN app**: the camera has none of the apps.
+   - **Update**: a newer version is on GitHub.
+
+</Steps>
+
+## Change one camera
+
+Click a row. The panel shows every setting of that camera's app, with **Save** for this camera only.
+
+<Image src={cameraShot} alt="The settings of the Tailscale app on one camera" class="screen" />
+
+- Keys and passwords show only whether they are set. Leave the field empty to keep the current one, or enter a new one.
+- **Upgrade to** installs the newest version on this camera. **What's new** opens the release on GitHub.
+- WireGuard shows the camera's public key for its server, and **New key pair** makes a new one. A camera connected to a
+  hub camera gives the hub its new key by itself.
+- A camera without a VPN app offers to install one.
+
+## Install or upgrade
+
+<Steps>
+
+1. Click **Install or upgrade** and choose the app. The newest version on GitHub shows; **Check now** asks GitHub again.
+2. Check the list. Every chosen camera is there with what happens to it, for example **Upgrade 1.104.6 to 1.104.7** or
+   **Install Tailscale 1.104.7**. Cameras with an older version are ticked; tick or untick others.
+3. Click **Install or upgrade**. Each camera gets a task in the task list.
+
+</Steps>
+
+<Image src={installShot} alt="Install or upgrade with a list of cameras to tick" class="screen" />
+
+Each camera gets the package for its type: the signed package for AXIS OS 10.12 and later, the ACAP 3 package for
+armv7hf cameras with older AXIS OS. Upgrades keep the app's settings. A camera that has the version already is not
+changed.
+
+## Set up many cameras
+
+<Steps>
+
+1. Click **Set up many cameras** and choose the VPN.
+2. Enter what it needs: the auth key (Tailscale), the setup key (NetBird), the network ID (ZeroTier), the profile
+   (OpenVPN), or the server (WireGuard).
+3. Check the list of cameras. Cameras with the app are ticked; cameras without it are not, install it there first.
+4. Click **Set up** (the button counts the ticked cameras). Each camera saves the settings, starts the app and waits up to 90 seconds for the tunnel.
+
+</Steps>
+
+<Image src={setupShot} alt="Set up many cameras with the list of cameras that will be changed" class="screen" />
+
+For WireGuard each camera gets its own key pair and tunnel address:
+
+- **A camera with WireGuard Server**: choose that camera as hub. OADM adds every camera to the hub's peers and keeps
+  the hub's other peers.
+- **Another WireGuard server**: enter its address, public key and tunnel address. Copy the cameras' peers from
+  **WireGuard peers** into the server's configuration.
+
+## Good to know
+
+- Keys and passwords never leave the OADM server, and OADM never stores them. It keeps only each WireGuard camera's
+  public key and address.
+- The OADM server checks GitHub for new versions at most every 30 minutes and downloads each package once. It needs
+  HTTPS access to `api.github.com`, `github.com` and `*.githubusercontent.com`. Each package is checked against the
+  checksum GitHub publishes before it goes onto a camera.
+- OADM reads 16 cameras at a time and installs on 4 at a time.
+- Devices that need a login, have no password yet, have a changed certificate or do not answer show the reason.
+
+<Aside>
+Everyone who sees the page can read the cameras. Changing settings needs **Change VPN settings**, installing needs
+**Install and upgrade VPN apps**. Administrators give them per role on the **Permissions** page.
+</Aside>
