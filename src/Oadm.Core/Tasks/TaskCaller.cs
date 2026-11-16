@@ -22,6 +22,9 @@ public sealed record TaskCaller(Guid UserId, string UserName, string Owner, stri
     /// <summary>The person behind a delegated connection; empty for independent keys and legacy callers.</summary>
     public Guid PrincipalId { get; init; }
 
+    /// <summary>The run permissions checked at admission. Host-internal runs can have no separate run permission.</summary>
+    public IReadOnlyList<string> RequiredRunPermissions { get; init; } = [];
+
     /// <summary>The caller of a gRPC call.</summary>
     public static TaskCaller Of(AuthenticatedCaller caller)
     {
@@ -144,9 +147,9 @@ internal sealed class ViewTaskRunner(TaskEngine engine, DeviceView view, TaskCal
     public async Task<IReadOnlyList<Guid>> RunAsync(string pluginId, IReadOnlyList<Guid> deviceIds, string? payloadJson, string owner, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(deviceIds);
-        TaskRunPermissions.Require(engine.Plugins, pluginId, payloadJson, caller.Permissions, refuseUnknown: true, pagePackageId);
+        var required = TaskRunPermissions.Require(engine.Plugins, pluginId, payloadJson, caller.Permissions, refuseUnknown: true, pagePackageId);
         var devices = await view.GetAsync(deviceIds, ct).ConfigureAwait(false);
-        return await engine.RunAsync(pluginId, devices, payloadJson, caller, ct).ConfigureAwait(false);
+        return await engine.RunAsync(pluginId, devices, payloadJson, caller with { RequiredRunPermissions = required }, ct).ConfigureAwait(false);
     }
 
     public bool Cancel(Guid taskId) => view.HasAllDevices ? engine.Cancel(taskId) : engine.CancelOwn(taskId, caller.UserId);

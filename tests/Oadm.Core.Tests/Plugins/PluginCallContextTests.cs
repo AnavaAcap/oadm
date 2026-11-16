@@ -600,6 +600,11 @@ public sealed class PluginCallContextTests : DeviceGroupTestBase
                 plugin.TaskCallers.Enqueue(ctx.Caller);
                 return Task.CompletedTask;
             }), new PluginOrigin("test.tasks", "1.0.0", null) { MinSdkVersion = SdkInfo.Version, DeclaredSiteSupport = Sdk.Sites.SiteSupport.Full }));
+            var roles = Db.Get<RoleStore>();
+            await roles.SyncCatalogAsync(PermissionCatalog.Build(registry), Ct);
+            var role = (await roles.ListAsync(Ct)).Single(r => r.Id == BuiltInRoles.OperatorId);
+            await roles.SaveAsync([new RoleChange(role.Id, role.Name, role.Description,
+                [.. role.Permissions.Keys, PermissionKeys.Task("t.call")], role.Version)], Ct);
             taskEngine = new TaskEngine(Db.Get<EfTaskStore>(), registry, Devices, new FakeVapixClientFactory()) { Views = Views };
         }
 

@@ -1068,9 +1068,6 @@ public sealed partial class TaskEngine : ITaskRunner, IAsyncDisposable
                 var effectiveRights = caller.Permissions.IsAll ? currentRights
                     : Auth.PermissionSet.Of(caller.Permissions.Keys.Where(currentRights.Has));
                 executionCaller = caller with { Permissions = effectiveRights };
-                var required = TaskRunPermissions.IsPageTask(plugin)
-                    ? TaskRunPermissions.PageRunKeys(_plugins, task.Registration, task.PayloadJson) ?? []
-                    : Auth.PermissionCatalog.RunKeys(plugin, task.PayloadJson);
                 if (device is null)
                 {
                     // Removed meanwhile: an owner with a device group gets the same answer as for any device outside it.
@@ -1084,7 +1081,7 @@ public sealed partial class TaskEngine : ITaskRunner, IAsyncDisposable
                 {
                     precondition = DeviceAccessRefusedException.PluginNeedsAllDevices;
                 }
-                else if (required.Any(key => !effectiveRights.Has(key)))
+                else if (caller.RequiredRunPermissions.Any(key => !effectiveRights.Has(key)))
                 {
                     // Check this operation's rights, not unrelated capabilities. Plugins also receive the current
                     // intersection below, so a page-owned task can enforce its narrower operation approval.

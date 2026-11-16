@@ -397,7 +397,7 @@ public sealed partial class TaskGrpcService(
         // to DeviceAccessRefusedException). A task only its page starts has no run key: the page's methods carry the rights,
         // so Run refuses it for every caller unless the task names the page permissions one run needs
         // (ITaskPlugin.PagePermissions, the agents' task tools); then the role needs exactly those.
-        TaskRunPermissions.RequireOutsidePage(registry, task, payload, caller.Permissions, () => roles.Catalog);
+        var required = TaskRunPermissions.RequireOutsidePage(registry, task, payload, caller.Permissions, () => roles.Catalog);
 
         var view = await views.ForAsync(context).ConfigureAwait(false);
         var devices = await view.GetAsync(ids, context.CancellationToken).ConfigureAwait(false);
@@ -411,7 +411,8 @@ public sealed partial class TaskGrpcService(
 
         try
         {
-            var taskIds = await engine.RunAsync(request.PluginId, devices, payload, TaskCaller.Of(caller), context.CancellationToken).ConfigureAwait(false);
+            var admitted = TaskCaller.Of(caller) with { RequiredRunPermissions = required };
+            var taskIds = await engine.RunAsync(request.PluginId, devices, payload, admitted, context.CancellationToken).ConfigureAwait(false);
             await audit.WriteAsync(
                 AuditActions.TaskRun,
                 registry.TryGetTaskPlugin(request.PluginId, out var plugin) ? plugin.DisplayName : request.PluginId,

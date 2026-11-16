@@ -25,13 +25,10 @@ public static class TaskRunPermissions
     /// allow: Remove.") when the run needs a permission <paramref name="permissions"/> lacks; the host answers
     /// PERMISSION_DENIED with that text. <paramref name="catalog"/> is read only for a refusal.
     /// </summary>
-    public static void Require(ITaskPlugin plugin, string? payloadJson, PermissionSet permissions, Func<PermissionCatalog> catalog)
+    public static IReadOnlyList<string> Require(ITaskPlugin plugin, string? payloadJson, PermissionSet permissions, Func<PermissionCatalog> catalog)
     {
         ArgumentNullException.ThrowIfNull(catalog);
-        if (Missing(plugin, payloadJson, permissions) is { } key)
-        {
-            throw new DeviceAccessRefusedException(catalog().DeniedMessage(key));
-        }
+        return RequireKeys(PermissionCatalog.RunKeys(plugin, payloadJson), permissions, catalog);
     }
 
     /// <summary>
@@ -42,7 +39,7 @@ public static class TaskRunPermissions
     /// to the runner (another runner than the engine, in tests and tools). <paramref name="pagePackageId"/>: the package of
     /// the core plugin whose page method (or job) runs; its own page tasks need no run keys (<see cref="StartsOwnPageTask"/>).
     /// </summary>
-    public static void Require(PluginRegistry registry, string pluginId, string? payloadJson, PermissionSet permissions, bool refuseUnknown, string? pagePackageId = null)
+    public static IReadOnlyList<string> Require(PluginRegistry registry, string pluginId, string? payloadJson, PermissionSet permissions, bool refuseUnknown, string? pagePackageId = null)
     {
         ArgumentNullException.ThrowIfNull(registry);
         ArgumentException.ThrowIfNullOrWhiteSpace(pluginId);
@@ -50,13 +47,15 @@ public static class TaskRunPermissions
         {
             if (!StartsOwnPageTask(task, pagePackageId))
             {
-                Require(task.Plugin, payloadJson, permissions, () => PermissionCatalog.Build(registry));
+                return Require(task.Plugin, payloadJson, permissions, () => PermissionCatalog.Build(registry));
             }
         }
         else if (refuseUnknown)
         {
             throw new ArgumentException(UnknownPlugin(pluginId), nameof(pluginId));
         }
+
+        return [];
     }
 
     /// <summary>The refusal of <c>TaskService.Run</c> for a page task (<see cref="IsPageTask"/>).</summary>
@@ -152,7 +151,7 @@ public static class TaskRunPermissions
     /// refused with <see cref="PageTaskOnly"/> without them), every other task its run keys
     /// (<see cref="Require(ITaskPlugin, string?, PermissionSet, Func{PermissionCatalog})"/>).
     /// </summary>
-    public static void RequireOutsidePage(PluginRegistry registry, RegisteredTaskPlugin task, string? payloadJson, PermissionSet permissions, Func<PermissionCatalog> catalog)
+    public static IReadOnlyList<string> RequireOutsidePage(PluginRegistry registry, RegisteredTaskPlugin task, string? payloadJson, PermissionSet permissions, Func<PermissionCatalog> catalog)
     {
         ArgumentNullException.ThrowIfNull(registry);
         ArgumentNullException.ThrowIfNull(task);
@@ -160,8 +159,7 @@ public static class TaskRunPermissions
         ArgumentNullException.ThrowIfNull(catalog);
         if (!IsPageTask(task.Plugin))
         {
-            Require(task.Plugin, payloadJson, permissions, catalog);
-            return;
+            return Require(task.Plugin, payloadJson, permissions, catalog);
         }
 
         if (PageRunKeys(registry, task, payloadJson) is not { } keys)
@@ -169,10 +167,18 @@ public static class TaskRunPermissions
             throw new DeviceAccessRefusedException(PageTaskOnly);
         }
 
+        return RequireKeys(keys, permissions, catalog);
+    }
+
+    private static IReadOnlyList<string> RequireKeys(IReadOnlyList<string> keys, PermissionSet permissions, Func<PermissionCatalog> catalog)
+    {
+        ArgumentNullException.ThrowIfNull(permissions);
         if (keys.FirstOrDefault(key => !permissions.Has(key)) is { } missing)
         {
             throw new DeviceAccessRefusedException(catalog().DeniedMessage(missing));
         }
+
+        return keys;
     }
 
     /// <summary>The answer for a task plugin id that is unknown or turned off.</summary>

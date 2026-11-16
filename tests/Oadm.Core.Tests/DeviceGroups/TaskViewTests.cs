@@ -307,6 +307,42 @@ public sealed class TaskViewTests : DeviceGroupTestBase
     }
 
     [Fact]
+    public async Task AQueuedCallTaskCannotRunAfterItsAdmittedPermissionIsRevoked()
+    {
+        const string pluginId = "t.revocation";
+        var key = PermissionKeys.Task(pluginId);
+        var first = await AddDeviceAsync("ACCC8E000001", tags: [Tag]);
+        var second = await AddDeviceAsync("ACCC8E000002", tags: [Tag]);
+        var (_, caller, view) = await GroupUserAsync();
+        var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var reached = new System.Collections.Concurrent.ConcurrentBag<Guid>();
+        Register(new DelegateTaskPlugin(pluginId, async (_, device, ct) =>
+        {
+            reached.Add(device.Id);
+            started.TrySetResult();
+            await gate.Task.WaitAsync(ct);
+        }) { Limit = 1 });
+
+        var roles = Db.Get<RoleStore>();
+        var role = (await roles.ListAsync(Ct)).Single(r => r.Id == caller.RoleId);
+        await roles.SaveAsync([new RoleChange(role.Id, role.Name, role.Description, [.. role.Permissions.Keys, key], role.Version)], Ct);
+        await using var engine = Engine();
+        var runner = engine.ForView(view, TaskCaller.Of(caller));
+        var ids = await runner.RunAsync(pluginId, [first.Id, second.Id], null, "ignored", Ct);
+        await started.Task.WaitAsync(Eventually.DefaultTimeout);
+
+        role = (await roles.ListAsync(Ct)).Single(r => r.Id == caller.RoleId);
+        await roles.SaveAsync([new RoleChange(role.Id, role.Name, role.Description, [.. role.Permissions.Keys.Where(p => p != key)], role.Version)], Ct);
+        gate.SetResult();
+        await engine.WaitForCompletionAsync(ids[1], Ct);
+        var refused = (await engine.GetAsync(ids[1], Ct))!;
+        Assert.Equal(TaskState.Failed, refused.State);
+        Assert.Contains("permissions changed", refused.Devices[0].Message, StringComparison.Ordinal);
+        Assert.Equal([first.Id], reached);
+    }
+
+    [Fact]
     public async Task AUserWithAllDevicesRunsAsBeforeAndTheQueueCheckPasses()
     {
         var device = await AddDeviceAsync("ACCC8E000001");
