@@ -96,6 +96,7 @@ public sealed partial class CameraCheck : ObservableObject
 public sealed partial class CameraChecklist : ObservableObject
 {
     private List<CameraCheck> _all = [];
+    private int _checked;
 
     /// <summary>The rows the table shows (all, or those of the search).</summary>
     public RangeObservableCollection<CameraCheck> Items { get; } = [];
@@ -110,9 +111,11 @@ public sealed partial class CameraChecklist : ObservableObject
     [ObservableProperty]
     public partial string Summary { get; private set; } = "";
 
+    /// <summary>Kept per tick (+1 / -1), never counted over all cameras.</summary>
     [ObservableProperty]
     public partial int CheckedCount { get; private set; }
 
+    /// <summary>The ticked cameras; built when asked (the start), not on every tick.</summary>
     public IReadOnlyList<Guid> CheckedIds => [.. _all.Where(i => i.IsChecked).Select(i => i.Id)];
 
     public event EventHandler? Changed;
@@ -132,9 +135,11 @@ public sealed partial class CameraChecklist : ObservableObject
         }
 
         _all = [.. items];
+        _checked = 0;
         foreach (var item in _all)
         {
             item.CheckedChanged += OnItemChanged;
+            _checked += item.IsChecked ? 1 : 0;
         }
 
         Filter();
@@ -153,13 +158,21 @@ public sealed partial class CameraChecklist : ObservableObject
     /// <summary>Ticks exactly the shown cameras of <paramref name="kind"/>.</summary>
     public void CheckOnly(CheckKind kind) => SetShown(i => i.Kind == kind);
 
+    /// <summary>Sets the tick of every shown camera; one update at the end.</summary>
     private void SetShown(Func<CameraCheck, bool> value)
     {
-        foreach (var item in Items.Where(i => i.IsEnabled))
+        foreach (var item in Items)
         {
+            var on = value(item);
+            if (!item.IsEnabled || item.IsChecked == on)
+            {
+                continue;
+            }
+
             item.CheckedChanged -= OnItemChanged;
-            item.IsChecked = value(item);
+            item.IsChecked = on;
             item.CheckedChanged += OnItemChanged;
+            _checked += on ? 1 : -1;
         }
 
         Update();
@@ -172,15 +185,18 @@ public sealed partial class CameraChecklist : ObservableObject
         Update();
     }
 
-    private void OnItemChanged(object? sender, EventArgs e) => Update();
+    private void OnItemChanged(object? sender, EventArgs e)
+    {
+        _checked += sender is CameraCheck { IsChecked: true } ? 1 : -1;
+        Update();
+    }
 
     private void Update()
     {
-        CheckedCount = _all.Count(i => i.IsChecked);
+        CheckedCount = _checked;
         Summary = _all.Count == 0
             ? "Choose devices on the page first."
-            : $"{CheckedCount:N0} of {_all.Count:N0} cameras ticked" + (Items.Count == _all.Count ? "." : $", {Items.Count:N0} shown.");
-        OnPropertyChanged(nameof(CheckedIds));
+            : $"{_checked:N0} of {_all.Count:N0} cameras ticked" + (Items.Count == _all.Count ? "." : $", {Items.Count:N0} shown.");
         Changed?.Invoke(this, EventArgs.Empty);
     }
 }
