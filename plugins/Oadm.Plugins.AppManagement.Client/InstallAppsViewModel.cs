@@ -119,6 +119,7 @@ public sealed partial class InstallAppsViewModel : ObservableObject, IDisposable
     /// <summary>The file names of <see cref="_packages"/> and the rows of the package's mapping file.</summary>
     private IReadOnlyList<string> _names = [];
     private IReadOnlyList<AcapPackageRule> _rules = [];
+    private AcapUnmatched _unmatched = AcapUnmatched.Automatic;
     private CancellationTokenSource? _upload;
     private int _version;
 
@@ -240,6 +241,7 @@ public sealed partial class InstallAppsViewModel : ObservableObject, IDisposable
         _packages = [];
         _names = [];
         _rules = [];
+        _unmatched = AcapUnmatched.Automatic;
         FileError = null;
         ErrorText = null;
         FileName = EapPackageFiles.Describe(paths, null);
@@ -279,7 +281,8 @@ public sealed partial class InstallAppsViewModel : ObservableObject, IDisposable
                 else
                 {
                     // The vendor's mapping file of a ZIP decides the build per device group like in the Applications dialog.
-                    _rules = _files.RulesJson is { } json ? AcapPackageRules.Parse(json, [.. read.Select(r => r.FileName)]) : [];
+                    var map = _files.RulesJson is { } json ? AcapPackageRules.Parse(json, [.. read.Select(r => r.FileName)]) : AcapPackageMap.None;
+                    (_rules, _unmatched) = (map.Rows, map.Unmatched);
                     _names = [.. read.Select(r => r.FileName)];
                     _packages = [.. read.Select(r => r.Package)];
                     FileDetails = Describe(_packages, files);
@@ -373,8 +376,8 @@ public sealed partial class InstallAppsViewModel : ObservableObject, IDisposable
         IsChecking = true;
         try
         {
-            var (names, rules) = (_names, _rules);
-            var rows = await Task.Run(() => Check(Devices, packages, allowDowngrade, names, rules)).ConfigureAwait(true);
+            var (names, rules, unmatched) = (_names, _rules, _unmatched);
+            var rows = await Task.Run(() => Check(Devices, packages, allowDowngrade, names, rules, unmatched)).ConfigureAwait(true);
             if (version != _version)
             {
                 return;
@@ -404,7 +407,7 @@ public sealed partial class InstallAppsViewModel : ObservableObject, IDisposable
 
     /// <summary>The rows of <paramref name="devices"/> against the packages (tests call it directly).</summary>
     internal static InstallDeviceRow[] Check(IReadOnlyList<DeviceApps> devices, IReadOnlyList<EapManifest> packages, bool allowDowngrade,
-        IReadOnlyList<string>? names = null, IReadOnlyList<AcapPackageRule>? rules = null)
+        IReadOnlyList<string>? names = null, IReadOnlyList<AcapPackageRule>? rules = null, AcapUnmatched unmatched = AcapUnmatched.Automatic)
     {
         var rows = new InstallDeviceRow[devices.Count];
         var builds = AcapCompatibility.Builds(packages, names);
@@ -433,7 +436,7 @@ public sealed partial class InstallAppsViewModel : ObservableObject, IDisposable
                 var key = string.Join('|', group.Key, facts.EmbeddedDevelopmentVersion, facts.SupportedSdks is { } sdks ? string.Join(',', sdks) : "?");
                 if (!choices.TryGetValue(key, out var choice))
                 {
-                    choices[key] = choice = AcapBuildChooser.Choose(builds, group, rules, device: facts);
+                    choices[key] = choice = AcapBuildChooser.Choose(builds, group, rules, unmatched: unmatched, device: facts);
                 }
 
                 preview = AcapCompatibility.Preview(builds, choice, facts, device.Applications, allowDowngrade);
@@ -505,7 +508,8 @@ public sealed partial class InstallAppsViewModel : ObservableObject, IDisposable
                 Install = new AppInstall
                 {
                     Files = files,
-                    Rules = _rules.Count == 0 || files.Count < 2 ? null : [.. _rules.Select(r => r with { File = FileIdOf(r.File, files) })],
+                    Rules = _rules.Count == 0 ? null : [.. _rules.Select(r => r with { File = FileIdOf(r.File, files) })],
+                    Unmatched = _unmatched == AcapUnmatched.Skip ? AcapUnmatched.Skip : null,
                     Version = package.Version,
                     AllowDowngrade = AllowDowngrade && MayDowngrade,
                     StartAfterInstall = StartAfterInstall,

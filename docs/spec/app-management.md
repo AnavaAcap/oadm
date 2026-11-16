@@ -184,12 +184,16 @@ task take them together (decision 2026-11-15, "auto + table when unclear"):
   three architectures times three tracks fit.
 - **One pure function** picks the build per device group (model, AXIS OS, architecture): `AcapBuildChooser.Choose`, used
   by the dialog's preview, Install applications, the plan for agents and the task's run with a fresh basicdeviceinfo.
-  Order: 1) the choice of the payload's `mapping` for the group (the table, an agent); 2) the rows of a mapping file that
-  match the device (below); 3) automatic: the architecture fits (`arm64` = `aarch64`) and the AXIS OS is inside the build's
-  `compatibleOsVersions` (without a range: at least the manifest schema's minimum); of those the newest version, then the
-  range that lies inside the others'. A package for any architecture only when no native build fits. A choice never
-  overrides safety: the chosen build must fit the device's architecture and AXIS OS, else that group gets "No package"
-  with the reason ("lpr_lts.eap from row 1 of the mapping file does not fit: it needs AXIS OS 10.0 - 10.12.").
+  Order: 1) the rows of a mapping file that match the device (below), also for a single package; when none matches and
+  the file says `"unmatched": "skip"`, "No package" ("No row of the mapping file matches this device."); 2) automatic: the
+  architecture fits (`arm64` = `aarch64`) and the AXIS OS is inside the build's `compatibleOsVersions` (without a range:
+  at least the manifest schema's minimum); of those the newest version, then the range that lies inside the others'. A
+  package for any architecture only when no native build fits; a single package without a row is always used (its own
+  checks decide); 3) the choice of the payload's `mapping` (the table, an agent), only for a group that 1) and 2) leave
+  unclear: it never reopens a group the rows or the automatic pick decided or left without a package (decision
+  2026-11-15). A choice never overrides safety: the chosen build must fit the device's architecture and AXIS OS, else
+  that group gets "No package" with the reason ("lpr_lts.eap from row 1 of the mapping file does not fit: it needs AXIS
+  OS 10.0 - 10.12.").
 - **Unclear**: two builds fit equally (same version and range, ranges where none lies inside the other, a build without
   a range next to another, two mapping rows of the same weight). The dialog then shows a table above the preview, one
   row per group with a list of the candidate files (Devices, Package, Decided by); Install stays disabled with "Choose the
@@ -198,21 +202,29 @@ task take them together (decision 2026-11-15, "auto + table when unclear"):
   groups come from the cached facts of all selected devices (the read ones from the dialog's read), O(n).
 - **No package**: "No package for armv7hf.", "No package for AXIS OS 9.80.3." (Done with warnings, nothing changed).
 - **Payload**: `files: [{fileId, sha256, architecture}]` (the old single `fileId` still read), `rules` (the mapping file's
-  rows with file ids), `mapping: [{model, axisOs, architecture, file}]` for the unclear groups (model optional = every
-  model). The task honours the mapping; a mapped file that does not fit the fresh read fails "Nothing was changed", an
+  rows with file ids, also with one file; checked like the rows of the file, at `rules`: "Mapping row 2: "axisOs.max" must
+  be a version such as 10.12. Nothing was changed."), `unmatched` (the file's `"unmatched"`, `automatic` or `skip`; left
+  out = automatic), `mapping: [{model, axisOs, architecture, file}]` for the unclear groups (model optional = every
+  model). With `zipFileId` the ZIP's own file applies: `rules` and `unmatched` are refused. The task honours the mapping
+  for a group that is still unclear on the fresh read; a mapped file that does not fit fails "Nothing was changed", an
   unclear group without a choice too. A device whose AXIS OS changed since the preview is decided again.
 
 ## Mapping file for vendors
 
 `oadm-packages.json` in the ZIP, at its top level or next to the `.eap` files (name in any case), OADM's own format (Axis
-has none): `{"packages": [{"file", "models", "soc", "architecture", "axisOs": {"min", "max"}}]}`. Only `file` is required
-and must name an `.eap` of the pick; `models` match the model with or without "AXIS " (any case), `soc` the SoC as the SoC
-column shows it ("A8" = "ARTPEC-8" = "Axis Artpec-8", "CV25" = "Ambarella CV25"), `axisOs` bounds inclusive at their own
-precision like the manifest ranges. The most specific matching row wins: models before the SoC before architecture and
-AXIS OS; a tie of rows naming different files is unclear. Strict JSON (no comments, no trailing commas), no unknown key,
-at most 64 KB and 500 rows (`AcapPackageRules`); a broken file refuses the ZIP at the file row with a plain sentence
-("oadm-packages.json row 2 names lpr.eap, which is not among the .eap files."). The package facts say "Mapping from the
-package".
+has none): `{"unmatched": "automatic" | "skip", "packages": [{"file", "models", "soc", "architecture", "axisOs": {"min",
+"max"}}]}`. Only `file` is required and must name an `.eap` of the pick; `models` match the model with or without "AXIS "
+(any case), `soc` the SoC as the SoC column shows it ("A8" = "ARTPEC-8" = "Axis Artpec-8", "CV25" = "Ambarella CV25"),
+`axisOs` bounds inclusive at their own precision like the manifest ranges (a `min` above the `max` is refused; "12.5" to
+"12" is fine, "12" is any 12.x). The most specific matching row wins: models before the SoC before architecture and AXIS
+OS; a tie of rows naming different files is unclear. `unmatched` says what a device that no row matches gets:
+`"automatic"` (the default) the automatic pick of the manifests, `"skip"` no package ("No row of the mapping file matches
+this device.", Done with warnings, nothing changed), so a vendor lists the devices that get a package and keeps every
+other one out (decision 2026-11-15). Strict JSON (no comments, no trailing commas), at most 64 KB and 500 rows
+(`AcapPackageRules`); a key that starts with `$` or `x-`, at the top level and in a row, is a note and ignored
+(`"$schema"`, `"x-vendor"`); any other unknown key refuses the ZIP, so an OADM that does not know a rule refuses it
+rather than ignoring it. A broken file refuses the ZIP at the file row ("oadm-packages.json row 2 names lpr.eap, which is
+not among the .eap files."). The package facts say "Mapping from the package".
 
 ## A ZIP of packages
 
@@ -221,8 +233,11 @@ next to loose files, also mixed in one pick, through `EapPackageFiles`; agents a
 `zipFileId`. The rules of a ZIP are one shared class, `EapZip` (`plugins/Oadm.Plugins.Acap/Shared`), the same for the
 client and the server:
 
-- **Only the builds and the mapping file.** The `.eap` entries, also from subfolders, and one `oadm-packages.json`; other
-  files and the copies macOS adds (`__MACOSX/`, `._name`) are ignored, a ZIP inside a ZIP too.
+- **Only the builds and the mapping file.** The `.eap` entries, also from subfolders, and one `oadm-packages.json` at the
+  top level or next to the `.eap` files; one anywhere else refuses the ZIP ("app.zip has oadm-packages.json in the folder
+  docs, which holds no .eap file. Put it at the top level or next to the .eap files."), because ignoring it would give every
+  device the automatic pick its rows may keep out. Other files and the copies macOS adds (`__MACOSX/`, `._name`) are ignored, a
+  ZIP inside a ZIP too.
 - **Refused**: an entry name with an absolute path, a drive or ".." ("app.zip has a file with a path outside the ZIP."),
   two `.eap` of the same name ("app.zip has two files named app.eap."), more than one mapping file, a password, more than
   10,000 entries, more than 16 `.eap`, more than 2 GB unpacked (declared sizes first, then counted while reading), an

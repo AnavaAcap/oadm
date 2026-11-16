@@ -70,12 +70,16 @@ public sealed record AcapInstallPreview(
 /// </summary>
 public static class AcapCompatibility
 {
-    /// <summary>Manifest schema version -> minimum AXIS OS (developer.axis.com, manifest schemas), for packages that state no AXIS OS range.</summary>
+    /// <summary>
+    /// Manifest schema version -> minimum AXIS OS (developer.axis.com, manifest schemas), for packages that state no AXIS OS range.
+    /// 1.7.5 is not in Axis's table: ACAP Native SDK 1.15.4 (the AXIS OS 11.11 LTS track) writes it, and AXIS OS 11.11 installs
+    /// and runs it (measured on ARTPEC-7 and ARTPEC-8, AXIS OS 11.11.238). Without the entry it took 1.7.4's 12.4.
+    /// </summary>
     public static readonly IReadOnlyList<(string Schema, string MinOs)> SchemaMinimumOs =
     [
         ("1.0", "10.7"), ("1.1", "10.7"), ("1.2", "10.7"), ("1.3", "10.9"), ("1.3.1", "11.0"),
         ("1.4.0", "11.7"), ("1.5.0", "11.8"), ("1.6.0", "11.9"), ("1.7.0", "11.10"), ("1.7.1", "12.0"),
-        ("1.7.2", "12.1"), ("1.7.3", "12.2"), ("1.7.4", "12.4"), ("1.8.0", "12.6"), ("1.9.0", "12.8"),
+        ("1.7.2", "12.1"), ("1.7.3", "12.2"), ("1.7.4", "12.4"), ("1.7.5", "11.11"), ("1.8.0", "12.6"), ("1.9.0", "12.8"),
         ("1.10.0", "12.10"), ("1.11.0", "12.11"), ("2.0.0", "12.10"), ("2.1.0", "12.11"), ("2.2.0", "12.11"),
     ];
 
@@ -138,12 +142,13 @@ public static class AcapCompatibility
     /// builds are called "aarch64 build".
     /// </summary>
     public static AcapInstallPreview Preview(IReadOnlyList<EapManifest> packages, AcapDeviceFacts device, IReadOnlyList<InstalledApplication> applications, bool allowDowngrade,
-        IReadOnlyList<string>? names = null, IReadOnlyList<AcapPackageRule>? rules = null, IReadOnlyList<AcapPackageMapping>? mapping = null)
+        IReadOnlyList<string>? names = null, IReadOnlyList<AcapPackageRule>? rules = null, IReadOnlyList<AcapPackageMapping>? mapping = null,
+        AcapUnmatched unmatched = AcapUnmatched.Automatic)
     {
         ArgumentNullException.ThrowIfNull(packages);
         ArgumentNullException.ThrowIfNull(device);
         var builds = Builds(packages, names);
-        return Preview(builds, AcapBuildChooser.Choose(builds, AcapDeviceGroup.Of(device), rules, mapping, device), device, applications, allowDowngrade);
+        return Preview(builds, AcapBuildChooser.Choose(builds, AcapDeviceGroup.Of(device), rules, mapping, unmatched, device), device, applications, allowDowngrade);
     }
 
     /// <summary>The builds of packages before an upload: key and name are the file name, or "aarch64 build" without names.</summary>
@@ -310,6 +315,31 @@ public static class AcapCompatibility
         }
 
         return range.Max is not { } max || CompareTruncated(fw, NumericPrefix(max)) <= 0;
+    }
+
+    /// <summary>
+    /// No version lies in the range: its min is above its max at the precision both bounds have ("13" to "12", "12.10" to
+    /// "12.9"; "12.5" to "12" is fine, max "12" is any 12.x).
+    /// </summary>
+    public static bool IsInverted(OsVersionRange range)
+    {
+        ArgumentNullException.ThrowIfNull(range);
+        if (range.Min is not { } min || range.Max is not { } max)
+        {
+            return false;
+        }
+
+        var low = NumericPrefix(min);
+        var high = NumericPrefix(max);
+        for (var i = 0; i < Math.Min(low.Count, high.Count); i++)
+        {
+            if (low[i] != high[i])
+            {
+                return low[i] > high[i];
+            }
+        }
+
+        return false;
     }
 
     /// <summary>Minimum AXIS OS for a manifest schema version, null when the schema is unknown or missing.</summary>

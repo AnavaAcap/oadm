@@ -50,6 +50,9 @@ public sealed partial class AcapDialogViewModel
     /// <summary>The rows of the package's mapping file (<c>oadm-packages.json</c>), empty without.</summary>
     private IReadOnlyList<AcapPackageRule> _rules = [];
 
+    /// <summary>What the mapping file gives a device that no row matches.</summary>
+    private AcapUnmatched _unmatched = AcapUnmatched.Automatic;
+
     /// <summary>The user's file per unclear group key.</summary>
     private readonly Dictionary<string, string> _chosen = new(StringComparer.Ordinal);
 
@@ -62,7 +65,7 @@ public sealed partial class AcapDialogViewModel
     public bool ShowGroups => Groups.Count > 0;
 
     /// <summary>The package brings a mapping file.</summary>
-    public bool HasMappingFile => _rules.Count > 0;
+    public bool HasMappingFile => _rules.Count > 0 || _unmatched == AcapUnmatched.Skip;
 
     /// <summary>Unclear groups without the user's choice; Install waits for them.</summary>
     [ObservableProperty]
@@ -94,7 +97,7 @@ public sealed partial class AcapDialogViewModel
     {
         var builds = Builds;
         var rows = Compatibility;
-        if (builds.Count <= 1 || rows.Count == 0)
+        if ((builds.Count <= 1 && !HasMappingFile) || rows.Count == 0)
         {
             Groups = [];
             UnchosenCount = 0;
@@ -114,7 +117,7 @@ public sealed partial class AcapDialogViewModel
             else
             {
                 // The SDK facts of the group's first row when it was read (one model and AXIS OS report the same); the rows check their own.
-                byKey[key] = (group, 1, AcapBuildChooser.Choose(builds, group, _rules, device: rows[i].State?.Device));
+                byKey[key] = (group, 1, AcapBuildChooser.Choose(builds, group, _rules, unmatched: _unmatched, device: rows[i].State?.Device));
             }
         }
 
@@ -128,7 +131,7 @@ public sealed partial class AcapDialogViewModel
                 var chosen = _chosen.TryGetValue(key, out var file) && names.Contains(file, StringComparer.Ordinal) ? file : null;
                 row = new PackageGroupRow(group, count, names, isChoosable: true, chosen, ChooseSource);
             }
-            else if (_rules.Count > 0 && group.IsKnown)
+            else if (HasMappingFile && group.IsKnown)
             {
                 row = new PackageGroupRow(group, count, auto.IsChosen ? [builds[auto.Index].Name] : [], isChoosable: false, auto.IsChosen ? builds[auto.Index].Name : null,
                     auto.IsChosen ? auto.DecidedBy : "No package");
@@ -181,7 +184,7 @@ public sealed partial class AcapDialogViewModel
                 continue;
             }
 
-            var choice = AcapBuildChooser.Choose(builds, AcapDeviceGroup.Of(state.Device, row.Device.Device.Model), _rules, mapping, state.Device);
+            var choice = AcapBuildChooser.Choose(builds, AcapDeviceGroup.Of(state.Device, row.Device.Device.Model), _rules, mapping, _unmatched, state.Device);
             var preview = AcapCompatibility.Preview(builds, choice, state.Device, state.Applications, AllowDowngrade);
             row.PackageArchitecture = preview.PackageArchitecture;
             row.IsOk = preview.IsOk;

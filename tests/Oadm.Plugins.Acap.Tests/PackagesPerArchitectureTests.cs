@@ -164,7 +164,9 @@ public sealed class PackagesPerArchitectureTests : IDisposable
         ("lpr_q1656.eap", Manifest("aarch64", version: "2.6.0", min: "11.0")),
         ("lpr_a8.eap", Manifest("aarch64", version: "2.6.0", min: "11.0")));
 
-    private static IReadOnlyList<AcapPackageRule> Rules(string json = Mapping) =>
+    private static IReadOnlyList<AcapPackageRule> Rules(string json = Mapping) => Map(json).Rows;
+
+    private static AcapPackageMap Map(string json = Mapping) =>
         AcapPackageRules.Parse(Encoding.UTF8.GetBytes(json), ["lpr_lts.eap", "LPR_CV25.eap", "lpr_q1656.eap", "lpr_a8.eap"]);
 
     [Fact]
@@ -207,6 +209,12 @@ public sealed class PackagesPerArchitectureTests : IDisposable
     [InlineData("""{"rules":[]}""", "oadm-packages.json has the unknown key \"rules\".")]
     [InlineData("""{"packages":[{"file":"lpr_a8.eap","axisOs":{"min":"new"}}]}""", "oadm-packages.json row 1: \"axisOs.min\" must be a version such as 10.12.")]
     [InlineData("""{"packages":[{"file":"lpr_a8.eap","soc":"A8"}]}""", "oadm-packages.json row 1: \"soc\" must be a list of texts.")]
+    [InlineData("""{"packages":[{"file":"lpr_a8.eap","axisOs":{"min":"13","max":"12"}}]}""", "oadm-packages.json row 1: \"axisOs\" has a \"min\" above its \"max\".")]
+    [InlineData("""{"packages":[{"file":"lpr_a8.eap","axisOs":{"min":"12.10","max":"12.9"}}]}""", "oadm-packages.json row 1: \"axisOs\" has a \"min\" above its \"max\".")]
+    [InlineData("""{"unmatched":"never","packages":[]}""", "oadm-packages.json has \"unmatched\" that is neither \"automatic\" nor \"skip\".")]
+    [InlineData("""{"unmatched":true,"packages":[]}""", "oadm-packages.json has \"unmatched\" that is neither \"automatic\" nor \"skip\".")]
+    [InlineData("""{"only":true,"packages":[]}""", "oadm-packages.json has the unknown key \"only\".")]
+    [InlineData("""{"packages":[{"file":"lpr_a8.eap","X-note":"A8"}]}""", "oadm-packages.json row 1 has the unknown key \"X-note\".")]
     public void A_mapping_file_that_is_not_right_is_refused_with_a_plain_reason(string json, string expected) =>
         Assert.Equal(expected, Assert.Throws<InvalidEapException>(() => Rules(json)).Message);
 
@@ -217,6 +225,143 @@ public sealed class PackagesPerArchitectureTests : IDisposable
         Assert.Equal("oadm-packages.json has more than 500 rows.", Assert.Throws<InvalidEapException>(() => Rules("{\"packages\":[" + rows + "]}")).Message);
         var big = "{\"packages\":[{\"file\":\"lpr_a8.eap\",\"models\":[\"" + new string('x', 200) + "\"]}]" + new string(' ', AcapPackageRules.MaxBytes) + "}";
         Assert.Equal("oadm-packages.json is larger than 64 KB.", Assert.Throws<InvalidEapException>(() => Rules(big)).Message);
+    }
+
+    [Fact]
+    public void Notes_that_start_with_a_dollar_or_x_are_ignored_and_a_range_at_its_own_precision_is_not_inverted()
+    {
+        var map = Map("""
+            {
+              "$schema": "https://example.com/oadm-packages.schema.json",
+              "x-vendor": { "build": 4711 },
+              "unmatched": "skip",
+              "packages": [
+                { "file": "lpr_a8.eap", "$comment": "ARTPEC-8 only", "x-ticket": "LPR-12", "soc": ["A8"], "axisOs": { "min": "12.5", "max": "12" } }
+              ]
+            }
+            """);
+
+        Assert.Equal(AcapUnmatched.Skip, map.Unmatched);
+        var row = Assert.Single(map.Rows);
+        Assert.Equal(("lpr_a8.eap", "12.5", "12"), (row.File, row.AxisOs!.Min, row.AxisOs.Max)); // max 12 is any 12.x: 12.5 to 12 is not inverted
+        Assert.Equal(AcapUnmatched.Automatic, Map("""{"packages":[]}""").Unmatched);
+        Assert.Equal(AcapUnmatched.Automatic, Map("""{"unmatched":"automatic","packages":[]}""").Unmatched);
+    }
+
+    // ---- "unmatched": "skip": only the devices a row matches get a package ----
+
+    /// <summary>A vendor's set: AXIS OS 11.10 to 12.x on ARTPEC-8 and 9 (aarch64) and ARTPEC-7 (armv7hf), manifests without a range.</summary>
+    private const string OnlyListed = """
+        {
+          "unmatched": "skip",
+          "packages": [
+            { "file": "agent_aarch64.eap", "architecture": "aarch64", "soc": ["ARTPEC-8", "ARTPEC-9"], "axisOs": { "min": "11.10", "max": "12" } },
+            { "file": "agent_armv7hf.eap", "architecture": "armv7hf", "soc": ["ARTPEC-7"], "axisOs": { "min": "11.10", "max": "12" } }
+          ]
+        }
+        """;
+
+    private static List<AcapBuild> AgentBuilds() => Builds(
+        ("agent_aarch64.eap", Manifest("aarch64", app: "agent", schema: "1.7.0")),
+        ("agent_armv7hf.eap", Manifest("armv7hf", app: "agent", schema: "1.7.0")));
+
+    private static AcapPackageMap AgentMap(string json = OnlyListed) =>
+        AcapPackageRules.Parse(Encoding.UTF8.GetBytes(json), ["agent_aarch64.eap", "agent_armv7hf.eap"]);
+
+    [Theory]
+    [InlineData("12.11.77", "aarch64", "Axis Artpec-8", 0)]
+    [InlineData("12.6.1", "aarch64", "Axis Artpec-9", 0)]
+    [InlineData("12.11.77-beta", "aarch64", "Axis Artpec-8", 0)]
+    [InlineData("11.11.220", "armv7hf", "Axis Artpec-7", 1)]
+    [InlineData("11.11.120", "armv7hf", "Axis Artpec-6", -1)] // takes armv7hf, but the vendor does not list it
+    [InlineData("13.0.1", "aarch64", "Axis Artpec-8", -1)] // above the rows' AXIS OS
+    [InlineData("12.2.0", "aarch64", "Ambarella CV25", -1)]
+    [InlineData("12.11.77", "aarch64", null, -1)] // the SoC is not known yet
+    [InlineData("11.9.60", "aarch64", "Axis Artpec-8", -1)]
+    public void Unmatched_skip_gives_a_device_that_no_row_matches_no_package(string firmware, string arch, string? soc, int expected)
+    {
+        var map = AgentMap();
+        var choice = AcapBuildChooser.Choose(AgentBuilds(), Group(firmware, arch, soc: soc), map.Rows, unmatched: map.Unmatched);
+
+        Assert.Equal(expected, choice.Index);
+        if (expected < 0)
+        {
+            Assert.Equal((AcapPick.None, AcapBuildChoice.NoRowMatches, AcapBuildChoice.MappingFile), (choice.Pick, choice.Reason, choice.DecidedBy));
+        }
+    }
+
+    [Fact]
+    public void Without_unmatched_a_device_that_no_row_matches_gets_the_automatic_pick()
+    {
+        var map = AgentMap(OnlyListed.Replace("\"unmatched\": \"skip\",", string.Empty, StringComparison.Ordinal));
+
+        Assert.Equal(AcapUnmatched.Automatic, map.Unmatched);
+        var artpec6 = AcapBuildChooser.Choose(AgentBuilds(), Group("11.11.120", "armv7hf", soc: "Axis Artpec-6"), map.Rows, unmatched: map.Unmatched);
+        Assert.Equal((1, AcapBuildChoice.Automatic), (artpec6.Index, artpec6.DecidedBy));
+    }
+
+    [Fact]
+    public void A_single_build_honours_the_rows()
+    {
+        var one = Builds(("agent_aarch64.eap", Manifest("aarch64", app: "agent", schema: "1.7.0")));
+        var map = AcapPackageRules.Parse("""{"unmatched":"skip","packages":[{"file":"agent_aarch64.eap","soc":["A8"],"axisOs":{"max":"12"}}]}"""u8, ["agent_aarch64.eap"]);
+
+        var listed = AcapBuildChooser.Choose(one, Group("12.11.77"), map.Rows, unmatched: map.Unmatched);
+        Assert.Equal((0, "Row 1 of the mapping file"), (listed.Index, listed.DecidedBy));
+        Assert.Equal(AcapBuildChoice.NoRowMatches, AcapBuildChooser.Choose(one, Group("13.0.1"), map.Rows, unmatched: map.Unmatched).Reason);
+        Assert.Equal(AcapBuildChoice.NoRowMatches, AcapBuildChooser.Choose(one, Group("12.2.0", soc: "Ambarella CV25"), map.Rows, unmatched: map.Unmatched).Reason);
+
+        // A row that matches never overrides safety; without a row for the group the single package is used as before.
+        IReadOnlyList<AcapPackageRule> old = [new("agent_aarch64.eap", AxisOs: new OsVersionRange(null, "10"))];
+        Assert.Equal("agent_aarch64.eap from row 1 of the mapping file does not fit: it is for aarch64.", AcapBuildChooser.Choose(one, Group("9.80", arch: "mips"), old).Reason);
+        Assert.Equal(0, AcapBuildChooser.Choose(one, Group("13.0.1"), old).Index);
+    }
+
+    [Fact]
+    public void A_choice_never_reopens_a_group_the_rows_excluded_or_decided()
+    {
+        var builds = AgentBuilds();
+        var map = AgentMap();
+        var artpec6 = Group("11.11.120", "armv7hf", model: "Q1615 Mk II", soc: "Axis Artpec-6");
+        var artpec8 = Group("12.11.77");
+        IReadOnlyList<AcapPackageMapping> choices = [AcapPackageMapping.For(artpec6, "agent_armv7hf.eap"), AcapPackageMapping.For(artpec8, "agent_armv7hf.eap")];
+
+        Assert.Equal(AcapBuildChoice.NoRowMatches, AcapBuildChooser.Choose(builds, artpec6, map.Rows, choices, map.Unmatched).Reason);
+        var decided = AcapBuildChooser.Choose(builds, artpec8, map.Rows, choices, map.Unmatched);
+        Assert.Equal((0, "Row 1 of the mapping file"), (decided.Index, decided.DecidedBy));
+
+        // Two rows of the same weight leave the group unclear: then the choice decides.
+        var tie = Rules("""{"packages":[{"file":"lpr_cv25.eap","architecture":"aarch64"},{"file":"lpr_a8.eap","axisOs":{"min":"12"}}]}""");
+        var chosen = AcapBuildChooser.Choose(MappedBuilds(), artpec8, tie, [AcapPackageMapping.For(artpec8, "lpr_a8.eap")]);
+        Assert.Equal((3, AcapBuildChoice.ChosenByPerson), (chosen.Index, chosen.DecidedBy));
+    }
+
+    [Theory]
+    [InlineData("""{"file":"b","axisOs":{"max":"twelve"}}""", "Mapping row 2: \"axisOs.max\" must be a version such as 10.12. Nothing was changed.")]
+    [InlineData("""{"file":"b","axisOs":{"min":"13","max":"12"}}""", "Mapping row 2: \"axisOs\" has a \"min\" above its \"max\". Nothing was changed.")]
+    [InlineData("""{"file":"b","axisOs":{}}""", "Mapping row 2: \"axisOs\" needs \"min\" or \"max\". Nothing was changed.")]
+    [InlineData("""{"file":"b","soc":[]}""", "Mapping row 2: \"soc\" must be a list of texts. Nothing was changed.")]
+    [InlineData("""{"file":"b","models":[" "]}""", "Mapping row 2: \"models\" must be a list of texts. Nothing was changed.")]
+    [InlineData("""{"file":"b","architecture":""}""", "Mapping row 2: \"architecture\" must be a text. Nothing was changed.")]
+    public void The_payloads_rules_follow_the_rules_of_the_mapping_file(string row, string expected)
+    {
+        var json = """{"action":"install","files":[{"fileId":"a"},{"fileId":"b"}],"rules":[{"file":"a"},""" + row + "]}";
+        var refused = Assert.Throws<AcapPayloadException>(() => AcapPayload.Parse(json));
+
+        Assert.Equal(("rules", expected), (refused.Field, refused.Message));
+        Assert.Equal("rules", Assert.Single(Plugin.ValidatePayload(json, Oadm.Sdk.Testing.FakeCallContext.AllDevices(new Oadm.Sdk.Testing.FakeCoreContext()))).Field);
+    }
+
+    [Fact]
+    public void Unmatched_goes_with_the_files_and_rules_and_is_refused_with_a_ZIP()
+    {
+        var payload = AcapPayload.Parse("""{"action":"install","fileId":"a","rules":[{"file":"a","soc":["A8"]}],"unmatched":"skip"}""");
+        Assert.Equal(AcapUnmatched.Skip, payload.Unmatched);
+        Assert.Contains("\"unmatched\":\"skip\"", payload.ToJson(), StringComparison.Ordinal);
+        Assert.DoesNotContain("unmatched", new AcapPayload { Action = AcapAction.Install, FileId = "a" }.ToJson(), StringComparison.Ordinal);
+
+        Assert.Equal("unmatched", Assert.Throws<AcapPayloadException>(() => AcapPayload.Parse("""{"action":"install","zipFileId":"z","unmatched":"skip"}""")).Field);
+        Assert.Equal("unmatched", Assert.Throws<AcapPayloadException>(() => AcapPayload.Parse("""{"action":"install","fileId":"a","unmatched":7}""")).Field);
     }
 
     // ---- The task: a fresh read of the device decides again ----
@@ -281,16 +426,34 @@ public sealed class PackagesPerArchitectureTests : IDisposable
     [Fact]
     public async Task A_chosen_file_that_does_not_fit_the_fresh_read_is_refused()
     {
+        var (files, a, b) = TwoEqualBuilds();
+        var v7 = files.Add("hello_v7.eap", Eap("armv7hf"));
+        var device = new FakeAcapDevice();
+        var payload = new AcapPayload
+        {
+            Action = AcapAction.Install,
+            Files = [new(a.Id, a.Sha256), new(b.Id, b.Sha256), new(v7.Id, v7.Sha256)],
+            Mapping = [new AcapPackageMapping("12.11.77", "aarch64", v7.Id)], // the aarch64 group is unclear: a or b
+        };
+
+        var refused = await Assert.ThrowsAsync<InvalidOperationException>(() => Run(new RecordingContext(device, files), payload.ToJson()));
+
+        Assert.Equal("hello_v7.eap does not fit: it is for armv7hf. Nothing was changed.", refused.Message);
+        Assert.Empty(device.Writes);
+    }
+
+    [Fact]
+    public async Task A_choice_for_a_group_the_automatic_pick_decides_is_not_used()
+    {
         var files = new InMemoryUploadedFiles();
         var a = files.Add("hello_a.eap", Eap("aarch64"));
         var v7 = files.Add("hello_v7.eap", Eap("armv7hf"));
         var device = new FakeAcapDevice();
         var payload = new AcapPayload { Action = AcapAction.Install, Files = [new(a.Id, a.Sha256), new(v7.Id, v7.Sha256)], Mapping = [new AcapPackageMapping("12.11.77", "aarch64", v7.Id)] };
 
-        var refused = await Assert.ThrowsAsync<InvalidOperationException>(() => Run(new RecordingContext(device, files), payload.ToJson()));
+        await Run(new RecordingContext(device, files), payload.ToJson());
 
-        Assert.Equal("hello_v7.eap does not fit: it is for armv7hf. Nothing was changed.", refused.Message);
-        Assert.Empty(device.Writes);
+        Assert.Equal("hello_a.eap", device.UploadedFileName);
     }
 
     [Fact]
@@ -491,6 +654,94 @@ public sealed class PackagesPerArchitectureTests : IDisposable
         Assert.Contains("P3265-V, AXIS OS 12.11.77, aarch64 (1 device): lpr_2.6_aarch64.eap (row 1 of the mapping file)", plan.Details);
         Assert.Contains("M3086-V, AXIS OS 10.12.3, aarch64 (1 device): lpr_2.4_aarch64.eap (row 2 of the mapping file)", plan.Details);
         Assert.Equal("lpr_2.4_aarch64.eap from row 2 of the mapping file does not fit: it needs AXIS OS 10.0 - 10.12.", plan.Devices[2].SkipReason); // the file never overrides the range
+    }
+
+    private static byte[] AgentZip() => EapBuilder.Zip(
+        ("agent/agent_aarch64.eap", Eap("aarch64", schema: "1.7.0", app: "agent")),
+        ("agent/agent_armv7hf.eap", Eap("armv7hf", schema: "1.7.0", app: "agent")),
+        ("agent/oadm-packages.json", Encoding.UTF8.GetBytes(OnlyListed)));
+
+    [Fact]
+    public async Task The_plan_and_the_task_skip_a_device_that_no_row_of_a_ZIP_matches()
+    {
+        var files = new InMemoryUploadedFiles();
+        var zip = files.Add("agent.zip", AgentZip());
+        var devices = new List<Oadm.Sdk.Devices.IDeviceInfo>
+        {
+            new FakeDevice { Apis = AppApi },
+            new FakeDevice { Apis = AppApi, FirmwareVersion = "11.11.120", Architecture = "armv7hf", Model = "Q1615 Mk II", Soc = "Axis Artpec-6" },
+            new FakeDevice { Apis = AppApi, FirmwareVersion = "13.0.1", Model = "Q1809-LE", Soc = "Axis Artpec-9" },
+        };
+        var payload = new AcapPayload { Action = AcapAction.Install, ZipFileId = zip.Id }.ToJson();
+
+        var plan = await Plugin.PlanAsync(payload, devices, files, CancellationToken.None);
+
+        Assert.Empty(plan.Errors);
+        Assert.Equal([null, AcapBuildChoice.NoRowMatches, AcapBuildChoice.NoRowMatches], plan.Devices.Select(d => d.SkipReason));
+        Assert.Contains("P3265-V, AXIS OS 12.11.77, aarch64 (1 device): agent_aarch64.eap (row 1 of the mapping file)", plan.Details);
+        Assert.Contains("Q1615 Mk II, AXIS OS 11.11.120, armv7hf (1 device): No row of the mapping file matches this device.", plan.Details);
+
+        // The task decides again from the device's own read: nothing is written to a device no row matches.
+        var artpec6 = new FakeAcapDevice { Architecture = "armv7hf", Firmware = "11.11.120", Model = "Q1615 Mk II", Soc = "Axis Artpec-6" };
+        var ctx = new RecordingContext(artpec6, files);
+        await Run(ctx, payload);
+        Assert.Empty(artpec6.Writes);
+        Assert.Equal("No row of the mapping file matches this device. Nothing was changed.", StepRun.Detail(ctx.Steps, "Read device info"));
+
+        var artpec8 = new FakeAcapDevice();
+        await Run(new RecordingContext(artpec8, files), payload);
+        Assert.Equal("agent_aarch64.eap", artpec8.UploadedFileName);
+    }
+
+    [Fact]
+    public async Task The_plan_of_one_file_with_rows_decides_per_group()
+    {
+        var files = new InMemoryUploadedFiles();
+        var one = files.Add("agent_aarch64.eap", Eap("aarch64", schema: "1.7.0", app: "agent"));
+        var payload = new AcapPayload
+        {
+            Action = AcapAction.Install,
+            FileId = one.Id,
+            Sha256 = one.Sha256,
+            Rules = [new AcapPackageRule(one.Id, Soc: ["ARTPEC-8"], AxisOs: new OsVersionRange("11.10", "12"))],
+            Unmatched = AcapUnmatched.Skip,
+        }.ToJson();
+        var devices = new List<Oadm.Sdk.Devices.IDeviceInfo> { new FakeDevice { Apis = AppApi }, new FakeDevice { Apis = AppApi, FirmwareVersion = "13.0.1" } };
+
+        var plan = await Plugin.PlanAsync(payload, devices, files, CancellationToken.None);
+
+        Assert.Equal([null, AcapBuildChoice.NoRowMatches], plan.Devices.Select(d => d.SkipReason));
+        var device = new FakeAcapDevice { Firmware = "13.0.1" };
+        await Run(new RecordingContext(device, files), payload);
+        Assert.Empty(device.Writes);
+    }
+
+    [Fact]
+    public async Task Dialog_shows_no_package_for_a_device_that_no_row_matches_and_sends_unmatched()
+    {
+        var zip = Path.Combine(_dir, "agent.zip");
+        await File.WriteAllBytesAsync(zip, AgentZip());
+        var d1 = new FakeDevice();
+        var d2 = new FakeDevice { Apis = AppApi, Architecture = "armv7hf", Model = "Q1615 Mk II", FirmwareVersion = "11.11.120", Soc = "Axis Artpec-6" };
+        var ctx = new FakeDialogContext();
+        ctx.Devices[d1.Id] = new() { Device = new AcapDeviceFacts { Architecture = "aarch64", FirmwareVersion = "12.11.77", AllowUnsigned = true, Model = "P3265-V", Soc = "Axis Artpec-8" } };
+        ctx.Devices[d2.Id] = new() { Device = new AcapDeviceFacts { Architecture = "armv7hf", FirmwareVersion = "11.11.120", AllowUnsigned = true, Model = "Q1615 Mk II", Soc = "Axis Artpec-6" } };
+        using var vm = new AcapDialogViewModel(ctx, [d1, d2], new FakeMultiPicker(zip));
+        string? closed = null;
+        vm.CloseRequested += (_, p) => closed = p;
+        await vm.InitializeAsync();
+
+        await vm.PickPackageCommand.ExecuteAsync(null);
+
+        Assert.Null(vm.PackageError);
+        Assert.True(vm.HasMappingFile);
+        Assert.Equal(["agent_aarch64.eap", AcapBuildChoice.NoRowMatches], vm.Compatibility.Select(r => r.Details));
+
+        await vm.InstallCommand.ExecuteAsync(null);
+
+        var payload = AcapPayload.Parse(closed);
+        Assert.Equal(AcapUnmatched.Skip, payload.Unmatched);
+        Assert.Equal(2, payload.Rules!.Count);
     }
 
     [Fact]

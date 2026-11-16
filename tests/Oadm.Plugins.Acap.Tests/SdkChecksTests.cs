@@ -1,3 +1,5 @@
+using System.Text;
+
 using StepRun = Oadm.Sdk.Testing.StepRun;
 
 namespace Oadm.Plugins.Acap.Tests;
@@ -181,7 +183,11 @@ public sealed class SdkChecksTests
         var builds = Builds(("a.eap", Manifest(version: "1.0.0")), ("b.eap", Manifest(version: "1.0.0")));
         var mapping = new[] { AcapPackageMapping.For(Group, "b.eap") };
 
-        var choice = AcapBuildChooser.Choose(builds, Group, mapping: mapping, device: P3265 with { SupportedSdks = ["acap4-cv"] });
+        // Two equal rows of a mapping file leave the group unclear: only then does the person's choice decide.
+        var tie = AcapPackageRules.Parse(Encoding.UTF8.GetBytes("""{"packages":[{"file":"a.eap","architecture":"aarch64"},{"file":"b.eap","architecture":"aarch64"}]}"""), ["a.eap", "b.eap"]).Rows;
+        Assert.True(AcapBuildChooser.Choose(builds, Group, tie).IsUnclear);
+
+        var choice = AcapBuildChooser.Choose(builds, Group, tie, mapping, device: P3265 with { SupportedSdks = ["acap4-cv"] });
 
         Assert.Equal(AcapPick.None, choice.Pick);
         Assert.Equal("b.eap does not fit: the device does not support ACAP 3 or ACAP 4 applications.", choice.Reason);

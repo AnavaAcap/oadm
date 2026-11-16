@@ -335,9 +335,9 @@ public sealed class AcapTaskPlugin : ITaskPlugin, ITaskPluginQuery
             return plan with { Files = named, Warnings = [PackageWarning, PackageMissingWarning] };
         }
 
-        if (!zip && payload.AllFiles().Count == 1)
+        if (!zip && payload.AllFiles().Count == 1 && payload.Rules is not { Count: > 0 } && payload.Unmatched is not AcapUnmatched.Skip)
         {
-            return plan with { Files = named, Warnings = [PackageWarning] }; // one package: each device checks it when its task runs
+            return plan with { Files = named, Warnings = [PackageWarning] }; // one package without rows: each device checks it when its task runs
         }
 
         // Several builds or a ZIP: the server reads them and plans the build of each device group from the cached data.
@@ -387,7 +387,7 @@ public sealed class AcapTaskPlugin : ITaskPlugin, ITaskPluginQuery
 
             if (!groups.TryGetValue(group.Key, out var known))
             {
-                known = (group, AcapBuildChooser.Choose(set.Builds, group, set.Rules, mapping), 0);
+                known = (group, AcapBuildChooser.Choose(set.Builds, group, set.Rules, mapping, set.Unmatched), 0);
             }
 
             groups[group.Key] = known with { Count = known.Count + 1 };
@@ -571,7 +571,7 @@ public sealed class AcapTaskPlugin : ITaskPlugin, ITaskPluginQuery
             info = await ctx.Vapix.GetBasicDeviceInfoAsync(ct).ConfigureAwait(false);
             var group = new AcapDeviceGroup(string.IsNullOrWhiteSpace(info.ProdNbr) ? device.Model : info.ProdNbr, info.Version, info.Architecture, info.Soc, info.ProdShortName);
             var sdkFacts = new AcapDeviceFacts { Architecture = info.Architecture, FirmwareVersion = info.Version, EmbeddedDevelopmentVersion = embdev, SupportedSdks = sdks };
-            var choice = AcapBuildChooser.Choose(set.Builds, group, set.Rules, payload.Mapping, sdkFacts);
+            var choice = AcapBuildChooser.Choose(set.Builds, group, set.Rules, payload.Mapping, set.Unmatched, sdkFacts);
             if (choice.IsUnclear || (!choice.IsChosen && choice.DecidedBy == AcapBuildChoice.ChosenByPerson))
             {
                 // Nobody chose for this group, or the choice does not fit what the device is now.
@@ -785,9 +785,11 @@ public sealed class AcapTaskPlugin : ITaskPlugin, ITaskPluginQuery
 
     /// <summary>
     /// The builds of an install: the uploaded .eap files, or the .eap entries of one uploaded ZIP (read as streams, never
-    /// unpacked to disk), the mapping rows (the payload's, or the ZIP's <c>oadm-packages.json</c>), checked as one set.
+    /// unpacked to disk), the mapping rows (the payload's, or the ZIP's <c>oadm-packages.json</c>) and what a device no row
+    /// matches gets, checked as one set.
     /// </summary>
-    internal sealed record PackageSet(IReadOnlyList<AcapBuild> Builds, IReadOnlyList<AcapPackageRule> Rules, IReadOnlyList<UploadedFile> Files, UploadedFile? Zip, IReadOnlyList<EapZip.ZipBuild> ZipBuilds)
+    internal sealed record PackageSet(IReadOnlyList<AcapBuild> Builds, IReadOnlyList<AcapPackageRule> Rules, IReadOnlyList<UploadedFile> Files, UploadedFile? Zip, IReadOnlyList<EapZip.ZipBuild> ZipBuilds,
+        AcapUnmatched Unmatched = AcapUnmatched.Automatic)
     {
         /// <summary>The name and size of the file the device gets.</summary>
         public (string Name, long Size) SizeOf(int index) => Zip is null ? (Files[index].Name, Files[index].Size) : (ZipBuilds[index].Name, ZipBuilds[index].Size);
@@ -849,7 +851,7 @@ public sealed class AcapTaskPlugin : ITaskPlugin, ITaskPluginQuery
                 log?.Log(TaskLogLevel.Info, $"Package {b.Package.AppName} {b.Package.Version} ({b.Package.Architecture ?? "any architecture"}) from {zip.Name}: {b.Name}, {b.Size} bytes, SHA-256 {b.Sha256}.");
             }
 
-            return new PackageSet(builds, contents.Rules, [], zip, contents.Builds);
+            return new PackageSet(builds, contents.Rules, [], zip, contents.Builds, contents.Unmatched);
         }
 
         var entries = payload.AllFiles();
@@ -861,7 +863,7 @@ public sealed class AcapTaskPlugin : ITaskPlugin, ITaskPluginQuery
 
         var set = read.Select((r, i) => new AcapBuild(entries[i].FileId, r.File.Name, r.Package)).ToList();
         CheckSet(set, payload.Application);
-        return new PackageSet(set, payload.Rules ?? [], [.. read.Select(r => r.File)], null, []);
+        return new PackageSet(set, payload.Rules ?? [], [.. read.Select(r => r.File)], null, [], payload.Unmatched ?? AcapUnmatched.Automatic);
     }
 
     private static void CheckSet(List<AcapBuild> builds, string? expectedName)

@@ -92,6 +92,24 @@ public sealed record AcapPackageRule(
     }
 }
 
+/// <summary>What a mapping gives a device that none of its rows matches (<c>"unmatched"</c> of <c>oadm-packages.json</c>).</summary>
+[Description("What a device that no mapping row matches gets.")]
+public enum AcapUnmatched
+{
+    /// <summary>The automatic pick of the manifests: architecture and AXIS OS (the default).</summary>
+    Automatic = 0,
+
+    /// <summary>No package: only the devices a row matches get one.</summary>
+    Skip = 1,
+}
+
+/// <summary>A mapping (<c>oadm-packages.json</c>): its rows and what a device that no row matches gets.</summary>
+public sealed record AcapPackageMap(IReadOnlyList<AcapPackageRule> Rows, AcapUnmatched Unmatched = AcapUnmatched.Automatic)
+{
+    /// <summary>No mapping: no rows, the automatic pick for every device.</summary>
+    public static AcapPackageMap None { get; } = new([]);
+}
+
 /// <summary>The build a person (the dialog's table) or an agent chose for a group OADM could not decide.</summary>
 [Description("The package of one group of devices OADM cannot choose by itself (the preview names them).")]
 public sealed record AcapPackageMapping(
@@ -144,6 +162,12 @@ public sealed record AcapBuildChoice(int Index, AcapPick Pick, IReadOnlyList<int
     public const string Automatic = "Automatic";
     public const string ChosenByPerson = "Chosen";
 
+    /// <summary>A mapping with <c>"unmatched": "skip"</c> and no row for the group.</summary>
+    public const string MappingFile = "The mapping file";
+
+    /// <summary>The reason of a group no row matches when the mapping says <c>"unmatched": "skip"</c>.</summary>
+    public const string NoRowMatches = "No row of the mapping file matches this device.";
+
     public bool IsChosen => Pick == AcapPick.Chosen;
 
     public bool IsUnclear => Pick == AcapPick.Unclear;
@@ -151,13 +175,15 @@ public sealed record AcapBuildChoice(int Index, AcapPick Pick, IReadOnlyList<int
 
 /// <summary>
 /// The pick of a build per device group (plugin README "Several packages"), one pure function for the dialog's preview, the
-/// task's plan (agents) and the task's run with a fresh read of the device: 1) the payload's choice for the group, 2) the
-/// rows of a mapping file that match (the most specific wins; a tie is unclear), 3) automatic: the architecture fits and the
-/// AXIS OS is inside the build's range (without a range: the manifest schema's minimum); among them the newest version, then
-/// the range that lies inside the others'; a build for any architecture only when no native one fits. A choice never
-/// overrides safety: the chosen build must fit the device's architecture and AXIS OS. With the device's own read (the dialog,
-/// the Applications page, the task) a build must also fit its SDK (<see cref="AcapCompatibility.CheckSdk"/>); the cached
-/// data of a plan has no SDK facts, so the task checks them.
+/// task's plan (agents) and the task's run with a fresh read of the device: 1) the rows of a mapping file that match (the most
+/// specific wins; a tie is unclear), also for a single package; with <see cref="AcapUnmatched.Skip"/> a group no row matches
+/// gets no package; 2) automatic: the architecture fits and the AXIS OS is inside the build's range (without a range: the
+/// manifest schema's minimum); among them the newest version, then the range that lies inside the others'; a build for any
+/// architecture only when no native one fits; a single package without rows is always used (its own checks decide);
+/// 3) the payload's choice decides only a group that 1) and 2) leave unclear, never one they decided or left without a
+/// package. A choice never overrides safety: the chosen build must fit the device's architecture and AXIS OS. With the device's
+/// own read (the dialog, the Applications page, the task) every candidate build must also fit its SDK
+/// (<see cref="AcapCompatibility.CheckSdk"/>); the cached data of a plan has no SDK facts, so the task checks them.
 /// </summary>
 public static class AcapBuildChooser
 {
@@ -165,8 +191,8 @@ public static class AcapBuildChooser
     public static string SeveralFit(IEnumerable<string> names) => "Several packages fit: " + string.Join(", ", names) + ".";
 
     /// <param name="device">The device's own read for the SDK rules; null: not checked here (<see cref="AcapCompatibility.Check"/> does).</param>
-    public static AcapBuildChoice Choose(IReadOnlyList<AcapBuild> builds, AcapDeviceGroup group, IReadOnlyList<AcapPackageRule>? rules = null, IReadOnlyList<AcapPackageMapping>? mapping = null,
-        AcapDeviceFacts? device = null)
+    public static AcapBuildChoice Choose(IReadOnlyList<AcapBuild> builds, AcapDeviceGroup group, IReadOnlyList<AcapPackageRule>? rules = null,
+        IReadOnlyList<AcapPackageMapping>? mapping = null, AcapUnmatched unmatched = AcapUnmatched.Automatic, AcapDeviceFacts? device = null)
     {
         ArgumentNullException.ThrowIfNull(builds);
         ArgumentNullException.ThrowIfNull(group);
@@ -175,49 +201,50 @@ public static class AcapBuildChooser
             return new(-1, AcapPick.None, [], "No package.", AcapBuildChoice.Automatic);
         }
 
-        if (builds.Count == 1)
+        // A single package without a row for the group is always used: its own checks say whether it fits.
+        var choice = ByRows(builds, group, rules, unmatched, device)
+            ?? (builds.Count == 1 ? new(0, AcapPick.Chosen, [0], null, AcapBuildChoice.Automatic) : Automatic(builds, group, device));
+        if (!choice.IsUnclear || mapping?.FirstOrDefault(m => m.Matches(group)) is not { } mapped)
         {
-            // A single package is always used: its own checks say whether it fits.
-            return new(0, AcapPick.Chosen, [0], null, AcapBuildChoice.Automatic);
+            return choice;
         }
 
-        if (mapping?.FirstOrDefault(m => m.Matches(group)) is { } mapped)
+        var index = IndexOf(builds, mapped.File);
+        return index < 0
+            ? new(-1, AcapPick.None, [], $"The chosen package {mapped.File} is not part of this install.", AcapBuildChoice.ChosenByPerson)
+            : Fitting(builds, index, group, AcapBuildChoice.ChosenByPerson, string.Empty, device);
+    }
+
+    /// <summary>The choice of the mapping's rows; null when no row matches and the mapping leaves the group to the automatic pick.</summary>
+    private static AcapBuildChoice? ByRows(IReadOnlyList<AcapBuild> builds, AcapDeviceGroup group, IReadOnlyList<AcapPackageRule>? rules, AcapUnmatched unmatched,
+        AcapDeviceFacts? device)
+    {
+        var matching = new List<int>();
+        for (var i = 0; rules is not null && i < rules.Count; i++)
         {
-            var index = IndexOf(builds, mapped.File);
-            return index < 0
-                ? new(-1, AcapPick.None, [], $"The chosen package {mapped.File} is not part of this install.", AcapBuildChoice.ChosenByPerson)
-                : Fitting(builds, index, group, AcapBuildChoice.ChosenByPerson, string.Empty, device);
-        }
-
-        if (rules is { Count: > 0 })
-        {
-            var matching = new List<int>();
-            for (var i = 0; i < rules.Count; i++)
+            if (rules[i].Matches(group))
             {
-                if (rules[i].Matches(group))
-                {
-                    matching.Add(i);
-                }
-            }
-
-            if (matching.Count > 0)
-            {
-                var best = matching.Max(i => rules[i].Specificity);
-                var top = matching.Where(i => rules[i].Specificity == best).ToList();
-                var files = top.Select(i => IndexOf(builds, rules[i].File)).Where(i => i >= 0).Distinct().ToList();
-                var rows = RowsText(top);
-                if (files.Count > 1)
-                {
-                    return new(-1, AcapPick.Unclear, files, $"{rows} of the mapping file fit equally: {string.Join(", ", files.Select(i => builds[i].Name))}.", rows + " of the mapping file");
-                }
-
-                return files.Count == 0
-                    ? new(-1, AcapPick.None, [], $"{rows} of the mapping file names a package that is not part of this install.", rows + " of the mapping file")
-                    : Fitting(builds, files[0], group, rows + " of the mapping file", $" from {rows.ToLowerInvariant()} of the mapping file", device);
+                matching.Add(i);
             }
         }
 
-        return Automatic(builds, group, device);
+        if (matching.Count == 0)
+        {
+            return unmatched == AcapUnmatched.Skip ? new(-1, AcapPick.None, [], AcapBuildChoice.NoRowMatches, AcapBuildChoice.MappingFile) : null;
+        }
+
+        var best = matching.Max(i => rules![i].Specificity);
+        var top = matching.Where(i => rules![i].Specificity == best).ToList();
+        var files = top.Select(i => IndexOf(builds, rules![i].File)).Where(i => i >= 0).Distinct().ToList();
+        var rows = RowsText(top);
+        if (files.Count > 1)
+        {
+            return new(-1, AcapPick.Unclear, files, $"{rows} of the mapping file fit equally: {string.Join(", ", files.Select(i => builds[i].Name))}.", rows + " of the mapping file");
+        }
+
+        return files.Count == 0
+            ? new(-1, AcapPick.None, [], $"{rows} of the mapping file names a package that is not part of this install.", rows + " of the mapping file")
+            : Fitting(builds, files[0], group, rows + " of the mapping file", $" from {rows.ToLowerInvariant()} of the mapping file", device);
     }
 
     /// <summary>
@@ -412,8 +439,10 @@ public static class AcapBuildChooser
 
 /// <summary>
 /// The vendor's mapping file <c>oadm-packages.json</c> (OADM's own format; Axis has none): strict JSON (no comments, no
-/// trailing commas), <c>{"packages": [{"file", "models", "soc", "architecture", "axisOs": {"min", "max"}}]}</c>, only
-/// <c>file</c> required and naming an .eap of the same pick, at most <see cref="MaxBytes"/> and <see cref="MaxRows"/>.
+/// trailing commas), <c>{"unmatched": "automatic" | "skip", "packages": [{"file", "models", "soc", "architecture", "axisOs":
+/// {"min", "max"}}]}</c>, only <c>file</c> required and naming an .eap of the same pick, at most <see cref="MaxBytes"/> and
+/// <see cref="MaxRows"/>. A key that starts with <c>$</c> or <c>x-</c> (at the top level and in a row) is a note and ignored;
+/// any other unknown key refuses the file, so an older OADM never ignores a rule it does not know.
 /// </summary>
 public static class AcapPackageRules
 {
@@ -473,11 +502,73 @@ public static class AcapPackageRules
         return text.ToUpperInvariant();
     }
 
+    /// <summary>A key of the mapping file that is a note, not a rule: it starts with <c>$</c> or <c>x-</c> ("$schema", "x-vendor").</summary>
+    public static bool IsAnnotation(string key)
+    {
+        ArgumentNullException.ThrowIfNull(key);
+        return key.StartsWith('$') || key.StartsWith("x-", StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Why a row is not valid, null when it is: the rules of the mapping file for a row read from it or sent as the payload's
+    /// <c>rules</c> ("row 2: \"axisOs.max\" must be a version such as 10.12"). <paramref name="at"/> names the row.
+    /// </summary>
+    public static string? RowProblem(AcapPackageRule? row, string at)
+    {
+        ArgumentNullException.ThrowIfNull(at);
+        if (row is null)
+        {
+            return at + " is not an object";
+        }
+
+        if (!IsText(row.File))
+        {
+            return $"{at}: \"file\" must be a text";
+        }
+
+        if (row.Models is { } models && (models.Count is 0 or > MaxValues || !models.All(IsText)))
+        {
+            return $"{at}: \"models\" must be a list of texts";
+        }
+
+        if (row.Soc is { } soc && (soc.Count is 0 or > MaxValues || !soc.All(IsText)))
+        {
+            return $"{at}: \"soc\" must be a list of texts";
+        }
+
+        if (row.Architecture is { } architecture && !IsText(architecture))
+        {
+            return $"{at}: \"architecture\" must be a text";
+        }
+
+        if (row.AxisOs is not { } os)
+        {
+            return null;
+        }
+
+        if (os.Min is null && os.Max is null)
+        {
+            return $"{at}: \"axisOs\" needs \"min\" or \"max\"";
+        }
+
+        foreach (var (name, bound) in new[] { ("min", os.Min), ("max", os.Max) })
+        {
+            if (bound is not null && (!IsText(bound) || !AcapCompatibility.HasNumericVersion(bound)))
+            {
+                return $"{at}: \"axisOs.{name}\" must be a version such as 10.12";
+            }
+        }
+
+        return AcapCompatibility.IsInverted(os) ? $"{at}: \"axisOs\" has a \"min\" above its \"max\"" : null;
+    }
+
+    private static bool IsText(string? text) => text is { Length: > 0 and <= 260 } && !string.IsNullOrWhiteSpace(text);
+
     /// <summary>
     /// Reads the mapping file. <paramref name="files"/> are the .eap names of the pick (a row's <c>file</c> must be one of
     /// them, upper and lower case aside). Throws <see cref="InvalidEapException"/> with one plain sentence.
     /// </summary>
-    public static IReadOnlyList<AcapPackageRule> Parse(ReadOnlySpan<byte> json, IReadOnlyCollection<string> files)
+    public static AcapPackageMap Parse(ReadOnlySpan<byte> json, IReadOnlyCollection<string> files)
     {
         ArgumentNullException.ThrowIfNull(files);
         if (json.Length > MaxBytes)
@@ -504,14 +595,29 @@ public static class AcapPackageRules
             }
 
             JsonElement packages = default;
+            var unmatched = AcapUnmatched.Automatic;
             foreach (var property in root.EnumerateObject())
             {
-                if (property.Name != "packages")
+                switch (property.Name)
                 {
-                    throw Refused($"has the unknown key \"{Shorten(property.Name)}\"");
+                    case "packages":
+                        packages = property.Value;
+                        break;
+                    case "unmatched":
+                        unmatched = property.Value.ValueKind == JsonValueKind.String && property.Value.GetString() is { } value
+                            ? value switch
+                            {
+                                "automatic" => AcapUnmatched.Automatic,
+                                "skip" => AcapUnmatched.Skip,
+                                _ => throw Refused("has \"unmatched\" that is neither \"automatic\" nor \"skip\""),
+                            }
+                            : throw Refused("has \"unmatched\" that is neither \"automatic\" nor \"skip\"");
+                        break;
+                    case var name when IsAnnotation(name):
+                        break;
+                    default:
+                        throw Refused($"has the unknown key \"{Shorten(property.Name)}\"");
                 }
-
-                packages = property.Value;
             }
 
             if (packages.ValueKind != JsonValueKind.Array)
@@ -533,7 +639,7 @@ public static class AcapPackageRules
                 rows.Add(ParseRow(row, number, names));
             }
 
-            return rows;
+            return new AcapPackageMap(rows, unmatched);
         }
     }
 
@@ -552,6 +658,11 @@ public static class AcapPackageRules
         OsVersionRange? os = null;
         foreach (var property in row.EnumerateObject())
         {
+            if (IsAnnotation(property.Name))
+            {
+                continue;
+            }
+
             if (!RowKeys.Contains(property.Name))
             {
                 throw Refused($"{at} has the unknown key \"{Shorten(property.Name)}\"");
@@ -587,7 +698,8 @@ public static class AcapPackageRules
             throw Refused($"{at} names {Shorten(file)}, which is not among the .eap files");
         }
 
-        return new AcapPackageRule(file, models, soc, architecture, os);
+        var rule = new AcapPackageRule(file, models, soc, architecture, os);
+        return RowProblem(rule, at) is { } problem ? throw Refused(problem) : rule;
     }
 
     private static string Text(JsonElement value, string at, string key) =>
