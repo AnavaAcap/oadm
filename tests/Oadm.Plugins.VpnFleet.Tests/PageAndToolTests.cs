@@ -82,8 +82,12 @@ public sealed class ToolTests
         Assert.Equal((2, "device", "1.104.7"), (plan["will_change"]!.GetValue<int>(), plan["unit"]!.GetValue<string>(), plan["version"]!.GetValue<string>()));
         Assert.Empty(server.TaskRuns);
 
-        await ToolAsync(server, plugin, "install", payload);
-        Assert.Equal([a.Id, b.Id], Assert.Single(server.TaskRuns).DeviceIds);
+        var result = await ToolAsync(server, plugin, "install", payload);
+        var run = Assert.Single(server.TaskRuns);
+        Assert.Equal([a.Id, b.Id], run.DeviceIds);
+        Assert.Equal(2, result["devices"]!.GetValue<int>());
+        Assert.Equal(run.TaskIds[0].ToString(), result["task_id"]!.GetValue<string>()); // one task, never a list per device
+        Assert.Null(result["task_ids"]);
         Assert.Contains("filter", (await ToolAsync(server, plugin, "install", """{"app":"tailscale"}""", preview: true)).ToJsonString(), StringComparison.Ordinal);
     }
 

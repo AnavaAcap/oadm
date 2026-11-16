@@ -365,8 +365,10 @@ NetBird, ZeroTier, WireGuard, OpenVPN, WireGuard Server): status and versions of
 settings, set up many cameras with keys per camera, install and upgrade from the apps' GitHub releases. Not in fake
 mode. Spec: [vpn-fleet.md](vpn-fleet.md).
 
-- Rules that must hold: secrets never reach the client and are never stored; changes write only parameters the device
-  has, checked first; HTTPS to GitHub only (releases kept 30 minutes, packages checked against GitHub's SHA-256);
+- Rules that must hold: secrets never reach the client and are never stored, nor shown in a task error; the device's
+  API list is read before the first write; changes write only parameters the device has, checked first; every package
+  passes the checks of Applications (ACAP) with the device's own facts and is the approved version; HTTPS to GitHub only
+  (releases kept 30 minutes, packages checked against GitHub's SHA-256);
   tasks `oadm.vpn-fleet.connect` and `oadm.vpn-fleet.install` (4 at a time), page only. Permissions `connect` and
   `install`, both off for Operator.
 - Device groups: one table per device scope; chosen ids outside the group are refused whole (NOT_FOUND).

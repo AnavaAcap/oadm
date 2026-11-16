@@ -15,13 +15,13 @@ public sealed class StatusAndRulesTests
     }
 
     [Fact]
-    public void NetBird_reads_its_status_and_an_error_page_means_not_running()
+    public void NetBird_reads_its_status_and_an_error_page_is_never_a_missing_setup_key()
     {
         Assert.Equal(new VpnStatus(VpnState.Connected, "100.92.1.7", "https://api.netbird.io:443"),
             VpnStatusParser.NetBird("""{"connected":true,"management_connected":true,"signal_connected":true,"overlay_ip":"100.92.1.7/16","management_url":"https://api.netbird.io:443"}"""));
         Assert.Equal(new VpnStatus(VpnState.Connecting, null, "signal down"),
             VpnStatusParser.NetBird("""{"connected":false,"management_connected":true,"error":"signal down"}"""));
-        Assert.Equal(VpnState.NotSetUp, VpnStatusParser.NetBird("<html><body>503 Service Unavailable</body></html>").State);
+        Assert.Equal(new VpnStatus(VpnState.Unknown, null, "The app's status could not be read."), VpnStatusParser.NetBird("<html><body>503 Service Unavailable</body></html>"));
     }
 
     [Theory]

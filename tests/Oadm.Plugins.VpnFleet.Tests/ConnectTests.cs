@@ -58,12 +58,13 @@ public sealed class ConnectTests
         var ctx = await RunTaskAsync(camera, new ConnectPayload { Settings = request }, wait: TimeSpan.Zero);
 
         Assert.Equal("8056c2e21c000001", camera.Parameters["root.ZeroTier_VPN.NetworkID"]);
-        Assert.Contains($"{ConnectTaskPlugin.StartStep}: Skipped", StepRun.Lines(ctx.Steps));
+        Assert.Contains($"{ConnectTaskPlugin.StartStep}: Done", StepRun.Lines(ctx.Steps));
+        Assert.Equal(["restart ZeroTier_VPN"], camera.Controls); // the running app works with the new settings
         Assert.Contains("Waiting for approval", Assert.Single(ctx.Warnings), StringComparison.Ordinal);
     }
 
     [Fact]
-    public async Task OpenVpn_uploads_the_profile_before_the_settings()
+    public async Task OpenVpn_saves_the_settings_before_the_profile()
     {
         var camera = new AppCamera().WithApp(VpnApps.OpenVpn.AppName);
         camera.Files[VpnApps.OpenVpn.LocalPath("status.json")] = """{"state":"connected","vpn_ip4":"10.8.0.6"}""";
@@ -73,8 +74,8 @@ public sealed class ConnectTests
 
         await RunTaskAsync(camera, new ConnectPayload { Settings = request });
 
-        Assert.Equal([VpnApps.OpenVpn.LocalPath("api/profile"), DeviceVpn.ParamPath], camera.Posts.Select(p => p.Path));
-        Assert.Equal(profile, camera.Posts[0].Body);
+        Assert.Equal([DeviceVpn.ParamPath, VpnApps.OpenVpn.LocalPath("api/profile")], camera.Posts.Select(p => p.Path));
+        Assert.Equal(profile, camera.Posts[1].Body);
         Assert.Equal("p&ss=word", camera.Parameters["root.OpenVPN_VPN.Password"]);
     }
 
@@ -144,8 +145,8 @@ public sealed class ConnectTests
         var (hub, hubCamera, hubKey) = AddHub(server);
         var laptop = WireGuardKeys.Generate().PublicKey;
         hubCamera.Parameters["WireGuard_Server.Peers"] = $"laptop,{laptop},10.66.0.2";
-        var a = server.Add(new FakeDevice { Address = "10.0.0.48", Serial = "ACCC8E000001" }, new AppCamera().WithApp(VpnApps.WireGuard.AppName));
-        var b = server.Add(new FakeDevice { Address = "10.0.0.49", Serial = "ACCC8E000002" }, new AppCamera().WithApp(VpnApps.WireGuard.AppName));
+        var a = server.Add(new FakeDevice { Address = "10.0.0.48", Serial = "ACCC8E000001" }, WireGuardApp());
+        var b = server.Add(new FakeDevice { Address = "10.0.0.49", Serial = "ACCC8E000002" }, WireGuardApp());
         var request = new ConnectRequest { Kind = VpnKind.WireGuard, HubDeviceId = hub.Id, DeviceIds = [a.Id, b.Id, hub.Id] };
 
         await CallAsync(server, plugin, Fleet.Connect, request);
@@ -162,23 +163,34 @@ public sealed class ConnectTests
         Assert.Equal(hubKey, cameraRun.PeerPublicKey);
         Assert.Equal("10.66.0.0/24", cameraRun.AllowedIps);
         Assert.Equal("10.66.0.3/24", cameraRun.Cameras![a.Id].ClientIp);
-        Assert.Equal(hubRun.HubPeers![0].PublicKey, WireGuardKeys.PublicKeyOf(cameraRun.Cameras[a.Id].PrivateKey));
+        Assert.Equal(hubRun.HubPeers![0].PublicKey, WireGuardKeys.PublicKeyOf(cameraRun.Cameras[a.Id].PrivateKey!));
 
         var stored = JsonSerializer.Deserialize<List<WireGuardRecord>>(server.PluginSettings.Values[VpnFleetPlugin.WireGuardSettingKey]!, Fleet.Json)!;
         Assert.Equal(hubRun.HubPeers.Select(p => p.PublicKey), stored.Select(r => r.PublicKey));
 
-        // The camera's task saves its own key and the hub's values.
+        // The camera's task waits for the hub's task, then saves its own key and the hub's values.
+        Assert.Equal(server.TaskRuns[0].TaskIds[0], cameraRun.HubTaskId);
+        server.EndTask(server.TaskRuns[0].TaskIds[0]);
         var cameraA = (AppCamera)server.Cameras[a.Id];
         await RunTaskAsync(cameraA, cameraRun, plugin, a, wait: TimeSpan.Zero);
         Assert.Equal(cameraRun.Cameras[a.Id].PrivateKey, cameraA.Parameters["root.wireguardconfig.PrivateKey"]);
         Assert.Equal("10.66.0.3/24", cameraA.Parameters["root.wireguardconfig.ClientIP"]);
         Assert.Equal(hubKey, cameraA.Parameters["root.wireguardconfig.PeerPublicKey"]);
 
-        // Connected again: same addresses, new keys.
+        // Set up again: same addresses; b had no key yet and gets one.
         await CallAsync(server, plugin, Fleet.Connect, request with { DeviceIds = [b.Id] });
         var again = JsonSerializer.Deserialize<ConnectPayload>(server.TaskRuns[2].PayloadJson!, Fleet.Json)!;
         Assert.Equal("ACCC8E000002 10.66.0.4", $"{again.HubPeers![0].Name} {again.HubPeers[0].Address}");
         Assert.NotEqual(hubRun.HubPeers[1].PublicKey, again.HubPeers[0].PublicKey);
+
+        // a has its key: it keeps it, so its working tunnel is never broken.
+        await CallAsync(server, plugin, Fleet.Connect, request with { DeviceIds = [a.Id] });
+        var keep = JsonSerializer.Deserialize<ConnectPayload>(server.TaskRuns[4].PayloadJson!, Fleet.Json)!;
+        Assert.Equal(hubRun.HubPeers[0].PublicKey, keep.HubPeers![0].PublicKey);
+        var cameraRunAgain = JsonSerializer.Deserialize<ConnectPayload>(server.TaskRuns[5].PayloadJson!, Fleet.Json)!;
+        Assert.Null(cameraRunAgain.Cameras![a.Id].PrivateKey);
+        Assert.Equal(hubRun.HubPeers[0].PublicKey, cameraRunAgain.Cameras[a.Id].PublicKey);
+        Assert.Equal(1, cameraA.Writes);
     }
 
     [Fact]
@@ -201,7 +213,7 @@ public sealed class ConnectTests
     public async Task Another_WireGuard_server_gets_the_peer_sections_of_its_cameras()
     {
         var (plugin, server) = await StartAsync();
-        var a = server.Add(new FakeDevice { Address = "10.0.0.48", Serial = "ACCC8E000001", Model = "M3086-V" }, new AppCamera());
+        var a = server.Add(new FakeDevice { Address = "10.0.0.48", Serial = "ACCC8E000001", Model = "M3086-V" }, WireGuardApp());
         var request = new ConnectRequest
         {
             Kind = VpnKind.WireGuard,
@@ -220,7 +232,7 @@ public sealed class ConnectTests
         Assert.Equal("10.9.0.0/24,192.168.1.0/24", payload.AllowedIps);
         Assert.Equal(1, peers.Count);
         Assert.Equal(
-            $"[Peer]\n# 10.0.0.48 M3086-V (ACCC8E000001)\nPublicKey = {WireGuardKeys.PublicKeyOf(payload.Cameras[a.Id].PrivateKey)}\nAllowedIPs = 10.9.0.2/32\n",
+            $"[Peer]\n# 10.0.0.48 M3086-V (ACCC8E000001)\nPublicKey = {WireGuardKeys.PublicKeyOf(payload.Cameras[a.Id].PrivateKey!)}\nAllowedIPs = 10.9.0.2/32\n",
             peers.Text);
     }
 
@@ -290,7 +302,16 @@ public sealed class ConnectTests
 
     // ---- Helpers ----
 
-    private static (FakeDevice Hub, AppCamera Camera, string PublicKey) AddHub(FakeCoreContext server)
+    /// <summary>A camera with the WireGuard app and no key yet.</summary>
+    internal static AppCamera WireGuardApp()
+    {
+        var camera = new AppCamera().WithApp(VpnApps.WireGuard.AppName);
+        camera.Parameters["wireguardconfig.PrivateKey"] = "";
+        camera.Parameters["wireguardconfig.ClientIP"] = "";
+        return camera;
+    }
+
+    internal static (FakeDevice Hub, AppCamera Camera, string PublicKey) AddHub(FakeCoreContext server)
     {
         var key = WireGuardKeys.Generate().PublicKey;
         var camera = new AppCamera().WithApp(VpnApps.WireGuardServerAppName);
@@ -304,10 +325,11 @@ public sealed class ConnectTests
         return (hub, camera, key);
     }
 
-    private static async Task<FakeTaskContext> RunTaskAsync(AppCamera camera, ConnectPayload payload, VpnFleetPlugin? plugin = null, IDeviceInfo? device = null, TimeSpan? wait = null)
+    internal static async Task<FakeTaskContext> RunTaskAsync(AppCamera camera, ConnectPayload payload, VpnFleetPlugin? plugin = null, IDeviceInfo? device = null, TimeSpan? wait = null)
     {
         plugin ??= new VpnFleetPlugin(new FakeTimeProvider(), new FakeGitHub());
         plugin.ConnectTask.ConnectWait = wait ?? TimeSpan.FromSeconds(90);
+        plugin.ConnectTask.SettleTime = TimeSpan.Zero;
         var ctx = new FakeTaskContext(camera) { Owner = plugin };
         await StepRun.RunAsync(ctx.Steps, () => plugin.ConnectTask.ExecuteAsync(ctx, device ?? new FakeDevice(), JsonSerializer.Serialize(payload, Fleet.Json), CancellationToken.None));
         return ctx;

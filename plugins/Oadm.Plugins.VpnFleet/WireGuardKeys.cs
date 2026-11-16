@@ -19,12 +19,30 @@ public static class WireGuardKeys
     public static WireGuardKeyPair Generate()
     {
         var secret = RandomNumberGenerator.GetBytes(32);
-        Clamp(secret);
-        return new WireGuardKeyPair(Convert.ToBase64String(secret), Convert.ToBase64String(PublicOf(secret)));
+        try
+        {
+            Clamp(secret);
+            return new WireGuardKeyPair(Convert.ToBase64String(secret), Convert.ToBase64String(PublicOf(secret)));
+        }
+        finally
+        {
+            CryptographicOperations.ZeroMemory(secret);
+        }
     }
 
     /// <summary>The public key of a private key (base64); throws <see cref="FormatException"/> for anything but 32 bytes.</summary>
-    public static string PublicKeyOf(string privateKeyBase64) => Convert.ToBase64String(PublicOf(Decode(privateKeyBase64)));
+    public static string PublicKeyOf(string privateKeyBase64)
+    {
+        var secret = Decode(privateKeyBase64);
+        try
+        {
+            return Convert.ToBase64String(PublicOf(secret));
+        }
+        finally
+        {
+            CryptographicOperations.ZeroMemory(secret);
+        }
+    }
 
     /// <summary>True for 32 bytes in base64, the form of every WireGuard key.</summary>
     public static bool IsKey(string? base64)
@@ -36,7 +54,10 @@ public static class WireGuardKeys
 
         try
         {
-            return Convert.FromBase64String(base64.Trim()).Length == 32;
+            var bytes = Convert.FromBase64String(base64.Trim());
+            var isKey = bytes.Length == 32;
+            CryptographicOperations.ZeroMemory(bytes);
+            return isKey;
         }
         catch (FormatException)
         {
@@ -55,6 +76,7 @@ public static class WireGuardKeys
         uBytes[31] &= 127;
         var x1 = new BigInteger(uBytes, isUnsigned: true, isBigEndian: false);
         var kn = new BigInteger(k, isUnsigned: true, isBigEndian: false);
+        CryptographicOperations.ZeroMemory(k);
 
         BigInteger x2 = 1, z2 = 0, x3 = x1, z3 = 1;
         var swap = 0;
@@ -106,7 +128,13 @@ public static class WireGuardKeys
     private static byte[] Decode(string base64)
     {
         var bytes = Convert.FromBase64String(base64.Trim());
-        return bytes.Length == 32 ? bytes : throw new FormatException("A WireGuard key is 32 bytes.");
+        if (bytes.Length == 32)
+        {
+            return bytes;
+        }
+
+        CryptographicOperations.ZeroMemory(bytes);
+        throw new FormatException("A WireGuard key is 32 bytes.");
     }
 
     private static void Clamp(byte[] k)

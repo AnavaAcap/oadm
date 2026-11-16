@@ -140,20 +140,22 @@ public static class WireGuardAddressing
             .Select(f => new HubPeer(f[0], f[1], f[2].Split('/')[0]))];
 
     /// <summary>
-    /// The new <c>Peers</c> value: the current records, without those the new peers replace (same name, key or address),
-    /// then the new peers. Records it cannot read are kept as they are.
+    /// The new <c>Peers</c> value: the current records, without those the new peers replace (same name, key or address) and
+    /// without the <paramref name="removed"/> ones (same name and key), then the new peers. Records it cannot read are kept as
+    /// they are.
     /// </summary>
-    public static string MergePeers(string? current, IReadOnlyList<HubPeer> added)
+    public static string MergePeers(string? current, IReadOnlyList<HubPeer> added, IReadOnlyList<HubPeer>? removed = null)
     {
         ArgumentNullException.ThrowIfNull(added);
         var names = added.Select(p => p.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
         var keys = added.Select(p => p.PublicKey).ToHashSet(StringComparer.Ordinal);
         var addresses = added.Select(p => p.Address).ToHashSet(StringComparer.Ordinal);
+        var gone = (removed ?? []).Select(p => (p.Name.ToUpperInvariant(), p.PublicKey)).ToHashSet();
         var kept = (current ?? "").Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
             .Where(record =>
             {
                 var f = record.Split(',', StringSplitOptions.TrimEntries);
-                return f.Length != 3 || !(names.Contains(f[0]) || keys.Contains(f[1]) || addresses.Contains(f[2].Split('/')[0]));
+                return f.Length != 3 || !(names.Contains(f[0]) || keys.Contains(f[1]) || addresses.Contains(f[2].Split('/')[0]) || gone.Contains((f[0].ToUpperInvariant(), f[1])));
             });
         return string.Join(";", kept.Concat(added.Select(p => $"{p.Name},{p.PublicKey},{p.Address}")));
     }

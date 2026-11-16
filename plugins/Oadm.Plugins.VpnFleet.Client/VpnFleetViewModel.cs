@@ -324,7 +324,7 @@ public sealed partial class VpnFleetViewModel : ObservableObject, IDisposable
             return null;
         }
 
-        var choice = AcapBuildChooser.Choose(builds, group);
+        var choice = LocalPackages.Choose(builds, group); // the signed_ build of a whole release, like the task
         if (choice.Pick != AcapPick.Chosen || choice.Index < 0)
         {
             return "No package fits: " + (choice.Reason ?? $"none for {group.Architecture}");
