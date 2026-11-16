@@ -26,6 +26,9 @@ public partial class AssistantPanelView : UserControl
     private bool _scrollPending;
     private ScrollViewer? _scroller;
 
+    /// <summary>An answer's text that went above its cards: the next scroll brings it into view instead of the end.</summary>
+    private AssistantAnswerItem? _scrollTarget;
+
     public AssistantPanelView()
     {
         InitializeComponent();
@@ -215,6 +218,11 @@ public partial class AssistantPanelView : UserControl
         {
             if (vm.IsFollowing)
             {
+                if (e.NewStartingIndex + (e.NewItems?.Count ?? 0) < vm.Items.Count && e.NewItems?.OfType<AssistantAnswerItem>().FirstOrDefault() is { } above)
+                {
+                    _scrollTarget = above; // the answer went above its cards: it shows, the cards follow below it
+                }
+
                 RequestScrollToEnd();
             }
 
@@ -271,6 +279,21 @@ public partial class AssistantPanelView : UserControl
                 return;
             }
 
+            if (_scrollTarget is { } target && vm.Items.IndexOf(target) >= 0)
+            {
+                // The finding stays in view; the list stops following, so the cards and the rest of the answer do not push it out.
+                _scrollTarget = null;
+                _scroller ??= Conversation.GetVisualDescendants().OfType<ScrollViewer>().FirstOrDefault();
+                if (_scroller is { } scroller && scroller.Extent.Height > scroller.Viewport.Height)
+                {
+                    vm.IsFollowing = false; // a list that fits keeps following
+                }
+
+                Conversation.ScrollIntoView(target);
+                return;
+            }
+
+            _scrollTarget = null;
             Conversation.ScrollIntoView(vm.Items[^1]);
             _scroller ??= Conversation.GetVisualDescendants().OfType<ScrollViewer>().FirstOrDefault();
             _scroller?.ScrollToEnd();

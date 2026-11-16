@@ -84,7 +84,8 @@ shows the chat.
   failed (its error or a refusal). An answer without a tool has no Steps row. Copy chat keeps the steps as lines.
 - **Answer first** (decision 2026-11-16): text that streams after cards (tables, plans, files, pictures) shows above the
   cards that came since the answer's last text, so the finding reads first and the cards are its proof; text before a card,
-  a notice and a docs offer keep their place, Sources and Next stay last. The answer's paragraphs and lists are one size step above body
+  a notice and a docs offer keep their place, Sources and Next stay last. While the list follows, it scrolls to that text and
+  stops following when the list is longer than the panel. The answer's paragraphs and lists are one size step above body
   text (13), 18 px between entries.
 - The model's answer streams as Markdown with **Copy** on every answer, set for reading (`MarkdownText`, the theme's
   styles): headings H1 to H3 one size step each (18, 15, 14) with room above (not above the first block), bold lead-ins,
