@@ -1,6 +1,8 @@
 using System.Net;
+using System.Net.Sockets;
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using System.Xml;
 
 using Oadm.Sdk.Vapix;
@@ -20,7 +22,7 @@ public sealed record HubInfo(string PublicKey, AddressPool Pool, string Endpoint
 public sealed class VpnDeviceException(string message) : Exception(message);
 
 /// <summary>Every device request of the plugin, through the logged-in VAPIX client OADM gives it.</summary>
-public static class DeviceVpn
+public static partial class DeviceVpn
 {
     public const string AppListPath = "/axis-cgi/applications/list.cgi";
     public const string AppControlPath = "/axis-cgi/applications/control.cgi";
@@ -64,7 +66,21 @@ public static class DeviceVpn
         }
     }
 
-    /// <summary>Writes parameters with param.cgi in one request; the values travel in the POST body, never in the URL.</summary>
+    /// <summary>Restarts a running app (control.cgi), so it works with the settings saved just before.</summary>
+    public static async Task RestartAppAsync(IVapixClient vapix, string appName, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(vapix);
+        var (status, body) = await GetAsync(vapix, AppControlPath + "?action=restart&package=" + Uri.EscapeDataString(appName), ct).ConfigureAwait(false);
+        if (status != HttpStatusCode.OK || !body.TrimStart().StartsWith("OK", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new VpnDeviceException("The device did not restart the app: " + Short(body));
+        }
+    }
+
+    /// <summary>
+    /// Writes parameters with param.cgi in one request; the values travel in the POST body, never in the URL. A refusal
+    /// names the setting, never the device's answer: the device repeats the value there, and values are often secrets.
+    /// </summary>
     public static async Task SetParametersAsync(IVapixClient vapix, IReadOnlyDictionary<string, string> values, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(vapix);
@@ -76,10 +92,31 @@ public static class DeviceVpn
         var body = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
         if (!response.IsSuccessStatusCode || !body.TrimStart().StartsWith("OK", StringComparison.OrdinalIgnoreCase))
         {
-            throw new VpnDeviceException("The device refused the settings: " + Short(body));
+            throw new VpnDeviceException(RefusedText(values.Keys, body, (int)response.StatusCode));
         }
     }
 
+    /// <summary>The text of a refused param.cgi update: the setting the device names when it is one of ours, never a value.</summary>
+    public static string RefusedText(IEnumerable<string> names, string? body, int status)
+    {
+        ArgumentNullException.ThrowIfNull(names);
+        var sent = names.ToList();
+        var named = RefusedParameter().Match(body ?? "") is { Success: true } m
+            ? sent.FirstOrDefault(n => string.Equals(n, m.Groups[1].Value, StringComparison.OrdinalIgnoreCase))
+            : null;
+        static string NameOf(string parameter) => parameter[(parameter.LastIndexOf('.') + 1)..];
+        if (named is not null)
+        {
+            return $"The device refused the setting {NameOf(named)}.";
+        }
+
+        var list = string.Join(", ", sent.Select(NameOf));
+        return status is >= 200 and < 300
+            ? $"The device refused the settings {list}."
+            : $"The device refused the settings {list} (HTTP {status}).";
+    }
+
+    /// <summary>Sends the profile to the OpenVPN app. A refusal never shows the answer, which may repeat the profile.</summary>
     public static async Task UploadOpenVpnProfileAsync(IVapixClient vapix, string profile, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(vapix);
@@ -88,10 +125,9 @@ public static class DeviceVpn
             Content = new StringContent(profile, Encoding.UTF8, "application/octet-stream"),
         };
         using var response = await vapix.SendAsync(request, ct).ConfigureAwait(false);
-        var body = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
         if (!response.IsSuccessStatusCode)
         {
-            throw new VpnDeviceException("The OpenVPN app did not take the profile: " + Short(body));
+            throw new VpnDeviceException($"The OpenVPN app did not take the profile (HTTP {(int)response.StatusCode}).");
         }
     }
 
@@ -111,6 +147,14 @@ public static class DeviceVpn
         if (status == HttpStatusCode.NotFound && app.Kind != VpnKind.NetBird)
         {
             return new VpnStatus(VpnState.Unknown, null, "This version of the app reports no status. Update the app.");
+        }
+
+        if (app.Kind == VpnKind.NetBird && status != HttpStatusCode.OK)
+        {
+            // An error page says nothing about the app's settings (401: the device's login, 503: the app is busy or stopped).
+            return status is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden
+                ? new VpnStatus(VpnState.Unknown, null, $"The device refused the status request (HTTP {(int)status}).")
+                : new VpnStatus(VpnState.NotConnected, null, $"The app does not answer (HTTP {(int)status}).");
         }
 
         return VpnStatusParser.Parse(app.Kind, body);
@@ -178,14 +222,31 @@ public static class DeviceVpn
         var pool = WireGuardAddressing.ParsePool(Param("Address"))
             ?? throw new VpnDeviceException("The WireGuard server on the hub camera has no valid tunnel address.");
         var port = Param("ListenPort") is { Length: > 0 } p ? p.Trim() : "51820";
-        var endpoint = Param("PublicEndpoint") is { Length: > 0 } pub ? pub.Trim() : hubAddress + ":" + port;
-        if (!endpoint.Contains(':', StringComparison.Ordinal))
-        {
-            endpoint += ":" + port;
-        }
-
+        var endpoint = HubEndpoint(Param("PublicEndpoint") is { Length: > 0 } pub ? pub.Trim() : hubAddress, port);
         var enabled = string.Equals(Param("Enabled"), "yes", StringComparison.OrdinalIgnoreCase);
         return new HubInfo(publicKey!, pool, endpoint, Param("Peers"), enabled);
+    }
+
+    /// <summary>
+    /// "host:port" of the hub for the cameras: an address without a port gets <paramref name="port"/>, an IPv6 address its
+    /// brackets ("[fe80::1]:51820").
+    /// </summary>
+    public static string HubEndpoint(string address, string port)
+    {
+        ArgumentNullException.ThrowIfNull(address);
+        var text = address.Trim();
+        if (text.StartsWith('['))
+        {
+            // "[v6]" or "[v6]:port".
+            return text.EndsWith(']') ? text + ":" + port : text;
+        }
+
+        if (IPAddress.TryParse(text, out var ip) && ip.AddressFamily == AddressFamily.InterNetworkV6)
+        {
+            return "[" + text + "]:" + port;
+        }
+
+        return text.Contains(':', StringComparison.Ordinal) ? text : text + ":" + port;
     }
 
     /// <summary>Upload errors of upload.cgi ("Error: n"), VAPIX Application API.</summary>
@@ -262,4 +323,7 @@ public static class DeviceVpn
         var text = body.Trim().ReplaceLineEndings(" ");
         return text.Length == 0 ? "no answer." : text.Length > 160 ? text[..160] + "…" : text;
     }
+
+    [GeneratedRegex(@"Error setting '([^']+)'", RegexOptions.IgnoreCase)]
+    private static partial Regex RefusedParameter();
 }
