@@ -23,7 +23,8 @@ public sealed class AssistantSettingsTests
 {
     public static TheoryData<string, Action<Proto.AssistantSettings>, string> Refusals => new()
     {
-        { "provider", s => s.Provider = "gemini", AssistantTexts.ChooseProvider },
+        { "provider", s => s.Provider = "mistral", AssistantTexts.ChooseProvider },
+        { "api_key", s => { s.Provider = AssistantTexts.Gemini; s.ApiKey = string.Empty; }, AssistantTexts.EnterApiKey },
         { "address", s => { s.Provider = AssistantTexts.Ollama; s.Address = string.Empty; }, AssistantTexts.EnterAddress },
         { "address", s => { s.Provider = AssistantTexts.OpenAiCompatible; s.Address = "ftp://10.0.0.5"; }, AssistantTexts.AddressNotValid },
         { "api_key", s => s.ApiKey = new string('k', 501), AssistantTexts.ApiKeyTooLong },
@@ -175,6 +176,44 @@ public sealed class AssistantSettingsTests
     }
 
     [Fact]
+    public async Task GoogleGeminiTakesOnlyAKeyAndAlwaysUsesItsBuiltInAddress()
+    {
+        await using var server = await AssistantTestServer.StartAsync();
+
+        // A new provider needs the key again; an address sent along is never stored.
+        var gemini = AssistantTestServer.Settings(AssistantTexts.Gemini);
+        Assert.Empty(gemini.Address);
+        gemini.Address = "http://10.0.0.5:8080";
+        gemini.ApiKey = string.Empty;
+        var refused = await Assert.ThrowsAsync<RpcException>(async () => await server.Service().SetSettingsAsync(gemini));
+        Assert.Equal("api_key", refused.Trailers.GetValue(AssistantTexts.FieldTrailer));
+        Assert.Equal(AssistantTexts.EnterApiKey, refused.Status.Detail);
+
+        gemini.ApiKey = AssistantTestServer.ApiKey;
+        var saved = await server.SetAsync(gemini);
+        Assert.True(saved.HasApiKey);
+        Assert.Equal(AssistantTexts.Gemini, saved.Settings.Provider);
+        Assert.Empty(saved.Settings.Address);
+        Assert.False(AssistantSettings.NeedsAddress(AssistantTexts.Gemini));
+        Assert.True(AssistantTexts.IsCloud(AssistantTexts.Gemini));
+
+        // Test and every answer reach the built-in address with the saved key.
+        var test = AssistantTestServer.Settings(AssistantTexts.Gemini);
+        test.ApiKey = string.Empty;
+        Assert.True((await server.Service().TestAsync(test)).Ok);
+        Assert.Equal(AssistantProviders.GeminiAddress, server.Providers.Connections[^1].Address);
+        Assert.Equal(AssistantTestServer.ApiKey, server.Providers.Connections[^1].ApiKey);
+
+        server.Model.Say("Hi.");
+        await server.ChatAsync("Hi");
+        Assert.Equal(new AssistantConnection(AssistantTexts.Gemini, AssistantProviders.GeminiAddress, "test-model", AssistantTestServer.ApiKey), server.Providers.Connections[^1]);
+
+        var audit = (await server.Host.Audit.ListAsync(new Proto.ListAuditRequest())).Entries.Where(e => e.Action == AuditActions.AssistantChanged).ToList();
+        Assert.Contains(audit, e => e.Detail.Contains("Provider Anthropic -> Google Gemini", StringComparison.Ordinal));
+        Assert.Equal("https://generativelanguage.googleapis.com/v1beta/openai/", AssistantProviders.GeminiAddress);
+    }
+
+    [Fact]
     public void EveryProviderMakesAChatClientWithoutCallingIt()
     {
         using var providers = new AssistantProviders(TimeProvider.System);
@@ -185,7 +224,7 @@ public sealed class AssistantSettingsTests
         }
 
         Assert.Equal("http://127.0.0.1:9/v1/", AssistantProviders.BaseOf("http://127.0.0.1:9/v1").ToString());
-        Assert.Throws<ArgumentException>(() => providers.Create(new AssistantConnection("gemini", null, "m", null)));
+        Assert.Throws<ArgumentException>(() => providers.Create(new AssistantConnection("mistral", null, "m", null)));
     }
 
     [Fact]

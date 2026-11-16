@@ -38,8 +38,6 @@ internal sealed class AssistantConversation(string sessionKey, Guid userId, stri
     /// </summary>
     public Dictionary<string, AssistantDocsOffer> DocsOffers { get; } = new(StringComparer.Ordinal);
 
-    public bool NoticeShown { get; set; }
-
     public DateTimeOffset LastUsed { get; set; } = now;
 
     /// <summary>The answer that streams now; null between answers.</summary>

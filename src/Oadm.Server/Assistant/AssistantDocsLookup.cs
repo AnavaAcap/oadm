@@ -15,8 +15,8 @@ namespace Oadm.Server.Assistant;
 /// fits a request the model calls <see cref="OfferName"/> (an assistant-only tool, never in the tool registry, so MCP agents
 /// never see it); the panel shows the offer as a card, and only the user's Look up online gives the one next answer the
 /// provider's own web tools, restricted to <see cref="AssistantTexts.DocsDomains"/>. Anthropic: the server tools web_search
-/// and web_fetch with <c>allowed_domains</c>; OpenAI: the Responses API's web search with its domain filter; Ollama and
-/// OpenAI-compatible cannot look online.
+/// and web_fetch with <c>allowed_domains</c>; OpenAI: the Responses API's web search with its domain filter; Google Gemini (its
+/// OpenAI-compatible endpoint has no web tools OADM can restrict), Ollama and OpenAI-compatible cannot look online.
 /// </summary>
 internal static class AssistantDocsLookup
 {

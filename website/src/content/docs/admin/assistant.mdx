@@ -22,7 +22,7 @@ An administrator sets it up once for the server.
 <Steps>
 
 1. Open the page **MCP & Assistant** in the rail, the card **Assistant**.
-2. Choose the **Provider**: Anthropic, OpenAI, Ollama or OpenAI-compatible (LM Studio, vLLM, Azure OpenAI).
+2. Choose the **Provider**: Anthropic, OpenAI, Google Gemini, Ollama or OpenAI-compatible (LM Studio, vLLM, Azure OpenAI).
 3. Enter the **API key**, or the **Address** for Ollama and OpenAI-compatible (`http://10.0.0.5:11434`).
 4. Set the **Daily limit** in tokens for the whole server and, if you want, per user.
 5. Click **Test**, then **Turn on**.
@@ -31,7 +31,7 @@ An administrator sets it up once for the server.
 
 <Image src={settings} alt="The page MCP & Assistant, card Assistant: provider, API key, pictures, daily limits" class="screen" />
 
-With Anthropic and OpenAI, device names, addresses and other data of your devices go to that provider. Ollama keeps
+With Anthropic, OpenAI and Google Gemini, device names, addresses and other data of your devices go to that provider. Ollama keeps
 everything in your network. Camera pictures go to the model only with **Send pictures to the model** on.
 
 The API key is stored encrypted on the server and never shown again. Who may chat: the permission **Use the assistant**
@@ -73,8 +73,8 @@ same change for them; press **Run** again.
 
 When OADM has no function for what you ask, the assistant asks first: "OADM has no function for this. Should I look in
 the Axis VAPIX docs online?" Only **Look up online** lets that one answer search and read developer.axis.com and
-help.axis.com; **Not now** or another message leaves it offline. This works with Anthropic and OpenAI; Ollama and
-OpenAI-compatible providers cannot look online.
+help.axis.com; **Not now** or another message leaves it offline. This works with Anthropic and OpenAI; Google Gemini,
+Ollama and OpenAI-compatible providers cannot look online.
 
 ## Changes need your click
 

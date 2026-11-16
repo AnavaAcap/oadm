@@ -9,11 +9,12 @@ public static class AssistantTexts
     /// <summary>The provider ids of <c>AssistantSettings.provider</c>.</summary>
     public const string Anthropic = "anthropic";
     public const string OpenAi = "openai";
+    public const string Gemini = "gemini";
     public const string Ollama = "ollama";
     public const string OpenAiCompatible = "openai-compatible";
 
     /// <summary>Every provider id, in the order of the Settings card.</summary>
-    public static IReadOnlyList<string> Providers { get; } = [Anthropic, OpenAi, Ollama, OpenAiCompatible];
+    public static IReadOnlyList<string> Providers { get; } = [Anthropic, OpenAi, Gemini, Ollama, OpenAiCompatible];
 
     /// <summary>The model the panel suggests for Anthropic when the provider lists it.</summary>
     public const string AnthropicDefaultModel = "claude-opus-5-5";
@@ -23,16 +24,14 @@ public static class AssistantTexts
     {
         Anthropic => "Anthropic",
         OpenAi => "OpenAI",
+        Gemini => "Google Gemini",
         Ollama => "Ollama",
         OpenAiCompatible => "OpenAI-compatible",
         _ => provider ?? string.Empty,
     };
 
-    /// <summary>The provider runs outside the user's network (all but Ollama): the panel shows <see cref="Notice"/>.</summary>
-    public static bool IsCloud(string? provider) => provider is Anthropic or OpenAi or OpenAiCompatible;
-
-    /// <summary>The notice of a user's first message after the panel opened (cloud providers).</summary>
-    public static string Notice(string? provider) => $"Your messages and the data the assistant reads go to {ProviderName(provider)}.";
+    /// <summary>The provider runs outside the user's network (all but Ollama).</summary>
+    public static bool IsCloud(string? provider) => provider is Anthropic or OpenAi or Gemini or OpenAiCompatible;
 
     public const int MaxMessageLength = 8_000;
     public const int MaxSelectedDevices = 10_000;
@@ -80,7 +79,7 @@ public static class AssistantTexts
     /// <summary>The only sites a lookup may search and read.</summary>
     public static IReadOnlyList<string> DocsDomains { get; } = ["developer.axis.com", "help.axis.com"];
 
-    /// <summary>The one line of a provider that cannot look online (Ollama, OpenAI-compatible).</summary>
+    /// <summary>The one line of a provider that cannot look online (Google Gemini, Ollama, OpenAI-compatible).</summary>
     public static string CannotLookOnline(string? provider) => $"{ProviderName(provider)} cannot look online, so the Axis docs cannot be read here.";
 
     /// <summary>A tool line: the lookup could not reach the Axis docs (no internet, the provider's search failed).</summary>

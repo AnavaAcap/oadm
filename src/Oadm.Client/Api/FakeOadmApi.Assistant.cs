@@ -407,6 +407,7 @@ public sealed partial class FakeOadmApi
         {
             "anthropic" => ["claude-sonnet-5", "claude-opus-5-5", "claude-haiku-5"],
             "openai" => ["gpt-5.1", "gpt-5.1-mini"],
+            "gemini" => ["gemini-2.5-flash", "gemini-2.5-pro"],
             "ollama" => ["llama4:16x17b", "qwen3:32b"],
             _ => [],
         });
@@ -424,7 +425,7 @@ public sealed partial class FakeOadmApi
 
     private void CheckAssistant(AssistantSettings settings)
     {
-        if (settings.Provider is not ("anthropic" or "openai" or "ollama" or "openai-compatible"))
+        if (settings.Provider is not ("anthropic" or "openai" or "gemini" or "ollama" or "openai-compatible"))
         {
             throw AssistantRefused("provider", Contracts.Assistant.AssistantTexts.ChooseProvider);
         }
@@ -469,11 +470,6 @@ public sealed partial class FakeOadmApi
         lock (_gate)
         {
             devices = [.. _devices.Select(d => d.Clone())];
-        }
-
-        if (AssistantMessages.Count == 1 && _assistant.Provider != "ollama")
-        {
-            yield return new AssistantEvent { Notice = Contracts.Assistant.AssistantTexts.Notice(_assistant.Provider) };
         }
 
         if (text.Contains("offline", StringComparison.Ordinal))

@@ -637,6 +637,39 @@ public sealed class AssistantTests
     }
 
     [Fact]
+    public async Task GoogleGeminiAsksOnlyForTheKeyAndSendsNoAddress()
+    {
+        using var api = new FakeOadmApi(TimeSpan.FromMilliseconds(5));
+        var form = new AssistantSettingsViewModel(api, Session(admin: true));
+        await form.LoadAsync();
+        Assert.Contains(AssistantProvider.Gemini, AssistantProvider.All);
+        Assert.Equal(AssistantProvider.Gemini, AssistantProvider.Find("gemini"));
+        Assert.Equal(Oadm.Contracts.Assistant.AssistantTexts.Providers, AssistantProvider.All.Select(p => p.Id));
+
+        form.Provider = AssistantProvider.Ollama;
+        form.Address = "http://10.0.0.5:11434";
+        form.Provider = AssistantProvider.Gemini;
+        Assert.False(form.NeedsAddress);
+        Assert.True(form.NeedsKey);
+        Assert.Equal(AssistantTexts.CloudPrivacy("Google Gemini"), form.PrivacyNote);
+        Assert.Null(form.ErrorOf(nameof(AssistantSettingsViewModel.Address))); // no address field, no error
+        form.ApiKey = new string('k', 501);
+        Assert.Equal(AssistantTexts.ApiKeyTooLong, form.ErrorOf(nameof(AssistantSettingsViewModel.ApiKey)));
+        Assert.False(form.SaveCommand.CanExecute(null));
+        form.ApiKey = "AIza-test-key";
+        Assert.Null(form.ErrorOf(nameof(AssistantSettingsViewModel.ApiKey)));
+
+        await form.TestCommand.ExecuteAsync(null);
+        Assert.True(form.TestOk);
+        Assert.Equal(("gemini", string.Empty, "AIza-test-key"), (api.AssistantTests[^1].Provider, api.AssistantTests[^1].Address, api.AssistantTests[^1].ApiKey));
+
+        await form.SaveCommand.ExecuteAsync(null);
+        var saved = (await api.GetAssistantSettingsAsync(CancellationToken.None)).Settings;
+        Assert.Equal(("gemini", string.Empty), (saved.Provider, saved.Address));
+        Assert.Equal(AssistantProvider.Gemini, form.Provider);
+    }
+
+    [Fact]
     public async Task TestShowsTheAnswerOrTheProblemAndNeverSaves()
     {
         using var api = new FakeOadmApi(TimeSpan.FromMilliseconds(5));
@@ -966,6 +999,18 @@ public sealed class AssistantTests
                     view.FindControl<Control>("AssistantSection")!.BringIntoView();
                     Pump();
                     Save(window, outDir, "client-page-ai-assistant-errors.png");
+
+                    // Google Gemini: only the key, its address is built in.
+                    card.Assistant.Provider = AssistantProvider.Gemini;
+                    card.Assistant.Address = "";
+                    card.Assistant.DailyLimit = "2,000,000";
+                    Pump();
+                    var fields = window.GetVisualDescendants().OfType<Oadm.Sdk.Client.Controls.FormField>().Where(x => x.IsEffectivelyVisible).ToList();
+                    Assert.DoesNotContain(fields, x => x.Label == "Address");
+                    Assert.Contains(fields, x => x.Label == "API key");
+                    view.FindControl<Control>("AssistantSection")!.BringIntoView();
+                    Pump();
+                    Save(window, outDir, "client-page-ai-assistant-gemini.png");
                     card.Assistant.Provider = AssistantProvider.Anthropic;
                     card.Assistant.Address = "";
                     card.Assistant.DailyLimit = "2,000,000";

@@ -122,7 +122,7 @@ public sealed class AssistantGrpcService(AssistantChats chats, AuditLog audit, I
         {
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
             timeout.CancelAfter(TestTimeout);
-            _ = await chats.Providers.ReadModelsAsync(new AssistantConnection(settings.Provider, settings.Address, string.Empty, apiKey), timeout.Token).ConfigureAwait(false);
+            _ = await chats.Providers.ReadModelsAsync(new AssistantConnection(settings.Provider, AssistantProviders.AddressOf(settings.Provider, settings.Address), string.Empty, apiKey), timeout.Token).ConfigureAwait(false);
             return new Proto.AssistantTestReply { Ok = true, Message = AssistantTexts.ProviderAnswered };
         }
         catch (OperationCanceledException) when (!ct.IsCancellationRequested)
@@ -159,8 +159,8 @@ public sealed class AssistantGrpcService(AssistantChats chats, AuditLog audit, I
 
     /// <summary>
     /// The settings of <paramref name="request"/> on top of <paramref name="saved"/>: the saved key when none is given (dropped when
-    /// the provider changes), field errors with the trailer <c>oadm-field</c>. <paramref name="requireAll"/>: Anthropic and OpenAI
-    /// need a key (Turn on, Test).
+    /// the provider changes), field errors with the trailer <c>oadm-field</c>. <paramref name="requireAll"/>: Anthropic, OpenAI and
+    /// Google Gemini need a key (Turn on, Test).
     /// </summary>
     private AssistantSettings Checked(Proto.AssistantSettings request, AssistantSettings saved, bool requireAll)
     {
@@ -205,7 +205,7 @@ public sealed class AssistantGrpcService(AssistantChats chats, AuditLog audit, I
             protectedKey = null; // Ollama takes no key
         }
 
-        if (requireAll && provider is AssistantTexts.Anthropic or AssistantTexts.OpenAi && string.IsNullOrEmpty(protectedKey))
+        if (requireAll && provider is AssistantTexts.Anthropic or AssistantTexts.OpenAi or AssistantTexts.Gemini && string.IsNullOrEmpty(protectedKey))
         {
             throw Field("api_key", AssistantTexts.EnterApiKey); // an OpenAI-compatible server may take none
         }

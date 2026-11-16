@@ -40,8 +40,11 @@ shows the chat.
   panel closes (`End`), the session ends, the assistant is turned off or gets another provider or address, or after 30
   minutes without a message. A Run reaches the model with the next message, as data.
 - The texts and limits the client shows too live in `Oadm.Contracts.Assistant.AssistantTexts`.
-- Providers (`AssistantProviders`): Anthropic (the official `Anthropic` SDK's `IChatClient`), OpenAI and
-  OpenAI-compatible (`Microsoft.Extensions.AI.OpenAI`), Ollama (`OllamaSharp`). Only the server references them.
+- Providers (`AssistantProviders`): Anthropic (the official `Anthropic` SDK's `IChatClient`), OpenAI, Google Gemini and
+  OpenAI-compatible (`Microsoft.Extensions.AI.OpenAI`), Ollama (`OllamaSharp`). Only the server references them. Google
+  Gemini (decision 2026-11-16, id `gemini`) is a preset of the OpenAI-compatible path: Google's OpenAI-compatible endpoint
+  `https://generativelanguage.googleapis.com/v1beta/openai/` is built in (`AssistantProviders.GeminiAddress`, never typed,
+  never stored), no Google SDK.
 - **Client**: the panel. gRPC `AssistantService` (`src/Oadm.Contracts/Protos/assistant.proto`): `Chat` server-streaming
   (the answer's text as it comes, short tool lines, preview cards, pictures, tables, the offer to look in the Axis docs,
   the sources and the next questions,
@@ -74,7 +77,7 @@ shows the chat.
 - **The live status line** (decision 2026-11-15, replaces the list of tool lines): right after Send one line at the end of
   the list, a small ring and "Thinking"; each tool line the server sends replaces its text ("Looking at devices", no
   ellipsis like every progress text). Streamed text takes its place (the text shows that the answer runs); the next tool
-  brings it back; cards, pictures and tables go above it. The notice where the data goes shows above it.
+  brings it back; cards, pictures and tables go above it.
 - **Steps**: when the answer ended, its tool lines become one row "Steps (5)" at its top (below the question and the
   notice) with the chevron of a section (`ToggleButton.sectionExpander steps`); a click opens the list (a check per step,
   a failed one with a red triangle and its text in red; the row shows a red triangle too). Closed, unless the answer
@@ -196,8 +199,8 @@ shows the chat.
 - **Markdown tables** are cards too, titled with their row count ("3 rows"), with **Copy as CSV** and **Save as CSV** of
   their cells. A device table's CSV holds every device of the table the client knows (up to 10,000) in the columns of
   Export devices, only for a role with Export devices.
-- A user's first message after the panel opened shows once: "Your messages and the data the assistant reads go to
-  <provider>." (not for Ollama).
+- No line in the chat says where the data goes (decision 2026-11-16: the user knows it from setting up the provider;
+  the user docs say it in "Set it up").
 
 ## Questions about OADM
 
@@ -230,7 +233,7 @@ online. Code: `Assistant/AssistantDocsLookup` (server), `AssistantDocsOfferItem`
   (`Anthropic` SDK: `new ToolUnion(new WebSearchTool20250305 { AllowedDomains })` and `WebFetchTool20250910`, passed as
   `AsAITool()`). OpenAI: the Responses API's web search with its domain filter (`ResponseTool.CreateWebSearchTool(filters:
   WebSearchToolFilters { AllowedDomains })`; the lookup answer uses `GetResponsesClient().AsIChatClient(model)`, every other
-  answer the chat completions client, whose web search has no domain filter). Ollama and OpenAI-compatible: no card; the
+  answer the chat completions client, whose web search has no domain filter). Google Gemini, Ollama and OpenAI-compatible: no card; the
   panel shows one line "<provider> cannot look online, so the Axis docs cannot be read here." (`AssistantTexts.CannotLookOnline`).
 - **No internet**: the first search shows the step "Looking in the Axis docs" and the source chip "Axis docs"; a search
   or read the provider reports as failed is a failed step "The Axis docs could not be read. The server may have no
@@ -245,9 +248,10 @@ Administrators only (an administrator's agent too: `oadm_assistant_settings_prev
 ("Changed assistant").
 
 - **Turn on** / **Turn off**.
-- **Provider**: Anthropic, OpenAI, Ollama, or OpenAI-compatible (an address and a key: LM Studio, vLLM, Azure OpenAI).
-- **API key** (not for Ollama): stored encrypted, shown as "Saved" afterwards, never sent back; **Address** for Ollama and
-  OpenAI-compatible (`http://10.0.0.5:11434`). The saved key is used only for the provider and address it was saved
+- **Provider**: Anthropic, OpenAI, Google Gemini, Ollama, or OpenAI-compatible (an address and a key: LM Studio, vLLM,
+  Azure OpenAI).
+- **API key** (not for Ollama; required for Anthropic, OpenAI and Google Gemini): stored encrypted, shown as "Saved"
+  afterwards, never sent back; **Address** only for Ollama and OpenAI-compatible (`http://10.0.0.5:11434`). The saved key is used only for the provider and address it was saved
   with: another provider or address needs the key again ("Enter the API key." below the key), so a saved key never goes
   to a host just typed in.
 - **Send pictures to the model**: a check box with its label on the left like every row, off by default; no hint.
@@ -259,8 +263,8 @@ Administrators only (an administrator's agent too: `oadm_assistant_settings_prev
 - No model here (decision 2026-11-15): each user picks it in the panel.
 - **Test**: checks the address and key by reading the provider's model list (Ollama, OpenAI-compatible without a list:
   one short call); "The provider answered." or the provider's error in plain words.
-- No intro and no note under the provider on the card (decision 2026-11-15): the panel shows where the data goes
-  (the notice of the first answer).
+- No intro and no note under the provider on the card (decision 2026-11-15) and no notice in the chat (2026-11-16): the
+  user docs say where the data goes.
 - Who may use it: permission **Use the assistant** (on for Administrator, off for the other built-in roles).
 
 ## The panel
@@ -283,7 +287,9 @@ Administrators only (an administrator's agent too: `oadm_assistant_settings_prev
 - **Model** (decision 2026-11-15: chosen only in the panel, by each user): a picker in the box's row with the provider's
   models (`ListModels`; editable when the provider offers no list, e.g. some OpenAI-compatible servers). The choice is
   kept per user on that client (client settings); first time: the provider's first model, for Anthropic
-  `claude-opus-5-5` when listed. Every message carries the model; changing it keeps the conversation. A model that
+  `claude-opus-5-5` when listed, for Google Gemini a guess from its list (`AssistantProviders.SuggestGemini`: the newest
+  listed `gemini-<version>-pro` or `-flash`, pro first at the same version, stable names before previews; never a fixed
+  name). Gemini's list keeps only the `gemini-` chat models without the `models/` in front. Every message carries the model; changing it keeps the conversation. A model that
   cannot call tools answers once "This model cannot use tools. Choose another one."
 
 ## Limits
@@ -338,7 +344,7 @@ context.
   list and not in the registry; its event reaches the client; no request has a web tool without the click; after the
   click exactly the rounds of the next answer carry `web_search` and `web_fetch` with the two domains (read from the
   provider's own tool JSON) and the following answer does not; the same offer again, another user's session, a message in
-  between and the end after 10 minutes (`FakeTimeProvider`) are refused; one card per answer; Ollama and
+  between and the end after 10 minutes (`FakeTimeProvider`) are refused; one card per answer; Google Gemini, Ollama and
   OpenAI-compatible show the fixed line and no card; a failed search is a failed step; OpenAI's tool has the domain filter.
   Client (`AssistantDocsOfferUiTests`, headless screenshots dark and light): the card waits with Look up online as the
   accent, only the click sends `docs_offer_id`, Not now and another message send none.

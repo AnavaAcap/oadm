@@ -537,13 +537,13 @@ internal static class ServerChangeTools
             errors.Add(new ToolFieldError("address", AssistantTexts.AddressNotValid));
         }
 
-        // The card's key rules: the saved key goes only to the provider and address it was saved for; Turn on with Anthropic or
-        // OpenAI needs one (an OpenAI-compatible server may take none); Ollama takes none.
+        // The card's key rules: the saved key goes only to the provider and address it was saved for; Turn on with Anthropic,
+        // OpenAI or Google Gemini needs one (an OpenAI-compatible server may take none); Ollama takes none.
         var takesKey = AssistantSettings.NeedsApiKey(after.Provider);
         var sameTarget = now.Provider == after.Provider && string.Equals(now.Address, after.Address, StringComparison.Ordinal);
         var keyKept = takesKey && state.HasApiKey && sameTarget;
         newKey &= takesKey;
-        if (!newKey && takesKey && ((!sameTarget && state.HasApiKey) || (after.Enabled && after.Provider is AssistantTexts.Anthropic or AssistantTexts.OpenAi && !keyKept)))
+        if (!newKey && takesKey && ((!sameTarget && state.HasApiKey) || (after.Enabled && after.Provider is AssistantTexts.Anthropic or AssistantTexts.OpenAi or AssistantTexts.Gemini && !keyKept)))
         {
             errors.Add(new ToolFieldError("new_api_key", AssistantTexts.EnterApiKey));
         }
