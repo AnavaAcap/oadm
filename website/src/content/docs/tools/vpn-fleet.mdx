@@ -43,6 +43,8 @@ VPN Fleet is off by default. An administrator turns it on on the **Plugins** pag
 
 </Steps>
 
+Search finds cameras by address, model, app, status or details.
+
 ## Change one camera
 
 Click a row. The panel shows every setting of that camera's app, with **Save** for this camera only.
@@ -51,8 +53,8 @@ Click a row. The panel shows every setting of that camera's app, with **Save** f
 
 - Keys and passwords show only whether they are set. Leave the field empty to keep the current one, or enter a new one.
 - **Upgrade to** installs the newest version on this camera. **What's new** opens the release on GitHub.
-- WireGuard shows the camera's public key for its server, and **New key pair** makes a new one. A camera connected to a
-  hub camera gives the hub its new key by itself.
+- WireGuard shows the camera's public key for its server. **New key pair** puts a new key on the camera right away and
+  shows its public key. A camera connected to a hub camera gives the hub its new key by itself.
 - A camera without a VPN app offers to install one.
 
 ## Install or upgrade
@@ -115,7 +117,7 @@ When the OADM server cannot reach GitHub, install from packages you downloaded y
 1. On a computer with internet, open the app's GitHub releases page (for example
    [Tailscale](https://github.com/Mo3he/Axis_Cam_Tailscale/releases)) and download the `.eap` files of one release: one
    per architecture your cameras have (`aarch64`, `armv7hf`), and the `acap3` file for cameras with AXIS OS before 10.12.
-2. In **Install or upgrade**, choose the app and **Packages on this computer**, then **Choose packages…** and pick the
+2. In **Install or upgrade**, choose the app and **Packages on this computer**, then **Choose packages** and pick the
    files. OADM reads each file and says when one is for another app or the versions differ.
 3. In **Cameras**, a camera that none of the files fits says why and is not ticked.
 4. **Install or upgrade** uploads the files to the OADM server and starts the tasks. Each camera gets the file that fits

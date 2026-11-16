@@ -2,6 +2,7 @@ using System.Net;
 using System.Runtime.CompilerServices;
 using System.Text;
 
+using Oadm.Plugins.Acap.Tests;
 using Oadm.Sdk.Client;
 using Oadm.Sdk.Devices;
 using Oadm.Sdk.Plugins;
@@ -37,6 +38,17 @@ internal sealed class FakePageContext(VpnFleetPlugin plugin, FakeCoreContext ser
 
     public bool Has(string permission) => !Denied.Contains(permission);
 
+    /// <summary>The answer of the host's confirmation dialog, and what it asked.</summary>
+    public bool Confirms { get; set; } = true;
+
+    public List<string> Asked { get; } = [];
+
+    public Task<bool> ConfirmAsync(string title, string message, string confirmText)
+    {
+        Asked.Add(message);
+        return Task.FromResult(Confirms);
+    }
+
     public async IAsyncEnumerable<PluginEvent> WatchEventsAsync([EnumeratorCancellation] CancellationToken ct)
     {
         await foreach (var item in server.Published.Reader.ReadAllAsync(ct))
@@ -55,6 +67,38 @@ internal sealed class AppCamera : FakeCamera
     public AppCamera()
     {
         Respond = Answer;
+        Apis = [new("param-cgi", "1.0"), new("application", "1.2")];
+    }
+
+    /// <summary>Runs before every parameter list (a gate holds a read there).</summary>
+    public Func<Task>? BeforeList { get; set; }
+
+    /// <summary>The control.cgi requests: action and app ("restart Tailscale_VPN").</summary>
+    public List<string> Controls { get; } = [];
+
+    /// <summary>
+    /// The parameters of the groups, with what param.cgi wrote ("root.X.Y" is read back as "X.Y", like a camera answers
+    /// it), so a test reads what a task wrote.
+    /// </summary>
+    public override async Task<IReadOnlyDictionary<string, string>> ListParametersAsync(IEnumerable<string> groups, CancellationToken ct)
+    {
+        var list = groups.ToList();
+        if (BeforeList is { } before)
+        {
+            await before();
+        }
+
+        var read = new Dictionary<string, string>(await base.ListParametersAsync(list, ct), StringComparer.Ordinal);
+        foreach (var (key, value) in Parameters.Where(p => p.Key.StartsWith("root.", StringComparison.Ordinal)).ToList())
+        {
+            var name = key["root.".Length..];
+            if (list.Exists(g => name.StartsWith(g, StringComparison.Ordinal)))
+            {
+                read[name] = value;
+            }
+        }
+
+        return read;
     }
 
     /// <summary>Installed apps: name, version, status.</summary>
@@ -110,6 +154,7 @@ internal sealed class AppCamera : FakeCamera
         if (path == DeviceVpn.AppControlPath)
         {
             var package = pathAndQuery.Split("package=")[1];
+            Controls.Add(pathAndQuery.Split("action=")[1].Split('&')[0] + " " + package);
             var index = Apps.FindIndex(a => a.Name == package);
             Apps[index] = Apps[index] with { Status = "Running" };
             return Ok("OK");
@@ -168,15 +213,42 @@ internal sealed class FakeGitHub : HttpMessageHandler
 
     public List<string> Requests { get; } = [];
 
+    /// <summary>Thrown by every request instead of an answer.</summary>
+    public Exception? Throw { get; set; }
+
+    /// <summary>The release answer is padded to more than 1 MB.</summary>
+    public bool HugeAnswer { get; set; }
+
+    /// <summary>A download breaks after its first bytes.</summary>
+    public bool BreakDownloads { get; set; }
+
     public FakeGitHub Release(VpnApp app, string tag, params string[] assets)
     {
         Releases[app.Repository] = (tag, assets);
         foreach (var asset in assets)
         {
-            Files.TryAdd(asset, Encoding.UTF8.GetBytes("EAP " + asset));
+            Files.TryAdd(asset, Package(app.AppName, tag.TrimStart('v'), asset));
         }
 
         return this;
+    }
+
+    /// <summary>
+    /// A small real package as a release has it: the app and version, the architecture of the name, an ACAP 3 build (an
+    /// older manifest schema) for "_acap3", an app that runs as root for "_root".
+    /// </summary>
+    public static byte[] Package(string appName, string version, string asset)
+    {
+        var arch = asset.Contains("_aarch64", StringComparison.Ordinal) ? "aarch64" : asset.Contains("_armv7hf", StringComparison.Ordinal) ? "armv7hf" : null;
+        var acap3 = asset.Contains("_acap3", StringComparison.Ordinal);
+        return EapBuilder.FromManifest(EapBuilder.Manifest(
+            appName: appName,
+            version: version,
+            architecture: arch,
+            schema: acap3 ? "1.2" : "1.7.1",
+            user: asset.Contains("_root", StringComparison.Ordinal) ? "root" : null,
+            friendlyName: appName.Replace('_', ' '),
+            embeddedSdk: acap3 ? null : "3.0"));
     }
 
     protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
@@ -185,6 +257,11 @@ internal sealed class FakeGitHub : HttpMessageHandler
         lock (Requests)
         {
             Requests.Add(uri.ToString());
+        }
+
+        if (Throw is { } error)
+        {
+            throw error;
         }
 
         if (uri.Host == "api.github.com")
@@ -201,6 +278,11 @@ internal sealed class FakeGitHub : HttpMessageHandler
                 return $$"""{"name":"{{a}}","size":{{Files[a].Length}},"digest":"sha256:{{sha}}","browser_download_url":"https://github.com/Mo3he/{{repo}}/releases/download/{{release.Tag}}/{{a}}"}""";
             }));
             var json = $$"""{"tag_name":"{{release.Tag}}","html_url":"https://github.com/Mo3he/{{repo}}/releases/tag/{{release.Tag}}","published_at":"2026-11-13T08:45:04Z","assets":[{{assets}}]}""";
+            if (HugeAnswer)
+            {
+                json += new string(' ', ReleaseCatalog.MaxApiBytes + 1);
+            }
+
             return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(json) });
         }
 
@@ -212,9 +294,53 @@ internal sealed class FakeGitHub : HttpMessageHandler
             return Task.FromResult(redirect);
         }
 
+        if (BreakDownloads && Files.TryGetValue(name, out var start))
+        {
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StreamContent(new BreakingStream(start[..Math.Min(16, start.Length)])) });
+        }
+
         return Task.FromResult(Files.TryGetValue(name, out var bytes)
             ? new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent(bytes) }
             : new HttpResponseMessage(HttpStatusCode.NotFound));
+    }
+
+    /// <summary>Gives its bytes, then fails like a dropped connection.</summary>
+    private sealed class BreakingStream(byte[] first) : Stream
+    {
+        private bool _sent;
+
+        public override bool CanRead => true;
+
+        public override bool CanSeek => false;
+
+        public override bool CanWrite => false;
+
+        public override long Length => throw new NotSupportedException();
+
+        public override long Position { get => throw new NotSupportedException(); set => throw new NotSupportedException(); }
+
+        public override int Read(byte[] buffer, int offset, int count)
+        {
+            if (_sent)
+            {
+                throw new IOException("The connection was closed.");
+            }
+
+            _sent = true;
+            var n = Math.Min(count, first.Length);
+            Array.Copy(first, 0, buffer, offset, n);
+            return n;
+        }
+
+        public override void Flush()
+        {
+        }
+
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+
+        public override void SetLength(long value) => throw new NotSupportedException();
+
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
     }
 }
 

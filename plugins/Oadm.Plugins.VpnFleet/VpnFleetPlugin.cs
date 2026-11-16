@@ -5,6 +5,7 @@ using System.Text.Json;
 using Oadm.Sdk.Devices;
 using Oadm.Plugins.VpnFleet.Tools;
 using Oadm.Sdk.Plugins;
+using Oadm.Sdk.Vapix;
 
 namespace Oadm.Plugins.VpnFleet;
 
@@ -24,7 +25,7 @@ public sealed class VpnFleetPlugin : ICorePlugin, IDisposable
     private static readonly TimeSpan DeviceTimeout = TimeSpan.FromSeconds(15);
 
     private readonly Lock _gate = new();
-    private readonly Dictionary<string, FleetState> _states = []; // by caller.DeviceScopeKey
+    private readonly Dictionary<string, FleetTable> _tables = []; // by caller.DeviceScopeKey
     private readonly SemaphoreSlim _wireGuardGate = new(1, 1);
     private readonly ConnectTaskPlugin _connectTask;
     private readonly InstallTaskPlugin _installTask;
@@ -39,7 +40,7 @@ public sealed class VpnFleetPlugin : ICorePlugin, IDisposable
 
     internal VpnFleetPlugin(TimeProvider time, HttpMessageHandler github)
     {
-        _connectTask = new ConnectTaskPlugin(time);
+        _connectTask = new ConnectTaskPlugin(time, () => _ctx?.Tasks);
         _catalog = new ReleaseCatalog(github, time, PackageFolder);
         _installTask = new InstallTaskPlugin(() => _catalog);
     }
@@ -48,9 +49,9 @@ public sealed class VpnFleetPlugin : ICorePlugin, IDisposable
 
     internal InstallTaskPlugin InstallTask => _installTask;
 
-    /// <summary>Where the downloaded packages are kept: the plugin's own folder of the server.</summary>
+    /// <summary>Where the downloaded packages are kept: the plugin's own folder of the server, never a shared temporary one.</summary>
     private string PackageFolder() =>
-        Path.Combine(_ctx?.DataDirectory ?? Path.Combine(Path.GetTempPath(), Fleet.PluginId), "packages");
+        Path.Combine(_ctx?.DataDirectory ?? throw new InvalidOperationException("The plugin has no data folder. Packages cannot be downloaded."), "packages");
 
     public string Id => Fleet.PluginId;
 
@@ -72,13 +73,17 @@ public sealed class VpnFleetPlugin : ICorePlugin, IDisposable
 
     public string? RequiredPermission(string method) => VpnFleetTools.Set.RulesMethodOf(method) switch
     {
-        Fleet.Connect or Fleet.SaveSettings => Fleet.ConnectPermission,
+        Fleet.Connect or Fleet.SaveSettings or Fleet.NewKeyPair => Fleet.ConnectPermission,
         Fleet.Install => Fleet.InstallPermission,
         _ => PermissionKeys.Show,
     };
 
     public bool IsAudited(string method) =>
-        !PluginTool.IsPreviewMethod(method) && VpnFleetTools.Set.RulesMethodOf(method) is Fleet.Connect or Fleet.SaveSettings or Fleet.Install;
+        !PluginTool.IsPreviewMethod(method) && VpnFleetTools.Set.RulesMethodOf(method) is Fleet.Connect or Fleet.SaveSettings or Fleet.NewKeyPair or Fleet.Install;
+
+    /// <summary>A WireGuard set up frees the tunnel addresses of devices OADM no longer manages: it reads every device's id.</summary>
+    public string? SystemAccessReason(string method) =>
+        method == Fleet.Connect ? "Frees the WireGuard tunnel addresses of devices OADM no longer manages." : null;
 
     public string? AuditDetail(string method, string? payloadJson)
     {
@@ -95,13 +100,15 @@ public sealed class VpnFleetPlugin : ICorePlugin, IDisposable
                     var request = JsonSerializer.Deserialize<ConnectRequest>(payloadJson ?? "null", Fleet.Json);
                     return request is null
                         ? null
-                        : $"Connect {(request.All ? "all" : request.DeviceIds.Count.ToString(CultureInfo.InvariantCulture))} devices to {VpnApps.NameOf(request.Kind)}";
+                        : $"Connect {(request.All ? "all" : (request.DeviceIds?.Count ?? 0).ToString(CultureInfo.InvariantCulture))} devices to {AppName(request.Kind)}";
                 case Fleet.SaveSettings:
                     var save = JsonSerializer.Deserialize<SaveSettingsRequest>(payloadJson ?? "null", Fleet.Json);
-                    return save is null ? null : $"Change {VpnApps.NameOf(save.Kind)} settings: {string.Join(", ", save.Values.Keys)}";
+                    return save is null ? null : $"Change {AppName(save.Kind)} settings: {string.Join(", ", save.Values?.Keys ?? [])}";
                 case Fleet.Install:
                     var install = JsonSerializer.Deserialize<InstallRequest>(payloadJson ?? "null", Fleet.Json);
-                    return install is null ? null : $"{(install.Upgrade ? "Upgrade" : "Install")} {VpnApps.NameOf(install.Kind)} on {install.DeviceIds.Count} devices";
+                    return install is null ? null : $"{(install.Upgrade ? "Upgrade" : "Install")} {AppName(install.Kind)} on {install.DeviceIds?.Count ?? 0} devices";
+                case Fleet.NewKeyPair:
+                    return "New WireGuard key pair";
                 default:
                     return null;
             }
@@ -110,6 +117,8 @@ public sealed class VpnFleetPlugin : ICorePlugin, IDisposable
         {
             return null;
         }
+
+        static string AppName(VpnKind kind) => Enum.IsDefined(kind) ? VpnApps.NameOf(kind) : "a VPN app";
     }
 
     public Task StartAsync(ICorePluginContext ctx, CancellationToken ct)
@@ -148,7 +157,8 @@ public sealed class VpnFleetPlugin : ICorePlugin, IDisposable
         switch (method)
         {
             case Fleet.GetState:
-                return Serialize(InGroup(scope, StateOf(scope)));
+                var page = payloadJson is null ? null : JsonSerializer.Deserialize<StatePageRequest>(payloadJson, Fleet.Json);
+                return Serialize(PageOf(scope, page?.After, page?.Limit ?? Fleet.StatePageSize));
 
             case Fleet.Refresh:
                 var request = JsonSerializer.Deserialize<RefreshRequest>(payloadJson ?? "null", Fleet.Json);
@@ -187,13 +197,30 @@ public sealed class VpnFleetPlugin : ICorePlugin, IDisposable
                     ?? throw new ArgumentException("The request has no device.");
                 return JsonSerializer.Serialize(await SaveSettingsAsync(caller, save, ct).ConfigureAwait(false), Fleet.Json);
 
+            case Fleet.NewKeyPair:
+                var keyPair = JsonSerializer.Deserialize<NewKeyPairRequest>(payloadJson ?? "null", Fleet.Json)
+                    ?? throw new ArgumentException("The request has no device.");
+                return JsonSerializer.Serialize(await NewKeyPairAsync(caller, keyPair, ct).ConfigureAwait(false), Fleet.Json);
+
             default:
                 throw new ArgumentException("Unknown method " + method);
         }
     }
 
-    /// <summary>The table of the caller's device group, as the page shows it.</summary>
-    internal FleetState StateFor(ICallContext caller) => InGroup(caller.DeviceScopeKey, StateOf(caller.DeviceScopeKey));
+    /// <summary>The whole table of the caller's device group, sorted like the page (the tools).</summary>
+    internal FleetState StateFor(ICallContext caller)
+    {
+        var scope = caller.DeviceScopeKey;
+        lock (_gate)
+        {
+            var table = TableOf(scope);
+            return new FleetState(_version, table.Reading,
+                [.. table.Rows.Where(d => InGroup(scope, d.Key)).SelectMany(d => d.Value).OrderBy(r => r.Address, StringComparer.OrdinalIgnoreCase).ThenBy(r => r.Vpn)])
+            {
+                ReleaseError = table.ReleaseError,
+            };
+        }
+    }
 
     internal ReleaseCatalog Catalog => _catalog;
 
@@ -212,7 +239,7 @@ public sealed class VpnFleetPlugin : ICorePlugin, IDisposable
         }
         catch
         {
-            Publish(scope, StateOf(scope) with { Reading = false });
+            EndRead(scope, null, keepReleaseError: true);
             throw;
         }
     }
@@ -263,15 +290,21 @@ public sealed class VpnFleetPlugin : ICorePlugin, IDisposable
     }
 
     /// <summary>
-    /// Makes a key pair and a tunnel address for every camera, remembers them (public keys only), adds the cameras to the
-    /// hub when there is one, then starts the cameras' tasks. One run at a time, so two runs never hand out one address.
+    /// Reads the cameras first: only cameras with the WireGuard app get a tunnel address, and a camera that has a key keeps
+    /// it. Makes a key pair for the others, remembers the tunnels (public keys only), frees the records of devices OADM no
+    /// longer manages, adds the cameras to the hub when there is one and starts the cameras' tasks, which wait for the hub's
+    /// task and change nothing when it fails. One run at a time, so two runs never hand out one address.
     /// </summary>
     private async Task<ConnectReply> ConnectWireGuardAsync(ICallContext caller, ConnectRequest settings, IReadOnlyList<IDeviceInfo> devices, CancellationToken ct)
     {
+        var current = await ReadWireGuardKeysAsync(caller, devices, ct).ConfigureAwait(false);
         await _wireGuardGate.WaitAsync(ct).ConfigureAwait(false);
         try
         {
             var records = await LoadRecordsAsync(ct).ConfigureAwait(false);
+            var managed = (await _ctx!.System.Devices.ListAsync(ct).ConfigureAwait(false)).Select(d => d.Id).ToHashSet();
+            var gone = records.Where(r => !managed.Contains(r.DeviceId) && (r.HubDeviceId is null || r.HubDeviceId == settings.HubDeviceId)).ToList();
+            records = [.. records.Except(gone)];
             IDeviceInfo? hub = null;
             AddressPool pool;
             string endpoint, serverKey;
@@ -293,9 +326,11 @@ public sealed class VpnFleetPlugin : ICorePlugin, IDisposable
                 serverKey = hubInfo.PublicKey;
                 reserved.Add(pool.Address);
 
-                // The hub's other peers keep their addresses; the cameras of this run get theirs back.
+                // The hub's other peers keep their addresses; the cameras of this run get theirs back; the peers of devices
+                // OADM no longer manages leave the hub.
                 var names = devices.Select(d => WireGuardAddressing.PeerName(d.Serial, d.Address)).ToHashSet(StringComparer.OrdinalIgnoreCase);
-                foreach (var peer in WireGuardAddressing.ParsePeers(hubInfo.Peers).Where(p => !names.Contains(p.Name)))
+                var leaving = gone.Select(r => (r.PeerName.ToUpperInvariant(), r.PublicKey)).ToHashSet();
+                foreach (var peer in WireGuardAddressing.ParsePeers(hubInfo.Peers).Where(p => !names.Contains(p.Name) && !leaving.Contains((p.Name.ToUpperInvariant(), p.PublicKey))))
                 {
                     if (WireGuardAddressing.ParseAddress(peer.Address) is { } used)
                     {
@@ -311,7 +346,9 @@ public sealed class VpnFleetPlugin : ICorePlugin, IDisposable
                 reserved.Add(pool.IsHost(pool.Address) ? pool.Address : pool.Network + 1); // the server's own address
             }
 
-            var runIds = devices.Select(d => d.Id).ToHashSet();
+            // Only cameras with the app get an address; the others' tasks say the app is missing.
+            var cameraDevices = devices.Where(d => current.ContainsKey(d.Id)).ToList();
+            var runIds = cameraDevices.Select(d => d.Id).ToHashSet();
             foreach (var other in records.Where(r => !runIds.Contains(r.DeviceId) && r.Network == pool.Subnet && r.HubDeviceId == settings.HubDeviceId))
             {
                 if (WireGuardAddressing.ParseAddress(other.Address) is { } used)
@@ -325,27 +362,38 @@ public sealed class VpnFleetPlugin : ICorePlugin, IDisposable
                 .Select(r => (r.DeviceId, Address: WireGuardAddressing.ParseAddress(r.Address)))
                 .Where(r => r.Address is not null)
                 .ToDictionary(r => r.DeviceId, r => r.Address!.Value);
-            var addresses = WireGuardAddressing.Allocate(pool, [.. devices.Select(d => d.Id)], previous, reserved);
+            var addresses = WireGuardAddressing.Allocate(pool, [.. cameraDevices.Select(d => d.Id)], previous, reserved);
 
             var cameras = new Dictionary<Guid, WireGuardCamera>();
             var peers = new List<HubPeer>();
             var updated = records.Where(r => !runIds.Contains(r.DeviceId)).ToList();
-            foreach (var device in devices)
+            foreach (var device in cameraDevices)
             {
-                var keys = WireGuardKeys.Generate();
+                // A camera with a key keeps it, so a second set up never breaks a working tunnel.
+                string? privateKey = null;
+                if (current[device.Id] is not { } publicKey)
+                {
+                    var keys = WireGuardKeys.Generate();
+                    (privateKey, publicKey) = (keys.PrivateKey, keys.PublicKey);
+                }
+
                 var address = WireGuardAddressing.Format(addresses[device.Id]);
                 var name = WireGuardAddressing.PeerName(device.Serial, device.Address);
-                cameras[device.Id] = new WireGuardCamera(keys.PrivateKey, pool.WithPrefix(addresses[device.Id]));
-                peers.Add(new HubPeer(name, keys.PublicKey, address));
-                updated.Add(new WireGuardRecord(device.Id, name, keys.PublicKey, address, pool.Subnet, settings.HubDeviceId));
+                cameras[device.Id] = new WireGuardCamera(privateKey, pool.WithPrefix(addresses[device.Id])) { PublicKey = publicKey };
+                peers.Add(new HubPeer(name, publicKey, address));
+                updated.Add(new WireGuardRecord(device.Id, name, publicKey, address, pool.Subnet, settings.HubDeviceId));
             }
 
             var allowed = WireGuardAddressing.ParseNetworks(settings.AllowedIps) is { Count: > 0 } networks ? string.Join(",", networks) : pool.Subnet;
             var taskIds = new List<Guid>();
+            Guid? hubTask = null;
             if (hub is not null)
             {
-                taskIds.AddRange(await caller.Tasks.RunAsync(ConnectTaskPlugin.PluginId, [hub.Id],
-                    JsonSerializer.Serialize(new ConnectPayload { Settings = settings, HubPeers = peers }, Fleet.Json), caller.UserName, ct).ConfigureAwait(false));
+                var removed = gone.Where(r => r.HubDeviceId == hub.Id).Select(r => new HubPeer(r.PeerName, r.PublicKey, r.Address)).ToList();
+                var hubPayload = new ConnectPayload { Settings = settings, HubPeers = peers, RemovedPeers = removed.Count > 0 ? removed : null };
+                var hubIds = await caller.Tasks.RunAsync(ConnectTaskPlugin.PluginId, [hub.Id], JsonSerializer.Serialize(hubPayload, Fleet.Json), caller.UserName, ct).ConfigureAwait(false);
+                taskIds.AddRange(hubIds);
+                hubTask = hubIds.Count > 0 ? hubIds[0] : null;
             }
 
             await _ctx!.Settings.SetAsync(WireGuardSettingKey, JsonSerializer.Serialize(updated, Fleet.Json), ct).ConfigureAwait(false);
@@ -356,6 +404,7 @@ public sealed class VpnFleetPlugin : ICorePlugin, IDisposable
                 Endpoint = endpoint,
                 PeerPublicKey = serverKey,
                 AllowedIps = allowed,
+                HubTaskId = hubTask,
             };
             taskIds.AddRange(await caller.Tasks.RunAsync(ConnectTaskPlugin.PluginId, [.. devices.Select(d => d.Id)],
                 JsonSerializer.Serialize(payload, Fleet.Json), caller.UserName, ct).ConfigureAwait(false));
@@ -365,6 +414,45 @@ public sealed class VpnFleetPlugin : ICorePlugin, IDisposable
         {
             _wireGuardGate.Release();
         }
+    }
+
+    /// <summary>
+    /// The cameras of a set up that have the WireGuard app, with the public key of the key each has (null: none yet). A
+    /// camera that cannot be read is left out, so it gets no address.
+    /// </summary>
+    private static async Task<IReadOnlyDictionary<Guid, string?>> ReadWireGuardKeysAsync(ICallContext caller, IReadOnlyList<IDeviceInfo> devices, CancellationToken ct)
+    {
+        var prefix = VpnApps.WireGuard.AppName + ".";
+        var found = new ConcurrentDictionary<Guid, string?>();
+        await Parallel.ForEachAsync(devices, new ParallelOptions { MaxDegreeOfParallelism = ReadParallelism, CancellationToken = ct }, async (device, token) =>
+        {
+            if (DeviceMessages.Refusal(device, refuseUnreachable: true) is not null)
+            {
+                return;
+            }
+
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(token);
+            timeout.CancelAfter(DeviceTimeout);
+            try
+            {
+                var vapix = await caller.Vapix.CreateAsync(device.Id, timeout.Token).ConfigureAwait(false);
+                var parameters = await vapix.ListParametersAsync([VpnApps.WireGuard.AppName], timeout.Token).ConfigureAwait(false);
+                if (parameters.Keys.Any(k => k.StartsWith(prefix, StringComparison.Ordinal)))
+                {
+                    var key = parameters.GetValueOrDefault(prefix + "PrivateKey");
+                    found[device.Id] = WireGuardKeys.IsKey(key) ? WireGuardKeys.PublicKeyOf(key!) : null;
+                }
+            }
+            catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+            {
+                // Timed out: no address for this camera.
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                // Not read: no address for this camera; its task says why.
+            }
+        }).ConfigureAwait(false);
+        return found;
     }
 
     /// <summary>The [Peer] sections of the user's cameras that use another WireGuard server than a hub camera.</summary>
@@ -524,13 +612,23 @@ public sealed class VpnFleetPlugin : ICorePlugin, IDisposable
         return new SettingsChange(app, device, vapix, changes, profile);
     }
 
-    /// <summary>Writes a checked change in one request (the profile first); then reads the device again for the table.</summary>
+    /// <summary>The settings of the WireGuard Server app its cameras were set up with.</summary>
+    public static readonly IReadOnlySet<string> HubSettings = new HashSet<string>(StringComparer.Ordinal) { "PrivateKey", "Address", "ListenPort", "PublicEndpoint" };
+
+    /// <summary>
+    /// Writes a checked change in one request, then the profile (a refused write leaves the profile as it was); then reads
+    /// the device again for the table. The device's API list is read first, before anything is written. A camera's new key
+    /// or tunnel address goes to its record and its hub; a hub's new values say its cameras need Set up again.
+    /// </summary>
     internal async Task<SaveSettingsReply> ApplySaveAsync(ICallContext caller, SettingsChange change, CancellationToken deviceCt, CancellationToken ct)
     {
         var (app, device, vapix, changes, profile) = change;
-        if (profile is not null)
+        (await vapix.GetApiListAsync(deviceCt).ConfigureAwait(false)).Require(ConnectTaskPlugin.ParamApi, "1.0");
+        var publicKey = app.Kind == VpnKind.WireGuard && changes.TryGetValue("PrivateKey", out var privateKey) ? WireGuardKeys.PublicKeyOf(privateKey) : null;
+        var clientIp = app.Kind == VpnKind.WireGuard && changes.TryGetValue("ClientIP", out var ip) && ip.Length > 0 ? ip : null;
+        if (clientIp is not null)
         {
-            await DeviceVpn.UploadOpenVpnProfileAsync(vapix, profile, deviceCt).ConfigureAwait(false);
+            await CheckTunnelAddressAsync(device, clientIp, ct).ConfigureAwait(false);
         }
 
         if (changes.Count > 0)
@@ -538,19 +636,47 @@ public sealed class VpnFleetPlugin : ICorePlugin, IDisposable
             await DeviceVpn.SetParametersAsync(vapix, changes.ToDictionary(c => app.Parameter(c.Key), c => c.Value), deviceCt).ConfigureAwait(false);
         }
 
-        string? note = null;
-        if (app.Kind == VpnKind.WireGuard && changes.TryGetValue("PrivateKey", out var privateKey))
+        if (profile is not null)
         {
-            note = await UpdateWireGuardRecordAsync(caller, device, WireGuardKeys.PublicKeyOf(privateKey), ct).ConfigureAwait(false);
+            await DeviceVpn.UploadOpenVpnProfileAsync(vapix, profile, deviceCt).ConfigureAwait(false);
+        }
+
+        string? note = null;
+        if (publicKey is not null || clientIp is not null)
+        {
+            note = await UpdateWireGuardRecordAsync(caller, device, publicKey, clientIp, ct).ConfigureAwait(false);
+        }
+        else if (app.Kind == VpnKind.WireGuardServer && changes.Keys.Any(HubSettings.Contains)
+            && (await LoadRecordsAsync(ct).ConfigureAwait(false)).Any(r => r.HubDeviceId == device.Id))
+        {
+            note = "The cameras of this WireGuard server still have its old values. Set them up again.";
         }
 
         await RefreshDeviceAsync(caller, device, ct).ConfigureAwait(false);
         return new SaveSettingsReply(changes.Count + (profile is null ? 0 : 1), note);
     }
 
-    /// <summary>Keeps the remembered public key of a camera in step with its new private key; tells its hub.</summary>
-    private async Task<string?> UpdateWireGuardRecordAsync(ICallContext caller, IDeviceInfo device, string publicKey, CancellationToken ct)
+    /// <summary>Refuses a tunnel address another camera of the same WireGuard server has, before anything is written.</summary>
+    private async Task CheckTunnelAddressAsync(IDeviceInfo device, string clientIp, CancellationToken ct)
     {
+        var host = WireGuardAddressing.ParseAddress(clientIp.Split('/')[0]);
+        var records = await LoadRecordsAsync(ct).ConfigureAwait(false);
+        if (host is { } address && records.Find(r => r.DeviceId == device.Id) is { } own
+            && records.Any(r => r.DeviceId != device.Id && r.HubDeviceId == own.HubDeviceId && r.Network == own.Network && WireGuardAddressing.ParseAddress(r.Address) == address))
+        {
+            throw new ArgumentException($"Another camera of this WireGuard server has the tunnel address {WireGuardAddressing.Format(address)}.");
+        }
+    }
+
+    /// <summary>Keeps the remembered public key and tunnel address of a camera in step with its new values; tells its hub.</summary>
+    private async Task<string?> UpdateWireGuardRecordAsync(ICallContext caller, IDeviceInfo device, string? publicKey, string? clientIp, CancellationToken ct)
+    {
+        var what = (publicKey, clientIp) switch
+        {
+            (not null, not null) => "new public key and tunnel address",
+            (not null, null) => "new public key",
+            _ => "new tunnel address",
+        };
         await _wireGuardGate.WaitAsync(ct).ConfigureAwait(false);
         try
         {
@@ -558,28 +684,38 @@ public sealed class VpnFleetPlugin : ICorePlugin, IDisposable
             var index = records.FindIndex(r => r.DeviceId == device.Id);
             if (index < 0)
             {
-                return "Add the camera's new public key to its WireGuard server.";
+                return $"Add the camera's {what} to its WireGuard server.";
             }
 
-            var record = records[index] = records[index] with { PublicKey = publicKey };
+            var before = records[index];
+            var record = before with { PublicKey = publicKey ?? before.PublicKey };
+            string? outside = null;
+            if (clientIp is not null && WireGuardAddressing.ParseAddress(clientIp.Split('/')[0]) is { } host)
+            {
+                var network = WireGuardAddressing.ParsePool(clientIp)?.Subnet ?? before.Network;
+                record = record with { Address = WireGuardAddressing.Format(host), Network = network };
+                outside = network == before.Network ? null : $" The new address is not in the network {before.Network} of its WireGuard server. Set the camera up again.";
+            }
+
+            records[index] = record;
             await _ctx!.Settings.SetAsync(WireGuardSettingKey, JsonSerializer.Serialize(records, Fleet.Json), ct).ConfigureAwait(false);
             if (record.HubDeviceId is not { } hubId)
             {
-                return "Copy the new peer from WireGuard peers to your WireGuard server.";
+                return "Copy the new peer from WireGuard peers to your WireGuard server." + outside;
             }
 
             if (await caller.Devices.FindAsync(hubId, ct).ConfigureAwait(false) is null)
             {
-                return "Add the camera's new public key to its hub camera.";
+                return $"Add the camera's {what} to its hub camera." + outside;
             }
 
             var payload = new ConnectPayload
             {
                 Settings = new ConnectRequest { Kind = VpnKind.WireGuard, HubDeviceId = hubId },
-                HubPeers = [new HubPeer(record.PeerName, publicKey, record.Address)],
+                HubPeers = [new HubPeer(record.PeerName, record.PublicKey, record.Address)],
             };
             await caller.Tasks.RunAsync(ConnectTaskPlugin.PluginId, [hubId], JsonSerializer.Serialize(payload, Fleet.Json), caller.UserName, ct).ConfigureAwait(false);
-            return "The hub camera gets the new public key (see the task list).";
+            return $"The hub camera gets the {what} (see the task list)." + outside;
         }
         finally
         {
@@ -587,19 +723,26 @@ public sealed class VpnFleetPlugin : ICorePlugin, IDisposable
         }
     }
 
-    /// <summary>Reads one device again and puts its rows into the table of the caller's group.</summary>
+    /// <summary>
+    /// WireGuard: a new key pair made here; its private key goes to this camera only (the checks and the write of a save),
+    /// the page gets the public key. A camera behind a hub: the hub gets the new public key.
+    /// </summary>
+    private async Task<NewKeyPairReply> NewKeyPairAsync(ICallContext caller, NewKeyPairRequest request, CancellationToken ct)
+    {
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        timeout.CancelAfter(DeviceTimeout * 2);
+        var keys = WireGuardKeys.Generate();
+        var save = new SaveSettingsRequest(request.DeviceId, VpnKind.WireGuard, new Dictionary<string, string> { ["PrivateKey"] = keys.PrivateKey });
+        var change = await CheckSaveAsync(caller, save, timeout.Token).ConfigureAwait(false);
+        var saved = await ApplySaveAsync(caller, change, timeout.Token, ct).ConfigureAwait(false);
+        return new NewKeyPairReply(keys.PublicKey, saved.Note);
+    }
+
+    /// <summary>Reads one device again and puts its rows into the table of the caller's group (one rows event).</summary>
     private async Task RefreshDeviceAsync(ICallContext caller, IDeviceInfo device, CancellationToken ct)
     {
         var rows = await ReadDeviceAsync(caller, device, await LatestAsync(ct).ConfigureAwait(false), ct).ConfigureAwait(false);
-        var scope = caller.DeviceScopeKey;
-        lock (_gate)
-        {
-            var state = StateOf(scope);
-            Publish(scope, state with
-            {
-                Rows = [.. state.Rows.Where(r => r.DeviceId != device.Id).Concat(rows).OrderBy(r => r.Address, StringComparer.OrdinalIgnoreCase).ThenBy(r => r.Vpn)],
-            });
-        }
+        SetRows(caller.DeviceScopeKey, [(device.Id, rows)]);
     }
 
     /// <summary>The newest version of each app, from the cache when it is fresh; empty for apps GitHub did not answer for.</summary>
@@ -611,9 +754,31 @@ public sealed class VpnFleetPlugin : ICorePlugin, IDisposable
 
     // ---- Read ----
 
+    /// <summary>
+    /// Reads the devices and sends their rows as they come, <see cref="Fleet.MaxDevicesPerEvent"/> devices per event; at
+    /// the end the devices that were not read leave the table, then the state says the read ended.
+    /// </summary>
     private async Task ReadAsync(ICallContext owner, string scope, IReadOnlyList<IDeviceInfo> devices, CancellationToken ct)
     {
-        var rows = new ConcurrentBag<FleetRow>();
+        var pending = new List<(Guid, IReadOnlyList<FleetRow>)>();
+        void Flush(bool all)
+        {
+            List<(Guid, IReadOnlyList<FleetRow>)>? batch = null;
+            lock (pending)
+            {
+                if (pending.Count > 0 && (all || pending.Count >= Fleet.MaxDevicesPerEvent))
+                {
+                    batch = [.. pending];
+                    pending.Clear();
+                }
+            }
+
+            if (batch is not null)
+            {
+                SetRows(scope, batch);
+            }
+        }
+
         string? releaseError = null;
         try
         {
@@ -624,25 +789,39 @@ public sealed class VpnFleetPlugin : ICorePlugin, IDisposable
             {
                 if (InGroup(scope, device.Id))
                 {
-                    foreach (var row in await ReadDeviceAsync(owner, device, latest, token).ConfigureAwait(false))
+                    var rows = await ReadDeviceAsync(owner, device, latest, token).ConfigureAwait(false);
+                    lock (pending)
                     {
-                        rows.Add(row);
+                        pending.Add((device.Id, rows));
                     }
+
+                    Flush(all: false);
                 }
             }).ConfigureAwait(false);
         }
         catch (OperationCanceledException)
         {
-            Publish(scope, StateOf(scope) with { Reading = false });
+            Flush(all: true);
+            EndRead(scope, null, keepReleaseError: true);
             return;
         }
-
-        Publish(scope, StateOf(scope) with
+        catch (Exception)
         {
-            Reading = false,
-            ReleaseError = releaseError,
-            Rows = [.. rows.OrderBy(r => r.Address, StringComparer.OrdinalIgnoreCase).ThenBy(r => r.Vpn)],
-        });
+            // Any other failure ends the read too: the page never stays "reading".
+            EndRead(scope, null, keepReleaseError: true);
+            throw;
+        }
+
+        Flush(all: true);
+        var read = devices.Select(d => d.Id).ToHashSet();
+        List<Guid> gone;
+        lock (_gate)
+        {
+            gone = [.. TableOf(scope).Rows.Keys.Where(id => !read.Contains(id))];
+        }
+
+        SetRows(scope, [.. gone.Select(id => (id, (IReadOnlyList<FleetRow>)[]))]);
+        EndRead(scope, releaseError, keepReleaseError: false);
     }
 
     /// <summary>One row per VPN app on the device, or one row that says there is none or why it was not read.</summary>
@@ -690,20 +869,78 @@ public sealed class VpnFleetPlugin : ICorePlugin, IDisposable
         }
     }
 
-    // ---- State per device group ----
+    // ---- The table per device group ----
+
+    /// <summary>The table of one device group: the rows per device, the devices in id order for the pages of GetState.</summary>
+    private sealed class FleetTable
+    {
+        public Dictionary<Guid, IReadOnlyList<FleetRow>> Rows { get; } = [];
+
+        public SortedSet<Guid> Order { get; } = [];
+
+        public bool Reading { get; set; }
+
+        public string? ReleaseError { get; set; }
+    }
+
+    private static readonly Guid LastId = new("ffffffff-ffff-ffff-ffff-ffffffffffff");
 
     private bool InGroup(string scope, Guid deviceId) => _ctx!.DeviceScopes?.Contains(scope, deviceId) ?? true;
 
-    private FleetState InGroup(string scope, FleetState state) =>
-        state with { Rows = [.. state.Rows.Where(r => InGroup(scope, r.DeviceId))] };
-
-    private void OnGroupChanged(object? sender, string scope) => Publish(scope, StateOf(scope) with { Rows = [] });
-
-    private FleetState StateOf(string scope)
+    /// <summary>The group's devices changed: its table is emptied, the pages drop every row.</summary>
+    private void OnGroupChanged(object? sender, string scope)
     {
         lock (_gate)
         {
-            return _states.GetValueOrDefault(scope) ?? new FleetState(_version, false, []);
+            var table = TableOf(scope);
+            table.Rows.Clear();
+            table.Order.Clear();
+            PublishState(scope, table, cleared: true);
+        }
+    }
+
+    /// <summary>Under <see cref="_gate"/>.</summary>
+    private FleetTable TableOf(string scope)
+    {
+        if (!_tables.TryGetValue(scope, out var table))
+        {
+            _tables[scope] = table = new FleetTable();
+        }
+
+        return table;
+    }
+
+    /// <summary>One page of a group's table: the devices after <paramref name="after"/> in id order, with the version it shows.</summary>
+    private FleetState PageOf(string scope, Guid? after, int limit)
+    {
+        limit = Math.Clamp(limit, 1, Fleet.StatePageSize);
+        lock (_gate)
+        {
+            var table = TableOf(scope);
+            IEnumerable<Guid> ids = after is { } start
+                ? table.Order.GetViewBetween(start, LastId).Where(id => id != start)
+                : table.Order;
+            var rows = new List<FleetRow>();
+            Guid? last = null;
+            var taken = 0;
+            var more = false;
+            foreach (var id in ids)
+            {
+                if (taken == limit)
+                {
+                    more = true;
+                    break;
+                }
+
+                taken++;
+                last = id;
+                if (InGroup(scope, id))
+                {
+                    rows.AddRange(table.Rows[id]);
+                }
+            }
+
+            return new FleetState(_version, table.Reading, rows) { ReleaseError = table.ReleaseError, NextAfter = more ? last : null };
         }
     }
 
@@ -711,28 +948,72 @@ public sealed class VpnFleetPlugin : ICorePlugin, IDisposable
     {
         lock (_gate)
         {
-            var state = StateOf(scope);
-            if (state.Reading)
+            var table = TableOf(scope);
+            if (table.Reading)
             {
                 return false;
             }
 
-            Publish(scope, state with { Reading = true });
+            table.Reading = true;
+            PublishState(scope, table, cleared: false);
             return true;
         }
     }
 
-    private void Publish(string scope, FleetState state)
+    private void EndRead(string scope, string? releaseError, bool keepReleaseError)
     {
-        string json;
         lock (_gate)
         {
-            state = InGroup(scope, state) with { Version = ++_version };
-            _states[scope] = state;
-            json = Serialize(state);
-        }
+            var table = TableOf(scope);
+            table.Reading = false;
+            if (!keepReleaseError)
+            {
+                table.ReleaseError = releaseError;
+            }
 
-        _ctx?.Events?.Publish(Fleet.StateTopic, json, PluginEventAudience.DeviceScope(scope));
+            PublishState(scope, table, cleared: false);
+        }
+    }
+
+    /// <summary>
+    /// Each device now has exactly these rows (none: it leaves the table); sent as rows events of at most
+    /// <see cref="Fleet.MaxDevicesPerEvent"/> devices. Rows of devices outside the group are never kept.
+    /// </summary>
+    private void SetRows(string scope, IReadOnlyList<(Guid Id, IReadOnlyList<FleetRow> Rows)> changes)
+    {
+        foreach (var chunk in changes.Chunk(Fleet.MaxDevicesPerEvent))
+        {
+            lock (_gate)
+            {
+                var table = TableOf(scope);
+                var rows = new List<FleetRow>();
+                foreach (var (id, deviceRows) in chunk)
+                {
+                    if (deviceRows.Count > 0 && InGroup(scope, id))
+                    {
+                        table.Rows[id] = deviceRows;
+                        table.Order.Add(id);
+                        rows.AddRange(deviceRows);
+                    }
+                    else
+                    {
+                        table.Rows.Remove(id);
+                        table.Order.Remove(id);
+                    }
+                }
+
+                // Published under the lock: the events leave in the order of their versions.
+                var json = JsonSerializer.Serialize(new FleetRowsEvent(++_version, [.. chunk.Select(c => c.Id)], rows), Fleet.Json);
+                _ctx?.Events?.Publish(Fleet.RowsTopic, json, PluginEventAudience.DeviceScope(scope));
+            }
+        }
+    }
+
+    /// <summary>Under <see cref="_gate"/>: whether a read runs, without rows.</summary>
+    private void PublishState(string scope, FleetTable table, bool cleared)
+    {
+        var state = new FleetState(++_version, table.Reading, []) { ReleaseError = table.ReleaseError, Cleared = cleared };
+        _ctx?.Events?.Publish(Fleet.StateTopic, Serialize(state), PluginEventAudience.DeviceScope(scope));
     }
 
     private static string Serialize(FleetState state) => JsonSerializer.Serialize(state, Fleet.Json);

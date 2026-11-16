@@ -23,6 +23,11 @@ public sealed partial class ConnectFormViewModel : ValidatingViewModel
         Validation.Rules(Fields, () =>
         {
             var errors = ConnectRules.Validate(ToRequest(false, []));
+            if (Kind == VpnKind.OpenVpn && ProfileTooLarge)
+            {
+                errors = [new FieldError(nameof(Profile), ConnectRules.ProfileTooLarge), .. errors];
+            }
+
             return Fields.ToDictionary(f => f, f => errors.FirstOrDefault(e => e.Field == f)?.Message);
         });
         Validation.Rule(nameof(HubName), () => Kind == VpnKind.WireGuard && UseHub && HubDeviceId is null ? "Choose the camera that runs WireGuard Server." : null);
@@ -74,7 +79,16 @@ public sealed partial class ConnectFormViewModel : ValidatingViewModel
     [ObservableProperty]
     public partial string? ProfileName { get; set; }
 
-    public string? ProfileDetails => Profile.Length == 0 ? null : $"{Profile.Length / 1024.0:0.#} KB";
+    public string? ProfileDetails => ProfileLength == 0 ? null : $"{ProfileLength / 1024.0:0.#} KB";
+
+    /// <summary>The size of the chosen file.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ProfileDetails))]
+    public partial long ProfileLength { get; private set; }
+
+    /// <summary>The chosen file is larger than a profile can be: it was not read.</summary>
+    [ObservableProperty]
+    public partial bool ProfileTooLarge { get; private set; }
 
     [ObservableProperty]
     public partial string UserName { get; set; } = "";
@@ -91,7 +105,11 @@ public sealed partial class ConnectFormViewModel : ValidatingViewModel
     public partial Guid? HubDeviceId { get; set; }
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HubButtonText))]
     public partial string? HubName { get; set; }
+
+    /// <summary>The device choice button of the hub: the chosen camera, or what to do.</summary>
+    public string HubButtonText => HubName ?? "Choose camera";
 
     [ObservableProperty]
     public partial string Endpoint { get; set; } = "";
@@ -109,7 +127,7 @@ public sealed partial class ConnectFormViewModel : ValidatingViewModel
     public Func<Guid?, Task<Guid?>>? PickHub { get; set; }
 
     /// <summary>Opens a file dialog for the profile: its name and text, null when cancelled. Set by the view.</summary>
-    public Func<Task<(string Name, string Text)?>>? PickProfile { get; set; }
+    public Func<Task<ProfileFile?>>? PickProfile { get; set; }
 
     /// <summary>The names of the devices, to show the chosen hub; set by the page.</summary>
     public Func<Guid, string?>? NameOf { get; set; }
@@ -129,8 +147,11 @@ public sealed partial class ConnectFormViewModel : ValidatingViewModel
     {
         if (PickProfile is { } pick && await pick() is { } file)
         {
+            ProfileTooLarge = file.Text is null || file.Length > ConnectRules.MaxProfileLength;
+            ProfileLength = file.Length;
             ProfileName = file.Name;
-            Profile = file.Text;
+            Profile = ProfileTooLarge ? "" : file.Text!;
+            Validation.ShowAll(nameof(Profile));
         }
     }
 

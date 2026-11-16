@@ -14,6 +14,9 @@ public static partial class ConnectRules
     /// <summary>The largest OpenVPN profile (with inline certificates a profile is a few KB).</summary>
     public const int MaxProfileLength = 256 * 1024;
 
+    /// <summary>The problem of a profile larger than <see cref="MaxProfileLength"/>.</summary>
+    public const string ProfileTooLarge = "The profile is larger than 256 KB.";
+
     private const int MaxSecretLength = 512;
 
     public static IReadOnlyList<FieldError> Validate(ConnectRequest request)
@@ -103,10 +106,75 @@ public static partial class ConnectRules
 
         if (value.Length > MaxProfileLength)
         {
-            return "The profile is larger than 256 KB.";
+            return ProfileTooLarge;
+        }
+
+        if (CommandDirective(value) is { } directive)
+        {
+            return $"The profile runs commands on the camera ({directive}). Remove that line.";
         }
 
         return RemoteLine().IsMatch(value) ? null : "This is not an OpenVPN profile: it has no remote server.";
+    }
+
+    /// <summary>
+    /// The OpenVPN options that run a program or load code on the camera; a profile with one is refused. "setenv opt" and
+    /// a leading "--" do not hide them.
+    /// </summary>
+    public static readonly IReadOnlySet<string> CommandDirectives = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+    {
+        "script-security", "up", "down", "route-up", "route-pre-down", "ipchange", "client-connect", "client-disconnect",
+        "learn-address", "auth-user-pass-verify", "tls-verify", "plugin", "iproute",
+    };
+
+    /// <summary>The first option of the profile that runs commands, null when it has none. Inline blocks (&lt;ca&gt;) hold data only.</summary>
+    public static string? CommandDirective(string profile)
+    {
+        ArgumentNullException.ThrowIfNull(profile);
+        string? block = null;
+        foreach (var raw in profile.Split('\n'))
+        {
+            var line = raw.Trim();
+            if (block is not null)
+            {
+                if (line.Equals("</" + block + ">", StringComparison.OrdinalIgnoreCase))
+                {
+                    block = null;
+                }
+
+                continue;
+            }
+
+            if (line.Length == 0 || line[0] is '#' or ';')
+            {
+                continue;
+            }
+
+            if (line.StartsWith('<') && line.EndsWith('>') && !line.StartsWith("</", StringComparison.Ordinal))
+            {
+                var tag = line[1..^1].Trim();
+                if (!tag.Equals("connection", StringComparison.OrdinalIgnoreCase))
+                {
+                    block = tag; // data such as a certificate, never options
+                }
+
+                continue;
+            }
+
+            var words = line.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
+            var first = words[0].TrimStart('-');
+            if (first.Equals("setenv", StringComparison.OrdinalIgnoreCase) && words.Length > 2 && words[1].Equals("opt", StringComparison.OrdinalIgnoreCase))
+            {
+                first = words[2].TrimStart('-');
+            }
+
+            if (CommandDirectives.Contains(first))
+            {
+                return first.ToLowerInvariant();
+            }
+        }
+
+        return null;
     }
 
     private static string? Endpoint(string? value)

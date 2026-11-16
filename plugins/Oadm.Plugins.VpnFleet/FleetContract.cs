@@ -47,12 +47,37 @@ public sealed record FleetRow(
     public bool UpdateAvailable => AppVersion is not null && LatestVersion is not null && AppVersions.IsNewer(LatestVersion, AppVersion);
 }
 
-/// <summary>Everything the page shows. Version goes up with every change, so the page can ignore older states.</summary>
+/// <summary>
+/// The table of the page: an answer of <see cref="Fleet.GetState"/> holds one page of its rows (devices in id order),
+/// the event <see cref="Fleet.StateTopic"/> holds none (only whether a read runs). Version goes up with every change of the
+/// table, so the page can ignore older rows.
+/// </summary>
 public sealed record FleetState(int Version, bool Reading, IReadOnlyList<FleetRow> Rows)
 {
     /// <summary>Why the newest versions are not known (GitHub not reachable); null when they are.</summary>
     public string? ReleaseError { get; init; }
+
+    /// <summary>GetState: the last device of this page when more pages follow (the next request's After); null on the last.</summary>
+    public Guid? NextAfter { get; init; }
+
+    /// <summary>State event: the table was emptied (the user's device group changed); every older row is gone.</summary>
+    public bool Cleared { get; init; }
 }
+
+/// <summary>One page of the table: the devices after <see cref="After"/> (id order), at most <see cref="Limit"/> of them.</summary>
+public sealed record StatePageRequest(Guid? After, int Limit);
+
+/// <summary>
+/// The event <see cref="Fleet.RowsTopic"/>: each device of <see cref="Devices"/> now has exactly its rows of
+/// <see cref="Rows"/>; a device without rows left the table. At most <see cref="Fleet.MaxDevicesPerEvent"/> devices.
+/// </summary>
+public sealed record FleetRowsEvent(int Version, IReadOnlyList<Guid> Devices, IReadOnlyList<FleetRow> Rows);
+
+/// <summary>Make a new WireGuard key pair on the server and write its private key to this camera only.</summary>
+public sealed record NewKeyPairRequest(Guid DeviceId);
+
+/// <summary>The new public key, for the camera's server; the private key never leaves the server.</summary>
+public sealed record NewKeyPairReply(string PublicKey, string? Note);
 
 /// <summary>What the page asks to read: every device of the user, or the chosen ones.</summary>
 public sealed record RefreshRequest(bool All, IReadOnlyList<Guid> DeviceIds);
@@ -174,7 +199,19 @@ public static class Fleet
     public const string Install = "install";
     public const string GetSettings = "getSettings";
     public const string SaveSettings = "saveSettings";
+    public const string NewKeyPair = "newKeyPair";
+
+    /// <summary>Whether a read runs and why the newest versions are not known (<see cref="FleetState"/> without rows).</summary>
     public const string StateTopic = "state";
+
+    /// <summary>The changed rows of some devices (<see cref="FleetRowsEvent"/>).</summary>
+    public const string RowsTopic = "rows";
+
+    /// <summary>The most devices of one GetState page.</summary>
+    public const int StatePageSize = 5000;
+
+    /// <summary>The most devices of one rows event.</summary>
+    public const int MaxDevicesPerEvent = 200;
 
     /// <summary>The permission to change VPN settings on devices.</summary>
     public const string ConnectPermission = "connect";

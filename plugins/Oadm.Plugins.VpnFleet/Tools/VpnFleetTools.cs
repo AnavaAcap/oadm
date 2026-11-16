@@ -109,7 +109,7 @@ internal static class VpnFleetTools
     {
         var devices = await DevicesAsync(caller, input.Args.AllDevices, input.Devices, ct).ConfigureAwait(false);
         var reply = await VpnFleetPlugin.RunInstallAsync(caller, input.Args.App, devices, plan.Version, upgrade: false, files: null, ct).ConfigureAwait(false);
-        return new InstallResult(reply.Devices, reply.Version, [.. reply.TaskIds.Select(t => t.ToString())]);
+        return new InstallResult(reply.Devices, reply.Version, reply.TaskIds.Count > 0 ? reply.TaskIds[0].ToString() : null);
     }
 
     private static async Task<SavePlan> CheckSaveAsync(VpnFleetPlugin plugin, ICallContext caller, PluginToolInput<SaveArgs> input, CancellationToken ct)
@@ -235,10 +235,11 @@ internal static class VpnFleetTools
         [property: Description("The app.")] string App,
         [property: Description("The version that is installed.")] string Version) : PluginToolPlan(WillChange, Unit);
 
+    /// <summary>The count and one task of the run, never every task id: the answer stays small for any number of devices.</summary>
     internal sealed record InstallResult(
         [property: Description("Devices with a task.")] int Devices,
         [property: Description("The version.")] string Version,
-        [property: Description("The tasks, one per device.")] IReadOnlyList<string> TaskIds);
+        [property: Description("One task of the run, one task per device: oadm_tasks_get names the run's batch, oadm_tasks_list(batch) lists them all.")] string? TaskId);
 
     internal sealed record SaveArgs(
         [property: Required, Description("The device.")] string DeviceId,

@@ -42,6 +42,39 @@ public static class LocalPackages
         return versions.Count > 1 ? $"The packages have different versions ({string.Join(", ", versions)}). Choose the packages of one release." : null;
     }
 
+    /// <summary>The name prefix of the signed builds of a release ("signed_Tailscale_VPN_1_104_7_aarch64.eap").</summary>
+    public const string SignedPrefix = "signed_";
+
+    /// <summary>
+    /// The build for a device, chosen like Applications (ACAP) does (<see cref="AcapBuildChooser"/>: architecture, AXIS OS,
+    /// with <paramref name="device"/> the SDK). A whole release has the signed and the unsigned build of each architecture:
+    /// the unsigned one is left out when its signed twin is there, so they never count as "Several packages fit". The index
+    /// is into <paramref name="builds"/>.
+    /// </summary>
+    public static AcapBuildChoice Choose(IReadOnlyList<AcapBuild> builds, AcapDeviceGroup group, AcapDeviceFacts? device = null)
+    {
+        ArgumentNullException.ThrowIfNull(builds);
+        var names = builds.Select(b => b.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var kept = new List<int>(builds.Count);
+        for (var i = 0; i < builds.Count; i++)
+        {
+            var name = builds[i].Name;
+            if (!name.StartsWith(SignedPrefix, StringComparison.OrdinalIgnoreCase) && names.Contains(SignedPrefix + name))
+            {
+                continue;
+            }
+
+            kept.Add(i);
+        }
+
+        var choice = AcapBuildChooser.Choose([.. kept.Select(i => builds[i])], group, device: device);
+        return choice with
+        {
+            Index = choice.Index < 0 ? -1 : kept[choice.Index],
+            Candidates = [.. choice.Candidates.Select(i => kept[i])],
+        };
+    }
+
     /// <summary>
     /// Reads the uploaded packages of the caller (or of a task) and checks them; throws with the text to show when one is
     /// gone, not a package, or does not fit the rule of <see cref="Problem"/>.

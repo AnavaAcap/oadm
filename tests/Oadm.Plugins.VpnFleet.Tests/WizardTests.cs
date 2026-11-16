@@ -107,6 +107,11 @@ public sealed class WizardTests
     public async Task A_refused_start_stays_open_with_the_reason()
     {
         var (page, server, _) = await PageAsync();
+        foreach (var camera in server.Cameras.Values)
+        {
+            camera.Parameters["wireguardconfig.ClientIP"] = ""; // the WireGuard app: only such cameras get an address
+        }
+
         var wizard = page.SetupWizard();
         wizard.Form!.SelectedVpn = wizard.Form.Vpns.Single(v => v.Kind == VpnKind.WireGuard);
         wizard.Form.UseHub = false;
@@ -157,16 +162,7 @@ public sealed class WizardTests
         var page = new VpnFleetViewModel(new FakePageContext(plugin, server) { SelectedDevices = devices });
         await server.InvokeAsync(plugin, server.CallAsAllDevices(), Fleet.Refresh,
             JsonSerializer.Serialize(new RefreshRequest(false, [.. devices.Take(3).Select(d => d.Id)]), Fleet.Json));
-        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
-        await foreach (var item in server.Published.Reader.ReadAllAsync(timeout.Token))
-        {
-            var state = JsonSerializer.Deserialize<FleetState>(item.PayloadJson!, Fleet.Json)!;
-            if (!state.Reading && state.Rows.Count > 0)
-            {
-                page.Apply(item.PayloadJson);
-                break;
-            }
-        }
+        page.Apply(JsonSerializer.Serialize(await FleetEvents.NextStateAsync(server, s => !s.Reading && s.Rows.Count > 0), Fleet.Json));
 
         return (page, server, devices);
     }

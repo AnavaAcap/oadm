@@ -30,10 +30,10 @@ public partial class RolloutWizardWindow : Window
     }
 }
 
-/// <summary>The file dialog of an OpenVPN profile: its name and text, or null when cancelled.</summary>
+/// <summary>The file dialog of an OpenVPN profile, or null when cancelled. A file too large for a profile is not read.</summary>
 internal static class ProfileFiles
 {
-    public static async Task<(string Name, string Text)?> PickAsync(TopLevel top)
+    public static async Task<ProfileFile?> PickAsync(TopLevel top)
     {
         var files = await top.StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
         {
@@ -49,11 +49,12 @@ internal static class ProfileFiles
         await using var stream = await files[0].OpenReadAsync();
         if (stream.CanSeek && stream.Length > ConnectRules.MaxProfileLength)
         {
-            return (files[0].Name, new string('#', ConnectRules.MaxProfileLength + 1)); // the rule then shows "larger than 256 KB"
+            return new ProfileFile(files[0].Name, stream.Length, null);
         }
 
         using var reader = new StreamReader(stream);
-        return (files[0].Name, await reader.ReadToEndAsync());
+        var text = await reader.ReadToEndAsync();
+        return new ProfileFile(files[0].Name, text.Length, text);
     }
 }
 

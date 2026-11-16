@@ -64,3 +64,45 @@ internal static class Headless
         }
     }
 }
+
+/// <summary>The page's table as the server's events build it (rows events, then the state): for tests that wait for a read.</summary>
+internal static class FleetEvents
+{
+    public static async Task<Oadm.Plugins.VpnFleet.FleetState> NextStateAsync(Oadm.Sdk.Testing.FakeCoreContext server, Func<Oadm.Plugins.VpnFleet.FleetState, bool> match)
+    {
+        var rows = new Dictionary<Guid, IReadOnlyList<Oadm.Plugins.VpnFleet.FleetRow>>();
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        await foreach (var item in server.Published.Reader.ReadAllAsync(timeout.Token))
+        {
+            if (item.Topic == Oadm.Plugins.VpnFleet.Fleet.RowsTopic)
+            {
+                var change = System.Text.Json.JsonSerializer.Deserialize<Oadm.Plugins.VpnFleet.FleetRowsEvent>(item.PayloadJson!, Oadm.Plugins.VpnFleet.Fleet.Json)!;
+                foreach (var id in change.Devices)
+                {
+                    rows.Remove(id);
+                }
+
+                foreach (var device in change.Rows.GroupBy(r => r.DeviceId))
+                {
+                    rows[device.Key] = [.. device];
+                }
+
+                continue;
+            }
+
+            var state = System.Text.Json.JsonSerializer.Deserialize<Oadm.Plugins.VpnFleet.FleetState>(item.PayloadJson!, Oadm.Plugins.VpnFleet.Fleet.Json)!;
+            if (state.Cleared)
+            {
+                rows.Clear();
+            }
+
+            var whole = state with { Rows = [.. rows.Values.SelectMany(r => r).OrderBy(r => r.Address, StringComparer.OrdinalIgnoreCase).ThenBy(r => r.Vpn)] };
+            if (match(whole))
+            {
+                return whole;
+            }
+        }
+
+        throw new TimeoutException();
+    }
+}

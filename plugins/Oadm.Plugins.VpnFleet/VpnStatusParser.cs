@@ -77,12 +77,15 @@ public static partial class VpnStatusParser
         };
     }
 
-    /// <summary>NetBird's <c>api/status</c>; anything else (a proxy error page) means the client is not running.</summary>
+    /// <summary>
+    /// NetBird's <c>api/status</c>. Anything else (a proxy's error page) says nothing about the app's settings: the status is
+    /// not known, never "needs a setup key".
+    /// </summary>
     public static VpnStatus NetBird(string? json)
     {
         if (Parse(json) is not { } root)
         {
-            return new VpnStatus(VpnState.NotSetUp, null, "Not running. Needs a setup key.");
+            return new VpnStatus(VpnState.Unknown, null, "The app's status could not be read.");
         }
 
         var ip = WithoutPrefix(String(root, "overlay_ip"));

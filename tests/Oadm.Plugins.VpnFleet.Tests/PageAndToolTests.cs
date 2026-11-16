@@ -82,8 +82,12 @@ public sealed class ToolTests
         Assert.Equal((2, "device", "1.104.7"), (plan["will_change"]!.GetValue<int>(), plan["unit"]!.GetValue<string>(), plan["version"]!.GetValue<string>()));
         Assert.Empty(server.TaskRuns);
 
-        await ToolAsync(server, plugin, "install", payload);
-        Assert.Equal([a.Id, b.Id], Assert.Single(server.TaskRuns).DeviceIds);
+        var result = await ToolAsync(server, plugin, "install", payload);
+        var run = Assert.Single(server.TaskRuns);
+        Assert.Equal([a.Id, b.Id], run.DeviceIds);
+        Assert.Equal(2, result["devices"]!.GetValue<int>());
+        Assert.Equal(run.TaskIds[0].ToString(), result["task_id"]!.GetValue<string>()); // one task, never a list per device
+        Assert.Null(result["task_ids"]);
         Assert.Contains("filter", (await ToolAsync(server, plugin, "install", """{"app":"tailscale"}""", preview: true)).ToJsonString(), StringComparison.Ordinal);
     }
 
@@ -181,6 +185,10 @@ public sealed class PageTests
             var installWindow = new RolloutWizardWindow();
             installWindow.Attach(install);
             installWindow.Show();
+            install.Install.FromFiles = true;
+            Headless.Pump();
+            Headless.Capture(installWindow, "vpn-fleet-install-files.png");
+            install.Install.FromFiles = false;
             await install.NextCommand.ExecuteAsync(null);
             Headless.Pump();
             Assert.True(install.IsCamerasStep);
@@ -199,6 +207,10 @@ public sealed class PageTests
             setupWindow.Show();
             Headless.Pump();
             Headless.Capture(setupWindow, "vpn-fleet-setup-vpn.png");
+            setup.Form.SelectedVpn = setup.Form.Vpns.Single(v => v.Kind == VpnKind.WireGuard);
+            Headless.Pump();
+            Headless.Capture(setupWindow, "vpn-fleet-setup-wireguard.png");
+            setup.Form.SelectedVpn = setup.Form.Vpns[0];
             await setup.NextCommand.ExecuteAsync(null);
             Headless.Pump();
             Assert.Equal("1 of 4 cameras ticked.", setup.Cameras.Summary);
@@ -241,7 +253,20 @@ public sealed class PageTests
         Assert.Equal(Devices, vm.Rows.Count);
         Assert.Equal((Devices + 2) / 3, install.Count(i => i.IsChecked));
         Assert.Equal(Devices, connect.Count(i => i.IsChecked));
-        Console.WriteLine($"{Devices:N0} rows: apply + both checklists {elapsed} ms");
+
+        // One camera changes: its row in place, no reset of 100,000 rows, the selection stays.
+        vm.SelectedRow = vm.Rows[50_000];
+        var selected = vm.SelectedRow;
+        var resets = TableEventTests.CountResets(vm);
+        var changed = rows[42] with { State = VpnState.NotConnected };
+        var update = Stopwatch.StartNew();
+        vm.ApplyBatch([new FleetRowsEvent(2, [changed.DeviceId], [changed])], []);
+        var single = update.ElapsedMilliseconds;
+        Assert.Equal(0, resets());
+        Assert.Same(selected, vm.SelectedRow);
+        Assert.Equal("Not connected", vm.Table.TryGetRows(changed.DeviceId, out var views) ? views[0].StateText : null);
+        Assert.StartsWith($"{Devices:N0} devices: {Devices - 1:N0} connected, 1 not connected", vm.Summary, StringComparison.Ordinal);
+        Console.WriteLine($"{Devices:N0} rows: apply + both checklists {elapsed} ms, one row changed {single} ms");
         return elapsed;
     }
 }

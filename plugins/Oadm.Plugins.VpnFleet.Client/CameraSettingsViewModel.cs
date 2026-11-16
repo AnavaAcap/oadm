@@ -4,21 +4,28 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 
 using Oadm.Sdk.Client;
+using Oadm.Sdk.Client.Validation;
 
 namespace Oadm.Plugins.VpnFleet.Client;
 
-/// <summary>One setting of the camera panel: its value, whether the user changed it, and its problem.</summary>
-public sealed partial class SettingFieldViewModel : ObservableObject
+/// <summary>
+/// One setting of the camera panel: its value, whether the user changed it, and its problem (below the field once it was
+/// edited or left, like every form).
+/// </summary>
+public sealed partial class SettingFieldViewModel : ValidatingViewModel
 {
     private readonly VpnApp _app;
 
     public SettingFieldViewModel(VpnApp app, SettingValue value)
     {
+        ArgumentNullException.ThrowIfNull(value);
         _app = app;
         Source = value;
         Original = value.Value;
         Value = value.Value;
         SelectedOption = value.Options.FirstOrDefault(o => string.Equals(o.Value, value.Value, StringComparison.OrdinalIgnoreCase));
+        Validation.Rule(nameof(Value), () => IsDirty ? AppSettings.Validate(_app, new Dictionary<string, string> { [Name] = Value }, [Name]) is { Count: > 0 } problems ? problems[0].Message : null : null);
+        Validation.Validate();
     }
 
     public SettingValue Source { get; }
@@ -51,8 +58,11 @@ public sealed partial class SettingFieldViewModel : ObservableObject
     [ObservableProperty]
     public partial SettingOption? SelectedOption { get; set; }
 
-    [ObservableProperty]
-    public partial string? Error { get; private set; }
+    /// <summary>The error shown below the field (after an edit or once the user left it).</summary>
+    public string? Error => ErrorOf(nameof(Value));
+
+    /// <summary>The error of the value, shown or not: Save stays off while there is one.</summary>
+    public string? Problem => FormError;
 
     public bool BoolValue
     {
@@ -71,8 +81,11 @@ public sealed partial class SettingFieldViewModel : ObservableObject
         }
     }
 
-    partial void OnValueChanged(string value) =>
-        Error = IsDirty ? AppSettings.Validate(_app, new Dictionary<string, string> { [Name] = value }, [Name]).FirstOrDefault()?.Message : null;
+    protected override void OnValidationChanged()
+    {
+        OnPropertyChanged(nameof(Error));
+        OnPropertyChanged(nameof(Problem));
+    }
 
     /// <summary>After a save: the saved value is the new original.</summary>
     public void Accept()
@@ -83,6 +96,7 @@ public sealed partial class SettingFieldViewModel : ObservableObject
             Value = "";
         }
 
+        Validation.Reset(nameof(Value));
         OnPropertyChanged(nameof(IsDirty));
     }
 }
@@ -141,7 +155,7 @@ public sealed partial class CameraSettingsViewModel : ObservableObject
     public partial bool IsLoading { get; private set; }
 
     [ObservableProperty]
-    [NotifyCanExecuteChangedFor(nameof(SaveCommand))]
+    [NotifyCanExecuteChangedFor(nameof(SaveCommand), nameof(NewKeyPairCommand))]
     public partial bool IsSaving { get; private set; }
 
     [ObservableProperty]
@@ -156,6 +170,9 @@ public sealed partial class CameraSettingsViewModel : ObservableObject
 
     public bool IsWireGuard => App?.Kind is VpnKind.WireGuard or VpnKind.WireGuardServer;
 
+    /// <summary>A WireGuard camera (never the hub: its key is every camera's peer key) can get a new key pair.</summary>
+    public bool ShowNewKeyPair => App?.Kind == VpnKind.WireGuard;
+
     public bool IsOpenVpn => App?.Kind == VpnKind.OpenVpn;
 
     [ObservableProperty]
@@ -165,10 +182,14 @@ public sealed partial class CameraSettingsViewModel : ObservableObject
     [ObservableProperty]
     public partial string? ProfileName { get; private set; }
 
-    /// <summary>Opens a file dialog for the OpenVPN profile; set by the view.</summary>
-    public Func<Task<(string Name, string Text)?>>? PickProfile { get; set; }
+    /// <summary>Why the chosen file cannot be the profile; shown below the profile field.</summary>
+    [ObservableProperty]
+    public partial string? ProfileError { get; private set; }
 
-    /// <summary>Opens the release page; set by the view.</summary>
+    /// <summary>Opens a file dialog for the OpenVPN profile; set by the view.</summary>
+    public Func<Task<ProfileFile?>>? PickProfile { get; set; }
+
+    /// <summary>Opens the release page; set by the page, which opens nothing but GitHub.</summary>
     public Action<string>? OpenUrl { get; set; }
 
     /// <summary>Starts an install or upgrade (the page owns it): app, devices, upgrade.</summary>
@@ -216,7 +237,7 @@ public sealed partial class CameraSettingsViewModel : ObservableObject
 
     private void OnFieldChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
     {
-        if (e.PropertyName is nameof(SettingFieldViewModel.IsDirty) or nameof(SettingFieldViewModel.Error))
+        if (e.PropertyName is nameof(SettingFieldViewModel.IsDirty) or nameof(SettingFieldViewModel.Problem))
         {
             SaveCommand.NotifyCanExecuteChanged();
             OnPropertyChanged(nameof(SaveBlockedReason));
@@ -225,7 +246,8 @@ public sealed partial class CameraSettingsViewModel : ObservableObject
 
     public string? SaveBlockedReason =>
         !MayChange ? "Your role cannot change VPN settings."
-        : Fields.FirstOrDefault(f => f.Error is not null)?.Error
+        : Fields.FirstOrDefault(f => f.Problem is not null)?.Problem
+        ?? ProfileError
         ?? (Fields.Any(f => f.IsDirty) || Profile is not null ? null : "Change a setting first.");
 
     private bool CanSave() => !IsSaving && HasApp && SaveBlockedReason is null;
@@ -268,19 +290,39 @@ public sealed partial class CameraSettingsViewModel : ObservableObject
         }
     }
 
-    /// <summary>WireGuard: a new key pair; the private key goes into its field, the public key shows for the server.</summary>
-    [RelayCommand]
-    private void NewKeyPair()
+    private bool CanNewKeyPair() => MayChange && ShowNewKeyPair && !IsSaving;
+
+    /// <summary>
+    /// WireGuard: the server makes a new key pair and writes the private key to this camera only (it never comes here);
+    /// the new public key shows for the camera's server. A hub camera gets it by itself.
+    /// </summary>
+    [RelayCommand(CanExecute = nameof(CanNewKeyPair))]
+    private async Task NewKeyPairAsync()
     {
-        if (Fields.FirstOrDefault(f => f.Name == "PrivateKey") is not { } field)
+        if (!await _ctx.ConfirmAsync("New key pair", $"Make a new key pair for {Row.Address}? The camera uses it right away.", "New key pair"))
         {
             return;
         }
 
-        var keys = WireGuardKeys.Generate();
-        field.Value = keys.PrivateKey;
-        PublicKey = keys.PublicKey;
-        InfoText = "New key made. Save to use it.";
+        IsSaving = true;
+        ErrorText = null;
+        InfoText = null;
+        try
+        {
+            string? reply = null;
+            ErrorText = await GuardedRun.RunAsync(
+                async () => reply = await _ctx.InvokeAsync(Fleet.NewKeyPair, JsonSerializer.Serialize(new NewKeyPairRequest(Row.Row.DeviceId), Fleet.Json), _stop),
+                GuardedCancel.Ignore);
+            if (reply is not null && JsonSerializer.Deserialize<NewKeyPairReply>(reply, Fleet.Json) is { } made)
+            {
+                PublicKey = made.PublicKey;
+                InfoText = "The camera has a new key pair." + (made.Note is null ? "" : " " + made.Note);
+            }
+        }
+        finally
+        {
+            IsSaving = false;
+        }
     }
 
     [RelayCommand]
@@ -288,13 +330,11 @@ public sealed partial class CameraSettingsViewModel : ObservableObject
     {
         if (PickProfile is { } pick && await pick() is { } file)
         {
-            ErrorText = ConnectRules.ProfileProblem(file.Text);
-            if (ErrorText is null)
-            {
-                ProfileName = file.Name;
-                Profile = file.Text;
-                OnPropertyChanged(nameof(SaveBlockedReason));
-            }
+            ProfileName = file.Name;
+            ProfileError = file.Problem;
+            Profile = ProfileError is null ? file.Text : null;
+            OnPropertyChanged(nameof(SaveBlockedReason));
+            SaveCommand.NotifyCanExecuteChanged();
         }
     }
 
