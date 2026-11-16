@@ -30,6 +30,8 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="Oadm.Plugins.VpnFleet.Tests" />
+    <!-- The address sort key of the table pages. -->
+    <Compile Include="..\Shared\SweepRows.cs" Link="Common\SweepRows.cs" />
   </ItemGroup>
 
   <!-- Development deployment next to the server part in artifacts/plugins/oadm.vpn-fleet/. -->

@@ -22,16 +22,21 @@ public enum FleetPanel
 
 /// <summary>
 /// The page: the VPN apps of the chosen devices, their tunnels and versions. A row opens its camera's settings; Install
-/// or upgrade and Set up many cameras open a wizard with the cameras in a table. Reads the state from the server part,
-/// then follows its events. Nothing is read before a device choice.
+/// or upgrade and Set up many cameras open a wizard with the cameras in a table. Reads the table from the server part in
+/// pages, then follows its events: the changed rows of some devices, applied in place in one batch per burst (read off
+/// the UI thread). Nothing is read before a device choice.
 /// </summary>
 public sealed partial class VpnFleetViewModel : ObservableObject, IDisposable
 {
     private readonly ICorePluginClientContext _ctx;
     private readonly CancellationTokenSource _stop = new();
+    private readonly FleetTable _table = new();
+    private readonly List<PluginEvent> _pending = [];
+    private bool _draining;
+    private int _generation;
+    private int _stateVersion = int.MinValue;
+    private bool _restoring;
     private Task? _run;
-    private int _version = -1;
-    private Dictionary<Guid, List<FleetRow>> _rowsByDevice = [];
 
     public VpnFleetViewModel(ICorePluginClientContext ctx)
     {
@@ -50,13 +55,17 @@ public sealed partial class VpnFleetViewModel : ObservableObject, IDisposable
     /// <summary>Shows a wizard over the page's window until it closes; set by the view.</summary>
     public Func<RolloutWizardViewModel, Task>? ShowWizard { get; set; }
 
-    /// <summary>Opens a web page; set by the view.</summary>
-    public Action<string>? OpenUrl { get; set; }
+    /// <summary>Opens a web address in the browser; set by the view. <see cref="OpenUrl"/> decides what may be opened.</summary>
+    public Func<Uri, Task>? Launch { get; set; }
 
     /// <summary>Opens a file dialog for an OpenVPN profile; set by the view.</summary>
-    public Func<Task<(string Name, string Text)?>>? PickProfile { get; set; }
+    public Func<Task<ProfileFile?>>? PickProfile { get; set; }
 
-    public RangeObservableCollection<FleetRowView> Rows { get; } = [];
+    /// <summary>The rows the search shows; bound to the grid.</summary>
+    public RangeObservableCollection<FleetRowView> Rows => _table.Shown;
+
+    /// <summary>The page's copy of the server's table.</summary>
+    public FleetTable Table => _table;
 
     public bool MayConnect { get; }
 
@@ -77,6 +86,10 @@ public sealed partial class VpnFleetViewModel : ObservableObject, IDisposable
     /// <summary>The selected row of the table; a row opens its camera's panel.</summary>
     [ObservableProperty]
     public partial FleetRowView? SelectedRow { get; set; }
+
+    /// <summary>Search over address, model, app, status, VPN address and details.</summary>
+    [ObservableProperty]
+    public partial string SearchText { get; set; } = "";
 
     [ObservableProperty]
     public partial CameraSettingsViewModel? Camera { get; private set; }
@@ -102,16 +115,19 @@ public sealed partial class VpnFleetViewModel : ObservableObject, IDisposable
     public void Start() => _run ??= RunAsync();
 
     private Task RunAsync() => _ctx.RunAsync(
-        async ct => Apply(await _ctx.InvokeAsync(Fleet.GetState, null, ct)),
-        item =>
-        {
-            if (item.Topic == Fleet.StateTopic)
-            {
-                Apply(item.PayloadJson);
-            }
-        },
+        ReadStateAsync,
+        HandleEvent,
         new PluginEventWatchOptions { Failed = ex => ErrorText = ServerErrors.Message(ex) },
         _stop.Token);
+
+    /// <summary>Opens a release page of the apps; nothing but GitHub.</summary>
+    public void OpenUrl(string url)
+    {
+        if (Uri.TryCreate(url, UriKind.Absolute, out var uri) && GitHubHttp.IsGitHub(uri) && Launch is { } launch)
+        {
+            _ = launch(uri);
+        }
+    }
 
     [RelayCommand]
     private async Task ChooseDevicesAsync()
@@ -135,11 +151,13 @@ public sealed partial class VpnFleetViewModel : ObservableObject, IDisposable
 
     private bool CanRefresh() => !IsReading && !Devices.IsEmpty;
 
+    partial void OnSearchTextChanged(string value) => KeepSelection(() => _table.Filter(value));
+
     // ---- Panels ----
 
     partial void OnSelectedRowChanged(FleetRowView? value)
     {
-        if (value is null)
+        if (value is null || _restoring)
         {
             return; // the table was reloaded: the open panel stays
         }
@@ -153,6 +171,7 @@ public sealed partial class VpnFleetViewModel : ObservableObject, IDisposable
         Panel = FleetPanel.Camera;
         _ = Camera.LoadAsync();
     }
+
 
     [RelayCommand]
     private void ClosePanel() => Panel = FleetPanel.None;
@@ -236,15 +255,15 @@ public sealed partial class VpnFleetViewModel : ObservableObject, IDisposable
             {
                 list.Add(Check("", "Hub camera: gets the others as peers.", CheckKind.Hub, false));
             }
-            else if (!_rowsByDevice.TryGetValue(device.Id, out var rows))
+            else if (!_table.TryGetRows(device.Id, out var rows))
             {
                 list.Add(Check("", "Not read yet. Refresh to check it has the app.", CheckKind.NotRead, true));
             }
-            else if (rows.FirstOrDefault(r => r.Vpn == kind) is { } row)
+            else if (rows.FirstOrDefault(r => r.Kind == kind)?.Row is { } row)
             {
                 list.Add(Check(row.AppVersion ?? "", $"{app.DisplayName} installed", CheckKind.Ready, true));
             }
-            else if (rows.FirstOrDefault(r => r.Error is not null) is { } failed)
+            else if (rows.FirstOrDefault(r => r.Row.Error is not null)?.Row is { } failed)
             {
                 list.Add(Check("", "Not read: " + failed.Error, CheckKind.Failed, false));
             }
@@ -268,22 +287,22 @@ public sealed partial class VpnFleetViewModel : ObservableObject, IDisposable
         foreach (var device in Devices.Resolve())
         {
             CameraCheck Check(string installed, string note, CheckKind what, bool on) => new(device.Id, device.Address, device.Model ?? "", installed, note, what, on);
-            var installed = _rowsByDevice.TryGetValue(device.Id, out var known) ? known.FirstOrDefault(r => r.Vpn == kind)?.AppVersion ?? "" : "";
+            var installed = _table.TryGetRows(device.Id, out var known) ? known.FirstOrDefault(r => r.Kind == kind)?.Row.AppVersion ?? "" : "";
             if (builds is not null && NoPackageFits(builds, device) is { } why)
             {
                 list.Add(Check(installed, why, CheckKind.NoPackage, false));
             }
-            else if (!_rowsByDevice.TryGetValue(device.Id, out var rows))
+            else if (!_table.TryGetRows(device.Id, out var rows))
             {
                 list.Add(Check("", "Not read yet", CheckKind.NotRead, false));
             }
-            else if (rows.FirstOrDefault(r => r.Vpn == kind)?.AppVersion is { } have)
+            else if (rows.FirstOrDefault(r => r.Kind == kind)?.Row.AppVersion is { } have)
             {
                 list.Add(latest is not null && AppVersions.IsNewer(latest, have)
                     ? Check(have, $"Upgrade {have} to {latest}", CheckKind.Upgrade, true)
                     : Check(have, $"{have}, the newest", CheckKind.UpToDate, false));
             }
-            else if (rows.FirstOrDefault(r => r.Error is not null) is { } failed)
+            else if (rows.FirstOrDefault(r => r.Row.Error is not null)?.Row is { } failed)
             {
                 list.Add(Check("", "Not read: " + failed.Error, CheckKind.Failed, false));
             }
@@ -392,48 +411,202 @@ public sealed partial class VpnFleetViewModel : ObservableObject, IDisposable
 
     // ---- State ----
 
-    /// <summary>Shows a state from the server, unless an equal or newer one is shown already.</summary>
+    /// <summary>
+    /// Reads the whole table in pages (each page read off the UI thread) and shows it; events of an earlier connection
+    /// that still wait are dropped. Called at the start and after every reconnect.
+    /// </summary>
+    public async Task ReadStateAsync(CancellationToken ct)
+    {
+        lock (_pending)
+        {
+            _pending.Clear();
+            _generation++;
+        }
+
+        var pages = new List<FleetState>();
+        Guid? after = null;
+        do
+        {
+            var json = await _ctx.InvokeAsync(Fleet.GetState, JsonSerializer.Serialize(new StatePageRequest(after, Fleet.StatePageSize), Fleet.Json), ct);
+            var page = await Task.Run(() => Parse<FleetState>(json), ct).ConfigureAwait(true);
+            pages.Add(page);
+            after = page.NextAfter;
+        }
+        while (after is not null);
+
+        ApplySnapshot(pages);
+    }
+
+    /// <summary>A whole table (tests, and the pages of a read): replaces every row, keeps the selection.</summary>
     public void Apply(string? json)
     {
-        if (json is null || JsonSerializer.Deserialize<FleetState>(json, Fleet.Json) is not { } state || state.Version <= _version)
+        if (json is not null && JsonSerializer.Deserialize<FleetState>(json, Fleet.Json) is { } state)
+        {
+            ApplySnapshot([state]);
+        }
+    }
+
+    private void ApplySnapshot(IReadOnlyList<FleetState> pages)
+    {
+        KeepSelection(() => _table.Replace(pages));
+        _stateVersion = int.MinValue; // a read is the newest truth, also from a restarted server
+        ApplyState(pages[^1]);
+        UpdateSummary();
+    }
+
+    /// <summary>
+    /// One event of the server (on the UI thread): queued; the events of a burst are read off the UI thread and applied
+    /// together, with one reset of the table at most.
+    /// </summary>
+    public void HandleEvent(PluginEvent item)
+    {
+        ArgumentNullException.ThrowIfNull(item);
+        if (item.Topic is not (Fleet.RowsTopic or Fleet.StateTopic) || item.PayloadJson is null)
         {
             return;
         }
 
-        _version = state.Version;
-        IsReading = state.Reading;
-        _rowsByDevice = state.Rows.GroupBy(r => r.DeviceId).ToDictionary(g => g.Key, g => g.ToList());
-        Rows.ReplaceAll(state.Rows.Select(r => new FleetRowView(r)));
-        Summary = SummaryOf(state.Rows, Devices.IsEmpty);
-        ReleaseNote = state.ReleaseError is null ? null : "Newest versions unknown: " + state.ReleaseError;
-    }
-
-    public static string SummaryOf(IReadOnlyList<FleetRow> rows, bool nothingChosen)
-    {
-        ArgumentNullException.ThrowIfNull(rows);
-        if (rows.Count == 0)
+        lock (_pending)
         {
-            return nothingChosen ? "Choose devices to see their VPN." : "Click Refresh to read the devices.";
+            _pending.Add(item);
+            if (_draining)
+            {
+                return;
+            }
+
+            _draining = true;
         }
 
-        var devices = rows.Select(r => r.DeviceId).Distinct().Count();
-        var parts = new List<string>();
-        void Count(int n, string text)
+        _ = DrainAsync();
+    }
+
+    /// <summary>True while events wait or are applied (tests wait for it to end).</summary>
+    public bool IsApplying
+    {
+        get
         {
-            if (n > 0)
+            lock (_pending)
             {
-                parts.Add($"{n:N0} {text}");
+                return _draining;
+            }
+        }
+    }
+
+    private async Task DrainAsync()
+    {
+        while (true)
+        {
+            List<PluginEvent> batch;
+            int generation;
+            lock (_pending)
+            {
+                if (_pending.Count == 0)
+                {
+                    _draining = false;
+                    return;
+                }
+
+                batch = [.. _pending];
+                _pending.Clear();
+                generation = _generation;
+            }
+
+            try
+            {
+                var parsed = await Task.Run(() => ParseBatch(batch)).ConfigureAwait(true);
+                if (generation == _generation)
+                {
+                    ApplyBatch(parsed.Rows, parsed.States);
+                }
+            }
+#pragma warning disable CA1031 // A broken event is shown; the next read brings the table back.
+            catch (Exception ex)
+#pragma warning restore CA1031
+            {
+                ErrorText = ServerErrors.Message(ex);
+            }
+        }
+    }
+
+    private static (List<FleetRowsEvent> Rows, List<FleetState> States) ParseBatch(List<PluginEvent> batch)
+    {
+        var rows = new List<FleetRowsEvent>();
+        var states = new List<FleetState>();
+        foreach (var item in batch)
+        {
+            if (item.Topic == Fleet.RowsTopic)
+            {
+                rows.Add(Parse<FleetRowsEvent>(item.PayloadJson));
+            }
+            else
+            {
+                states.Add(Parse<FleetState>(item.PayloadJson));
             }
         }
 
-        Count(rows.Count(r => r.Error is null && r.State == VpnState.Connected), "connected");
-        Count(rows.Count(r => r.Error is null && r.State is VpnState.NotConnected or VpnState.Connecting or VpnState.NotSetUp or VpnState.AppStopped or VpnState.Unknown), "not connected");
-        Count(rows.Count(r => r.Error is null && r.State == VpnState.NoVpnApp), "without a VPN app");
-        Count(rows.Count(r => r.Error is not null), "not read");
-        var updates = rows.Count(r => r.UpdateAvailable);
-        return (devices == 1 ? "1 device" : $"{devices:N0} devices") + (parts.Count > 0 ? ": " + string.Join(", ", parts) : "")
-            + (updates == 0 ? "" : updates == 1 ? ". 1 update" : $". {updates:N0} updates");
+        return (rows, states);
     }
+
+    /// <summary>The events of a burst: an emptied table first, then the rows in place, then the newest state.</summary>
+    public void ApplyBatch(IReadOnlyList<FleetRowsEvent> rows, IReadOnlyList<FleetState> states)
+    {
+        ArgumentNullException.ThrowIfNull(rows);
+        ArgumentNullException.ThrowIfNull(states);
+        KeepSelection(() =>
+        {
+            foreach (var cleared in states.Where(s => s.Cleared))
+            {
+                _table.Clear(cleared.Version);
+            }
+
+            _table.Apply(rows);
+        });
+        if (states.Count > 0)
+        {
+            ApplyState(states.MaxBy(s => s.Version)!);
+        }
+
+        UpdateSummary();
+    }
+
+    private void ApplyState(FleetState state)
+    {
+        if (state.Version < _stateVersion && !state.Cleared)
+        {
+            return;
+        }
+
+        _stateVersion = state.Version;
+        IsReading = state.Reading;
+        ReleaseNote = state.ReleaseError is null ? null : "Newest versions unknown: " + state.ReleaseError;
+    }
+
+    private void UpdateSummary() => Summary = _table.Counts.Text(Devices.IsEmpty);
+
+    /// <summary>A reset of the grid drops its selection: the selected row is chosen again when it is still there.</summary>
+    private void KeepSelection(Action change)
+    {
+        var selected = SelectedRow;
+        change();
+        if (selected is not null && _table.Contains(selected) && Rows.Count > 0)
+        {
+            _restoring = true;
+            try
+            {
+                SelectedRow = null;
+                SelectedRow = selected;
+            }
+            finally
+            {
+                _restoring = false;
+            }
+        }
+    }
+
+    private static T Parse<T>(string? json) =>
+        JsonSerializer.Deserialize<T>(json ?? "null", Fleet.Json) ?? throw new JsonException("The server sent no " + typeof(T).Name + ".");
+
+    public static string SummaryOf(IReadOnlyList<FleetRow> rows, bool nothingChosen) => FleetCounts.Of(rows).Text(nothingChosen);
 
     private static string DeviceLabel(IDeviceInfo device) => string.IsNullOrEmpty(device.Model) ? device.Address : $"{device.Address} ({device.Model})";
 

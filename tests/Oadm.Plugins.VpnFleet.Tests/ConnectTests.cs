@@ -283,6 +283,7 @@ public sealed class ConnectTests
             .WithoutDevices(Fleet.GetReleases, "the newest releases on GitHub", """{"checkNow":false}""")
             .Method(Fleet.GetSettings, """{"deviceId":"{device}","kind":"Tailscale"}""")
             .Method(Fleet.SaveSettings, """{"deviceId":"{device}","kind":"Tailscale","values":{"AcceptDNS":"true"}}""")
+            .Method(Fleet.NewKeyPair, """{"deviceId":"{device}"}""")
             .Method(Fleet.Install, """{"kind":"Tailscale","deviceIds":["{inside}","{device}"],"upgrade":false}""")
             .RunAsync();
     }
@@ -323,18 +324,5 @@ public sealed class ConnectTests
     private static Task<string?> CallAsync<T>(FakeCoreContext server, VpnFleetPlugin plugin, string method, T request, ICallContext? user = null) =>
         server.InvokeAsync(plugin, user ?? server.CallAsAllDevices(), method, JsonSerializer.Serialize(request, Fleet.Json));
 
-    private static async Task<FleetState> NextStateAsync(FakeCoreContext server, Func<FleetState, bool> match)
-    {
-        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
-        await foreach (var item in server.Published.Reader.ReadAllAsync(timeout.Token))
-        {
-            var state = JsonSerializer.Deserialize<FleetState>(item.PayloadJson!, Fleet.Json)!;
-            if (match(state))
-            {
-                return state;
-            }
-        }
-
-        throw new TimeoutException();
-    }
+    private static Task<FleetState> NextStateAsync(FakeCoreContext server, Func<FleetState, bool> match) => FleetEvents.NextStateAsync(server, match);
 }

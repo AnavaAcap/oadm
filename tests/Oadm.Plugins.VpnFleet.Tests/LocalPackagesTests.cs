@@ -139,18 +139,5 @@ public sealed class LocalPackagesTests : IDisposable
         return ctx;
     }
 
-    private static async Task<FleetState> NextStateAsync(FakeCoreContext server, Func<FleetState, bool> match)
-    {
-        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
-        await foreach (var item in server.Published.Reader.ReadAllAsync(timeout.Token))
-        {
-            var state = JsonSerializer.Deserialize<FleetState>(item.PayloadJson!, Fleet.Json)!;
-            if (match(state))
-            {
-                return state;
-            }
-        }
-
-        throw new TimeoutException();
-    }
+    private static Task<FleetState> NextStateAsync(FakeCoreContext server, Func<FleetState, bool> match) => FleetEvents.NextStateAsync(server, match);
 }

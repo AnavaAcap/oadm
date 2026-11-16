@@ -37,6 +37,17 @@ internal sealed class FakePageContext(VpnFleetPlugin plugin, FakeCoreContext ser
 
     public bool Has(string permission) => !Denied.Contains(permission);
 
+    /// <summary>The answer of the host's confirmation dialog, and what it asked.</summary>
+    public bool Confirms { get; set; } = true;
+
+    public List<string> Asked { get; } = [];
+
+    public Task<bool> ConfirmAsync(string title, string message, string confirmText)
+    {
+        Asked.Add(message);
+        return Task.FromResult(Confirms);
+    }
+
     public async IAsyncEnumerable<PluginEvent> WatchEventsAsync([EnumeratorCancellation] CancellationToken ct)
     {
         await foreach (var item in server.Published.Reader.ReadAllAsync(ct))

@@ -1,4 +1,3 @@
-using System.Collections.Concurrent;
 using System.Globalization;
 using System.Text.Json;
 
@@ -24,7 +23,7 @@ public sealed class VpnFleetPlugin : ICorePlugin, IDisposable
     private static readonly TimeSpan DeviceTimeout = TimeSpan.FromSeconds(15);
 
     private readonly Lock _gate = new();
-    private readonly Dictionary<string, FleetState> _states = []; // by caller.DeviceScopeKey
+    private readonly Dictionary<string, FleetTable> _tables = []; // by caller.DeviceScopeKey
     private readonly SemaphoreSlim _wireGuardGate = new(1, 1);
     private readonly ConnectTaskPlugin _connectTask;
     private readonly InstallTaskPlugin _installTask;
@@ -72,13 +71,13 @@ public sealed class VpnFleetPlugin : ICorePlugin, IDisposable
 
     public string? RequiredPermission(string method) => VpnFleetTools.Set.RulesMethodOf(method) switch
     {
-        Fleet.Connect or Fleet.SaveSettings => Fleet.ConnectPermission,
+        Fleet.Connect or Fleet.SaveSettings or Fleet.NewKeyPair => Fleet.ConnectPermission,
         Fleet.Install => Fleet.InstallPermission,
         _ => PermissionKeys.Show,
     };
 
     public bool IsAudited(string method) =>
-        !PluginTool.IsPreviewMethod(method) && VpnFleetTools.Set.RulesMethodOf(method) is Fleet.Connect or Fleet.SaveSettings or Fleet.Install;
+        !PluginTool.IsPreviewMethod(method) && VpnFleetTools.Set.RulesMethodOf(method) is Fleet.Connect or Fleet.SaveSettings or Fleet.NewKeyPair or Fleet.Install;
 
     public string? AuditDetail(string method, string? payloadJson)
     {
@@ -102,6 +101,8 @@ public sealed class VpnFleetPlugin : ICorePlugin, IDisposable
                 case Fleet.Install:
                     var install = JsonSerializer.Deserialize<InstallRequest>(payloadJson ?? "null", Fleet.Json);
                     return install is null ? null : $"{(install.Upgrade ? "Upgrade" : "Install")} {VpnApps.NameOf(install.Kind)} on {install.DeviceIds.Count} devices";
+                case Fleet.NewKeyPair:
+                    return "New WireGuard key pair";
                 default:
                     return null;
             }
@@ -148,7 +149,8 @@ public sealed class VpnFleetPlugin : ICorePlugin, IDisposable
         switch (method)
         {
             case Fleet.GetState:
-                return Serialize(InGroup(scope, StateOf(scope)));
+                var page = payloadJson is null ? null : JsonSerializer.Deserialize<StatePageRequest>(payloadJson, Fleet.Json);
+                return Serialize(PageOf(scope, page?.After, page?.Limit ?? Fleet.StatePageSize));
 
             case Fleet.Refresh:
                 var request = JsonSerializer.Deserialize<RefreshRequest>(payloadJson ?? "null", Fleet.Json);
@@ -187,13 +189,30 @@ public sealed class VpnFleetPlugin : ICorePlugin, IDisposable
                     ?? throw new ArgumentException("The request has no device.");
                 return JsonSerializer.Serialize(await SaveSettingsAsync(caller, save, ct).ConfigureAwait(false), Fleet.Json);
 
+            case Fleet.NewKeyPair:
+                var keyPair = JsonSerializer.Deserialize<NewKeyPairRequest>(payloadJson ?? "null", Fleet.Json)
+                    ?? throw new ArgumentException("The request has no device.");
+                return JsonSerializer.Serialize(await NewKeyPairAsync(caller, keyPair, ct).ConfigureAwait(false), Fleet.Json);
+
             default:
                 throw new ArgumentException("Unknown method " + method);
         }
     }
 
-    /// <summary>The table of the caller's device group, as the page shows it.</summary>
-    internal FleetState StateFor(ICallContext caller) => InGroup(caller.DeviceScopeKey, StateOf(caller.DeviceScopeKey));
+    /// <summary>The whole table of the caller's device group, sorted like the page (the tools).</summary>
+    internal FleetState StateFor(ICallContext caller)
+    {
+        var scope = caller.DeviceScopeKey;
+        lock (_gate)
+        {
+            var table = TableOf(scope);
+            return new FleetState(_version, table.Reading,
+                [.. table.Rows.Where(d => InGroup(scope, d.Key)).SelectMany(d => d.Value).OrderBy(r => r.Address, StringComparer.OrdinalIgnoreCase).ThenBy(r => r.Vpn)])
+            {
+                ReleaseError = table.ReleaseError,
+            };
+        }
+    }
 
     internal ReleaseCatalog Catalog => _catalog;
 
@@ -212,7 +231,7 @@ public sealed class VpnFleetPlugin : ICorePlugin, IDisposable
         }
         catch
         {
-            Publish(scope, StateOf(scope) with { Reading = false });
+            EndRead(scope, null, keepReleaseError: true);
             throw;
         }
     }
@@ -587,19 +606,26 @@ public sealed class VpnFleetPlugin : ICorePlugin, IDisposable
         }
     }
 
-    /// <summary>Reads one device again and puts its rows into the table of the caller's group.</summary>
+    /// <summary>
+    /// WireGuard: a new key pair made here; its private key goes to this camera only (the checks and the write of a save),
+    /// the page gets the public key. A camera behind a hub: the hub gets the new public key.
+    /// </summary>
+    private async Task<NewKeyPairReply> NewKeyPairAsync(ICallContext caller, NewKeyPairRequest request, CancellationToken ct)
+    {
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        timeout.CancelAfter(DeviceTimeout * 2);
+        var keys = WireGuardKeys.Generate();
+        var save = new SaveSettingsRequest(request.DeviceId, VpnKind.WireGuard, new Dictionary<string, string> { ["PrivateKey"] = keys.PrivateKey });
+        var change = await CheckSaveAsync(caller, save, timeout.Token).ConfigureAwait(false);
+        var saved = await ApplySaveAsync(caller, change, timeout.Token, ct).ConfigureAwait(false);
+        return new NewKeyPairReply(keys.PublicKey, saved.Note);
+    }
+
+    /// <summary>Reads one device again and puts its rows into the table of the caller's group (one rows event).</summary>
     private async Task RefreshDeviceAsync(ICallContext caller, IDeviceInfo device, CancellationToken ct)
     {
         var rows = await ReadDeviceAsync(caller, device, await LatestAsync(ct).ConfigureAwait(false), ct).ConfigureAwait(false);
-        var scope = caller.DeviceScopeKey;
-        lock (_gate)
-        {
-            var state = StateOf(scope);
-            Publish(scope, state with
-            {
-                Rows = [.. state.Rows.Where(r => r.DeviceId != device.Id).Concat(rows).OrderBy(r => r.Address, StringComparer.OrdinalIgnoreCase).ThenBy(r => r.Vpn)],
-            });
-        }
+        SetRows(caller.DeviceScopeKey, [(device.Id, rows)]);
     }
 
     /// <summary>The newest version of each app, from the cache when it is fresh; empty for apps GitHub did not answer for.</summary>
@@ -611,9 +637,31 @@ public sealed class VpnFleetPlugin : ICorePlugin, IDisposable
 
     // ---- Read ----
 
+    /// <summary>
+    /// Reads the devices and sends their rows as they come, <see cref="Fleet.MaxDevicesPerEvent"/> devices per event; at
+    /// the end the devices that were not read leave the table, then the state says the read ended.
+    /// </summary>
     private async Task ReadAsync(ICallContext owner, string scope, IReadOnlyList<IDeviceInfo> devices, CancellationToken ct)
     {
-        var rows = new ConcurrentBag<FleetRow>();
+        var pending = new List<(Guid, IReadOnlyList<FleetRow>)>();
+        void Flush(bool all)
+        {
+            List<(Guid, IReadOnlyList<FleetRow>)>? batch = null;
+            lock (pending)
+            {
+                if (pending.Count > 0 && (all || pending.Count >= Fleet.MaxDevicesPerEvent))
+                {
+                    batch = [.. pending];
+                    pending.Clear();
+                }
+            }
+
+            if (batch is not null)
+            {
+                SetRows(scope, batch);
+            }
+        }
+
         string? releaseError = null;
         try
         {
@@ -624,25 +672,33 @@ public sealed class VpnFleetPlugin : ICorePlugin, IDisposable
             {
                 if (InGroup(scope, device.Id))
                 {
-                    foreach (var row in await ReadDeviceAsync(owner, device, latest, token).ConfigureAwait(false))
+                    var rows = await ReadDeviceAsync(owner, device, latest, token).ConfigureAwait(false);
+                    lock (pending)
                     {
-                        rows.Add(row);
+                        pending.Add((device.Id, rows));
                     }
+
+                    Flush(all: false);
                 }
             }).ConfigureAwait(false);
         }
         catch (OperationCanceledException)
         {
-            Publish(scope, StateOf(scope) with { Reading = false });
+            Flush(all: true);
+            EndRead(scope, null, keepReleaseError: true);
             return;
         }
 
-        Publish(scope, StateOf(scope) with
+        Flush(all: true);
+        var read = devices.Select(d => d.Id).ToHashSet();
+        List<Guid> gone;
+        lock (_gate)
         {
-            Reading = false,
-            ReleaseError = releaseError,
-            Rows = [.. rows.OrderBy(r => r.Address, StringComparer.OrdinalIgnoreCase).ThenBy(r => r.Vpn)],
-        });
+            gone = [.. TableOf(scope).Rows.Keys.Where(id => !read.Contains(id))];
+        }
+
+        SetRows(scope, [.. gone.Select(id => (id, (IReadOnlyList<FleetRow>)[]))]);
+        EndRead(scope, releaseError, keepReleaseError: false);
     }
 
     /// <summary>One row per VPN app on the device, or one row that says there is none or why it was not read.</summary>
@@ -690,20 +746,78 @@ public sealed class VpnFleetPlugin : ICorePlugin, IDisposable
         }
     }
 
-    // ---- State per device group ----
+    // ---- The table per device group ----
+
+    /// <summary>The table of one device group: the rows per device, the devices in id order for the pages of GetState.</summary>
+    private sealed class FleetTable
+    {
+        public Dictionary<Guid, IReadOnlyList<FleetRow>> Rows { get; } = [];
+
+        public SortedSet<Guid> Order { get; } = [];
+
+        public bool Reading { get; set; }
+
+        public string? ReleaseError { get; set; }
+    }
+
+    private static readonly Guid LastId = new("ffffffff-ffff-ffff-ffff-ffffffffffff");
 
     private bool InGroup(string scope, Guid deviceId) => _ctx!.DeviceScopes?.Contains(scope, deviceId) ?? true;
 
-    private FleetState InGroup(string scope, FleetState state) =>
-        state with { Rows = [.. state.Rows.Where(r => InGroup(scope, r.DeviceId))] };
-
-    private void OnGroupChanged(object? sender, string scope) => Publish(scope, StateOf(scope) with { Rows = [] });
-
-    private FleetState StateOf(string scope)
+    /// <summary>The group's devices changed: its table is emptied, the pages drop every row.</summary>
+    private void OnGroupChanged(object? sender, string scope)
     {
         lock (_gate)
         {
-            return _states.GetValueOrDefault(scope) ?? new FleetState(_version, false, []);
+            var table = TableOf(scope);
+            table.Rows.Clear();
+            table.Order.Clear();
+            PublishState(scope, table, cleared: true);
+        }
+    }
+
+    /// <summary>Under <see cref="_gate"/>.</summary>
+    private FleetTable TableOf(string scope)
+    {
+        if (!_tables.TryGetValue(scope, out var table))
+        {
+            _tables[scope] = table = new FleetTable();
+        }
+
+        return table;
+    }
+
+    /// <summary>One page of a group's table: the devices after <paramref name="after"/> in id order, with the version it shows.</summary>
+    private FleetState PageOf(string scope, Guid? after, int limit)
+    {
+        limit = Math.Clamp(limit, 1, Fleet.StatePageSize);
+        lock (_gate)
+        {
+            var table = TableOf(scope);
+            IEnumerable<Guid> ids = after is { } start
+                ? table.Order.GetViewBetween(start, LastId).Where(id => id != start)
+                : table.Order;
+            var rows = new List<FleetRow>();
+            Guid? last = null;
+            var taken = 0;
+            var more = false;
+            foreach (var id in ids)
+            {
+                if (taken == limit)
+                {
+                    more = true;
+                    break;
+                }
+
+                taken++;
+                last = id;
+                if (InGroup(scope, id))
+                {
+                    rows.AddRange(table.Rows[id]);
+                }
+            }
+
+            return new FleetState(_version, table.Reading, rows) { ReleaseError = table.ReleaseError, NextAfter = more ? last : null };
         }
     }
 
@@ -711,28 +825,72 @@ public sealed class VpnFleetPlugin : ICorePlugin, IDisposable
     {
         lock (_gate)
         {
-            var state = StateOf(scope);
-            if (state.Reading)
+            var table = TableOf(scope);
+            if (table.Reading)
             {
                 return false;
             }
 
-            Publish(scope, state with { Reading = true });
+            table.Reading = true;
+            PublishState(scope, table, cleared: false);
             return true;
         }
     }
 
-    private void Publish(string scope, FleetState state)
+    private void EndRead(string scope, string? releaseError, bool keepReleaseError)
     {
-        string json;
         lock (_gate)
         {
-            state = InGroup(scope, state) with { Version = ++_version };
-            _states[scope] = state;
-            json = Serialize(state);
-        }
+            var table = TableOf(scope);
+            table.Reading = false;
+            if (!keepReleaseError)
+            {
+                table.ReleaseError = releaseError;
+            }
 
-        _ctx?.Events?.Publish(Fleet.StateTopic, json, PluginEventAudience.DeviceScope(scope));
+            PublishState(scope, table, cleared: false);
+        }
+    }
+
+    /// <summary>
+    /// Each device now has exactly these rows (none: it leaves the table); sent as rows events of at most
+    /// <see cref="Fleet.MaxDevicesPerEvent"/> devices. Rows of devices outside the group are never kept.
+    /// </summary>
+    private void SetRows(string scope, IReadOnlyList<(Guid Id, IReadOnlyList<FleetRow> Rows)> changes)
+    {
+        foreach (var chunk in changes.Chunk(Fleet.MaxDevicesPerEvent))
+        {
+            lock (_gate)
+            {
+                var table = TableOf(scope);
+                var rows = new List<FleetRow>();
+                foreach (var (id, deviceRows) in chunk)
+                {
+                    if (deviceRows.Count > 0 && InGroup(scope, id))
+                    {
+                        table.Rows[id] = deviceRows;
+                        table.Order.Add(id);
+                        rows.AddRange(deviceRows);
+                    }
+                    else
+                    {
+                        table.Rows.Remove(id);
+                        table.Order.Remove(id);
+                    }
+                }
+
+                // Published under the lock: the events leave in the order of their versions.
+                var json = JsonSerializer.Serialize(new FleetRowsEvent(++_version, [.. chunk.Select(c => c.Id)], rows), Fleet.Json);
+                _ctx?.Events?.Publish(Fleet.RowsTopic, json, PluginEventAudience.DeviceScope(scope));
+            }
+        }
+    }
+
+    /// <summary>Under <see cref="_gate"/>: whether a read runs, without rows.</summary>
+    private void PublishState(string scope, FleetTable table, bool cleared)
+    {
+        var state = new FleetState(++_version, table.Reading, []) { ReleaseError = table.ReleaseError, Cleared = cleared };
+        _ctx?.Events?.Publish(Fleet.StateTopic, Serialize(state), PluginEventAudience.DeviceScope(scope));
     }
 
     private static string Serialize(FleetState state) => JsonSerializer.Serialize(state, Fleet.Json);

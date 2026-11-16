@@ -14,6 +14,9 @@ public static partial class ConnectRules
     /// <summary>The largest OpenVPN profile (with inline certificates a profile is a few KB).</summary>
     public const int MaxProfileLength = 256 * 1024;
 
+    /// <summary>The problem of a profile larger than <see cref="MaxProfileLength"/>.</summary>
+    public const string ProfileTooLarge = "The profile is larger than 256 KB.";
+
     private const int MaxSecretLength = 512;
 
     public static IReadOnlyList<FieldError> Validate(ConnectRequest request)
@@ -103,7 +106,7 @@ public static partial class ConnectRules
 
         if (value.Length > MaxProfileLength)
         {
-            return "The profile is larger than 256 KB.";
+            return ProfileTooLarge;
         }
 
         return RemoteLine().IsMatch(value) ? null : "This is not an OpenVPN profile: it has no remote server.";

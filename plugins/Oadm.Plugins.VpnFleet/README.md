@@ -33,18 +33,21 @@ https://github.com/Mo3he.
 
 - One row per app and device: a camera can run two VPN apps. The WireGuard Server rows show the hub and its connected
   peers.
+- Events carry only the changed devices (`rows`, at most 200 devices) and the read state (`state`); `getState` comes in
+  pages of 5,000 devices; the page applies the rows in place by version per device.
 - Secrets never reach the client: a settings read sends whether a secret is set; an empty secret field keeps the value.
   The client sends only the fields the user changed.
 - Install picks the signed build of the device's architecture; on armv7hf with AXIS OS before 10.12 the ACAP 3 build
   (the apps' READMEs: ACAP 3 for AXIS OS 9 and 10); never the `_root` builds (AXIS OS 12 removed root).
 - Without internet, Install or upgrade takes the `.eap` files of one release from the user's computer: uploaded at the
   start, each device gets the build `AcapBuildChooser` picks (the same choice as Applications), GitHub is not asked.
-- Actions on many cameras are wizards with the cameras in a full table (the maintainer's review: a list in the side
-  panel does not scale past a few dozen cameras). They tick only the cameras where the action makes sense (the app
-  installed for a set up, an older version for an upgrade); the user ticks others on purpose, and the last step warns
-  about ticked cameras whose tasks would fail.
-- A camera behind a hub that gets a new private key on its panel: the plugin updates its record and starts the hub's
-  peer task with the new public key.
+- Actions on many cameras are wizards with the cameras in a full table (a list in the side panel does not scale past a
+  few dozen cameras). They tick only the cameras where the action makes sense (the app installed for a set up, an older
+  version for an upgrade); the user ticks others on purpose, and the last step warns about ticked cameras whose tasks
+  would fail.
+- New key pair on the panel: the server makes the key pair and writes the private key to that camera only (`newKeyPair`,
+  the checks of a save); the page gets the public key. A camera behind a hub that gets a new private key: the plugin
+  updates its record and starts the hub's peer task with the new public key.
 - Not in fake mode.
 
 ## Device API and verification

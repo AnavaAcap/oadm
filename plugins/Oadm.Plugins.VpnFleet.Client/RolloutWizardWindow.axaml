@@ -33,8 +33,8 @@
         <ui:FormField Label="Version" IsVisible="{Binding IsGitHub}">
           <Grid ColumnDefinitions="*,Auto,Auto">
             <TextBlock VerticalAlignment="Center" TextWrapping="Wrap" Text="{Binding ReleaseText}" />
-            <Button Grid.Column="1" Classes="toolbar" Content="What's new" Command="{Binding OpenReleaseCommand}" />
-            <Button Grid.Column="2" Classes="toolbar" Content="Check now" Command="{Binding CheckNowCommand}" />
+            <ui:ToolbarButton Grid.Column="1" IconKey="externalLink" Text="What's new" Command="{Binding OpenReleaseCommand}" />
+            <ui:ToolbarButton Grid.Column="2" IconKey="refresh" Text="Check now" Command="{Binding CheckNowCommand}" />
           </Grid>
         </ui:FormField>
         <ui:ProgressRow Text="Checking GitHub" IsActive="{Binding IsChecking}" IsVisible="{Binding IsChecking}" />
@@ -42,7 +42,7 @@
 
         <!-- Packages on this computer: the .eap files of one release, one per architecture. -->
         <ui:FormField Label="Files" Error="{Binding PackagesError}" IsVisible="{Binding FromFiles}"
-                      Hint="The .eap files of one release, from the app's GitHub releases page. Choose one per architecture; each camera gets the one that fits.">
+                      Hint="One .eap file per architecture, all of one release.">
           <StackPanel Spacing="4">
             <ItemsControl ItemsSource="{Binding Packages}">
               <ItemsControl.ItemTemplate>
@@ -52,13 +52,13 @@
                       <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" />
                       <TextBlock Classes="muted" Text="{Binding Text}" />
                     </StackPanel>
-                    <Button Grid.Column="1" Classes="toolbar" Content="Remove" VerticalAlignment="Center"
+                    <Button Grid.Column="1" Classes="link danger" Content="Remove" VerticalAlignment="Center"
                             Command="{Binding $parent[ItemsControl].((vm:InstallViewModel)DataContext).RemovePackageCommand}" CommandParameter="{Binding}" />
                   </Grid>
                 </DataTemplate>
               </ItemsControl.ItemTemplate>
             </ItemsControl>
-            <Button Classes="toolbar" Content="Choose packages…" HorizontalAlignment="Left" Command="{Binding ChoosePackagesCommand}" />
+            <ui:ToolbarButton IconKey="file" Text="Choose packages" HorizontalAlignment="Left" Command="{Binding ChoosePackagesCommand}" />
           </StackPanel>
         </ui:FormField>
       </StackPanel>
@@ -113,7 +113,9 @@
             </StackPanel>
           </ui:FormField>
           <ui:FormField Label="Hub camera" Hint="Gets every ticked camera as a peer." Error="{Binding HubError}" IsVisible="{Binding IsWireGuardHub}">
-            <ui:FileRow FileName="{Binding HubName}" ButtonText="Choose" Command="{Binding ChooseHubCommand}" />
+            <Button Classes="secondary" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Command="{Binding ChooseHubCommand}">
+              <ui:IconLabel Icon="{StaticResource Icon.devices}" Text="{Binding HubButtonText}" />
+            </Button>
           </ui:FormField>
           <ui:FormField Label="Server address" IsVisible="{Binding IsWireGuardOther}">
             <TextBox Text="{Binding Endpoint}" PlaceholderText="vpn.example.com:51820" />
@@ -139,11 +141,11 @@
           <ui:SearchBox Text="{Binding Cameras.Search}" Placeholder="Search address, model or what happens" />
           <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="4" HorizontalAlignment="Right">
             <TextBlock Classes="secondary" VerticalAlignment="Center" Text="Tick:" Margin="0,0,4,0" />
-            <Button Classes="toolbar" Content="All shown" Command="{Binding Cameras.CheckAllCommand}" />
-            <Button Classes="toolbar" Content="None" Command="{Binding Cameras.CheckNoneCommand}" />
-            <Button Classes="toolbar" Content="Older version" Command="{Binding TickOutdatedCommand}" IsVisible="{Binding IsInstall}" />
-            <Button Classes="toolbar" Content="Without the app" Command="{Binding TickWithoutAppCommand}" IsVisible="{Binding IsInstall}" />
-            <Button Classes="toolbar" Content="With the app" Command="{Binding TickWithAppCommand}" IsVisible="{Binding IsSetup}" />
+            <ui:ToolbarButton IconKey="check" Text="All shown" Command="{Binding Cameras.CheckAllCommand}" />
+            <ui:ToolbarButton IconKey="square" Text="None" Command="{Binding Cameras.CheckNoneCommand}" />
+            <ui:ToolbarButton IconKey="arrowUp" Text="Older version" Command="{Binding TickOutdatedCommand}" IsVisible="{Binding IsInstall}" />
+            <ui:ToolbarButton IconKey="download" Text="Without the app" Command="{Binding TickWithoutAppCommand}" IsVisible="{Binding IsInstall}" />
+            <ui:ToolbarButton IconKey="app" Text="With the app" Command="{Binding TickWithAppCommand}" IsVisible="{Binding IsSetup}" />
           </StackPanel>
         </Grid>
         <DataGrid Grid.Row="2" ItemsSource="{Binding Cameras.Items}" IsReadOnly="True" CanUserSortColumns="True" CanUserReorderColumns="False"
@@ -162,7 +164,7 @@
             <DataGridTemplateColumn Header="What happens" Width="*" SortMemberPath="Note">
               <DataGridTemplateColumn.CellTemplate>
                 <DataTemplate x:DataType="vm:CameraCheck">
-                  <TextBlock Margin="10,0" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" Text="{Binding Note}"
+                  <TextBlock Text="{Binding Note}"
                              Classes.warning="{Binding IsWarning}" ToolTip.Tip="{Binding Note}" />
                 </DataTemplate>
               </DataGridTemplateColumn.CellTemplate>
