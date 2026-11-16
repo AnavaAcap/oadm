@@ -15,6 +15,7 @@ Each entry is one short line in plain words (what the user gets, not how); no ne
 ### Changed
 
 - Assistant: Look up online reads all of axis.com, also product pages, datasheets and security advisories.
+- Assistant: the answer shows above its table or plan.
 
 ## [5.1.0] - 2026-11-16
 

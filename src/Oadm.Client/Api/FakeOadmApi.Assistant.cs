@@ -498,7 +498,7 @@ public sealed partial class FakeOadmApi
                 };
             }
 
-            yield return new AssistantEvent { Text = "Here is the picture of " + (camera?.Address ?? "the camera") + "." };
+            yield return new AssistantEvent { Text = "The picture of " + (camera?.Address ?? "the camera") + " is from just now." };
         }
         else if (text.Contains("rule", StringComparison.Ordinal) || text.Contains("delete", StringComparison.Ordinal))
         {
@@ -521,7 +521,7 @@ public sealed partial class FakeOadmApi
                 yield return new AssistantEvent { Preview = delete };
             }
 
-            yield return new AssistantEvent { Text = "Press **Run** on a card to apply it." };
+            yield return new AssistantEvent { Text = "The rule sends lobby motion to your hook at night." };
         }
         else if (text.Contains("restart", StringComparison.Ordinal))
         {
@@ -537,7 +537,7 @@ public sealed partial class FakeOadmApi
             };
             card.FirstDevices.AddRange(devices.Where(d => chosen.Contains(d.Id)).Take(20).Select(d => d.Address));
             yield return new AssistantEvent { Preview = card };
-            yield return new AssistantEvent { Text = "Press **Run** to restart them." };
+            yield return new AssistantEvent { Text = "Restarting stops recording for about a minute." };
         }
         else
         {

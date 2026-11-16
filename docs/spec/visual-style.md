@@ -348,7 +348,8 @@ error), `TagChipList` (the tags of a device as chips), `TagColorPicker` (the col
 one step), `MarkdownText` over `MarkdownDocument` (Markdown as selectable text: paragraphs, headings, lists, bold, italic,
 inline code, fenced code blocks in a `CodeView`, pipe tables; anything else stays plain; theme `StackPanel.markdown`,
 `SelectableTextBlock.mdHeading` with `h1` / `h2` / `h3`, `Grid.mdList` with `Border.mdBullet` (the accent dot) and
-`TextBlock.mdNumber` ("01."), `Border.mdCell`; with actions a table is a `ResultCard`; the Assistant's answers),
+`TextBlock.mdNumber` ("01."), `Border.mdCell`; with actions a table is a `ResultCard`; the Assistant's answers with the
+class `answer`: paragraphs and lists one size step above body text),
 `ResultCard` (a result in an answer: header line with the accent icon, title, dim subtitle and the card's actions on the
 right, the content, an optional footer; theme `:is(Border).resultCard`, inside it a table has no surface of its own and
 its first column starts at the card's text edge; the Assistant's device tables, Markdown tables and preview cards),

@@ -265,7 +265,7 @@
           </DataTemplate>
           <DataTemplate x:DataType="a:AssistantAnswerItem">
             <StackPanel Classes="chatItem">
-              <c:MarkdownText Markdown="{Binding Text}" Actions="{Binding $parent[a:AssistantPanelView].((a:AssistantPanelViewModel)DataContext)}" />
+              <c:MarkdownText Classes.answer="True" Markdown="{Binding Text}" Actions="{Binding $parent[a:AssistantPanelView].((a:AssistantPanelViewModel)DataContext)}" />
               <StackPanel Classes="chatActions">
                 <Button Classes="toolbar iconOnly" ToolTip.Tip="{x:Static a:AssistantTexts.Copy}"
                         Command="{Binding $parent[a:AssistantPanelView].((a:AssistantPanelViewModel)DataContext).CopyCommand}" CommandParameter="{Binding}">

@@ -623,6 +623,7 @@ public sealed partial class AssistantPanelViewModel : ObservableObject
         _user = user;
         _steps = new AssistantStepsItem();
         _answerFailed = false;
+        _cards = null;
         Attachments.Clear();
         Draft = string.Empty;
         Message = null;
@@ -731,6 +732,9 @@ public sealed partial class AssistantPanelViewModel : ObservableObject
     private AssistantUserItem? _user;
     private AssistantStepsItem? _steps;
 
+    /// <summary>The first card since the answer's last text: the next text shows above it (answer first, cards as proof).</summary>
+    private AssistantItem? _cards;
+
     /// <summary>The answer ended with an error: its steps stay open.</summary>
     private bool _answerFailed;
 
@@ -790,7 +794,10 @@ public sealed partial class AssistantPanelViewModel : ObservableObject
                 if (_answer is null)
                 {
                     _answer = new AssistantAnswerItem();
-                    Items.Add(_answer);
+                    // The finding first, its cards below as proof: above the cards that came since the last text.
+                    int at = _cards is { } first && Items.IndexOf(first) is >= 0 and var index ? index : Items.Count;
+                    Items.Insert(at, _answer);
+                    _cards = null;
                 }
 
                 _answer.Append(e.Text);
@@ -856,11 +863,23 @@ public sealed partial class AssistantPanelViewModel : ObservableObject
         }
     }
 
-    /// <summary>A new entry ends the current answer part; while the status line shows it stays last (the entry goes above it).</summary>
+    /// <summary>
+    /// A new entry ends the current answer part; while the status line shows it stays last (the entry goes above it). A card
+    /// (table, plan, file, picture) starts or joins the run of cards the next text goes above; any other entry ends that run.
+    /// </summary>
     private void Add(AssistantItem item)
     {
         FlushAnswer();
         _answer = null;
+        if (item is AssistantTableItem or AssistantPreviewItem or AssistantFileItem or AssistantPictureItem)
+        {
+            _cards ??= item;
+        }
+        else
+        {
+            _cards = null;
+        }
+
         if (_thinking is not null && Items.Count > 0 && ReferenceEquals(Items[^1], _thinking))
         {
             Items.Insert(Items.Count - 1, item);
@@ -1329,6 +1348,7 @@ public sealed partial class AssistantPanelViewModel : ObservableObject
         _lastFlush = long.MinValue;
         _answer = null;
         _thinking = null;
+        _cards = null;
         IsThinking = false;
         _user = null;
         _steps = null;

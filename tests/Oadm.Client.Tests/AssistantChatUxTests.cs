@@ -464,6 +464,63 @@ public sealed class AssistantChatUxTests
     }
 
     [Fact]
+    public async Task TheAnswersTextShowsAboveTheCardsThatCameBeforeItAndSourcesAndNextStayLast()
+    {
+        using var api = new FakeOadmApi(TimeSpan.FromMilliseconds(5));
+        var device = AssistantTests.Devices(1)[0];
+        var table = new AssistantTable { Total = 1, Rows = { new AssistantDeviceRow { DeviceId = device.Id, Name = device.Address, Address = device.Address } } };
+        var plan = new AssistantPreviewCard { Handle = "h1", Title = "Restart", DeviceCount = 1 };
+        api.AssistantScript = (_, ct) => Script(
+        [
+            Text("Let me look."), // text before any card stays where it is
+            Tool("Looking at devices"),
+            new AssistantEvent { Table = table },
+            new AssistantEvent { Picture = new AssistantPicture { DeviceId = device.Id, DeviceName = device.Address, Jpeg = Google.Protobuf.ByteString.CopyFrom(Jpeg()) } },
+            Text("1 camera is offline."), // above the table and the picture
+            new AssistantEvent { Preview = plan },
+            Text("Restarting stops recording for about a minute."), // above the plan only
+            Sources("1 device"),
+            Next("Why is it offline?"),
+            Done(),
+        ], ct);
+        var panel = await PanelAsync(api);
+        panel.Draft = "Is anything offline?";
+        await panel.SendCommand.ExecuteAsync(null);
+
+        Assert.Equal(
+            [typeof(AssistantUserItem), typeof(AssistantStepsItem), typeof(AssistantAnswerItem), typeof(AssistantAnswerItem), typeof(AssistantTableItem),
+                typeof(AssistantPictureItem), typeof(AssistantAnswerItem), typeof(AssistantPreviewItem), typeof(AssistantSourcesItem), typeof(AssistantFollowUpsItem)],
+            panel.Items.Select(i => i.GetType()));
+        Assert.Equal(["Let me look.", "1 camera is offline.", "Restarting stops recording for about a minute."],
+            panel.Items.OfType<AssistantAnswerItem>().Select(a => a.Text));
+        Assert.True(panel.Items.OfType<AssistantTableItem>().Single().ShowsLabel); // still the answer's first result card
+        Assert.True(((AssistantAnswerItem)panel.Items[6]).ShowsRetry); // Try again under the answer's last text
+        var markdown = panel.ChatMarkdown(); // Copy chat follows the order shown
+        Assert.True(markdown.IndexOf("1 camera is offline.", StringComparison.Ordinal) < markdown.IndexOf("Sources: 1 device", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task TextAfterANoticeStaysBelowIt()
+    {
+        using var api = new FakeOadmApi(TimeSpan.FromMilliseconds(5));
+        var device = AssistantTests.Devices(1)[0];
+        var table = new AssistantTable { Total = 1, Rows = { new AssistantDeviceRow { DeviceId = device.Id, Name = device.Address, Address = device.Address } } };
+        api.AssistantScript = (_, ct) => Script(
+        [
+            new AssistantEvent { Table = table },
+            new AssistantEvent { Notice = "Your messages go to Anthropic." },
+            Text("Done reading."),
+            Done(),
+        ], ct);
+        var panel = await PanelAsync(api);
+        panel.Draft = "Hi";
+        await panel.SendCommand.ExecuteAsync(null);
+
+        Assert.Equal([typeof(AssistantUserItem), typeof(AssistantTableItem), typeof(AssistantNoticeItem), typeof(AssistantAnswerItem)],
+            panel.Items.Select(i => i.GetType()));
+    }
+
+    [Fact]
     public async Task AFailedStepKeepsItsMarkAndTheStepsOpenOnlyWhenTheAnswerFailed()
     {
         using var api = new FakeOadmApi(TimeSpan.FromMilliseconds(5));

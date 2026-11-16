@@ -196,7 +196,7 @@ public sealed class AssistantTransferUiTests
                 Details = { "Creates the access key: Desk", "Role: Administrator", "Devices: All devices" },
                 Warnings = { "The new key has the role Administrator and all devices: an agent with it can change everything in OADM, also users and access keys." },
             };
-            api.AssistantScript = (_, ct) => Script([new AssistantEvent { Preview = card }, new AssistantEvent { Text = "Press **Run** to create the key." }], ct);
+            api.AssistantScript = (_, ct) => Script([new AssistantEvent { Preview = card }, new AssistantEvent { Text = "The key works until you delete it." }], ct);
             panel.Draft = "Make an access key for the desk agent";
             await panel.SendCommand.ExecuteAsync(null);
             Pump();

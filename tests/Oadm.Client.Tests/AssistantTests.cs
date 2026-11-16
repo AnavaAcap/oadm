@@ -859,7 +859,7 @@ public sealed class AssistantTests
             [
                 new AssistantEvent { Tool = new AssistantToolLine { Text = "Checking 4 devices for the restart" } },
                 new AssistantEvent { Preview = card },
-                new AssistantEvent { Text = "Press **Run** to restart them." },
+                new AssistantEvent { Text = "Restarting stops recording for about a minute." },
             ], ct);
             panel.Draft = "Restart these cameras";
             await panel.SendCommand.ExecuteAsync(null);

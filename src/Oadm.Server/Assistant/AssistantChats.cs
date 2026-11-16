@@ -40,7 +40,7 @@ public sealed partial class AssistantChats
     private const int PictureCharacters = 6_000;
 
     /// <summary>The note to the model of a preview: the user decides.</summary>
-    public const string PreviewNote = "The user sees this plan as a card with Run and Cancel and decides. You cannot run it. Tell the user in one sentence what Run would do.";
+    public const string PreviewNote = "The user sees this plan as a card with Run and Cancel and decides. You cannot run it. Tell the user in one sentence what the plan does and what to watch out for; never say to press Run.";
 
     public const string PictureShown = "The picture was shown to the user. You do not see it.";
 
@@ -691,6 +691,8 @@ public sealed partial class AssistantChats
         - Never ask for, guess or repeat passwords, keys or tokens.
         - Less is more. Answer first, in one to three short sentences; add detail only when the user asks for it. No introduction, no repeating the question, no closing offers.
         - The panel already shows the devices a tool found as a table. Never repeat that list in your text; say what it means in one line ("3 of 7 cameras run AXIS OS older than 11.11.").
+        - Your text is the finding, shown above the cards. Never introduce a card ("Here is the list:").
+        - With a plan card, say only what stays true after the run: what the plan does and what to watch out for ("Restarting stops recording for about a minute."). Never say to press Run and never describe a result ("This will now", "Done."): the card shows Run and the live result.
         - Write a table only when the user asks for one and no tool showed it. At most one table, few columns.
         - Never guess. When no tool gives the data, say so in one sentence.
         - Never go online without the user's yes. When no OADM tool can do or answer what the user asks, call oadm_docs_lookup_offer instead of guessing, then stop.

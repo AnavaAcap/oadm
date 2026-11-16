@@ -82,14 +82,18 @@ shows the chat.
   notice) with the chevron of a section (`ToggleButton.sectionExpander steps`); a click opens the list (a check per step,
   a failed one with a red triangle and its text in red; the row shows a red triangle too). Closed, unless the answer
   failed (its error or a refusal). An answer without a tool has no Steps row. Copy chat keeps the steps as lines.
+- **Answer first** (decision 2026-11-16): text that streams after cards (tables, plans, files, pictures) shows above the
+  cards that came since the answer's last text, so the finding reads first and the cards are its proof; text before a card,
+  a notice and a docs offer keep their place, Sources and Next stay last. The answer's paragraphs and lists are one size step above body
+  text (13), 18 px between entries.
 - The model's answer streams as Markdown with **Copy** on every answer, set for reading (`MarkdownText`, the theme's
-  styles): headings H1 to H3 one size step each (18, 15, 13) with room above (not above the first block), bold lead-ins,
+  styles): headings H1 to H3 one size step each (18, 15, 14) with room above (not above the first block), bold lead-ins,
   bullet lists with a small accent dot and ordered lists with a dim "01.", both with a hanging indent (the text in its own
   column, both lists at the same indent), 10 px between blocks and a line height of 1.5, inline code in the mono font on
   the raised surface, code blocks in a `CodeView`. Links stay teal like every link in OADM (`Button.link`), not the accent.
   The user's message is a soft bubble on the right (rounder corners, more padding, the raised surface, at most 85 % of
   the row); its files show below it as small file cards (icon, name, size).
-- **Section labels**: small dim capitals with letter spacing (`TextBlock.sectionLabel`): RESULTS above the first device
+- **Section labels**: small dim capitals with letter spacing, regular weight (`TextBlock.sectionLabel`): RESULTS above the first device
   card of an answer, SOURCES and NEXT below it.
 - **Sources** (`AssistantEvent.sources`): the server sends once before done, when a tool answered, one short chip per
   area of the tools the answer used, in the order of first use, at most 6 (`AssistantSources`): the device tools as the
@@ -106,7 +110,9 @@ shows the chat.
   message removes the older ones in one step.
   Short answers (decision 2026-11-15, the system prompt in `AssistantChats.SystemPrompt`): the answer first in one to
   three sentences, detail only when asked; never a repeat of the device table a tool showed; a table only when asked
-  and no tool showed one; no guessing when no tool gives the data.
+  and no tool showed one; no guessing when no tool gives the data. The text is the finding, never an intro to a card
+  ("Here is the list:"). With a plan card it says only what stays true after the run (what the plan does, what to watch
+  out for), never "Press Run" or an outcome ("Done."): the card shows Run and the live result.
 - **Try again** (icon, next to Copy) under the end of the last answer, also on its error or "Stopped." line: the last
   message again with its files, in place of its answer. **Edit** (icon, on hover left of the last message, or Up arrow in
   the empty box) puts that message and its files back into the box; sending it replaces that exchange, emptying the box
