@@ -1,6 +1,9 @@
 using System.Net.Http.Headers;
 using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
+
+using Oadm.Plugins.Acap;
 
 namespace Oadm.Plugins.VpnFleet;
 
@@ -22,6 +25,9 @@ public sealed class ReleaseCatalog : IDisposable
 
     /// <summary>The largest package the plugin downloads.</summary>
     public const long MaxPackageBytes = 200L * 1024 * 1024;
+
+    /// <summary>The largest answer of the GitHub API the plugin reads (a release with its files is a few KB).</summary>
+    public const int MaxApiBytes = 1024 * 1024;
 
     /// <summary>AXIS OS before this version runs ACAP 3 packages only (armv7hf).</summary>
     public const string NativeMinOs = "10.12";
@@ -72,28 +78,62 @@ public sealed class ReleaseCatalog : IDisposable
         {
             using var request = new HttpRequestMessage(HttpMethod.Get, $"https://api.github.com/repos/{VpnApps.Owner}/{app.Repository}/releases/latest");
             request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/vnd.github+json"));
-            using var response = await _http.SendAsync(request, ct).ConfigureAwait(false);
-            var body = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+            using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
             if (!response.IsSuccessStatusCode)
             {
                 error = (int)response.StatusCode == 403 ? "GitHub limits how often it can be asked. Try again later." : $"GitHub answered HTTP {(int)response.StatusCode}.";
             }
             else
             {
-                release = ParseRelease(app, body) ?? throw new JsonException();
+                release = ParseRelease(app, await ReadLimitedAsync(response.Content, MaxApiBytes, ct).ConfigureAwait(false)) ?? throw new JsonException();
             }
         }
-        catch (Exception ex) when (ex is HttpRequestException or JsonException or TaskCanceledException && !ct.IsCancellationRequested)
+        catch (Exception ex) when (ex is HttpRequestException or JsonException or InvalidDataException or TaskCanceledException && !ct.IsCancellationRequested)
         {
-            error = ex is JsonException ? "GitHub's answer could not be read." : "GitHub could not be reached from the OADM server: " + ex.Message;
+            error = ex is JsonException or InvalidDataException ? "GitHub's answer could not be read." : "GitHub could not be reached from the OADM server: " + ex.Message;
         }
 
         lock (_gate)
         {
+            if (release is null && _cache.TryGetValue(kind, out var before) && before.Release is { } good)
+            {
+                // A failed check keeps the release read before; GitHub is asked again after the time of a failure.
+                _cache[kind] = (now - KeepFor + KeepFailureFor, good, error);
+                return (good, error);
+            }
+
             _cache[kind] = (now, release, error);
         }
 
         return (release, error);
+    }
+
+    /// <summary>The text of an answer of at most <paramref name="max"/> bytes; a larger one throws <see cref="InvalidDataException"/>.</summary>
+    internal static async Task<string> ReadLimitedAsync(HttpContent content, int max, CancellationToken ct)
+    {
+        if (content.Headers.ContentLength > max)
+        {
+            throw new InvalidDataException("The answer is too large.");
+        }
+
+        var stream = await content.ReadAsStreamAsync(ct).ConfigureAwait(false);
+        await using (stream.ConfigureAwait(false))
+        {
+            using var buffer = new MemoryStream();
+            var chunk = new byte[16384];
+            int read;
+            while ((read = await stream.ReadAsync(chunk, ct).ConfigureAwait(false)) > 0)
+            {
+                if (buffer.Length + read > max)
+                {
+                    throw new InvalidDataException("The answer is too large.");
+                }
+
+                buffer.Write(chunk, 0, read);
+            }
+
+            return Encoding.UTF8.GetString(buffer.GetBuffer(), 0, (int)buffer.Length);
+        }
     }
 
     /// <summary>A release of the GitHub API; null when it is not one. Only files of the app's own repository count.</summary>
@@ -107,7 +147,6 @@ public sealed class ReleaseCatalog : IDisposable
             return null;
         }
 
-        var downloads = $"https://github.com/{VpnApps.Owner}/{app.Repository}/releases/download/";
         var assets = new List<ReleaseAsset>();
         if (root.TryGetProperty("assets", out var list) && list.ValueKind == JsonValueKind.Array)
         {
@@ -118,7 +157,7 @@ public sealed class ReleaseCatalog : IDisposable
                 var size = a.TryGetProperty("size", out var s) && s.TryGetInt64(out var bytes) ? bytes : 0;
                 var digest = a.TryGetProperty("digest", out var d) && d.ValueKind == JsonValueKind.String ? d.GetString() : null;
                 if (name is null || url is null || !name.EndsWith(".eap", StringComparison.OrdinalIgnoreCase)
-                    || !url.StartsWith(downloads, StringComparison.Ordinal) || name.Contains('/', StringComparison.Ordinal) || name.Contains('\\', StringComparison.Ordinal))
+                    || name.Contains('/', StringComparison.Ordinal) || name.Contains('\\', StringComparison.Ordinal) || !IsOwnDownload(app, url, name))
                 {
                     continue;
                 }
@@ -134,6 +173,30 @@ public sealed class ReleaseCatalog : IDisposable
     }
 
     /// <summary>
+    /// True when <paramref name="url"/> is https://github.com/Mo3he/&lt;the app's repository&gt;/releases/download/&lt;tag&gt;/&lt;name&gt;,
+    /// checked on the path segments as written and unescaped, so "..", "%2e%2e" or an escaped "/" never lead to another
+    /// repository.
+    /// </summary>
+    public static bool IsOwnDownload(VpnApp app, string url, string name)
+    {
+        ArgumentNullException.ThrowIfNull(app);
+        const string Root = "https://github.com/";
+        if (url is null || !url.StartsWith(Root, StringComparison.Ordinal) || url.IndexOfAny(['?', '#', '\\']) >= 0
+            || !Uri.TryCreate(url, UriKind.Absolute, out var uri) || uri.Host != "github.com" || !uri.IsDefaultPort)
+        {
+            return false;
+        }
+
+        var segments = url[Root.Length..].Split('/').Select(Uri.UnescapeDataString).ToList();
+        return segments.Count == 6
+            && segments.All(s => s.Length > 0 && s is not ("." or "..") && s.IndexOfAny(['/', '\\']) < 0)
+            && string.Equals(segments[0], VpnApps.Owner, StringComparison.Ordinal)
+            && string.Equals(segments[1], app.Repository, StringComparison.Ordinal)
+            && segments[2] == "releases" && segments[3] == "download"
+            && string.Equals(segments[5], name, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// The package for a device: the signed build of its architecture; on armv7hf with AXIS OS before 10.12 the ACAP 3
     /// build. Null with the reason when the release has none for the device.
     /// </summary>
@@ -146,7 +209,7 @@ public sealed class ReleaseCatalog : IDisposable
             return (null, "The device did not tell its architecture.");
         }
 
-        var old = AppVersions.Parse(axisOs).Count > 0 && AppVersions.Compare(axisOs, NativeMinOs) < 0;
+        var old = AcapCompatibility.HasNumericVersion(axisOs) && AcapCompatibility.CompareVersions(axisOs, NativeMinOs) < 0;
         bool Is(ReleaseAsset a, string suffix) => a.Name.EndsWith(suffix, StringComparison.OrdinalIgnoreCase);
         if (old)
         {
@@ -194,39 +257,47 @@ public sealed class ReleaseCatalog : IDisposable
             }
 
             var part = path + ".part";
-            using (var response = await GetFollowingGitHubAsync(new Uri(asset.Url), ct).ConfigureAwait(false))
+            try
             {
-                if (!response.IsSuccessStatusCode)
+                using (var response = await GetFollowingGitHubAsync(new Uri(asset.Url), ct).ConfigureAwait(false))
                 {
-                    throw new HttpRequestException($"The download from GitHub failed (HTTP {(int)response.StatusCode}).");
-                }
-
-                await using var source = await response.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
-                await using var target = File.Create(part);
-                var buffer = new byte[81920];
-                long total = 0;
-                int read;
-                while ((read = await source.ReadAsync(buffer, ct).ConfigureAwait(false)) > 0)
-                {
-                    total += read;
-                    if (total > MaxPackageBytes)
+                    if (!response.IsSuccessStatusCode)
                     {
-                        throw new InvalidOperationException("The package is larger than 200 MB.");
+                        throw new HttpRequestException($"The download from GitHub failed (HTTP {(int)response.StatusCode}).");
                     }
 
-                    await target.WriteAsync(buffer.AsMemory(0, read), ct).ConfigureAwait(false);
-                    progress?.Report(total);
+                    await using var source = await response.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
+                    await using var target = File.Create(part);
+                    var buffer = new byte[81920];
+                    long total = 0;
+                    int read;
+                    while ((read = await source.ReadAsync(buffer, ct).ConfigureAwait(false)) > 0)
+                    {
+                        total += read;
+                        if (total > MaxPackageBytes)
+                        {
+                            throw new InvalidOperationException("The package is larger than 200 MB.");
+                        }
+
+                        await target.WriteAsync(buffer.AsMemory(0, read), ct).ConfigureAwait(false);
+                        progress?.Report(total);
+                    }
                 }
-            }
 
-            if (!await MatchesAsync(part, asset, ct).ConfigureAwait(false))
+                if (!await MatchesAsync(part, asset, ct).ConfigureAwait(false))
+                {
+                    throw new InvalidOperationException("The downloaded package does not match the release on GitHub. Nothing was installed.");
+                }
+
+                File.Move(part, path, overwrite: true);
+                return path;
+            }
+            catch
             {
+                // A failed or cancelled download leaves no part behind.
                 File.Delete(part);
-                throw new InvalidOperationException("The downloaded package does not match the release on GitHub. Nothing was installed.");
+                throw;
             }
-
-            File.Move(part, path, overwrite: true);
-            return path;
         }
         finally
         {

@@ -1,6 +1,7 @@
 using System.Text.Json;
 
 using Oadm.Plugins.Acap;
+using Oadm.Plugins.Shared;
 using Oadm.Sdk.Devices;
 using Oadm.Sdk.Plugins;
 using Oadm.Sdk.Vapix;
@@ -14,9 +15,10 @@ public sealed record InstallPayload(VpnKind Kind, string Version, bool Upgrade)
 }
 
 /// <summary>
-/// Installs or upgrades one app on one device from its newest GitHub release: chooses the package for the device's
-/// architecture and AXIS OS, downloads it (once for all devices), installs it, starts the app and checks the version.
-/// A device that has the version already is not changed. Started only from the page.
+/// Installs or upgrades one app on one device with the version the user approved (from its GitHub release or uploaded
+/// packages): chooses the package for the device, downloads it (once for all devices), checks it like Applications (ACAP)
+/// does with the device's own facts, installs it, starts the app and checks the version. A device that has the version
+/// already is not changed. Started only from the page.
 /// </summary>
 public sealed class InstallTaskPlugin : ITaskPlugin
 {
@@ -24,9 +26,12 @@ public sealed class InstallTaskPlugin : ITaskPlugin
 
     public const string CheckStep = "Check the device";
     public const string DownloadStep = "Download the package";
+    public const string CheckPackageStep = "Check the package";
     public const string InstallStep = "Install the package";
     public const string StartStep = "Start the app";
     public const string VerifyStep = "Check the installed version";
+
+    private static readonly Version MinApplicationApi = Version.Parse(AcapPlugin.ApplicationApiMinVersion);
 
     private readonly Func<ReleaseCatalog> _catalog;
 
@@ -65,10 +70,11 @@ public sealed class InstallTaskPlugin : ITaskPlugin
         }
     }
 
+    /// <summary>Reachable with credentials, and the cached API list offers the Application API 1.x.</summary>
     public bool CanRun(IDeviceInfo device)
     {
         ArgumentNullException.ThrowIfNull(device);
-        return DeviceMessages.Refusal(device) is null;
+        return DeviceMessages.Refusal(device) is null && CachedApiCheck.Supports(device.Apis, AcapPlugin.ApplicationApiId, MinApplicationApi);
     }
 
     public async Task ExecuteAsync(ITaskExecutionContext ctx, IDeviceInfo device, string? payloadJson, CancellationToken ct)
@@ -79,14 +85,18 @@ public sealed class InstallTaskPlugin : ITaskPlugin
             ?? throw new ArgumentException("The task has no app. Nothing was changed.");
         var app = VpnApps.Of(payload.Kind);
         var local = payload.Files is { Count: > 0 };
-        ctx.PlanSteps(CheckStep, DownloadStep, InstallStep, StartStep, VerifyStep);
+        ctx.PlanSteps(CheckStep, DownloadStep, CheckPackageStep, InstallStep, StartStep, VerifyStep);
 
-        // GitHub: the newest release; uploaded packages: read here, before anything is changed.
+        // GitHub: the release of the approved version; uploaded packages: read here, before anything is changed.
         AppRelease? release = null;
         IReadOnlyList<AcapBuild> builds = [];
         if (local)
         {
             builds = await LocalPackages.ReadAsync(ctx.Files, app, payload.Files, ct).ConfigureAwait(false);
+            if (AppVersions.Compare(builds[0].Package.Version, payload.Version) != 0)
+            {
+                throw new ArgumentException($"The packages are version {builds[0].Package.Version}, not the approved {payload.Version}. Nothing was changed.");
+            }
         }
         else
         {
@@ -95,24 +105,31 @@ public sealed class InstallTaskPlugin : ITaskPlugin
             {
                 throw new InvalidOperationException((error ?? "The release could not be read.") + " Nothing was changed.");
             }
+
+            if (AppVersions.Compare(release.Version, payload.Version) != 0)
+            {
+                throw new InvalidOperationException(
+                    $"The newest release of {app.DisplayName} is now {release.Version}, not the approved {payload.Version}. Start the install again. Nothing was changed.");
+            }
         }
 
-        var (package, installed) = await ctx.StepAsync(CheckStep, async step =>
+        var client = new ApplicationApiClient(ctx.Vapix);
+        var (package, facts, apps, installed) = await ctx.StepAsync(CheckStep, async step =>
         {
-            var info = await ctx.Vapix.GetBasicDeviceInfoAsync(ct).ConfigureAwait(false);
-            var apps = await DeviceVpn.ListAppsAsync(ctx.Vapix, ct).ConfigureAwait(false);
-            var current = apps.FirstOrDefault(a => string.Equals(a.Name, app.AppName, StringComparison.OrdinalIgnoreCase));
-            var chosen = local
-                ? ChooseUploaded(builds, device, info)
-                : ChooseRelease(release!, info.Architecture ?? device.Architecture, info.Version);
-            step.Complete($"{info.Architecture}, AXIS OS {info.Version}" + (current?.Version is { } v ? $", {app.DisplayName} {v}" : ""));
-            return (chosen, current);
+            (await ctx.Vapix.GetApiListAsync(ct).ConfigureAwait(false)).Require(AcapPlugin.ApplicationApiId, AcapPlugin.ApplicationApiMinVersion);
+            var facts = await client.GetDeviceFactsAsync(ct).ConfigureAwait(false);
+            var apps = await client.ListAsync(ct).ConfigureAwait(false);
+            var current = Find(apps, app);
+            var chosen = local ? ChooseUploaded(builds, device, facts) : ChooseRelease(release!, facts);
+            step.Complete($"{facts.Architecture}, AXIS OS {facts.FirmwareVersion}" + (current?.Version is { } v ? $", {app.DisplayName} {v}" : ""));
+            return (chosen, facts, apps, current);
         }).ConfigureAwait(false);
 
+        // An installed version that cannot be read never stops the install.
         if (installed?.Version is { } have && !AppVersions.IsNewer(package.Version, have))
         {
             var why = AppVersions.Compare(have, package.Version) == 0 ? $"{app.DisplayName} {have} is installed already." : $"{app.DisplayName} {have} is newer than {package.Version}.";
-            foreach (var name in new[] { DownloadStep, InstallStep, StartStep, VerifyStep })
+            foreach (var name in new[] { DownloadStep, CheckPackageStep, InstallStep, StartStep, VerifyStep })
             {
                 ctx.SkipStep(name, why);
             }
@@ -137,6 +154,18 @@ public sealed class InstallTaskPlugin : ITaskPlugin
             ctx.SkipStep(DownloadStep, "Uploaded from your computer: " + package.Name);
         }
 
+        await ctx.StepAsync(CheckPackageStep, async step =>
+        {
+            var manifest = package.Manifest ?? await ReadDownloadAsync(path!, package.Name, ct).ConfigureAwait(false);
+            var why = Refusal(app, manifest, facts, installed, apps);
+            if (why is not null)
+            {
+                throw new VpnDeviceException($"{package.Name}: {why} Nothing was changed.");
+            }
+
+            step.Complete($"{manifest.DisplayName} {manifest.Version}, {manifest.Architecture ?? "any architecture"}");
+        }).ConfigureAwait(false);
+
         await ctx.StepAsync(InstallStep, async step =>
         {
             if (path is not null)
@@ -155,22 +184,28 @@ public sealed class InstallTaskPlugin : ITaskPlugin
             step.Complete(installed is null ? $"Installed {package.Version}" : $"Upgraded from {installed.Version}");
         }).ConfigureAwait(false);
 
-        var after = (await DeviceVpn.ListAppsAsync(ctx.Vapix, ct).ConfigureAwait(false))
-            .FirstOrDefault(a => string.Equals(a.Name, app.AppName, StringComparison.OrdinalIgnoreCase));
-        if (after is { IsRunning: false })
+        var after = await ctx.StepAsync(StartStep, async step =>
         {
-            await ctx.StepAsync(StartStep, _ => DeviceVpn.StartAppAsync(ctx.Vapix, app.AppName, ct)).ConfigureAwait(false);
-        }
-        else
-        {
-            ctx.SkipStep(StartStep, "The app runs already.");
-        }
+            var now = Find(await client.ListAsync(ct).ConfigureAwait(false), app)
+                ?? throw new VpnDeviceException($"The device does not list {app.DisplayName} after the install. Check its apps and its system log.");
+            if (IsRunning(now))
+            {
+                step.Complete("The app runs already.");
+            }
+            else
+            {
+                await DeviceVpn.StartAppAsync(ctx.Vapix, app.AppName, ct).ConfigureAwait(false);
+                step.Complete("Started");
+            }
+
+            return now;
+        }).ConfigureAwait(false);
 
         using var verify = ctx.BeginStep(VerifyStep);
-        if (after?.Version is { } now && AppVersions.Compare(now, package.Version) == 0)
+        if (after.Version is { } version && AppVersions.Compare(version, package.Version) == 0)
         {
-            verify.Complete($"{app.DisplayName} {now}");
-            ctx.Log(TaskLogLevel.Info, $"{app.DisplayName} {now} is installed ({package.Name}).");
+            verify.Complete($"{app.DisplayName} {version}");
+            ctx.Log(TaskLogLevel.Info, $"{app.DisplayName} {version} is installed ({package.Name}).");
             if (installed is null)
             {
                 ctx.Log(TaskLogLevel.Info, "Set up the VPN on the VPN Fleet page.");
@@ -178,35 +213,71 @@ public sealed class InstallTaskPlugin : ITaskPlugin
         }
         else
         {
-            verify.Warn($"The device reports version {after?.Version ?? "none"}, expected {package.Version}.");
+            verify.Warn($"The device reports version {after.Version ?? "none"}, expected {package.Version}.");
         }
     }
 
-    /// <summary>The package of one device: a GitHub file (<see cref="Asset"/>) or an upload (<see cref="FileId"/>).</summary>
-    private sealed record ChosenPackage(string Name, string Version, ReleaseAsset? Asset, string? FileId);
-
-    private static ChosenPackage ChooseRelease(AppRelease release, string? architecture, string? axisOs)
+    /// <summary>
+    /// Why the package must not go on the device, null when it may: another app, or the checks of Applications (ACAP) with the
+    /// device's own facts (architecture, AXIS OS of the package's range or schema, root, SDK, a clash of names). The version
+    /// is decided before (<see cref="AppVersions"/>), so a downgrade never gets here.
+    /// </summary>
+    internal static string? Refusal(VpnApp app, EapManifest manifest, AcapDeviceFacts facts, InstalledApplication? installed, IReadOnlyList<InstalledApplication> apps)
     {
-        var (asset, reason) = ReleaseCatalog.ChooseAsset(release, architecture, axisOs);
-        return asset is null
-            ? throw new VpnDeviceException(reason + " Nothing was changed.")
-            : new ChosenPackage(asset.Name, release.Version, asset, null);
+        if (!string.Equals(manifest.AppName, app.AppName, StringComparison.OrdinalIgnoreCase))
+        {
+            return $"this is a package of {manifest.DisplayName}, not {app.DisplayName}.";
+        }
+
+        var report = AcapCompatibility.Check(manifest, facts, installed, allowDowngrade: true, apps);
+        return report.IsCompatible ? null : string.Join(" ", report.Problems);
     }
 
-    /// <summary>The uploaded build that fits the device, chosen like Applications (ACAP) does: architecture, AXIS OS, root.</summary>
-    private static ChosenPackage ChooseUploaded(IReadOnlyList<AcapBuild> builds, IDeviceInfo device, BasicDeviceInfo info)
+    private static InstalledApplication? Find(IReadOnlyList<InstalledApplication> apps, VpnApp app) =>
+        apps.FirstOrDefault(a => string.Equals(a.Name, app.AppName, StringComparison.OrdinalIgnoreCase));
+
+    private static bool IsRunning(InstalledApplication app) => string.Equals(app.Status, "Running", StringComparison.OrdinalIgnoreCase);
+
+    private static async Task<EapManifest> ReadDownloadAsync(string path, string name, CancellationToken ct)
     {
-        var group = new AcapDeviceGroup(device.Model ?? info.ProdNbr, info.Version, info.Architecture ?? device.Architecture, info.Soc ?? device.Soc);
-        var choice = AcapBuildChooser.Choose(builds, group);
+        try
+        {
+            return await EapReader.ReadAsync(path, ct).ConfigureAwait(false);
+        }
+        catch (InvalidEapException ex)
+        {
+            throw new VpnDeviceException($"{name}: {ex.Message} Nothing was changed.");
+        }
+    }
+
+    /// <summary>
+    /// The package of one device: a GitHub file (<see cref="Asset"/>, read after the download) or an upload
+    /// (<see cref="FileId"/> with its <see cref="Manifest"/>).
+    /// </summary>
+    private sealed record ChosenPackage(string Name, string Version, ReleaseAsset? Asset, string? FileId, EapManifest? Manifest);
+
+    private static ChosenPackage ChooseRelease(AppRelease release, AcapDeviceFacts facts)
+    {
+        var (asset, reason) = ReleaseCatalog.ChooseAsset(release, facts.Architecture, facts.FirmwareVersion);
+        return asset is null
+            ? throw new VpnDeviceException(reason + " Nothing was changed.")
+            : new ChosenPackage(asset.Name, release.Version, asset, null, null);
+    }
+
+    /// <summary>The uploaded build that fits the device, chosen like Applications (ACAP) does: architecture, AXIS OS, root, SDK.</summary>
+    private static ChosenPackage ChooseUploaded(IReadOnlyList<AcapBuild> builds, IDeviceInfo device, AcapDeviceFacts facts)
+    {
+        var group = AcapDeviceGroup.Of(facts with { Architecture = facts.Architecture ?? device.Architecture, Soc = facts.Soc ?? device.Soc }, device.Model);
+        var choice = LocalPackages.Choose(builds, group, facts);
         if (choice.Pick != AcapPick.Chosen || choice.Index < 0)
         {
             throw new VpnDeviceException((choice.Reason ?? "No package fits this device.") + " Nothing was changed.");
         }
 
-        // A single package is always "chosen"; whether it fits is the caller's check.
+        // A single package is always "chosen"; whether it fits is checked here and again in Check the package.
         var build = builds[choice.Index];
-        return AcapBuildChooser.Misfit(build.Package, group) is { } why
+        return AcapBuildChooser.Misfit(build.Package, group, facts) is { } why
             ? throw new VpnDeviceException($"{build.Name} does not fit this device: {why}. Nothing was changed.")
-            : new ChosenPackage(build.Name, build.Package.Version, null, build.Key);
+            : new ChosenPackage(build.Name, build.Package.Version, null, build.Key, build.Package);
     }
 }
