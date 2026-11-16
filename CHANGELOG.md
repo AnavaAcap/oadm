@@ -5,18 +5,21 @@ Notable changes to OADM, newest first. Format: [Keep a Changelog](https://keepac
 version and date, and the release workflow copies it into the GitHub release (the client's new version notice shows it).
 Each entry is one short line in plain words (what the user gets, not how); no nested lists, no bold, no code.
 
-## [Unreleased]
+## [5.1.0] - 2026-11-16
 
 ### Added
 
 - MCP server: AI agents such as Claude Code work in OADM with an access key of their own, set up on the new page MCP & Assistant.
 - Assistant: chat with an AI model about your devices in OADM; it prepares changes and you press Run.
 - Agents and the Assistant can do what you can in OADM, with your rights, and the AI never sees a password.
-- Applications: install several builds of one application at once, also from a vendor's ZIP; each camera gets the one that fits.
+- Applications: install several builds of one application at once, also from a vendor's ZIP with its mapping file; each camera gets the one that fits, or none.
 - Tasks: a run with settings the task does not accept starts no task and says why.
 - Audit log: adding devices is recorded, also by an agent.
 - Plugin SDK 0.13.0: tools, task inputs, secrets and files for AI agents, and the certificates of the servers OADM runs.
-- Applications: a vendor's mapping file can keep the cameras it does not list from getting a package.
+
+### Fixed
+
+- Applications (ACAP): a package built with ACAP Native SDK 1.15.4 installs again on AXIS OS 11.11 to 12.3; it was refused as needing 12.4.
 
 ## [5.0.0] - 2026-11-13
 
