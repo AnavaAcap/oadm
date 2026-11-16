@@ -46,6 +46,8 @@ public sealed partial class AddOnClientSync(
     private readonly SemaphoreSlim _gate = new(1, 1);
     private bool _skipLogged;
     private readonly Dictionary<string, string> _loadedVersions = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, VendorDelivery> _loadedVendors = new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> _verifiedVendors = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> _restartNeeded = new(StringComparer.OrdinalIgnoreCase);
     private int _running;
 
@@ -61,6 +63,14 @@ public sealed partial class AddOnClientSync(
     /// <summary>Add-ons whose newer version is stored and loads at the next start of the client.</summary>
     public IReadOnlyCollection<string> RestartNeeded => _restartNeeded;
 
+    internal int VendorVisibilityVersion { get; private set; }
+
+    /// <summary>Shows a loaded vendor UI only on the server that approved the same signed client payload.</summary>
+    public bool CanUsePackage(string id) =>
+        !_loadedVendors.TryGetValue(id, out var delivery)
+        || _verifiedVendors.Contains(id) && serverKey?.Invoke() is { Length: > 0 } fingerprint
+            && delivery.Server == CacheKey(fingerprint);
+
     public void Dispose() => _gate.Dispose();
 
     /// <summary>
@@ -70,10 +80,12 @@ public sealed partial class AddOnClientSync(
     public async Task<int> SyncAsync(CancellationToken ct)
     {
         await _gate.WaitAsync(ct).ConfigureAwait(true);
+        var previouslyVerified = _verifiedVendors.ToArray();
         Interlocked.Increment(ref _running);
         StateChanged?.Invoke(this, EventArgs.Empty);
         try
         {
+            _verifiedVendors.Clear();
             // The parts are code this client runs. They are taken only from a server whose certificate is pinned (TLS):
             // over plain http, or without a pin, anyone on the way could hand the client other code.
             string? fingerprint = serverKey?.Invoke();
@@ -127,6 +139,11 @@ public sealed partial class AddOnClientSync(
         }
         finally
         {
+            if (!_verifiedVendors.SetEquals(previouslyVerified))
+            {
+                VendorVisibilityVersion++;
+            }
+
             Interlocked.Decrement(ref _running);
             _gate.Release();
             StateChanged?.Invoke(this, EventArgs.Empty);
@@ -152,27 +169,46 @@ public sealed partial class AddOnClientSync(
 
         cache.Unmark(server, addOn.Id);
         bool loadedHere = _loadedVersions.TryGetValue(addOn.Id, out string? loadedVersion);
+        VendorDelivery? vendor = addOn.VendorPublisherKey.IsEmpty ? null : new(server, addOn.Version,
+            addOn.ClientDigest, addOn.VendorPublisherKey.ToBase64());
+        if (_loadedVendors.TryGetValue(addOn.Id, out var active) && vendor == active)
+        {
+            _verifiedVendors.Add(addOn.Id);
+            _restartNeeded.Remove(addOn.Id);
+            return 0;
+        }
+
         if (loader.HasPackage(addOn.Id) && !loadedHere)
         {
             return 0; // bundled or from a plugin folder (a checkout): that copy stays
         }
 
-        if (loadedHere && string.Equals(loadedVersion, addOn.Version, StringComparison.Ordinal))
+        if (loadedHere && vendor is null && active is null &&
+            string.Equals(loadedVersion, addOn.Version, StringComparison.Ordinal))
         {
             return 0; // loaded by an earlier sync
         }
 
         try
         {
+            if (loadedHere && active != vendor && (active is not null || vendor is not null))
+            {
+                _restartNeeded.Add(addOn.Id);
+            }
+
             string folder = await FolderAsync(server, addOn, ct).ConfigureAwait(true);
             if (folder.Length == 0)
             {
                 return 0; // an add-on without a client part
             }
 
-            if (!addOn.VendorPublisherKey.IsEmpty)
+            if (vendor is not null)
             {
                 await Task.Run(() => VendorClientPart.Verify(folder, addOn), ct).ConfigureAwait(true);
+                if (serverKey?.Invoke() is not { Length: > 0 } current || CacheKey(current) != server)
+                {
+                    return 0;
+                }
             }
 
             cache.SetCurrent(server, addOn.Id, addOn.Version);
@@ -189,6 +225,12 @@ public sealed partial class AddOnClientSync(
 
             int parts = await loader.LoadAddOnAsync(addOn.Id, folder).ConfigureAwait(true);
             _loadedVersions[addOn.Id] = addOn.Version;
+            if (vendor is not null)
+            {
+                _loadedVendors.Add(addOn.Id, vendor);
+                _verifiedVendors.Add(addOn.Id);
+            }
+
             LogLoaded(logger, addOn.Id, addOn.Version, parts);
             return parts;
         }
@@ -198,6 +240,8 @@ public sealed partial class AddOnClientSync(
             return 0;
         }
     }
+
+    private sealed record VendorDelivery(string Server, string Version, string ClientDigest, string PublisherKey);
 
     /// <summary>The cached folder of this version (still matching the server's digest) or the part fetched now; empty without files.</summary>
     private async Task<string> FolderAsync(string server, AddOnInfo addOn, CancellationToken ct)
@@ -209,6 +253,12 @@ public sealed partial class AddOnClientSync(
         }
 
         AddOnClientPart part = await api.GetAddOnClientPartAsync(addOn.Id, ct).ConfigureAwait(true);
+        if (!addOn.VendorPublisherKey.IsEmpty && (part.Id != addOn.Id || part.Version != addOn.Version ||
+            part.Digest != addOn.ClientDigest))
+        {
+            throw new InvalidDataException("The vendor client component differs from the server's advertised digest.");
+        }
+
         if (part.Files.Count == 0)
         {
             return string.Empty;

@@ -13,7 +13,16 @@ namespace Oadm.Server.AddOns;
 public sealed record InstalledAddOn(
     [property: JsonPropertyName("id")] string Id,
     [property: JsonPropertyName("version")] string Version,
-    [property: JsonPropertyName("removed")] bool Removed = false);
+    [property: JsonPropertyName("removed")] bool Removed = false)
+{
+    [JsonPropertyName("vendorManifestSha256"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? VendorManifestSha256 { get; init; }
+
+    [JsonPropertyName("pendingVendor"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public VendorInstallReceipt? PendingVendor { get; init; }
+}
+
+public sealed record VendorInstallReceipt(string ManifestSha256, string ArchiveSha256);
 
 /// <summary>
 /// The list of installed add-ons (docs/spec/add-ons.md "Server": a server setting, so a backup holds the list; after a restore

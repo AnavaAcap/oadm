@@ -28,7 +28,7 @@ public sealed record TaskCaller(Guid UserId, string UserName, string Owner, stri
         ArgumentNullException.ThrowIfNull(caller);
         return new(caller.UserId, caller.UserName, caller.Owner, caller.SessionId, caller.Permissions)
         {
-            PrincipalId = caller.Delegation?.OwnerId ?? caller.UserId,
+            PrincipalId = caller.IsAccessKey ? caller.Delegation?.OwnerId ?? Guid.Empty : caller.UserId,
         };
     }
 }

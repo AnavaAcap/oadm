@@ -63,8 +63,9 @@ public sealed partial class PluginPackageStore(IOadmApi api, ILogger<PluginPacka
 
     public bool IsEnabled(string? packageId) =>
         string.IsNullOrEmpty(packageId)
-        || _packages.FirstOrDefault(p => string.Equals(p.Id, packageId, StringComparison.OrdinalIgnoreCase)) is not { } package
-        || package.Enabled;
+        || (addOns?.CanUsePackage(packageId) ?? true)
+            && (_packages.FirstOrDefault(p => string.Equals(p.Id, packageId, StringComparison.OrdinalIgnoreCase)) is not { } package
+                || package.Enabled);
 
     /// <summary>The sync of the add-ons' client parts the last load started (completes when their pages are in).</summary>
     public Task AddOnsSynced => _addOnsSynced;
@@ -97,9 +98,10 @@ public sealed partial class PluginPackageStore(IOadmApi api, ILogger<PluginPacka
     {
         try
         {
-            if (await sync.SyncAsync(CancellationToken.None).ConfigureAwait(true) > 0)
+            var version = sync.VendorVisibilityVersion;
+            if (await sync.SyncAsync(CancellationToken.None).ConfigureAwait(true) > 0 || version != sync.VendorVisibilityVersion)
             {
-                Changed?.Invoke(this, EventArgs.Empty); // the shell adds the new pages
+                Changed?.Invoke(this, EventArgs.Empty); // also hide a previously loaded vendor page if its source changed
             }
         }
 #pragma warning disable CA1031 // The plugin list stays as it is.

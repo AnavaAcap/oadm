@@ -259,7 +259,8 @@ public sealed partial class AddOnInstaller : IAddOnInstaller, IDisposable
         // Put in by hand from the release ZIP: on the list with the version its file names, loaded only when that is this one.
         foreach (var entry in _entries)
         {
-            if (list.Exists(a => Same(a.Id, entry.Id)) || !File.Exists(Path.Combine(FolderOf(entry), PluginLoader.ManifestFileName)))
+            if (entry.Vendor is not null || list.Exists(a => Same(a.Id, entry.Id)) ||
+                !File.Exists(Path.Combine(FolderOf(entry), PluginLoader.ManifestFileName)))
             {
                 continue;
             }
@@ -308,8 +309,16 @@ public sealed partial class AddOnInstaller : IAddOnInstaller, IDisposable
             }
 
             // A waiting update first: the old folder stays until the new one has loaded. Never one others could change.
-            var old = updateNotTrusted.Contains(entry.Id) ? null : ApplyWaitingUpdate(entry, installed.Version);
-            changed |= LoadByVersion(entry, slot, list, installed);
+            var current = installed;
+            var old = updateNotTrusted.Contains(entry.Id) ? null : ApplyWaitingUpdate(entry, installed);
+            if (entry.Vendor is { } vendor && installed.PendingVendor is { } receipt)
+            {
+                current = old is not null
+                    ? installed with { Version = vendor.Version, VendorManifestSha256 = receipt.ManifestSha256, PendingVendor = null }
+                    : installed with { PendingVendor = null };
+            }
+
+            changed |= LoadByVersion(entry, slot, list, current);
             if (old is not null)
             {
                 if (IsLoaded(slot))
@@ -319,8 +328,16 @@ public sealed partial class AddOnInstaller : IAddOnInstaller, IDisposable
                 else
                 {
                     AddOnFolders.Restore(old, FolderOf(entry));
-                    changed |= LoadByVersion(entry, slot, list, list.Find(a => Same(a.Id, entry.Id))!);
+                    current = entry.Vendor is null
+                        ? list.Find(a => Same(a.Id, entry.Id))!
+                        : installed with { PendingVendor = null };
+                    changed |= LoadByVersion(entry, slot, list, current);
                 }
+            }
+            if (entry.Vendor is not null && current != installed)
+            {
+                list[list.IndexOf(installed)] = current;
+                changed = true;
             }
         }
 
@@ -339,7 +356,8 @@ public sealed partial class AddOnInstaller : IAddOnInstaller, IDisposable
     {
         if (entry.Vendor is { } vendor)
         {
-            return LoadVendorByVersion(entry, vendor, slot, list, installed);
+            LoadVendorByReceipt(entry, vendor, slot, installed);
+            return false;
         }
 
         var folderVersion = File.Exists(Path.Combine(FolderOf(entry), PluginLoader.ManifestFileName)) ? AddOnFolders.ReadVersion(FolderOf(entry)) : null;
@@ -391,25 +409,24 @@ public sealed partial class AddOnInstaller : IAddOnInstaller, IDisposable
         }
     }
 
-    private bool LoadVendorByVersion(AddOnEntry entry, VendorAddOn vendor, Slot slot,
-        List<InstalledAddOn> list, InstalledAddOn installed)
+    private void LoadVendorByReceipt(AddOnEntry entry, VendorAddOn vendor, Slot slot, InstalledAddOn installed)
     {
         try
         {
-            var verified = CheckVendorFolder(FolderOf(entry), entry, vendor, requireApprovedVersion: false);
+            var expected = installed.VendorManifestSha256
+                ?? throw new InvalidDataException("Import the approved vendor package before loading it.");
+            var verified = CheckVendorFolder(FolderOf(entry), entry, vendor, false, expected, out _);
+            if (verified.Version != installed.Version)
+            {
+                throw new InvalidDataException("The vendor package version differs from its install receipt.");
+            }
+
             LoadAtStart(entry, slot, verified.Version);
             lock (_sync)
             {
+                slot.VendorManifestSha256 = expected;
                 slot.Older = slot.Loaded && Version.Parse(verified.Version) < Version.Parse(vendor.Version);
             }
-
-            if (!IsLoaded(slot) || installed.Version == verified.Version)
-            {
-                return false;
-            }
-
-            list[list.IndexOf(installed)] = installed with { Version = verified.Version };
-            return true;
         }
         catch (Exception ex) when (ex is AddOnException or IOException or UnauthorizedAccessException
                                    or InvalidDataException or BadImageFormatException)
@@ -421,24 +438,22 @@ public sealed partial class AddOnInstaller : IAddOnInstaller, IDisposable
             }
 
             LogUpdateNotApplied(_logger, entry.Id, ex.Message);
-            return false;
         }
     }
 
-    private VendorPluginManifest CheckVendorFolder(string folder, AddOnEntry entry, VendorAddOn vendor, bool requireApprovedVersion)
+    private VendorPluginManifest CheckVendorFolder(string folder, AddOnEntry entry, VendorAddOn vendor,
+        bool requireApprovedVersion, string? expectedManifestSha256, out string manifestSha256)
     {
         var plugin = AddOnFolders.CheckManifest(folder, entry);
-        var manifest = ReadVendorManifest(folder, vendor, requireApprovedVersion);
-        if (plugin.Version != manifest.Version)
+        var manifest = VendorAddOnFiles.Verify(folder, vendor, _options.ServerVersion, _options.RuntimeId,
+            requireApprovedVersion, expectedManifestSha256, out manifestSha256);
+        if (plugin.Version != manifest.Version || plugin.EnabledByDefault || plugin.AlwaysOn)
         {
-            throw new InvalidDataException("The plugin version does not match its signed manifest.");
+            throw new InvalidDataException("The vendor plugin must match its signed version and start off.");
         }
 
         return manifest;
     }
-
-    private VendorPluginManifest ReadVendorManifest(string folder, VendorAddOn vendor, bool requireApprovedVersion = false) =>
-        VendorAddOnFiles.Verify(folder, vendor, _options.ServerVersion, _options.RuntimeId, requireApprovedVersion);
 
     /// <summary>The add-on's folder was built from the same source as this version's ZIP (never without both fingerprints).</summary>
     private bool HasThisContent(AddOnEntry entry) =>
@@ -450,7 +465,7 @@ public sealed partial class AddOnInstaller : IAddOnInstaller, IDisposable
     /// yet); returns the old folder, kept until the new one has loaded. Anything else leaves the add-on as it is: the leftover
     /// goes with the temporary folders.
     /// </summary>
-    private string? ApplyWaitingUpdate(AddOnEntry entry, string installedVersion)
+    private string? ApplyWaitingUpdate(AddOnEntry entry, InstalledAddOn installed)
     {
         var waiting = WaitingFolderOf(entry);
         if (!Directory.Exists(waiting))
@@ -469,8 +484,14 @@ public sealed partial class AddOnInstaller : IAddOnInstaller, IDisposable
             AddOnFolders.CheckManifest(waiting, entry);
             if (entry.Vendor is { } vendor)
             {
-                var pending = CheckVendorFolder(waiting, entry, vendor, requireApprovedVersion: true);
-                if (Version.TryParse(installedVersion, out var running) && Version.Parse(pending.Version) <= running)
+                var receipt = installed.PendingVendor;
+                if (receipt is null || receipt.ArchiveSha256 != vendor.ArchiveSha256 || string.IsNullOrEmpty(receipt.ManifestSha256))
+                {
+                    throw new InvalidDataException("Reimport the approved vendor update before restarting.");
+                }
+
+                var pending = CheckVendorFolder(waiting, entry, vendor, true, receipt.ManifestSha256, out _);
+                if (Version.TryParse(installed.Version, out var running) && Version.Parse(pending.Version) <= running)
                 {
                     throw new InvalidDataException("A vendor plugin update must be newer than the current version.");
                 }
@@ -559,7 +580,10 @@ public sealed partial class AddOnInstaller : IAddOnInstaller, IDisposable
             }
 
             // Removed but still loaded (off): taking it back keeps it, no file is needed.
-            await SaveAsync(entry.Id, new InstalledAddOn(entry.Id, loadedVersion), CancellationToken.None).ConfigureAwait(false);
+            await SaveAsync(entry.Id, new InstalledAddOn(entry.Id, loadedVersion)
+            {
+                VendorManifestSha256 = slot.VendorManifestSha256,
+            }, CancellationToken.None).ConfigureAwait(false);
             lock (_sync)
             {
                 slot.Removed = false;
@@ -602,7 +626,25 @@ public sealed partial class AddOnInstaller : IAddOnInstaller, IDisposable
             {
                 try
                 {
-                    AddOnFolders.DropOld(await StageAsync(entry, upload, expected, slot, progress, WaitingFolderOf(entry), ct).ConfigureAwait(false));
+                    var (old, manifestSha256) = await StageAsync(entry, upload, expected, slot, progress, WaitingFolderOf(entry), ct).ConfigureAwait(false);
+                    if (manifestSha256 is not null)
+                    {
+                        try
+                        {
+                            await SaveAsync(entry.Id, new InstalledAddOn(entry.Id, slot.Version)
+                            {
+                                VendorManifestSha256 = slot.VendorManifestSha256,
+                                PendingVendor = new VendorInstallReceipt(manifestSha256, expected),
+                            }, CancellationToken.None).ConfigureAwait(false);
+                        }
+                        catch
+                        {
+                            AddOnFolders.Restore(old, WaitingFolderOf(entry));
+                            throw;
+                        }
+                    }
+
+                    AddOnFolders.DropOld(old);
                 }
                 finally
                 {
@@ -632,9 +674,11 @@ public sealed partial class AddOnInstaller : IAddOnInstaller, IDisposable
 
             // A first install starts off; Install again after an update keeps the administrator's choice.
             var firstInstall = !_activation.HasChoice(entry.Id);
+            string? receiptSha256;
             try
             {
-                var old = await StageAsync(entry, upload, expected, slot, progress, FolderOf(entry), ct).ConfigureAwait(false);
+                var (old, manifestSha256) = await StageAsync(entry, upload, expected, slot, progress, FolderOf(entry), ct).ConfigureAwait(false);
+                receiptSha256 = manifestSha256;
                 progress.Report(new AddOnProgress(AddOnStep.Install, 60));
                 LoadNow(entry, old);
             }
@@ -646,14 +690,14 @@ public sealed partial class AddOnInstaller : IAddOnInstaller, IDisposable
                 }
             }
 
-            MarkLoaded(slot, version);
+            MarkLoaded(slot, version, receiptSha256);
             if (firstInstall)
             {
                 await _activation.TurnOffAsync(entry.Id, CancellationToken.None).ConfigureAwait(false);
             }
 
             // The registry's readers follow the new package.
-            await RecordAsync(entry, version, CancellationToken.None).ConfigureAwait(false);
+            await RecordAsync(entry, version, receiptSha256, CancellationToken.None).ConfigureAwait(false);
             progress.Report(new AddOnProgress(AddOnStep.Install, 100));
             LogInstalled(_logger, entry.Id, version);
             return StatusOf(entry);
@@ -735,7 +779,10 @@ public sealed partial class AddOnInstaller : IAddOnInstaller, IDisposable
                 slot.UpdateWaits = false;
             }
 
-            await SaveAsync(entry.Id, new InstalledAddOn(entry.Id, version, Removed: true), CancellationToken.None).ConfigureAwait(false);
+            await SaveAsync(entry.Id, new InstalledAddOn(entry.Id, version, Removed: true)
+            {
+                VendorManifestSha256 = slot.VendorManifestSha256,
+            }, CancellationToken.None).ConfigureAwait(false);
             lock (_sync)
             {
                 slot.Removed = true;
@@ -758,6 +805,7 @@ public sealed partial class AddOnInstaller : IAddOnInstaller, IDisposable
         var entry = EntryOf(id);
         caller ??= string.Empty;
         string version;
+        string? vendorManifestSha256;
         lock (_sync)
         {
             var slot = _slots[entry.Id];
@@ -777,6 +825,7 @@ public sealed partial class AddOnInstaller : IAddOnInstaller, IDisposable
             }
 
             version = slot.Version;
+            vendorManifestSha256 = slot.VendorManifestSha256;
         }
 
         try
@@ -794,7 +843,8 @@ public sealed partial class AddOnInstaller : IAddOnInstaller, IDisposable
                 }
 
                 var files = entry.Vendor is { } vendor
-                    ? VendorAddOnFiles.ClientPart(FolderOf(entry), CheckVendorFolder(FolderOf(entry), entry, vendor, requireApprovedVersion: false), ct)
+                    ? VendorAddOnFiles.ClientPart(FolderOf(entry), CheckVendorFolder(FolderOf(entry), entry, vendor, false,
+                        vendorManifestSha256 ?? throw new InvalidDataException("The vendor install receipt is missing."), out _), ct)
                     : await AddOnFolders.ReadClientPartAsync(FolderOf(entry), ct).ConfigureAwait(false);
                 var part = new AddOnClientPart(entry.Id, version, files);
                 lock (_sync)
@@ -832,7 +882,8 @@ public sealed partial class AddOnInstaller : IAddOnInstaller, IDisposable
     /// the old folder as it was; <see cref="AddOnException"/> says why. Nothing is unpacked before the hash holds.
     /// </summary>
     /// <returns>Where the old folder waits until the new one loaded; null without one.</returns>
-    private async Task<string?> StageAsync(AddOnEntry entry, AddOnUpload upload, string expected, Slot slot, IProgress<AddOnProgress> progress, string target, CancellationToken ct)
+    private async Task<(string? OldFolder, string? ManifestSha256)> StageAsync(
+        AddOnEntry entry, AddOnUpload upload, string expected, Slot slot, IProgress<AddOnProgress> progress, string target, CancellationToken ct)
     {
         void Report(AddOnStep step, int percent, int overall)
         {
@@ -856,13 +907,14 @@ public sealed partial class AddOnInstaller : IAddOnInstaller, IDisposable
             Report(AddOnStep.Check, 0, 90);
             // The upload is in and its hash holds: from here the install runs to its end, whoever has gone, and is audited.
             await AddOnFolders.UnpackAsync(zip, staged, _options.MaxUnpackedBytes, _options.MaxEntries, CancellationToken.None).ConfigureAwait(false);
-            AddOnFolders.CheckManifest(staged, entry);
+            string? manifestSha256 = null;
             if (entry.Vendor is { } vendor)
             {
-                CheckVendorFolder(staged, entry, vendor, requireApprovedVersion: true);
+                CheckVendorFolder(staged, entry, vendor, true, null, out manifestSha256);
             }
             else
             {
+                AddOnFolders.CheckManifest(staged, entry);
                 AddOnFolders.CheckVersion(staged, _options.ServerVersion);
             }
             Report(AddOnStep.Check, 100, 95);
@@ -870,7 +922,7 @@ public sealed partial class AddOnInstaller : IAddOnInstaller, IDisposable
             Report(AddOnStep.Install, 0, 95);
             try
             {
-                return AddOnFolders.SwapIn(staged, target, Root);
+                return (AddOnFolders.SwapIn(staged, target, Root), manifestSha256);
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
@@ -910,9 +962,10 @@ public sealed partial class AddOnInstaller : IAddOnInstaller, IDisposable
             throw new AddOnException(AddOnTexts.WrongPlugin(entry.DisplayName));
         }
 
-        if (!string.Equals(name.Version, _options.ServerVersion, StringComparison.Ordinal))
+        var version = entry.Vendor?.Version ?? _options.ServerVersion;
+        if (!string.Equals(name.Version, version, StringComparison.Ordinal))
         {
-            throw new AddOnException(AddOnTexts.WrongVersion(_options.ServerVersion));
+            throw new AddOnException(AddOnTexts.WrongVersion(version));
         }
 
         if (!string.Equals(name.RuntimeId, _options.RuntimeId, StringComparison.Ordinal))
@@ -1009,7 +1062,7 @@ public sealed partial class AddOnInstaller : IAddOnInstaller, IDisposable
     }
 
     /// <summary>The package is in the registry now: the state says so whatever follows (storing it, the follow).</summary>
-    private void MarkLoaded(Slot slot, string version)
+    private void MarkLoaded(Slot slot, string version, string? vendorManifestSha256)
     {
         lock (_sync)
         {
@@ -1018,13 +1071,17 @@ public sealed partial class AddOnInstaller : IAddOnInstaller, IDisposable
             slot.Removed = false;
             slot.Failed = null;
             slot.ClientPart = null;
+            slot.VendorManifestSha256 = vendorManifestSha256;
         }
     }
 
     /// <summary>Stores the loaded add-on in the list and waits until the registry's readers follow it.</summary>
-    private async Task RecordAsync(AddOnEntry entry, string version, CancellationToken ct)
+    private async Task RecordAsync(AddOnEntry entry, string version, string? vendorManifestSha256, CancellationToken ct)
     {
-        await SaveAsync(entry.Id, new InstalledAddOn(entry.Id, version), ct).ConfigureAwait(false);
+        await SaveAsync(entry.Id, new InstalledAddOn(entry.Id, version)
+        {
+            VendorManifestSha256 = vendorManifestSha256,
+        }, ct).ConfigureAwait(false);
         await _activation.PackageFollowedAsync(entry.Id, ct).ConfigureAwait(false);
     }
 
@@ -1078,9 +1135,7 @@ public sealed partial class AddOnInstaller : IAddOnInstaller, IDisposable
     {
         var updating = _update.UpdatingTo is not null;
         var hash = entry.Vendor is not null || _hashes.Find(entry.Id) is not null;
-        var url = entry.Vendor is { } vendor
-            ? vendor.DownloadUrl
-            : hash ? AddOnCatalog.DownloadUrl(entry.Id, _options.ServerVersion, _options.RuntimeId) : null;
+        var url = entry.Vendor is null && hash ? AddOnCatalog.DownloadUrl(entry.Id, _options.ServerVersion, _options.RuntimeId) : null;
         lock (_sync)
         {
             var slot = _slots[entry.Id];
@@ -1183,6 +1238,8 @@ public sealed partial class AddOnInstaller : IAddOnInstaller, IDisposable
     private sealed class Slot
     {
         public string Version { get; set; } = string.Empty;
+
+        public string? VendorManifestSha256 { get; set; }
 
         public bool Loaded { get; set; }
 

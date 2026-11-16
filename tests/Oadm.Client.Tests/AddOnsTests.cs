@@ -138,6 +138,60 @@ public sealed class AddOnsTests : IDisposable
     }
 
     [Fact]
+    public async Task Vendor_pages_stay_bound_to_the_verified_server_and_package()
+    {
+        const string id = "sample.vendor";
+        const string version = "1.0.0";
+        const string hostVersion = "1.1.0";
+        const string runtime = "linux-arm64";
+        using var signing = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+        var publisher = signing.ExportSubjectPublicKeyInfo();
+        var manifestFile = File("plugin.json", "{}");
+        var uiFile = File("Sample.Client.dll", "client");
+        var manifest = new VendorPluginManifest(1, id, version, hostVersion, runtime,
+            VendorPluginManifest.Sha256(publisher),
+            [new(manifestFile.Path, manifestFile.Data.Length, manifestFile.Sha256, true),
+             new(uiFile.Path, uiFile.Data.Length, uiFile.Sha256, true),
+             new("Sample.Server.dll", 1, new string('0', 64), false)]);
+        var json = System.Text.Json.JsonSerializer.Serialize(manifest, System.Text.Json.JsonSerializerOptions.Web);
+        var signature = signing.SignData(VendorPluginManifest.SigningInput(System.Text.Encoding.UTF8.GetBytes(json)),
+            HashAlgorithmName.SHA256, DSASignatureFormat.Rfc3279DerSequence);
+        var part = Part(version, manifestFile, uiFile, File(VendorPluginManifest.FileName, json),
+            new AddOnFile { Path = VendorPluginManifest.SignatureFileName, Data = ByteString.CopyFrom(signature), Sha256 = VendorPluginManifest.Sha256(signature) });
+        part.Id = id;
+        var info = new AddOnInfo
+        {
+            Id = id, Version = version, State = AddOnState.AddOnInstalled, ClientDigest = part.Digest,
+            VendorHostVersion = hostVersion, VendorRuntimeId = runtime, VendorPublisherKey = ByteString.CopyFrom(publisher),
+        };
+        var api = Substitute.For<IOadmApi>();
+        api.ListAddOnsAsync(Arg.Any<CancellationToken>()).Returns(new AddOnList { AddOns = { info } });
+        api.GetAddOnClientPartAsync(id, Arg.Any<CancellationToken>()).Returns(part);
+        var loader = new RecordingLoader();
+        var fingerprint = Fingerprint;
+        using var sync = new AddOnClientSync(api, Cache(), loader, NullLogger<AddOnClientSync>.Instance, () => fingerprint);
+
+        Assert.Equal(1, await sync.SyncAsync(CancellationToken.None));
+        Assert.True(sync.CanUsePackage(id));
+        fingerprint = "AB:12";
+        Assert.False(sync.CanUsePackage(id));
+        Assert.Equal(0, await sync.SyncAsync(CancellationToken.None));
+        Assert.Contains(id, sync.RestartNeeded);
+        Assert.Single(loader.Loads);
+        Assert.False(sync.CanUsePackage(id));
+
+        fingerprint = Fingerprint;
+        Assert.Equal(0, await sync.SyncAsync(CancellationToken.None));
+        Assert.True(sync.CanUsePackage(id));
+        Assert.DoesNotContain(id, sync.RestartNeeded);
+        info.ClientDigest = new string('f', 64);
+        Assert.Equal(0, await sync.SyncAsync(CancellationToken.None));
+        Assert.False(sync.CanUsePackage(id));
+        Assert.Contains(id, sync.RestartNeeded);
+        Assert.Single(loader.Loads);
+    }
+
+    [Fact]
     public void The_cache_folder_of_a_server_holds_the_hex_digits_of_its_fingerprint() =>
         Assert.Equal(Server, AddOnClientSync.CacheKey(Fingerprint));
 

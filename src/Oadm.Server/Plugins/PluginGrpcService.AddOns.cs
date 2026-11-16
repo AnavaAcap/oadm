@@ -236,6 +236,10 @@ public sealed partial class PluginGrpcService
             await tasks.WaitForStartsAsync(TimeProvider.System, context.CancellationToken).ConfigureAwait(false);
             if (tasks.ActiveCount is var inProgress and > 0)
                 throw GrpcGuard.FailedPrecondition(UpdateTexts.TasksRunning(inProgress) + ".");
+            list = await AddOnCallAsync(() => _addOns.ListAsync(context.CancellationToken)).ConfigureAwait(false);
+            waiting = list.Where(s => s.UpdateWaits).ToList();
+            if (waiting.Count == 0)
+                throw GrpcGuard.FailedPrecondition(AddOnTexts.NothingWaits);
             var reply = await ToProtoAsync(list, context.CancellationToken).ConfigureAwait(false);
             await audit.WriteAsync(AuditActions.AddOnRestart, string.Join(", ", waiting.Select(s => s.Entry.DisplayName)), null, CancellationToken.None).ConfigureAwait(false);
             restart.Request();
@@ -258,7 +262,16 @@ public sealed partial class PluginGrpcService
         }
 
         var caller = CallerContext.Current?.TokenHash ?? string.Empty;
-        var part = await AddOnCallAsync(() => _addOns.GetClientPartAsync(entry.Id, caller, context.CancellationToken)).ConfigureAwait(false);
+        AddOnClientPart part;
+        try
+        {
+            part = await AddOnCallAsync(() => _addOns.GetClientPartAsync(entry.Id, caller, context.CancellationToken)).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (entry.Vendor is not null && ex is (IOException or InvalidDataException
+                                   or BadImageFormatException or UnauthorizedAccessException or AddOnException))
+        {
+            throw GrpcGuard.FailedPrecondition("The installed vendor package no longer matches its approved import.");
+        }
         var reply = new Proto.AddOnClientPart { Id = part.Id, Version = part.Version, Digest = AddOnDigest(part) };
         // The cached bytes go out as they are (never changed after reading): no copy per call.
         reply.Files.AddRange(part.Files.Select(f => new Proto.AddOnFile
@@ -338,7 +351,8 @@ public sealed partial class PluginGrpcService
                 {
                     info.ClientDigest = AddOnDigest(await _addOns.GetClientPartAsync(s.Entry.Id, string.Empty, ct).ConfigureAwait(false));
                 }
-                catch (Exception ex) when (ex is KeyNotFoundException or InvalidOperationException or IOException or UnauthorizedAccessException)
+                catch (Exception ex) when (ex is KeyNotFoundException or InvalidOperationException or IOException or UnauthorizedAccessException
+                                          or InvalidDataException or BadImageFormatException or AddOnException)
                 {
                     // Bundled (no folder of its own) or unreadable: no digest, the client keeps what it has.
                 }

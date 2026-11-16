@@ -8,7 +8,7 @@ namespace Oadm.Server.AddOns;
 /// <summary>One package approved by the server administrator, separate from the package contents.</summary>
 public sealed record VendorAddOn(
     string Id, string DisplayName, string Description, string Version, string ArchiveSha256,
-    string PublisherPublicKey, string? DownloadUrl = null)
+    string PublisherPublicKey)
 {
     public byte[] PublisherKey()
     {
@@ -26,9 +26,7 @@ public sealed record VendorAddOn(
         if (!VendorPluginManifest.SafePluginId(Id) || Id.StartsWith("oadm.", StringComparison.Ordinal) ||
             string.IsNullOrWhiteSpace(DisplayName) || DisplayName.Length > 100 || Description is null || Description.Length > 300 ||
             !System.Version.TryParse(Version, out var version) || version.Build < 0 || version.Revision >= 0 || version.ToString() != Version ||
-            ArchiveSha256 is not { Length: 64 } || ArchiveSha256.Any(c => c is not (>= '0' and <= '9' or >= 'a' and <= 'f')) ||
-            (DownloadUrl is not null && (!Uri.TryCreate(DownloadUrl, UriKind.Absolute, out var uri) ||
-                uri.Scheme != Uri.UriSchemeHttps || uri.UserInfo.Length > 0 || uri.Fragment.Length > 0)))
+            ArchiveSha256 is not { Length: 64 } || ArchiveSha256.Any(c => c is not (>= '0' and <= '9' or >= 'a' and <= 'f')))
         {
             throw new InvalidOperationException("The configured vendor plugin entry is invalid.");
         }
@@ -41,9 +39,15 @@ public sealed record VendorAddOn(
 internal static class VendorAddOnFiles
 {
     public static VendorPluginManifest Verify(
-        string folder, VendorAddOn vendor, string hostVersion, string runtimeId, bool requireApprovedVersion)
+        string folder, VendorAddOn vendor, string hostVersion, string runtimeId, bool requireApprovedVersion,
+        string? expectedManifestSha256, out string manifestSha256)
     {
         var bytes = ReadBounded(folder, VendorPluginManifest.FileName, VendorPluginManifest.MaxManifestBytes);
+        manifestSha256 = VendorPluginManifest.Sha256(bytes);
+        if (expectedManifestSha256 is not null && manifestSha256 != expectedManifestSha256)
+        {
+            throw new InvalidDataException("The vendor manifest differs from the approved import.");
+        }
         var signature = ReadBounded(folder, VendorPluginManifest.SignatureFileName, VendorPluginManifest.MaxSignatureBytes);
         var manifest = VendorPluginManifest.Verify(bytes, signature, vendor.PublisherKey(), vendor.Id, hostVersion, runtimeId);
         if (requireApprovedVersion && manifest.Version != vendor.Version)

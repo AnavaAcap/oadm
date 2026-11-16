@@ -31,7 +31,7 @@ computer. A client loads the client part its server hands it: the user must trus
    add-on, checked on the server over the temporary file's bytes as they arrive, before anything is unpacked. Any other file
    is refused in the row. The hash is per system, so it also settles the system and the version. The server never downloads
    an add-on and never reaches the internet for one. A build without the hash (development, `dotnet run`) refuses Install
-   and says so. Third-party plugins keep the manual install (`website/.../dev/plugin-sdk.md` "Ship it").
+   and says so. For separately distributed signed packages, see "Vendor packages" below.
 3. **An older add-on keeps running** (decision 2026-11-05, replaces "same version as OADM"; the hash checks the install, not
    the run). At every start an add-on loads when its folder's `oadm-version.txt` is the server's version or an older one
    (`AddOnFolders.IsOlder`; a pre-release is older than its release), also a folder put in by hand. Readers and rules keep
@@ -85,8 +85,8 @@ computer. A client loads the client part its server hands it: the user must trus
 
 An administrator can approve a separately distributed vendor package with an entry in the protected server configuration
 under `Oadm:VendorAddOns`. Set `Id`, `DisplayName`, `Description`, `Version` (three numeric components),
-`ArchiveSha256` (lowercase hex), `PublisherPublicKey` (base64 DER P-256 SubjectPublicKeyInfo), and optionally an HTTPS
-`DownloadUrl`. Obtain the digest and publisher key through a trusted channel independent of the package being installed.
+`ArchiveSha256` (lowercase hex) and `PublisherPublicKey` (base64 DER P-256 SubjectPublicKeyInfo).
+Obtain the ZIP from the vendor and verify its digest and publisher key through an independent trusted channel.
 Vendor IDs may not use the `oadm.` namespace. The existing Plugins card accepts the approved ZIP. It starts off.
 
 The ZIP has `plugin.json`, signed payload files, `oadm-vendor-manifest.json`, and `oadm-vendor-manifest.sig` at its
@@ -95,14 +95,18 @@ byte, and the exact manifest JSON bytes. `VendorPluginManifest` defines the lowe
 fingerprint, plugin version, exact host version, server runtime ID and the file inventory. Every inventory entry declares
 its relative path, byte count, SHA-256, and whether to deliver it to clients.
 
-The host checks the approved archive digest before unpacking. It validates the signature and exact inventory before
-loading, including on following starts. Client exports include their signed manifest, signature, `plugin.json`, and the
+The host checks the approved archive digest before unpacking and records the signed manifest digest for that import.
+It validates the signature, import receipt and exact inventory on subsequent starts. Client exports include their signed manifest, signature, `plugin.json`, and the
 declared managed components. Server assemblies and symbols are excluded from client export. Clients authenticate the
 server's pinned TLS connection and verify the inventory and signature with the publisher key from the host's approval
-policy. Older clients cannot request vendor code through the optional plugin service.
+policy. The server administrator and trusted publisher can deliver executable client components to signed-in desktops.
+Older clients cannot request vendor code through the optional plugin service.
+If a loaded vendor component changes or a desktop switches servers, its pages stay hidden until the desktop
+loads the selected server's verified component in a fresh process.
 
 Approve a newer package in host configuration to offer it as an update. Updates are staged for restart and cannot start
-while device tasks are active. A package that fails loading is replaced by the previous verified version when compatible.
+while device tasks are active. If a staged package is rejected during loading, the installer restores the previous
+compatible version. If the server loses power during the folder swap, reimport the approved package if validation fails.
 Use a newer, compatible package for an operator rollback to a previous implementation so version checks remain meaningful.
 
 - Per add-on and platform of the server: `oadm-addon-<id>-<version>-<rid>.zip` (`win-x64`, `linux-x64`, `linux-arm64`,

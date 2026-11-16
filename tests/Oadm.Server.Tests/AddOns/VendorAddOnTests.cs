@@ -41,6 +41,8 @@ public sealed class VendorAddOnTests
     [InlineData("extra-file")]
     [InlineData("wrong-platform")]
     [InlineData("export-server")]
+    [InlineData("default-on")]
+    [InlineData("always-on")]
     public async Task SignedInventoryAndPublisherAreCheckedBeforeLoading(string failure)
     {
         using var signer = ECDsa.Create(ECCurve.NamedCurves.nistP256);
@@ -50,6 +52,28 @@ public sealed class VendorAddOnTests
         await Assert.ThrowsAsync<AddOnException>(() => InstallAsync(rig, zip));
         Assert.DoesNotContain(rig.Loader.Packages, package => package.Manifest.Id == Id);
         Assert.False(Directory.Exists(Path.Combine(rig.Root, Id)));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ValidSignatureAloneDoesNotAuthorizeAnUnrecordedFolder(bool previouslyInstalled)
+    {
+        using var key = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+        var zip = Package(key);
+        using var rig = Setup(zip, key);
+        var folder = Path.Combine(rig.Root, Id);
+        if (previouslyInstalled)
+        {
+            await InstallAsync(rig, zip);
+            Directory.Delete(folder, recursive: true);
+        }
+
+        using var replacement = new ZipArchive(new MemoryStream(Package(key, version: "1.1.0")));
+        replacement.ExtractToDirectory(folder);
+        rig.Restart();
+        await rig.Installer.LoadInstalledAsync(CancellationToken.None);
+        Assert.DoesNotContain(rig.Loader.Packages, package => package.Manifest.Id == Id);
     }
 
     [Fact]
@@ -117,7 +141,15 @@ public sealed class VendorAddOnTests
         var assembly = File.ReadAllBytes(Path.Combine(AppContext.BaseDirectory, "Oadm.Plugins.Restart.Server.dll"));
         var payload = new Dictionary<string, (byte[] Bytes, bool Client)>(StringComparer.Ordinal)
         {
-            ["plugin.json"] = (Encoding.UTF8.GetBytes($$"""{"id":"sample.vendor","version":"{{version}}","minSdkVersion":"0.10.0","displayName":"Sample","enabledByDefault":false}"""), true),
+            ["plugin.json"] = (JsonSerializer.SerializeToUtf8Bytes(new
+            {
+                id = Id,
+                version,
+                minSdkVersion = "0.10.0",
+                displayName = "Sample",
+                enabledByDefault = failure == "default-on",
+                alwaysOn = failure == "always-on",
+            }, Json), true),
             ["Sample.Server.dll"] = (failure == "broken-server" ? [0, 1, 2] : assembly, false),
             ["Sample.Client.dll"] = (assembly, true),
             ["Sample.Contracts.dll"] = (assembly, true),
