@@ -41,13 +41,13 @@ internal interface IAssistantProviders
 }
 
 /// <summary>
-/// The real providers: Anthropic through the official <c>Anthropic</c> SDK's <see cref="IChatClient"/>, OpenAI and
-/// OpenAI-compatible ones through <c>Microsoft.Extensions.AI.OpenAI</c>, Ollama through <c>OllamaSharp</c>. One HTTP handler
+/// The real providers: Anthropic through the official <c>Anthropic</c> SDK's <see cref="IChatClient"/>, OpenAI, Google Gemini
+/// (its OpenAI-compatible endpoint <see cref="GeminiAddress"/>) and OpenAI-compatible ones through <c>Microsoft.Extensions.AI.OpenAI</c>, Ollama through <c>OllamaSharp</c>. One HTTP handler
 /// for all of them (never to a device); the time limit of an answer is the caller's token. The models lists are read over
 /// plain HTTP, kept for 10 minutes for the panel's picker and never wait longer than <see cref="ModelsWait"/>.
 /// </summary>
 [SuppressMessage("ApiDesign", "RS0030:Do not use banned APIs", Justification = "The AI provider the administrator chose, never a device.")]
-internal sealed class AssistantProviders(TimeProvider time, Func<AssistantConnection, CancellationToken, Task<IReadOnlyList<string>?>>? read = null)
+internal sealed partial class AssistantProviders(TimeProvider time, Func<AssistantConnection, CancellationToken, Task<IReadOnlyList<string>?>>? read = null)
     : IAssistantProviders, IDisposable
 {
     /// <summary>How long GetSettings waits for a models list at most.</summary>
@@ -56,6 +56,14 @@ internal sealed class AssistantProviders(TimeProvider time, Func<AssistantConnec
     private static readonly TimeSpan ModelsKept = TimeSpan.FromMinutes(10);
     private static readonly Uri AnthropicApi = new("https://api.anthropic.com/");
     private static readonly Uri OpenAiApi = new("https://api.openai.com/v1/");
+
+    /// <summary>Google Gemini's OpenAI-compatible endpoint, built in (the administrator enters only the key).</summary>
+    public const string GeminiAddress = "https://generativelanguage.googleapis.com/v1beta/openai/";
+
+    private static readonly Uri GeminiApi = new(GeminiAddress);
+
+    /// <summary>The address of a connection: the built-in one of Google Gemini, else the saved one (Ollama, OpenAI-compatible).</summary>
+    public static string? AddressOf(string provider, string? address) => provider == AssistantTexts.Gemini ? GeminiAddress : address;
 
     /// <summary>The longest answer of a model in tokens.</summary>
     public const int MaxOutputTokens = 4_096;
@@ -80,6 +88,7 @@ internal sealed class AssistantProviders(TimeProvider time, Func<AssistantConnec
             AssistantTexts.Anthropic => new Anthropic.AnthropicClient { ApiKey = connection.ApiKey ?? string.Empty, HttpClient = Http(), MaxRetries = 1 }
                 .AsIChatClient(connection.Model, MaxOutputTokens),
             AssistantTexts.OpenAi => OpenAi(connection, OpenAiApi, connection.Online),
+            AssistantTexts.Gemini => OpenAi(connection, GeminiApi, responses: false), // never the connection's address
             AssistantTexts.OpenAiCompatible => OpenAi(connection, BaseOf(connection.Address), responses: false),
             AssistantTexts.Ollama => new OllamaSharp.OllamaApiClient(Http(BaseOf(connection.Address)), connection.Model),
             _ => throw new ArgumentException("Unknown provider.", nameof(connection)),
@@ -154,7 +163,8 @@ internal sealed class AssistantProviders(TimeProvider time, Func<AssistantConnec
 
     /// <summary>
     /// The provider's chat models in its own order (Anthropic and OpenAI answer the newest first): for OpenAI only the GPT,
-    /// ChatGPT and o-series models, never embeddings, speech, images or the old completion models.
+    /// ChatGPT and o-series models, never embeddings, speech, images or the old completion models; for Google Gemini only the
+    /// Gemini models, without the "models/" its list puts in front, never embeddings, speech, images or live audio.
     /// </summary>
     public static IReadOnlyList<string> ChatModels(string provider, IEnumerable<string> ids)
     {
@@ -167,6 +177,13 @@ internal sealed class AssistantProviders(TimeProvider time, Func<AssistantConnec
                     || (n.Length > 1 && n[0] == 'o' && char.IsAsciiDigit(n[1])))
                 && !notChat.Any(w => n.Contains(w, StringComparison.OrdinalIgnoreCase)));
         }
+        else if (provider == AssistantTexts.Gemini)
+        {
+            string[] notChat = ["embedding", "tts", "image", "audio", "live", "aqa"];
+            clean = clean.Select(n => n.StartsWith("models/", StringComparison.Ordinal) ? n["models/".Length..] : n)
+                .Where(n => n.StartsWith("gemini-", StringComparison.Ordinal) && !notChat.Any(w => n.Contains(w, StringComparison.OrdinalIgnoreCase)))
+                .Distinct(StringComparer.Ordinal);
+        }
 
         return [.. clean.Take(200)];
     }
@@ -178,14 +195,47 @@ internal sealed class AssistantProviders(TimeProvider time, Func<AssistantConnec
         [AssistantTexts.OpenAi] = ["gpt-5.5", "gpt-5", "gpt-4.1", "gpt-4o"],
     };
 
-    /// <summary>The suggested model: the provider's known default when listed, else the first listed (the provider's order).</summary>
+    /// <summary>
+    /// The suggested model: the provider's known default when listed, for Google Gemini <see cref="SuggestGemini"/>, else the
+    /// first listed (the provider's order).
+    /// </summary>
     public static string Suggest(string provider, IReadOnlyList<string> models)
     {
         ArgumentNullException.ThrowIfNull(models);
+        if (provider == AssistantTexts.Gemini && SuggestGemini(models) is { } gemini)
+        {
+            return gemini;
+        }
+
         var known = Defaults.GetValueOrDefault(provider) ?? [];
         return known.FirstOrDefault(models.Contains)
             ?? (models.Count > 0 ? models[0] : provider == AssistantTexts.Anthropic ? AssistantTexts.AnthropicDefaultModel : string.Empty);
     }
+
+    /// <summary>
+    /// A guess for Google Gemini, whose list has no order and no fixed names: the newest version of the listed
+    /// "gemini-&lt;version&gt;-pro" or "-flash" (pro before flash at the same version), stable names before previews
+    /// ("gemini-3-pro-preview"); null when the list has neither (the first listed then).
+    /// </summary>
+    public static string? SuggestGemini(IReadOnlyList<string> models)
+    {
+        ArgumentNullException.ThrowIfNull(models);
+        return models
+            .Select(m => (Model: m, Match: GeminiName().Match(m)))
+            .Where(x => x.Match.Success)
+            .Select(x => (x.Model, Preview: x.Match.Groups["rest"].Success, Version: GeminiVersion(x.Match.Groups["v"].Value), Pro: x.Match.Groups["kind"].Value == "pro"))
+            .OrderBy(x => x.Preview)
+            .ThenByDescending(x => x.Version)
+            .ThenByDescending(x => x.Pro)
+            .Select(x => x.Model)
+            .FirstOrDefault();
+    }
+
+    private static Version GeminiVersion(string text) => Version.Parse(text.Contains('.', StringComparison.Ordinal) ? text : text + ".0");
+
+    /// <summary>"gemini-2.5-pro", "gemini-2.5-flash", "gemini-3-pro-preview"; never "-flash-lite" or "-flash-8b".</summary>
+    [System.Text.RegularExpressions.GeneratedRegex(@"^gemini-(?<v>\d{1,3}(\.\d{1,3})?)-(?<kind>pro|flash)(?<rest>-(preview|exp)[-\w.]*)?$", System.Text.RegularExpressions.RegexOptions.CultureInvariant)]
+    private static partial System.Text.RegularExpressions.Regex GeminiName();
 
     public async Task<IReadOnlyList<string>?> ReadModelsAsync(AssistantConnection connection, CancellationToken ct)
     {
@@ -196,6 +246,7 @@ internal sealed class AssistantProviders(TimeProvider time, Func<AssistantConnec
             {
                 AssistantTexts.Anthropic => new HttpRequestMessage(HttpMethod.Get, new Uri(AnthropicApi, "v1/models?limit=100")),
                 AssistantTexts.OpenAi => new HttpRequestMessage(HttpMethod.Get, new Uri(OpenAiApi, "models")),
+                AssistantTexts.Gemini => new HttpRequestMessage(HttpMethod.Get, new Uri(GeminiApi, "models")),
                 AssistantTexts.OpenAiCompatible => new HttpRequestMessage(HttpMethod.Get, new Uri(BaseOf(connection.Address), "models")),
                 _ => new HttpRequestMessage(HttpMethod.Get, new Uri(BaseOf(connection.Address), "api/tags")),
             };

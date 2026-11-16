@@ -10,10 +10,11 @@ public sealed record AssistantProvider(string Id, string Name, bool NeedsKey, bo
 {
     public static readonly AssistantProvider Anthropic = new("anthropic", "Anthropic", NeedsKey: true, NeedsAddress: false, IsCloud: true);
     public static readonly AssistantProvider OpenAi = new("openai", "OpenAI", NeedsKey: true, NeedsAddress: false, IsCloud: true);
+    public static readonly AssistantProvider Gemini = new("gemini", "Google Gemini", NeedsKey: true, NeedsAddress: false, IsCloud: true);
     public static readonly AssistantProvider Ollama = new("ollama", "Ollama", NeedsKey: false, NeedsAddress: true, IsCloud: false);
     public static readonly AssistantProvider OpenAiCompatible = new("openai-compatible", "OpenAI-compatible", NeedsKey: true, NeedsAddress: true, IsCloud: true);
 
-    public static readonly IReadOnlyList<AssistantProvider> All = [Anthropic, OpenAi, Ollama, OpenAiCompatible];
+    public static readonly IReadOnlyList<AssistantProvider> All = [Anthropic, OpenAi, Gemini, Ollama, OpenAiCompatible];
 
     public static AssistantProvider? Find(string? id) => All.FirstOrDefault(p => string.Equals(p.Id, id, StringComparison.Ordinal));
 

@@ -80,7 +80,7 @@ message AssistantRetryRequest {
 message AssistantModelList {
   repeated string models = 1;              // may be empty
   bool editable = 2;                       // the provider offers no list: the user types the model
-  string suggested = 3;                    // Anthropic: claude-opus-5-5 when listed; else the first
+  string suggested = 3;                    // Anthropic: claude-opus-5-5 when listed; Gemini: the newest gemini-*-pro or -flash; else the first
 }
 
 message AssistantEvent {
@@ -214,7 +214,7 @@ message AssistantSecretCard {
 
 message AssistantSettings {
   bool enabled = 1;
-  string provider = 2;                     // "anthropic", "openai", "ollama", "openai-compatible"
+  string provider = 2;                     // "anthropic", "openai", "gemini", "ollama", "openai-compatible"
   string address = 3;                      // Ollama and OpenAI-compatible
   reserved 4;                              // was model: chosen in the panel (decision 2026-11-15)
   string api_key = 5;                      // write only; empty keeps the saved one

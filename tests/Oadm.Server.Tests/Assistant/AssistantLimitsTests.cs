@@ -181,6 +181,23 @@ public sealed class AssistantLimitsTests
     }
 
     [Fact]
+    public void GeminisListKeepsOnlyChatModelsAndTheSuggestionIsTheNewestProOrFlash()
+    {
+        string[] listed = ["models/embedding-001", "models/gemini-2.0-flash", "models/gemini-2.5-flash-lite", "models/gemini-2.5-flash", "models/gemini-2.5-pro",
+            "models/gemini-2.5-flash-preview-tts", "models/gemini-2.5-flash-image", "models/gemma-3-27b-it", "models/gemini-3-pro-preview", "models/text-embedding-004",
+            "models/gemini-live-2.5-flash-preview", "models/aqa"];
+        var chat = AssistantProviders.ChatModels(AssistantTexts.Gemini, listed);
+        Assert.Equal(["gemini-2.0-flash", "gemini-2.5-flash-lite", "gemini-2.5-flash", "gemini-2.5-pro", "gemini-3-pro-preview"], chat); // its order, without "models/"
+
+        // The newest stable pro before flash; a preview only when nothing stable is listed; else the first.
+        Assert.Equal("gemini-2.5-pro", AssistantProviders.Suggest(AssistantTexts.Gemini, chat));
+        Assert.Equal("gemini-10.0-flash", AssistantProviders.Suggest(AssistantTexts.Gemini, ["gemini-2.5-pro", "gemini-10.0-flash", "gemini-9-pro-exp"]));
+        Assert.Equal("gemini-3-pro-preview", AssistantProviders.Suggest(AssistantTexts.Gemini, ["gemini-2.5-flash-lite", "gemini-3-pro-preview", "gemini-3-flash-preview"]));
+        Assert.Equal("gemini-2.5-flash-lite", AssistantProviders.Suggest(AssistantTexts.Gemini, ["gemini-2.5-flash-lite", "gemini-1.5-flash-8b"]));
+        Assert.Equal(string.Empty, AssistantProviders.Suggest(AssistantTexts.Gemini, []));
+    }
+
+    [Fact]
     public async Task AFailedListIsNeverKeptAndTheLastGoodListStays()
     {
         var time = new FakeTimeProvider(DateTimeOffset.UtcNow);

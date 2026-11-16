@@ -360,7 +360,7 @@ public sealed partial class AssistantChats
         var finished = false;
         try
         {
-            using var client = Provider(() => _providers.Create(new AssistantConnection(settings.Provider, settings.Address, model, apiKey, online)));
+            using var client = Provider(() => _providers.Create(new AssistantConnection(settings.Provider, AssistantProviders.AddressOf(settings.Provider, settings.Address), model, apiKey, online)));
             for (var step = 0; step <= settings.StepsPerAnswer + 1; step++)
             {
                 var messages = Context(system, conversation, turn);
@@ -1235,7 +1235,7 @@ public sealed partial class AssistantChats
 
     /// <summary>
     /// The models of the provider for the panel's picker: the cached list (never waits long); editable when the provider offers
-    /// none; suggested: for Anthropic <see cref="AssistantTexts.AnthropicDefaultModel"/> when listed, else the first.
+    /// none; suggested: see <see cref="AssistantProviders.Suggest"/>.
     /// </summary>
     public async Task<Proto.AssistantModelList> ListModelsAsync(CancellationToken ct)
     {
@@ -1243,7 +1243,7 @@ public sealed partial class AssistantChats
         IReadOnlyList<string> models = [];
         if (!AssistantSettings.NeedsAddress(settings.Provider) || !string.IsNullOrEmpty(settings.Address))
         {
-            models = await _providers.ModelsAsync(new AssistantConnection(settings.Provider, settings.Address, string.Empty, settings.ApiKey(_protector)), ct).ConfigureAwait(false);
+            models = await _providers.ModelsAsync(new AssistantConnection(settings.Provider, AssistantProviders.AddressOf(settings.Provider, settings.Address), string.Empty, settings.ApiKey(_protector)), ct).ConfigureAwait(false);
         }
 
         var reply = new Proto.AssistantModelList { Editable = models.Count == 0 };

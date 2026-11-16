@@ -24,7 +24,7 @@ public sealed record AssistantSettings
 
     public string Provider { get; init; } = AssistantTexts.Anthropic;
 
-    /// <summary>The address of Ollama and of an OpenAI-compatible provider; null for the others.</summary>
+    /// <summary>The address of Ollama and of an OpenAI-compatible provider; null for the others (Google Gemini's is built in).</summary>
     public string? Address { get; init; }
 
     /// <summary>The API key, encrypted (base64 of AES-256-GCM with the master key); null without one.</summary>

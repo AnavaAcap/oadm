@@ -145,6 +145,7 @@ public sealed class AssistantDocsLookupTests
     }
 
     [Theory]
+    [InlineData(AssistantTexts.Gemini)]
     [InlineData(AssistantTexts.Ollama)]
     [InlineData(AssistantTexts.OpenAiCompatible)]
     public async Task AProviderWithoutWebToolsSaysSoInOneLineAndShowsNoCard(string provider)
