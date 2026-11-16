@@ -116,8 +116,9 @@ The task `oadm.action-rules.task` takes `RuleAgentPayload` (`Agent/`) as its `Pa
 - `action`: `change` (`ruleName` + `change`: `name`, `enabled`, `timeoutSeconds`, `parameters`, `recipientName`; on and
   off is `enabled` only), `delete` (`ruleName`), `copy` (`sourceDeviceId`, `sourceRuleId`, optional `change` for the
   copies), `create` (`rule`: the rule builder's `NewRule`: name, event topic and values, `whileActive`, conditions, a
-  built-in `scheduleId`, timeout, template, parameters, recipient), `undo` (`undoOf`: an id of `changes`). Events, schedules
-  of a change, recipients and schedules themselves stay in the editor.
+  built-in `scheduleId`, timeout, template, parameters, recipient), `undo` (`undoOf`: an id of `changes`). Events and the
+  schedule of a change are not part of the task; recipients and schedules are the editor's page tools (docs/spec/mcp.md
+  "Page actions").
 - Rules are matched by name on each device as the editor read them last (every table, the newest row), at that version;
   a device the editor has not read is skipped ("Not read in the Action Rule Editor. Read the rules there first.").
 - `ValidatePayload` runs the page methods' checks that read no device, at the input's fields with the page's texts

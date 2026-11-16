@@ -687,7 +687,7 @@ public sealed class CreateConfigFileTask : ITaskPlugin, ITaskPluginQuery
 
     /// <summary>
     /// Read only: reads the device like the dialog (<see cref="DeviceSettingsReader"/>), takes the chosen settings without any
-    /// password or secret value, and writes the ADM file into the task's log (<see cref="TaskFileResult"/>; TODO(download-link)).
+    /// password or secret value, and keeps the ADM file as the task's result file (<see cref="TaskFileResult"/>).
     /// Chosen settings the device does not have end Done with warnings.
     /// </summary>
     public async Task ExecuteAsync(ITaskExecutionContext ctx, IDeviceInfo device, string? payloadJson, CancellationToken ct)
@@ -751,7 +751,7 @@ public sealed class CreateConfigFileTask : ITaskPlugin, ITaskPluginQuery
             };
             var bytes = AdmConfigFile.Write(config);
             var name = AdmConfigFile.SuggestedFileName(settings.Model ?? device.Model, settings.Firmware);
-            TaskFileResult.Log(ctx, name, bytes);
+            await TaskFileResult.SaveAsync(ctx, name, bytes, ct).ConfigureAwait(false);
             foreach (var missing in chosen.Missing)
             {
                 ctx.Log(TaskLogLevel.Warning, "Not on this device: " + missing);

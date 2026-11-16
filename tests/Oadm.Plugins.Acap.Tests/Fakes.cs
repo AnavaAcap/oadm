@@ -38,6 +38,10 @@ internal sealed class FakeAcapDevice : IVapixClient
     public string? Soc { get; set; } = "Axis Artpec-8";
     public string EmbeddedDevelopment { get; set; } = "2.18";
     public bool? AllowUnsigned { get; set; } = true;
+
+    /// <summary>The answer of applications/info.cgi (the P3265-V's); null: HTTP 404.</summary>
+    public string? InfoXml { get; set; } = """<supportedSdks><sdk name="acap3"/><sdk name="acap4-cv"/><sdk name="acap4-native"/></supportedSdks>""";
+
     public List<DeviceApi> Apis { get; } = [new("application", "1.0"), new("packagemanager", "1.4"), new("basic-device-info", "1.3")];
     public Dictionary<string, InstalledApplication> Apps { get; } = new(StringComparer.Ordinal);
 
@@ -98,6 +102,9 @@ internal sealed class FakeAcapDevice : IVapixClient
         {
             case ApplicationApiClient.ListPath:
                 return Text(ListXml());
+            case ApplicationApiClient.InfoPath:
+                Assert.Equal(HttpMethod.Get, request.Method);
+                return InfoXml is { } info ? Text(info) : new HttpResponseMessage(HttpStatusCode.NotFound);
             case ApplicationApiClient.ConfigPath:
                 return AllowUnsigned is { } allow
                     ? Text($"<reply result=\"ok\">\n\t<param name=\"{query["name"]}\" value=\"{(allow ? "true" : "false")}\"/>\n</reply>")

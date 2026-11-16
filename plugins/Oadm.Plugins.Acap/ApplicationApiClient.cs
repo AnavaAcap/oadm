@@ -66,6 +66,7 @@ public sealed class ApplicationApiClient(IVapixClient vapix)
     public const string ControlPath = "/axis-cgi/applications/control.cgi";
     public const string ConfigPath = "/axis-cgi/applications/config.cgi";
     public const string LicensePath = "/axis-cgi/applications/license.cgi";
+    public const string InfoPath = "/axis-cgi/applications/info.cgi";
     public const string EmbeddedDevelopmentVersionParameter = "Properties.EmbeddedDevelopment.Version";
 
     private readonly IVapixClient _vapix = vapix ?? throw new ArgumentNullException(nameof(vapix));
@@ -90,6 +91,7 @@ public sealed class ApplicationApiClient(IVapixClient vapix)
             ShortName = info.ProdShortName,
             Soc = info.Soc,
             EmbeddedDevelopmentVersion = await TryGetEmbeddedDevelopmentVersionAsync(ct).ConfigureAwait(false),
+            SupportedSdks = await TryGetSupportedSdksAsync(ct).ConfigureAwait(false),
             AllowUnsigned = await TryGetAllowUnsignedAsync(ct).ConfigureAwait(false),
         };
     }
@@ -108,6 +110,54 @@ public sealed class ApplicationApiClient(IVapixClient vapix)
         {
             return null;
         }
+    }
+
+    /// <summary>
+    /// The application kinds the device runs, from <c>applications/info.cgi</c> (read-only): "acap3", "acap4-cv",
+    /// "acap4-native"; null when the device does not answer or the answer cannot be read (no check then).
+    /// </summary>
+    public async Task<IReadOnlyList<string>?> TryGetSupportedSdksAsync(CancellationToken ct)
+    {
+        try
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Get, InfoPath);
+            var text = await SendForTextAsync(request, ct).ConfigureAwait(false);
+            return ParseSupportedSdks(text);
+        }
+        catch (AcapDeviceException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// The <c>sdk</c> entries of an info.cgi reply, in the attribute form the devices send (<c>&lt;sdk name="acap3"/&gt;</c>) or
+    /// the element text of the docs (<c>&lt;sdk&gt;acap3&lt;/sdk&gt;</c>), lower case; null for an error reply, broken XML or no entry.
+    /// </summary>
+    public static IReadOnlyList<string>? ParseSupportedSdks(string xml)
+    {
+        ArgumentNullException.ThrowIfNull(xml);
+        XElement root;
+        try
+        {
+            root = DeviceXml.ParseElement(xml.Trim());
+        }
+        catch (XmlException)
+        {
+            return null;
+        }
+
+        if ((string?)root.Attribute("result") is { } result && !string.Equals(result, "ok", StringComparison.OrdinalIgnoreCase))
+        {
+            return null;
+        }
+
+        var sdks = root.DescendantsAndSelf().Where(e => e.Name.LocalName == "sdk")
+            .Select(e => ((string?)e.Attribute("name") ?? e.Value).Trim().ToLowerInvariant())
+            .Where(n => n.Length > 0)
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+        return sdks.Count == 0 ? null : sdks;
     }
 
     /// <summary><c>config.cgi?action=get&amp;name=AllowUnsigned</c> (AXIS OS 11.2+); null when not available.</summary>

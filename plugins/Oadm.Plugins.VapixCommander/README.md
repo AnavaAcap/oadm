@@ -235,7 +235,8 @@ any version.
 - No password in the request: a name that points to a secret (`SecretValues.IsSecretName`, `pwd`, `pass`, `pin`) with a
   value other than yes/no refuses it ("This request carries a password or another secret. Set passwords in OADM.").
 - Lock-out: `RequestSafety` Dangerous, or any change of a path whose words name accounts, the network, HTTP(S), TLS,
-  certificates, 802.1X, AXIS OS or a reset (`IsLockOutPath`), needs `dangerous`, else "This request can lock OADM out of the
+  certificates, 802.1X, AXIS OS or a reset (`IsLockOutPath`), or of an XML body whose element names do (a SOAP
+  `DeleteUsers` or `SetSystemFactoryDefault` to `/vapix/services`, `IsLockOutXml`), needs `dangerous`, else "This request can lock OADM out of the
   device or break it (accounts, network, HTTPS, 802.1X, AXIS OS, factory default). It needs the right Send dangerous
   requests."; with it the plan has `dangerous` and the warning. `restart.cgi` needs no `dangerous` ("The devices restart and
   are offline for a few minutes.").

@@ -641,8 +641,8 @@ box back with the error below the list (`PluginsViewModel.SwitchAsync`).
   bound get the host's: 4,096 characters, the 32-bit range, 100,000 items), `ValidatePayload(payloadJson, caller)`
   (`PayloadError` per JSON field with the dialog's text; `TaskService.Run` and `Plan` call it, a throwing check refuses the
   run), `PlanAsync(payloadJson, devices, ct)` (`TaskPlan`: per device run or skip with a reason, warnings; default
-  `TaskPlan.ByCanRun`; an overload with `IUploadedFiles` lets a plan name the uploads it uses, `TaskPlan.Files`, read them and answer what only they show: `TaskPlan.Errors` per JSON field, answered like `ValidatePayload`, and `TaskPlan.Details`, plain lines of what the run does). A task without a payload type, with a `[Secret]` property anywhere in it, or with a value of any
-  type is not offered to the tools; a `[Secret]` property (`Label`) is left out of its schema, and `SecretsOf(payloadJson)`
+  `TaskPlan.ByCanRun`; an overload with `IUploadedFiles` lets a plan name the uploads it uses, `TaskPlan.Files`, read them and answer what only they show: `TaskPlan.Errors` per JSON field, answered like `ValidatePayload`, and `TaskPlan.Details`, plain lines of what the run does). A task without a payload type or with a value of any type is not offered to the
+  tools; a `[Secret]` property (`Label`) is left out of its schema wherever it sits, and `SecretsOf(payloadJson)`
   (`TaskSecret`: name, label, field; default the top-level `[Secret]` properties) names what the person enters for a run
   (docs/spec/mcp.md "Secrets"). A plugin tool's plan names its secrets with `PluginToolPlan.SecretsNeeded`
   (`PluginToolSecret`), the run reads `PluginToolInput.Secret(name)`. `PagePermissions(payloadJson)`: a page task (hidden from the menus, no permissions of
@@ -665,9 +665,8 @@ box back with the error below the list (`PluginsViewModel.SwitchAsync`).
   the page's code with the caller); typed strict input (`PluginToolInput<TArgs>`: the arguments checked against their
   validation attributes, `Devices`, `Page`), field errors by `PluginToolInputException`, `RulesMethodOf(method)` gives a
   tool method the role, permission, device group and audit rules of its page method; a plan derives from `PluginToolPlan`
-  (`will_change`, `unit`) so the Assistant's card counts it ("1 reader"). Bundled: PKI (`certificates`, `policies`, `certificate_create`), NTP server
-  (`status`), DHCP server (`status`, `leases`), Hardening scan (`results`), Device configuration (`parameters`,
-  `action_rules`, `stream_profiles`). `PluginTool.Secrets` (`PluginToolSecret`: the secrets a change's run gets once through
+  (`will_change`, `unit`) so the Assistant's card counts it ("1 reader"). Bundled: every bundled core plugin has its
+  tools (`docs/spec/mcp.md` "Plugins" and "Page actions"). `PluginTool.Secrets` (`PluginToolSecret`: the secrets a change's run gets once through
   the host's secret channel, `PluginToolInput.Secret`, `IsRun`; the plan chooses them with `PluginToolPlan.SecretsNeeded`) and
   `ICallContext.Uploads` (the caller's own uploads for a `file_id` argument; `FakeUploadedFiles` in `Oadm.Sdk.Testing`), both
   SDK 0.13.0 default members (decision 2026-11-15, `docs/spec/mcp.md` "SDK").

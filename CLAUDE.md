@@ -189,27 +189,24 @@ must never break.
   Turn on on its tab of the PKI page, runs only with OADM PRO): RADIUS on UDP 1812 with EAP-TLS for the switch ports,
   only devices OADM manages with a certificate of a CA of an 802.1X trusted CA policy pass; its rules (its certificate,
   TLS, trusted CAs, VLAN, Block) are PKI's policies (docs/spec/pki.md), never settings of its own.
-- **[MCP server](docs/spec/mcp.md)** (all four stages built: the endpoint, access keys, the read tools, tasks with
-  preview and run, file links, device actions, tags, sites, compliance, event rules, plugin tools, the skill and Connect
-  an agent):
-  AI agents do what a user can in the client, through the server's gRPC services in process with an access key
-  (`InProcessCalls`); the tools are one registry that knows nothing of MCP (`ToolRegistry`,
-  the caller a parameter, never the HTTP request; MCP is a thin adapter: transport, access keys, its own limits); off by
-  default, own port (TCP 5082) with the certificate of the PKI policy MCP server; "MCP" is the feature's UI name (rail
-  page MCP & Assistant, card MCP); access keys only by administrators (there or by an Administrator's agent), each an identity of its own with a name, a role, its
-  devices (all or one group) and an end, audit user and task owner "MCP <name>", stored only as SHA-256, never a session;
-  every change is preview then run; never all devices in a result (pages with the total and a sort-key cursor, logs with
-  `more` instead of a total, answers at most 32 KB); no tool returns a secret and no secret ever goes through the model: a
-  secret reaches OADM only through the secret channel (`ToolSecrets`: a preview's slot, filled by the person's own shell
-  over `PUT /secrets/` or the assistant card's field, encrypted in memory, once, 10 minutes); files leave only as one-time
-  links of a tool's file reference (`oadm_files_download_link`; a backup stays encrypted with its password, a CA key
-  backup only with a password from the secret channel); users, roles, device groups and access keys
-  with the caller's rights (decision 2026-11-15: Administrator only as in the GUI, an Administrator's agent may make another
-  administrator, never the last administrator or the caller's own account, an agent never deletes its own key and its new
-  key never outlives its own; a new key leaves only once as a one-time link or the Assistant's Copy card); the license, plugins, backups, Install now, server settings and
-  services are previews and runs with the GUI's checks and rights (decision 2026-11-15); the tools answer
-  from OADM's own data first (a device is asked only when OADM does not have the fact); a new page, column or plugin view
-  gets its read tool in the same change (a core plugin declares `ICorePlugin.Tools`, `McpPluginCoverageTests`).
+- **[MCP server](docs/spec/mcp.md)** (built): AI agents do everything a user can in the client (decision 2026-11-15),
+  with the rights, checks and audit of the client, through the server's gRPC services in process with an access key
+  (`InProcessCalls`); the tools are one registry that knows nothing of MCP (`ToolRegistry`, the caller a parameter, never
+  the HTTP request; MCP is a thin adapter: transport, access keys, its own limits); off by default, own port (TCP 5082)
+  with the certificate of the PKI policy MCP server; "MCP" is the feature's UI name (rail page MCP & Assistant, card
+  MCP); access keys only by administrators (on the card or through an Administrator's agent), each an identity of its own
+  with a name, a role, its devices (all or one group) and an end, audit user and task owner "MCP <name>", stored only as
+  SHA-256, never a session; users, roles, device groups and access keys only with an Administrator's rights, never the
+  last administrator or the caller's own account; an agent never deletes its own key and a key it makes never outlives
+  its own; every change
+  is preview then run; never all devices in a result (pages with the total and a sort-key cursor, logs with `more`
+  instead of a total, answers at most 32 KB); no tool returns a secret and no secret ever goes through the model: a
+  secret reaches OADM only through the secret channel (`ToolSecrets`: a preview's slot, filled in the person's own shell
+  over `PUT /secrets/` or in the Assistant card's field, encrypted in memory, once, 10 minutes); files leave only as
+  one-time links of a tool's file reference (`oadm_files_download_link`); a new key only once as a one-time link or the
+  Assistant's Copy card; the tools answer from OADM's own data first (a device is asked only when OADM does not have the
+  fact); a new page, column or plugin view gets its tools in the same change (a core plugin declares
+  `ICorePlugin.Tools`, `McpPluginCoverageTests`).
 - **[Assistant](docs/spec/assistant.md)**: a chat with an AI model in the client's side panel (title bar button); the loop
   runs on the server with the tool registry as the signed-in user; the model only reads and previews, a person presses Run;
   a secret a run needs is typed into the preview card and goes with Run, never to the model; a tool's file is a card with

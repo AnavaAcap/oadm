@@ -17,7 +17,7 @@ public sealed class AcapTaskPluginTests
     }
 
     private static readonly string[] Prepared =
-        ["Check compatibility: Done", "Read package: Done", "Read device info: Done", "Read SDK version: Done", "Read unsigned application setting: Done", "Read installed applications: Done", "Check package: Done"];
+        ["Check compatibility: Done", "Read package: Done", "Read SDK version: Done", "Read device info: Done", "Read unsigned application setting: Done", "Read installed applications: Done", "Check package: Done"];
 
     /// <summary>Runs the task the way the server does (fresh steps per run), so its steps end like in the task engine.</summary>
     private static Task Run(RecordingContext ctx, string? payload) =>
@@ -146,7 +146,7 @@ public sealed class AcapTaskPluginTests
         Assert.Empty(device.Writes);
         Assert.Equal("2.0.0", device.Apps["hello"].Version);
         Assert.Equal(
-            ["Check compatibility: Done", "Read package: Done", "Read device info: Done", "Read SDK version: Done", "Read unsigned application setting: Done", "Read installed applications: Done", "Check package: Failed", "Upload package: Skipped", "Verify installation: Skipped"],
+            ["Check compatibility: Done", "Read package: Done", "Read SDK version: Done", "Read device info: Done", "Read unsigned application setting: Done", "Read installed applications: Done", "Check package: Failed", "Upload package: Skipped", "Verify installation: Skipped"],
             StepRun.Lines(ctx.Steps));
         Assert.Equal(ex.Message, StepRun.Detail(ctx.Steps, "Check package"));
     }

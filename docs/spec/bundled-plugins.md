@@ -113,7 +113,9 @@ chosen cameras, exported as a PDF report (PDFsharp + MigraDoc, MIT).
   dropped 30 minutes after it ended (by a timer), and with the user's job when the host ends it (no re-download); a user
   builds at most 2 reports at once, a further one waits its turn ("Wait for your earlier reports to finish"); all
   finished PDFs together stay within 1 GB (the oldest finished ones are dropped first).
-- MCP ([mcp.md](mcp.md)): the read-only tool `oadm_snapshot_report_sources` (the tiles of 1 to 20 chosen cameras).
+- MCP ([mcp.md](mcp.md)): the read-only tool `oadm_snapshot_report_sources` (the tiles of 1 to 20 chosen cameras);
+  `oadm_snapshot_report_report_preview` / `_run` starts a report job, `oadm_snapshot_report_report_file(job_id)` hands out
+  its PDF as a file (decision 2026-11-15, [mcp.md](mcp.md) "Files").
 - Device groups: only cameras of the user's view ("All" = the view); reports are jobs of their user, another user's
   report id answers like an unknown one.
 
@@ -645,7 +647,6 @@ only while Edge storage is on.
   the POST body, never stored, logged or in a URL; retention 0..7,000 days (0 = no age limit).
 - Roles: "show" (Operator, Viewer), "Change storage settings" (`manage`, Operator yes), "Format and encrypt storage"
   (`format`, full device control, Operator no); both run methods audited.
-- MCP ([mcp.md](mcp.md)): the read-only tool `oadm_edge_storage_cards` (the last read, counts first, by page; reads no camera).
 - Device groups: one table per device scope; a group user reads and runs the tools only on the group's cameras (ids
   outside it refuse the whole request, NOT_FOUND); a user with all devices reads the chosen cameras that still exist
   (removed ones are skipped; runs stay refused as a whole).
@@ -730,13 +731,14 @@ their own, matched by the MAC address in the key), and changes the settings an a
 version and a valid license; the choices are read from one device.
 
 - Rules that must hold: before uploading it reads the package manifest and refuses ("Nothing was changed") a wrong
-  architecture, an AXIS OS outside the package's range (without a range: below its schema minimum), root apps on AXIS OS 12+ and a
-  downgrade without the explicit option; a license key is sent only to the device whose MAC address it names, for the
+  architecture, an AXIS OS outside the package's range (without a range: below its schema minimum), root apps on AXIS OS 12+, a
+  required SDK version below 3 above the device's, a manifest package on a device whose `info.cgi` lists neither `acap3`
+  nor `acap4-native` (missing data: no check) and a downgrade without the explicit option; a license key is sent only to the device whose MAC address it names, for the
   installed application's id and not expired (a device without a key: Done with warnings, nothing sent); activation with
   a license code is not offered (the device has no API for it, its web page asks Axis online). Several builds: one
   application, at most 16 files; one pure function (`AcapBuildChooser`) picks the build per device group in the dialog,
   the plan and the task (a person's or agent's choice, then the mapping file's rows, then automatic: architecture and
-  AXIS OS range fit, the newest version, the narrower range); a choice never overrides the architecture and AXIS OS
+  AXIS OS range fit, the newest version, the narrower range); a choice never overrides the architecture, AXIS OS and SDK
   checks; a group two builds fit equally is never decided by OADM (the dialog's table, `mapping` for agents; Install
   disabled until chosen); the task picks again from a fresh basicdeviceinfo, a device without a build is Done with
   warnings "No package for armv7hf.", nothing changed. A ZIP follows the shared rules of `EapZip` (only `.eap` and

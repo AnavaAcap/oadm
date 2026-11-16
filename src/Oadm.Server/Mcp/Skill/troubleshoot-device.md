@@ -15,5 +15,5 @@ Use it for "what is wrong with this camera?". It only reads, and it reads what O
    `oadm_vapix_command_preview`. Say why you ask the device.
 7. Report: the problem in one line, the facts that show it, the next step with the real name of the action in OADM.
 
-Status `Unreachable`: check its site (`oadm_sites_list`) before the device. `CredentialsRequired`: "Set the password in
-OADM." `CertificateChanged`: tell the user, never accept it for them.
+Status `Unreachable`: check its site (`oadm_sites_list`) before the device. `CredentialsRequired`: a login with
+`oadm_devices_credentials_preview` or `oadm_devices_login_preview`. `CertificateChanged`: tell the user, never accept it for them.

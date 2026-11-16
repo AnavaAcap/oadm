@@ -182,7 +182,7 @@ each app.
 One release workflow, `.github/workflows/release.yml`, only on release tags `v*.*.*` (e.g. `v0.0.1`); a job starts only
 when the jobs it needs passed:
 
-- `tests` (Windows, Linux, macOS, 30 min): `dotnet test` with the unit filter
+- `tests` (Windows, Linux, macOS, 45 min; decision 2026-11-15: macOS needs over 30 since the agent tools): `dotnet test` with the unit filter
   `Category!=Hardware&Category!=Perf&Category!=HardwareWrite&Category!=RealModel&Category!=Gpu`, one run without a retry, `--blame-hang-timeout 5m
   --blame-crash`: a crashed test host leaves a dump and its test sequence, uploaded as the artifact `test-results-<os>`
   when the step fails.

@@ -45,9 +45,10 @@ shows the chat.
 - **Client**: the panel. gRPC `AssistantService` (`src/Oadm.Contracts/Protos/assistant.proto`): `Chat` server-streaming
   (the answer's text as it comes, short tool lines, preview cards, pictures, tables, the offer to look in the Axis docs,
   the sources and the next questions,
-  the end of the answer), `Stop`, `Run`
-  (a preview's handle; streams the run's tasks like any task), `End`, `ListModels`, `GetSettings`, `SetSettings`, `Test`. Run goes
-  through the same tool registry (the run tool of the preview), not through the model.
+  the end of the answer), `Stop`, `Run` (a preview's handle and the card's secrets; the card follows the tasks through
+  the client's task stream), `RetryFailed`, `Download` (a file card's file, a new access key), `End`, `ListModels`,
+  `GetSettings`, `SetSettings`, `Test`. Run goes through the same tool registry (the run tool of the preview), not through
+  the model.
 
 ## What the user gives with a message
 
@@ -169,7 +170,7 @@ shows the chat.
   shown in the panel, never in the conversation, the notes or a request to the provider; a second fetch is refused. Copy
   chat names the card, never the key.
 - **Pictures**: a camera picture (`oadm_devices_snapshot`) shows in the answer, click to enlarge; never stored.
-- **Tables**: a device list the model got from a tool (`oadm_devices_search`, `oadm_selection`, `oadm_vulnerabilities`)
+- **Device tables**: a device list the model got from a tool (`oadm_devices_search`, `oadm_selection`, `oadm_vulnerabilities`)
   shows as a result card "7 devices" with a small table (name, address, model, status) where a click on a row selects
   the device in the device grid; when the tool's filter asked about a fact of the grid, the 4th column shows it instead
   of the status, named like its grid column (Clock, Certificate expires, SoC, Vulnerabilities:
@@ -177,8 +178,8 @@ shows the chat.
   matching id up to 10,000 comes with the table), **Copy as CSV** and **Save as CSV** in the card's header; the panel
   shows the first 8 rows, the message carries up to 50, then "+N more" below the table.
 - **Stop** ends the answer that is streaming; the conversation stays.
-- **Clear** (header, eraser icon; was New chat) empties it and starts a new conversation. **Copy chat** (icon in the header) copies the conversation as Markdown: questions, answers, tool
-  lines, notices, tables, pictures by device name and card summaries (title, count, what Run does, the state); only what
+- **Clear** (header, eraser icon) empties it and starts a new conversation. **Copy chat** (icon in the header) copies
+  the conversation as Markdown: questions, answers, tool lines, notices, tables, pictures by device name and card summaries (title, count, what Run does, the state); only what
   the panel shows, so never a secret.
 - **The empty panel**: the OADM mark, "What can I do for your devices?", chips with live counts of the client's devices
   ("1,284 devices", "12 offline", "3 with vulnerabilities"; only those above zero; a click asks about them), and at most
@@ -192,10 +193,9 @@ shows the chat.
   store is a link (teal): a click selects it in the device grid; the right button shows Select, Open live view and Open
   web interface as the role allows (the grid's checks). Found per word of the answer (O(text), independent of the device
   count).
-- **Tables**: device tables and Markdown tables have **Copy as CSV** and **Save as CSV** (icons in the card's header; a
-  Markdown table's card is titled with its row count, "3 rows"). A device table exports every device of the table the
-  client knows (up to 10,000) in the columns of Export devices, only for a role with Export devices; a Markdown table its
-  cells.
+- **Markdown tables** are cards too, titled with their row count ("3 rows"), with **Copy as CSV** and **Save as CSV** of
+  their cells. A device table's CSV holds every device of the table the client knows (up to 10,000) in the columns of
+  Export devices, only for a role with Export devices.
 - A user's first message after the panel opened shows once: "Your messages and the data the assistant reads go to
   <provider>." (not for Ollama).
 
@@ -241,7 +241,8 @@ online. Code: `Assistant/AssistantDocsLookup` (server), `AssistantDocsOfferItem`
 
 ## Settings (rail page **MCP & Assistant**, card **Assistant**, right of the card **MCP**)
 
-Administrators only; changes audited ("Changed assistant").
+Administrators only (an administrator's agent too: `oadm_assistant_settings_preview`, docs/spec/mcp.md); changes audited
+("Changed assistant").
 
 - **Turn on** / **Turn off**.
 - **Provider**: Anthropic, OpenAI, Ollama, or OpenAI-compatible (an address and a key: LM Studio, vLLM, Azure OpenAI).
@@ -287,7 +288,7 @@ Administrators only; changes audited ("Changed assistant").
 
 ## Limits
 
-Per login session one conversation at a time (a new chat ends the one before), one answer and one tool call at a time;
+Per login session one conversation at a time (a new one ends the one before), one answer and one tool call at a time;
 the model's calls that act outside OADM (the network scan of Add devices) at most 10 a minute per session like an MCP
 access key ("The assistant did this too often. Wait a minute."), camera pictures within the user's limit of every
 channel ("Too many pictures. Wait a minute."); a Run is the user's click and counts against neither; the daily limit
@@ -295,7 +296,7 @@ counts each message's estimate at its start and settles it at its end; a Stop se
 OADM's own failure in a tool is a failed tool line ("The call failed. Try again."), never told as the provider's; at most **Steps per answer**
 tool calls per message (default 20, then the model must answer without tools); tool answers at most 32 KB (the tools' own
 limit); the model's context is cut from the oldest messages when it grows too long (older turns are dropped, and
-within one message the older tool answers are shortened to 1,500 characters while the newest stays whole); a provider timeout of 120 s per
+within one message the older tool answers are shortened to 1,500 characters while the newest stays whole); a provider timeout of **Answer time** (default 120 s) per
 answer with all its rounds ("The provider did not answer. Try again."), 30 s for Test; a message at most 8,000
 characters with at most 10 files; at most 5 pictures per message to the model, and a picture never stays in the later
 context.
@@ -344,6 +345,5 @@ context.
 
 ## Open points
 
-- Voice: not planned.
 - Looking in the Axis docs: never run against a real provider yet (Anthropic's web fetch and OpenAI's Responses web
   search with the domain filter).

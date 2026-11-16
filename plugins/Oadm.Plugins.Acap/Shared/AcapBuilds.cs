@@ -181,15 +181,18 @@ public sealed record AcapBuildChoice(int Index, AcapPick Pick, IReadOnlyList<int
 /// manifest schema's minimum); among them the newest version, then the range that lies inside the others'; a build for any
 /// architecture only when no native one fits; a single package without rows is always used (its own checks decide);
 /// 3) the payload's choice decides only a group that 1) and 2) leave unclear, never one they decided or left without a
-/// package. A choice never overrides safety: the chosen build must fit the device's architecture and AXIS OS.
+/// package. A choice never overrides safety: the chosen build must fit the device's architecture and AXIS OS. With the device's
+/// own read (the dialog, the Applications page, the task) every candidate build must also fit its SDK
+/// (<see cref="AcapCompatibility.CheckSdk"/>); the cached data of a plan has no SDK facts, so the task checks them.
 /// </summary>
 public static class AcapBuildChooser
 {
     /// <summary>"Several packages fit: a.eap, b.eap."</summary>
     public static string SeveralFit(IEnumerable<string> names) => "Several packages fit: " + string.Join(", ", names) + ".";
 
+    /// <param name="device">The device's own read for the SDK rules; null: not checked here (<see cref="AcapCompatibility.Check"/> does).</param>
     public static AcapBuildChoice Choose(IReadOnlyList<AcapBuild> builds, AcapDeviceGroup group, IReadOnlyList<AcapPackageRule>? rules = null,
-        IReadOnlyList<AcapPackageMapping>? mapping = null, AcapUnmatched unmatched = AcapUnmatched.Automatic)
+        IReadOnlyList<AcapPackageMapping>? mapping = null, AcapUnmatched unmatched = AcapUnmatched.Automatic, AcapDeviceFacts? device = null)
     {
         ArgumentNullException.ThrowIfNull(builds);
         ArgumentNullException.ThrowIfNull(group);
@@ -199,8 +202,8 @@ public static class AcapBuildChooser
         }
 
         // A single package without a row for the group is always used: its own checks say whether it fits.
-        var choice = ByRows(builds, group, rules, unmatched)
-            ?? (builds.Count == 1 ? new(0, AcapPick.Chosen, [0], null, AcapBuildChoice.Automatic) : Automatic(builds, group));
+        var choice = ByRows(builds, group, rules, unmatched, device)
+            ?? (builds.Count == 1 ? new(0, AcapPick.Chosen, [0], null, AcapBuildChoice.Automatic) : Automatic(builds, group, device));
         if (!choice.IsUnclear || mapping?.FirstOrDefault(m => m.Matches(group)) is not { } mapped)
         {
             return choice;
@@ -209,11 +212,12 @@ public static class AcapBuildChooser
         var index = IndexOf(builds, mapped.File);
         return index < 0
             ? new(-1, AcapPick.None, [], $"The chosen package {mapped.File} is not part of this install.", AcapBuildChoice.ChosenByPerson)
-            : Fitting(builds, index, group, AcapBuildChoice.ChosenByPerson, string.Empty);
+            : Fitting(builds, index, group, AcapBuildChoice.ChosenByPerson, string.Empty, device);
     }
 
     /// <summary>The choice of the mapping's rows; null when no row matches and the mapping leaves the group to the automatic pick.</summary>
-    private static AcapBuildChoice? ByRows(IReadOnlyList<AcapBuild> builds, AcapDeviceGroup group, IReadOnlyList<AcapPackageRule>? rules, AcapUnmatched unmatched)
+    private static AcapBuildChoice? ByRows(IReadOnlyList<AcapBuild> builds, AcapDeviceGroup group, IReadOnlyList<AcapPackageRule>? rules, AcapUnmatched unmatched,
+        AcapDeviceFacts? device)
     {
         var matching = new List<int>();
         for (var i = 0; rules is not null && i < rules.Count; i++)
@@ -240,11 +244,14 @@ public static class AcapBuildChooser
 
         return files.Count == 0
             ? new(-1, AcapPick.None, [], $"{rows} of the mapping file names a package that is not part of this install.", rows + " of the mapping file")
-            : Fitting(builds, files[0], group, rows + " of the mapping file", $" from {rows.ToLowerInvariant()} of the mapping file");
+            : Fitting(builds, files[0], group, rows + " of the mapping file", $" from {rows.ToLowerInvariant()} of the mapping file", device);
     }
 
-    /// <summary>Why the package does not fit the group, null when it does (architecture and AXIS OS only; the rest is <see cref="AcapCompatibility.Check"/>).</summary>
-    public static string? Misfit(EapManifest package, AcapDeviceGroup group)
+    /// <summary>
+    /// Why the package does not fit the group, null when it does: architecture and AXIS OS, with <paramref name="device"/> also
+    /// the SDK (<see cref="AcapCompatibility.CheckSdk"/>); the rest is <see cref="AcapCompatibility.Check"/>.
+    /// </summary>
+    public static string? Misfit(EapManifest package, AcapDeviceGroup group, AcapDeviceFacts? device = null)
     {
         ArgumentNullException.ThrowIfNull(package);
         ArgumentNullException.ThrowIfNull(group);
@@ -261,8 +268,11 @@ public static class AcapBuildChooser
             }
         }
 
-        return OsMisfit(package, group.FirmwareVersion);
+        return OsMisfit(package, group.FirmwareVersion) ?? SdkMisfit(package, device)?.Fragment;
     }
+
+    private static (string Sentence, string Fragment)? SdkMisfit(EapManifest package, AcapDeviceFacts? device) =>
+        device is null ? null : AcapCompatibility.CheckSdk(package, device);
 
     private static string? OsMisfit(EapManifest package, string? firmware)
     {
@@ -281,12 +291,12 @@ public static class AcapBuildChooser
             : $"it needs AXIS OS {min} or later";
     }
 
-    private static AcapBuildChoice Fitting(IReadOnlyList<AcapBuild> builds, int index, AcapDeviceGroup group, string decidedBy, string from) =>
-        Misfit(builds[index].Package, group) is { } why
+    private static AcapBuildChoice Fitting(IReadOnlyList<AcapBuild> builds, int index, AcapDeviceGroup group, string decidedBy, string from, AcapDeviceFacts? device) =>
+        Misfit(builds[index].Package, group, device) is { } why
             ? new(-1, AcapPick.None, [], $"{builds[index].Name}{from} does not fit: {why}.", decidedBy)
             : new(index, AcapPick.Chosen, [index], null, decidedBy);
 
-    private static AcapBuildChoice Automatic(IReadOnlyList<AcapBuild> builds, AcapDeviceGroup group)
+    private static AcapBuildChoice Automatic(IReadOnlyList<AcapBuild> builds, AcapDeviceGroup group, AcapDeviceFacts? device)
     {
         var native = new List<int>();
         var any = new List<int>();
@@ -304,16 +314,24 @@ public static class AcapBuildChooser
         }
 
         // A package for any architecture is the last resort.
+        string? sdkReason = null;
         foreach (var tier in new[] { native, any })
         {
-            var fit = tier.Where(i => OsMisfit(builds[i].Package, group.FirmwareVersion) is null).ToList();
+            var osFit = tier.Where(i => OsMisfit(builds[i].Package, group.FirmwareVersion) is null).ToList();
+            var fit = osFit.Where(i => SdkMisfit(builds[i].Package, device) is null).ToList();
             if (fit.Count > 0)
             {
                 return Best(builds, fit, group.FirmwareVersion);
             }
+
+            if (sdkReason is null && osFit.Count > 0)
+            {
+                sdkReason = "No package: " + SdkMisfit(builds[osFit[0]].Package, device)!.Value.Sentence;
+            }
         }
 
-        var reason = native.Count == 0 && any.Count == 0 ? AcapCompatibility.NoPackageFor(group.Architecture)
+        var reason = sdkReason is not null ? sdkReason
+            : native.Count == 0 && any.Count == 0 ? AcapCompatibility.NoPackageFor(group.Architecture)
             : string.IsNullOrWhiteSpace(group.FirmwareVersion) || !AcapCompatibility.HasNumericVersion(group.FirmwareVersion) ? "No package for this device: its AXIS OS version is unknown."
             : $"No package for AXIS OS {group.FirmwareVersion.Trim()}.";
         return new(-1, AcapPick.None, [], reason, AcapBuildChoice.Automatic);

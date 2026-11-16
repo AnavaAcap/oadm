@@ -405,9 +405,8 @@ internal static class BackupTools
         var password = PasswordOf(call);
         var store = call.SecretStore ?? throw new InvalidOperationException("This registry has no secret channel.");
         var sealedPassword = store.Seal(call.Caller.BindingKey, password); // held encrypted until the file is fetched
-        var user = call.Caller.User;
         var calls = call.Calls;
-        var file = new PlannedDownload(plan.Name, "application/octet-stream", async ct =>
+        var file = new PlannedDownload(plan.Name, "application/octet-stream", async (user, ct) =>
             (await InProcessDownload.OpenAsync<BackupGrpcService, Proto.CreateBackupRequest>(calls, user, CreatePath, new Proto.CreateBackupRequest { Password = sealedPassword.Open() },
                 (s, r, w, c) => s.Create(r, w, c), ct).ConfigureAwait(false)).Content);
         return Task.FromResult(new JsonObject { ["file"] = ToolFiles.Offer(call, handles, file) });
@@ -418,10 +417,9 @@ internal static class BackupTools
     private static async Task<JsonObject> DownloadAsync(ToolCall call, ToolHandles handles)
     {
         var backup = await BackupAsync(call, call.Text("name")!).ConfigureAwait(false);
-        var user = call.Caller.User;
         var calls = call.Calls;
         var request = new Proto.BackupName { Name = backup.Name };
-        var file = new PlannedDownload(backup.Name, "application/octet-stream", async ct =>
+        var file = new PlannedDownload(backup.Name, "application/octet-stream", async (user, ct) =>
             (await InProcessDownload.OpenAsync<BackupGrpcService, Proto.BackupName>(calls, user, DownloadPath, request, (s, r, w, c) => s.Download(r, w, c), ct).ConfigureAwait(false)).Content)
         {
             Size = backup.Size,
@@ -534,10 +532,9 @@ internal static class BackupTools
 
     private static JsonObject SupportOffer(ToolCall call, ToolHandles handles)
     {
-        var user = call.Caller.User;
         var calls = call.Calls;
         var name = "oadm-support-" + DateTime.UtcNow.ToString("yyyyMMdd-HHmm", CultureInfo.InvariantCulture) + ".zip";
-        var file = new PlannedDownload(name, "application/zip", async ct =>
+        var file = new PlannedDownload(name, "application/zip", async (user, ct) =>
             (await InProcessDownload.OpenAsync<SupportGrpcService, Proto.Empty>(calls, user, SupportPath, new Proto.Empty(), (s, r, w, c) => s.CreateReport(r, w, c), ct).ConfigureAwait(false)).Content)
         {
             AuditedBySource = true, // "Created support report"

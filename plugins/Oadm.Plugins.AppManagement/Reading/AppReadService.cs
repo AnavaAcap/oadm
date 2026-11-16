@@ -412,12 +412,14 @@ internal sealed partial class AppReadService : IAsyncDisposable
             // at the same time within the device's slot and timeout.
             var allowUnsigned = api.TryGetAllowUnsignedAsync(timeout.Token);
             var embeddedDevelopment = api.TryGetEmbeddedDevelopmentVersionAsync(timeout.Token);
-            await Task.WhenAll(allowUnsigned, embeddedDevelopment).ConfigureAwait(false);
+            var sdks = api.TryGetSupportedSdksAsync(timeout.Token);
+            await Task.WhenAll(allowUnsigned, embeddedDevelopment, sdks).ConfigureAwait(false);
             return (row with
             {
                 Applications = apps,
                 AllowUnsigned = await allowUnsigned.ConfigureAwait(false),
                 EmbeddedDevelopmentVersion = await embeddedDevelopment.ConfigureAwait(false),
+                SupportedSdks = await sdks.ConfigureAwait(false),
                 ReadUtc = _options.Time.GetUtcNow(),
             }, false);
         }

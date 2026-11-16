@@ -101,9 +101,8 @@ internal static class ToolFiles
             return null;
         }
 
-        var user = call.Caller.User;
         var calls = call.Calls;
-        return new PlannedDownload(file.FileName, file.ContentType, async ct =>
+        return new PlannedDownload(file.FileName, file.ContentType, async (user, ct) =>
             (await InProcessDownload.OpenAsync<TaskGrpcService, Proto.TaskIdRequest>(calls, user, ResultDownloadPath, new Proto.TaskIdRequest { TaskId = file.TaskId },
                 (s, r, w, c) => s.DownloadResult(r, w, c), ct).ConfigureAwait(false)).Content)
         {
@@ -116,10 +115,9 @@ internal static class ToolFiles
     public static PlannedDownload PluginFile(ToolCall call, string pluginId, string method, string? payloadJson, string fileName, string contentType, long? size)
     {
         ArgumentNullException.ThrowIfNull(call);
-        var user = call.Caller.User;
         var calls = call.Calls;
         var request = new Proto.InvokeRequest { PluginId = pluginId, Method = method, PayloadJson = payloadJson ?? string.Empty };
-        return new PlannedDownload(fileName, contentType, async ct =>
+        return new PlannedDownload(fileName, contentType, async (user, ct) =>
             (await InProcessDownload.OpenAsync<PluginGrpcService, Proto.InvokeRequest>(calls, user, PluginDownloadPath, request,
                 (s, r, w, c) => s.Download(r, w, c), ct).ConfigureAwait(false)).Content)
         {

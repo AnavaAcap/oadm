@@ -273,6 +273,25 @@ public sealed class DialogTests : IDisposable
     }
 
     [Fact]
+    public async Task The_SDK_facts_of_each_read_device_take_part_in_the_check()
+    {
+        var ctx = new FakePageContext().WithEmptyServer();
+        var cv = Device("10.0.0.1") with { SupportedSdks = ["acap4-cv"] };
+        var unknown = Device("10.0.0.2"); // same model and AXIS OS, info.cgi not answered: no check
+        var old = Device("10.0.0.3") with { EmbeddedDevelopmentVersion = "2.18", SupportedSdks = ["acap3", "acap4-native"] };
+        using var vm = new InstallAppsViewModel(ctx, [cv, unknown, old]);
+
+        await vm.LoadFilesAsync([Eap("hello.eap", EapBuilder.Manifest())]);
+
+        var rows = vm.Rows.ToDictionary(r => r.DeviceId);
+        Assert.True(rows[cv.DeviceId].IsError);
+        Assert.Equal("This device does not support ACAP 3 or ACAP 4 applications.", rows[cv.DeviceId].Details);
+        Assert.True(rows[unknown.DeviceId].IsOk);
+        Assert.True(rows[old.DeviceId].IsOk);
+        Assert.Equal(2, vm.FitCount);
+    }
+
+    [Fact]
     public async Task A_failed_upload_keeps_the_files_for_the_next_try()
     {
         var ctx = new FakePageContext().WithEmptyServer();

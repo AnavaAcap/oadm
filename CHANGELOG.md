@@ -9,14 +9,14 @@ Each entry is one short line in plain words (what the user gets, not how); no ne
 
 ### Added
 
-- MCP server: agents such as Claude Code work with your devices and tasks through access keys, set up on the new page MCP & Assistant.
+- MCP server: AI agents such as Claude Code work in OADM with an access key of their own, set up on the new page MCP & Assistant.
+- Assistant: chat with an AI model about your devices in OADM; it prepares changes and you press Run.
+- Agents and the Assistant can do what you can in OADM, with your rights, and the AI never sees a password.
+- Applications: install several builds of one application at once, also from a vendor's ZIP; each camera gets the one that fits.
 - Tasks: a run with settings the task does not accept starts no task and says why.
 - Audit log: adding devices is recorded, also by an agent.
-- Assistant: chat with an AI model about your devices in OADM; it prepares changes and you press Run.
-- Assistant and agents do what you can in OADM with your rights, from reading the settings of many cameras to configuring them, and the AI never sees a password.
-- Plugin SDK 0.13.0: the certificates of the servers OADM runs, and tasks and tools for MCP (payload schema, payload check, plan, result files, tool files, tool secrets and uploads).
-- Applications: install several builds of one application at once, each camera gets the one for its processor and AXIS OS, also from a vendor's ZIP with its mapping file and by agents.
-- Applications: a vendor's mapping file can keep every camera it does not list from getting a package, also with a single build.
+- Plugin SDK 0.13.0: tools, task inputs, secrets and files for AI agents, and the certificates of the servers OADM runs.
+- Applications: a vendor's mapping file can keep the cameras it does not list from getting a package.
 
 ## [5.0.0] - 2026-11-13
 

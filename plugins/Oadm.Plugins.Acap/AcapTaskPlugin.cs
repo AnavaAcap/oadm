@@ -434,12 +434,31 @@ public sealed class AcapTaskPlugin : ITaskPlugin, ITaskPluginQuery
             throw new NotSupportedException($"Unknown query method \"{method}\".");
         }
 
-        // Read-only: API list, basicdeviceinfo, param.cgi list, config.cgi get, list.cgi.
+        // Read-only: API list, basicdeviceinfo, param.cgi list, info.cgi, config.cgi get, list.cgi.
         (await ctx.Vapix.GetApiListAsync(ct).ConfigureAwait(false)).Require(AcapPlugin.ApplicationApiId, AcapPlugin.ApplicationApiMinVersion);
         var api = new ApplicationApiClient(ctx.Vapix);
         var facts = await api.GetDeviceFactsAsync(ct).ConfigureAwait(false);
         var apps = await api.ListAsync(ct).ConfigureAwait(false);
         return new ListApplicationsResult { Device = facts, Applications = apps }.ToJson();
+    }
+
+    /// <summary>The detail of Read SDK version: "2.18; ACAP 3, ACAP 4, computer vision", "Not reported" when the device says neither.</summary>
+    public static string SdkText(string? version, IReadOnlyList<string>? sdks)
+    {
+        var kinds = sdks is null ? null : string.Join(", ", sdks.Select(s => s switch
+        {
+            "acap3" => "ACAP 3",
+            "acap4-native" => "ACAP 4",
+            "acap4-cv" => "computer vision",
+            _ => s,
+        }));
+        return (string.IsNullOrWhiteSpace(version) ? null : version.Trim(), kinds) switch
+        {
+            ({ } v, { } k) => $"{v}; {k}",
+            ({ } v, null) => v,
+            (null, { } k) => k,
+            _ => "Not reported",
+        };
     }
 
     /// <summary>Step names (see README.md).</summary>
@@ -476,7 +495,7 @@ public sealed class AcapTaskPlugin : ITaskPlugin, ITaskPluginQuery
         ArgumentNullException.ThrowIfNull(device);
         var payload = AcapPayload.ParseShared(payloadJson);
         string[] license = payload.LicenseKeys.Count > 0 ? [Steps.CheckLicense, Steps.InstallLicense, Steps.VerifyLicense] : [];
-        string[] install = [Steps.CheckCompatibility, Steps.ReadPackage, Steps.ReadDeviceInfo, Steps.ReadDevelopmentVersion, Steps.ReadUnsignedSetting, Steps.ReadApplications, Steps.CheckPackage, Steps.Upload, Steps.VerifyInstallation, .. license];
+        string[] install = [Steps.CheckCompatibility, Steps.ReadPackage, Steps.ReadDevelopmentVersion, Steps.ReadDeviceInfo, Steps.ReadUnsignedSetting, Steps.ReadApplications, Steps.CheckPackage, Steps.Upload, Steps.VerifyInstallation, .. license];
         string[] planned = payload.Action switch
         {
             AcapAction.Install when payload.StartAfterInstall => [.. install, Steps.Start, Steps.VerifyState],
@@ -535,14 +554,24 @@ public sealed class AcapTaskPlugin : ITaskPlugin, ITaskPluginQuery
                 : $"{first.AppName} {first.Version}, {first.Architecture ?? "any architecture"}");
         }
 
-        // One step per device request. The build is chosen again from the fresh read of the device.
+        // One step per device request (read-only). The build is chosen again from the fresh read of the device, its SDK included.
+        string? embdev;
+        IReadOnlyList<string>? sdks;
+        using (var step = ctx.BeginStep(Steps.ReadDevelopmentVersion))
+        {
+            embdev = await client.TryGetEmbeddedDevelopmentVersionAsync(ct).ConfigureAwait(false);
+            sdks = await client.TryGetSupportedSdksAsync(ct).ConfigureAwait(false);
+            step.Complete(SdkText(embdev, sdks));
+        }
+
         BasicDeviceInfo info;
         int chosen;
         using (var step = ctx.BeginStep(Steps.ReadDeviceInfo))
         {
             info = await ctx.Vapix.GetBasicDeviceInfoAsync(ct).ConfigureAwait(false);
             var group = new AcapDeviceGroup(string.IsNullOrWhiteSpace(info.ProdNbr) ? device.Model : info.ProdNbr, info.Version, info.Architecture, info.Soc, info.ProdShortName);
-            var choice = AcapBuildChooser.Choose(set.Builds, group, set.Rules, payload.Mapping, set.Unmatched);
+            var sdkFacts = new AcapDeviceFacts { Architecture = info.Architecture, FirmwareVersion = info.Version, EmbeddedDevelopmentVersion = embdev, SupportedSdks = sdks };
+            var choice = AcapBuildChooser.Choose(set.Builds, group, set.Rules, payload.Mapping, set.Unmatched, sdkFacts);
             if (choice.IsUnclear || (!choice.IsChosen && choice.DecidedBy == AcapBuildChoice.ChosenByPerson))
             {
                 // Nobody chose for this group, or the choice does not fit what the device is now.
@@ -581,13 +610,6 @@ public sealed class AcapTaskPlugin : ITaskPlugin, ITaskPluginQuery
         var package = set.Builds[chosen].Package;
         var (fileName, fileSize) = set.SizeOf(chosen);
 
-        string? embdev;
-        using (var step = ctx.BeginStep(Steps.ReadDevelopmentVersion))
-        {
-            embdev = await client.TryGetEmbeddedDevelopmentVersionAsync(ct).ConfigureAwait(false);
-            step.Complete(embdev ?? "Not reported");
-        }
-
         bool? allowUnsigned;
         using (var step = ctx.BeginStep(Steps.ReadUnsignedSetting))
         {
@@ -605,6 +627,7 @@ public sealed class AcapTaskPlugin : ITaskPlugin, ITaskPluginQuery
             Architecture = info.Architecture,
             FirmwareVersion = info.Version,
             EmbeddedDevelopmentVersion = embdev,
+            SupportedSdks = sdks,
             AllowUnsigned = allowUnsigned,
         };
 
@@ -784,9 +807,16 @@ public sealed class AcapTaskPlugin : ITaskPlugin, ITaskPluginQuery
             {
                 return await EapZip.OpenBuildAsync(stream, Zip.Name, ZipBuilds[index].EntryName, ct).ConfigureAwait(false);
             }
-            catch (InvalidEapException ex)
+            catch (Exception ex)
             {
-                throw new InvalidOperationException(ex.Message + " Nothing was changed.", ex);
+                // The ZIP could not be opened: its file is closed here (an archive that opened closed it already).
+                await stream.DisposeAsync().ConfigureAwait(false);
+                if (ex is InvalidEapException invalid)
+                {
+                    throw new InvalidOperationException(invalid.Message + " Nothing was changed.", invalid);
+                }
+
+                throw;
             }
         }
     }

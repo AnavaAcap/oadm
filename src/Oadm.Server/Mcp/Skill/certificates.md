@@ -19,4 +19,5 @@ Use it to see the certificates OADM holds and to create new ones. Private keys n
 6. After the run, check with `oadm_pki_certificates` and `oadm_devices_summary` by status. `CertificateChanged` means a
    device now shows another certificate than OADM trusts. Tell the user. Do not accept it for them.
 
-Importing a CA with its key, removing a CA and PKI settings are done in OADM only.
+CAs (create, import, delete, back up a key) and PKI policies are tools of PKI too, each a preview and a run; a CA key
+backup's password goes through the secret command (see "Passwords").

@@ -765,13 +765,15 @@ public sealed class RecipientTests
         httpSettings["recipient"] = http.Id.ToString();
         var (httpOk, httpMessage) = await rig.Runner.TestAsync(SendHttpAction.ActionId, httpSettings, "Gate", null, null, null, null, CancellationToken.None);
         Assert.False(httpOk);
-        Assert.Contains("127.0.0.1 cannot be reached", httpMessage, StringComparison.Ordinal);
+        // The error names the target the action got; a refused connection says "cannot be reached", one the OS drops (macOS
+        // under load) "did not answer".
+        Assert.True(httpMessage.Contains("127.0.0.1 cannot be reached", StringComparison.Ordinal) || httpMessage.Contains("127.0.0.1 did not answer", StringComparison.Ordinal), httpMessage);
 
         var mailSettings = ActionSettings.Defaults(new SendEmailAction().Fields);
         mailSettings["recipient"] = mail.Id.ToString();
         var (mailOk, mailMessage) = await rig.Runner.TestAsync(SendEmailAction.ActionId, mailSettings, "Gate", null, null, null, null, CancellationToken.None);
         Assert.False(mailOk);
-        Assert.Contains($"127.0.0.1:{port} cannot be reached", mailMessage, StringComparison.Ordinal);
+        Assert.True(mailMessage.Contains($"127.0.0.1:{port} cannot be reached", StringComparison.Ordinal) || mailMessage.Contains($"127.0.0.1:{port} did not answer", StringComparison.Ordinal), mailMessage);
     }
 
     [Fact]

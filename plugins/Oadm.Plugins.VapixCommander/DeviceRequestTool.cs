@@ -317,9 +317,22 @@ internal static partial class DeviceRequestTool
         var level = RequestSafety.Of(command, rendered);
         var target = RequestSafety.Target("/" + rendered.RelativeUri).Path;
         var restart = level == SafetyLevel.Dangerous && target == "/axis-cgi/restart.cgi"; // a restart is fine (user decision 2026-11-15)
-        var dangerous = level == SafetyLevel.Dangerous ? !restart : level == SafetyLevel.Write && IsLockOutPath(target);
+        var dangerous = level == SafetyLevel.Dangerous ? !restart : level == SafetyLevel.Write && (IsLockOutPath(target) || (json is null && IsLockOutXml(body)));
         return (command, rendered, level, dangerous, restart);
     }
+
+    /// <summary>
+    /// An XML body (a SOAP request to /vapix/services) whose element names name accounts, the network, certificates, 802.1X,
+    /// AXIS OS or a reset ("DeleteUsers", "SetNetworkInterfaces", "SetSystemFactoryDefault"): the path alone says nothing then.
+    /// </summary>
+    internal static bool IsLockOutXml(string? body) =>
+        body is not null && XmlName().Matches(body).Any(m => LockOutXmlWords.Any(w => m.Groups["n"].Value.Contains(w, StringComparison.OrdinalIgnoreCase)));
+
+    /// <summary>Parts of the element names of a changing SOAP request that can lock OADM out of a device or break it.</summary>
+    private static readonly string[] LockOutXmlWords =
+    [
+        "user", "network", "ipaddress", "dot1x", "8021x", "certificate", "accesspolic", "factorydefault", "firmware", "upgrade", "restoresystem", "https",
+    ];
 
     /// <summary>A path whose words name accounts, the network, HTTPS, 802.1X, certificates, AXIS OS or a reset (judged as the device reads it).</summary>
     internal static bool IsLockOutPath(string target) =>
@@ -581,6 +594,10 @@ internal static partial class DeviceRequestTool
 
     [GeneratedRegex(@"(?<k>[A-Za-z_][A-Za-z0-9_:.\-]*)=""(?<v>[^""]*)""", RegexOptions.CultureInvariant)]
     private static partial Regex XmlAttribute();
+
+    /// <summary>The local name of every opening XML element.</summary>
+    [GeneratedRegex(@"<\s*(?:[A-Za-z_][A-Za-z0-9_.\-]*:)?(?<n>[A-Za-z_][A-Za-z0-9_.\-]*)", RegexOptions.CultureInvariant)]
+    private static partial Regex XmlName();
 
     // ---- the records ----
 

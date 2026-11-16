@@ -145,7 +145,7 @@ public sealed class McpTransferTests
     {
         var time = new FakeTimeProvider(DateTimeOffset.UtcNow);
         var handles = new ToolHandles(time);
-        var file = new PlannedDownload("a.csv", "text/csv", _ => Task.FromResult<Stream>(new MemoryStream([1]))) { Size = 1 };
+        var file = new PlannedDownload("a.csv", "text/csv", (_, _) => Task.FromResult<Stream>(new MemoryStream([1]))) { Size = 1 };
         var reference = handles.AddOffer("key-a", file);
         Assert.Null(handles.FindOffer("key-b", reference));
         Assert.Same(file, handles.FindOffer("key-a", reference));
@@ -227,6 +227,30 @@ public sealed class McpTransferTests
         });
         var noExport = await server.CreateKeyAsync(name: "no-export", roleId: saved.Roles.Single(r => r.Name == "No export").Id);
         Assert.DoesNotContain("oadm_devices_export", await server.ToolNamesAsync(noExport));
+    }
+
+    [Fact]
+    public async Task AFileIsMadeWithTheRightsOfTheKeyWhenItsLinkIsFetchedNotWhenItWasOffered()
+    {
+        await using var server = await StartAsync();
+        await DeviceServiceTests.AddDeviceAsync(server.Host, "10.63.0.1", 6301);
+        var roles = new Proto.RoleService.RoleServiceClient(server.Host.Invoker);
+        var saved = await roles.SaveRolesAsync(new Proto.SaveRolesRequest
+        {
+            Roles = { new Proto.RoleChange { Name = "Compliance reader", Permissions = { HostPermissions.ComplianceView } } },
+        });
+        var role = saved.Roles.Single(r => r.Name == "Compliance reader");
+        var key = await server.CreateKeyAsync(name: "compliance-reader", roleId: role.Id);
+        var export = await server.ToolAsync(key, "oadm_compliance_export", new JsonObject { ["filter"] = new JsonObject() });
+        var link = await server.ToolAsync(key, ToolFiles.LinkTool, new JsonObject { ["file_ref"] = export["file"]!["file_ref"]!.GetValue<string>() });
+
+        // The administrator takes the right away before the link is fetched: the file is no longer made for this key.
+        await roles.SaveRolesAsync(new Proto.SaveRolesRequest
+        {
+            Roles = { new Proto.RoleChange { Id = role.Id, Name = role.Name, Permissions = { HostPermissions.TagsAssign } } },
+        });
+        using var fetched = await SendAsync(server, HttpMethod.Get, key, link["url"]!.GetValue<string>());
+        Assert.Equal(HttpStatusCode.Forbidden, fetched.StatusCode);
     }
 
     [Fact]

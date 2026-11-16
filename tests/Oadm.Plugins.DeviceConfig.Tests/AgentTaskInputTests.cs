@@ -243,7 +243,7 @@ public sealed class AgentTaskInputTests
     }
 
     [Fact]
-    public async Task Create_reads_the_device_and_logs_the_file_without_writing_anything()
+    public async Task Create_reads_the_device_and_keeps_the_file_as_the_result_without_writing_anything()
     {
         var camera = new ConfigureCamera();
         var rule = camera.Rules[0].Name;
@@ -275,9 +275,20 @@ public sealed class AgentTaskInputTests
         Assert.Empty(camera.Updates);
     }
 
-    /// <summary>The file of a task's log put together again from its parts.</summary>
+    /// <summary>The task's result file (one per task, text), with its line in the task log and never its text there.</summary>
     private static string FileOf(RecordingContext ctx)
     {
+        var (name, type, bytes) = ctx.ResultFile ?? throw new Xunit.Sdk.XunitException("The task kept no result file.");
+        Assert.Equal("text/plain", type);
+        Assert.DoesNotContain(ctx.Logs, l => l.Message.StartsWith("Part ", StringComparison.Ordinal));
+        Assert.Contains(ctx.Logs, l => l.Message.StartsWith("File " + name + ":", StringComparison.Ordinal) && l.Message.Contains("SHA-256", StringComparison.Ordinal));
+        return new System.Text.UTF8Encoding(false).GetString(bytes).TrimStart('\uFEFF');
+    }
+
+    /// <summary>The file of a task's log put together again from its parts (a host without result files).</summary>
+    private static string LoggedFileOf(RecordingContext ctx)
+    {
+        Assert.Null(ctx.ResultFile);
         var parts = ctx.Logs.Select(l => l.Message).Where(m => m.StartsWith("Part ", StringComparison.Ordinal)).ToList();
         Assert.NotEmpty(parts);
         Assert.All(parts, p => Assert.True(p.Length <= 2000));
@@ -288,7 +299,7 @@ public sealed class AgentTaskInputTests
     // ---- Export configuration ----
 
     [Fact]
-    public async Task Export_takes_no_settings_and_logs_the_devices_export()
+    public async Task Export_takes_no_settings_and_keeps_the_devices_export_as_the_result()
     {
         var task = new ExportConfigTask();
         Assert.Empty(task.ValidatePayload("{}", Caller));
@@ -302,6 +313,15 @@ public sealed class AgentTaskInputTests
         Assert.Equal("P3265-V", exported["metadata"]!["prodNbr"]!.GetValue<string>());
         Assert.Empty(camera.Imports);
         Assert.StartsWith("10.0.0.48_B8A44F631339_P3265-V_config.json, ", StepRun.Detail(ctx.Steps, ExportConfigTask.Steps.Export), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Export_on_a_host_without_result_files_writes_the_file_into_the_task_log()
+    {
+        var camera = new ConfigCamera();
+        var ctx = new RecordingContext(camera, new MemoryUploads()) { KeepsResultFiles = false };
+        await StepRun.RunAsync(ctx.Steps, () => new ExportConfigTask().ExecuteAsync(ctx, new FakeDevice(), "{}", CancellationToken.None));
+        Assert.Equal("P3265-V", JsonNode.Parse(LoggedFileOf(ctx))!["metadata"]!["prodNbr"]!.GetValue<string>());
     }
 
     [Fact]

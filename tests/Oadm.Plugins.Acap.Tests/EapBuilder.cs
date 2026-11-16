@@ -8,10 +8,11 @@ namespace Oadm.Plugins.Acap.Tests;
 internal static class EapBuilder
 {
     public static string Manifest(string appName = "hello", string version = "1.2.0", string? architecture = "aarch64",
-        string schema = "1.7.1", string? osMin = null, string? osMax = null, string? user = null, string friendlyName = "Hello World", string vendor = "Acme")
+        string schema = "1.7.1", string? osMin = null, string? osMax = null, string? user = null, string friendlyName = "Hello World", string vendor = "Acme", string? embeddedSdk = "3.0")
     {
         var arch = architecture is null ? string.Empty : $"\"architecture\": \"{architecture}\",";
         var os = osMin is null && osMax is null ? string.Empty : $", \"compatibleOsVersions\": [{{\"min\": \"{osMin}\", \"max\": \"{osMax}\"}}]";
+        var sdk = embeddedSdk is null ? string.Empty : $"\"embeddedSdkVersion\": \"{embeddedSdk}\",";
         var usr = user is null ? string.Empty : $", \"user\": {{\"username\": \"{user}\", \"group\": \"sdk\"}}";
         return $$"""
             {
@@ -22,7 +23,7 @@ internal static class EapBuilder
                   "friendlyName": "{{friendlyName}}",
                   "vendor": "{{vendor}}",
                   {{arch}}
-                  "embeddedSdkVersion": "3.0",
+                  {{sdk}}
                   "runMode": "never",
                   "version": "{{version}}"{{os}}{{usr}}
                 }

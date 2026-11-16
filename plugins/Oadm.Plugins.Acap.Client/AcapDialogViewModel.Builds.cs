@@ -116,7 +116,8 @@ public sealed partial class AcapDialogViewModel
             }
             else
             {
-                byKey[key] = (group, 1, AcapBuildChooser.Choose(builds, group, _rules, unmatched: _unmatched));
+                // The SDK facts of the group's first row when it was read (one model and AXIS OS report the same); the rows check their own.
+                byKey[key] = (group, 1, AcapBuildChooser.Choose(builds, group, _rules, unmatched: _unmatched, device: rows[i].State?.Device));
             }
         }
 
@@ -183,7 +184,7 @@ public sealed partial class AcapDialogViewModel
                 continue;
             }
 
-            var choice = AcapBuildChooser.Choose(builds, AcapDeviceGroup.Of(state.Device, row.Device.Device.Model), _rules, mapping, _unmatched);
+            var choice = AcapBuildChooser.Choose(builds, AcapDeviceGroup.Of(state.Device, row.Device.Device.Model), _rules, mapping, _unmatched, state.Device);
             var preview = AcapCompatibility.Preview(builds, choice, state.Device, state.Applications, AllowDowngrade);
             row.PackageArchitecture = preview.PackageArchitecture;
             row.IsOk = preview.IsOk;

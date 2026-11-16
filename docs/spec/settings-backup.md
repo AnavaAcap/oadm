@@ -119,7 +119,7 @@ Core `Oadm.Core.Backup` (`BackupFile`, `BackupArchive`), server `Oadm.Server.Bac
   from file (uploaded first) or a server backup's Restore (dialog: password, Check shows the counts, Restore after a
   confirmation naming the running tasks), Automatic backups (Save is secondary: one accent button per view), the list with
   Download, Restore, Delete (red, confirmed), the last automatic backup and the last restore report.
-- **AI agents** (decision 2026-11-15, replaces "Backups stay GUI only"; `docs/spec/mcp.md` "Administration as built"): an
+- **AI agents** (decision 2026-11-15, `docs/spec/mcp.md` "Administration as built"): an
   administrator's agent sets the automatic backups, backs up now, lists, downloads and deletes kept backups and restores one,
   each change a preview and a run of these methods. Every backup password comes through the secret channel, typed twice
   where the card asks twice; a backup leaves only as a file of a download link (the Assistant: a file card), a backup to
