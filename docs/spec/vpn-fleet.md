@@ -19,9 +19,22 @@ every device, and a WireGuard camera needs its own key pair and tunnel address.
   app's `status.json`, NetBird `api/status`, WireGuard Server `status`, WireGuard the app's lines of
   `systemlog.cgi`). One row per VPN app and device, or one row "No VPN app" or with why the device was not read.
   One table per device scope.
+- Table and events (100,000 devices): the server keeps the table per device scope, by device. An event never carries the
+  whole table: `rows` holds the new rows of at most 200 devices (a read sends them as the devices are read, a save the
+  one camera; a device without rows left the table), `state` only whether a read runs, the GitHub problem and Cleared
+  (the scope's devices changed: the table was emptied). `getState` answers in pages of at most 5,000 devices in id order
+  (`After`, `NextAfter`). Every change has a version; the page keeps one per device, so the pages and the events of the
+  same time apply in any order. The page reads the events of a burst off the UI thread and applies them in one batch:
+  rows in place (one view per device and app), one reset only when rows came or went or the search shows other rows; the
+  selection and the open panel stay. Address sorts numerically; the search looks in address, model, app, status, VPN
+  address and details.
 - A row opens the camera's panel: the app's parameters (param.cgi of the app's group) with labels, Save for this camera
-  only, the version and **Upgrade to x.y.z**, **What's new** (the GitHub release page, nothing else is opened). A camera
-  without a VPN app offers to install one.
+  only, the version and **Upgrade to x.y.z**, **What's new** (the GitHub release page; the page opens nothing else, its
+  view model checks the address). A camera without a VPN app offers to install one. A field's error shows below it once
+  it was edited or left; a profile file that cannot be the profile (also one larger than 256 KB, which is not read) shows
+  its error below the profile field. **New key pair** (a WireGuard camera, never the hub) asks first, then the server
+  makes the key pair and writes the private key to this camera only (method `newKeyPair`: the checks, write, audit and
+  hub update of a save, permission `connect`); the page gets the public key.
 - **Install or upgrade** and **Set up many cameras** open a wizard (`ui:WizardSteps`, like Configure devices): 1 the app
   and its newest version on GitHub or packages on this computer (below), or the VPN and its settings; 2 the chosen cameras in a table with a tick each, the installed
   version and what the action does to the camera ("Upgrade 1.104.6 to 1.104.7", "App not installed"), a search, and
@@ -30,7 +43,7 @@ every device, and a WireGuard camera needs its own key pair and tunnel address.
   changed; 3 what happens to how many cameras, a warning for ticked cameras whose tasks would fail, and Start, which
   names the count. The wizard closes once the tasks started; a refused start stays open with the reason. The set up
   form is new in every wizard and its keys are cleared once sent. One camera's Upgrade and Install stay in its panel.
-- **Packages on this computer** (the maintainer's review: OADM without internet): the user picks the `.eap` files of one
+- **Packages on this computer** (OADM without internet): the user picks the `.eap` files of one
   release (at most 8, `LocalPackages`). The page reads them with the `.eap` reader of Applications (ACAP) and refuses
   another app or several versions before anything is uploaded; the cameras step marks cameras no file fits (the same
   choice as below, on the cached architecture and AXIS OS) and does not tick them. Start uploads the files
@@ -60,7 +73,8 @@ every device, and a WireGuard camera needs its own key pair and tunnel address.
   hosts; only `.eap` files below the app's own `releases/download/` count; at most 200 MB; the SHA-256 GitHub publishes
   is checked before a package is used. Packages are kept in the plugin's data folder (`packages/`). The server needs
   outbound HTTPS to those hosts; without it the page says why and the rest works.
-- **WireGuard**: key pairs are made on the server (X25519, RFC 7748). With a camera running WireGuard Server as hub the
+- **WireGuard**: key pairs are made on the server (X25519, RFC 7748), also New key pair of the panel; a private key
+  never reaches the client. With a camera running WireGuard Server as hub the
   plugin reads the hub's key, network, port and public address, gives each camera the lowest free address (its earlier
   one when it is still free; the hub's other peers keep theirs) and adds the cameras to the hub's `Peers` (records it
   cannot read are kept). One WireGuard run at a time. A new key saved on a camera behind a hub goes to the hub.
@@ -73,7 +87,7 @@ every device, and a WireGuard camera needs its own key pair and tunnel address.
 - `connect` "Change VPN settings": save a camera's settings, set up many cameras. Off for Operator.
 - `install` "Install and upgrade VPN apps". Off for Operator.
 
-Saves, set ups and installs are audited (app, setting names, device counts; never a value). Users with a device group
+Saves, new key pairs, set ups and installs are audited (app, setting names, device counts; never a value). Users with a device group
 reach only their devices (`PluginCanary` for every method and tool).
 
 ## MCP
