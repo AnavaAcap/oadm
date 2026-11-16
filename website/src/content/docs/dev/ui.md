@@ -249,7 +249,7 @@ task's menu icon, a toolbar button) takes the key without `Icon.` (`IconKey="ref
 `activity`, `add`, `app`, `arrowDown`, `arrowUp`, `arrowUpRight`, `audit`, `barChart`, `bell`, `braces`, `calendarClock`, `cancel`, `check`, `chevronDown`, `chevronLeft`, `chevronRight`,
 `chevronUp`, `circle`, `circleCheck`, `clipboardCheck`, `clock`, `close`, `cloud`, `cloudCheck`, `columns`, `command`, `compare`, `copy`,
 `crossing`, `deleteAll`, `details`, `devices`, `download`, `edit`, `eraser`, `export`, `externalLink`, `eye`, `eyeOff`,
-`file`, `filter`, `firmware`, `flame`, `flow`, `focus`, `focusArea`, `folder`, `gauge`, `globe`, `grid`, `gridAdd`,
+`file`, `filter`, `firmware`, `flame`, `flow`, `focus`, `focusArea`, `folder`, `gauge`, `globe`, `globeLock`, `grid`, `gridAdd`,
 `groupBy`, `hardDrive`, `hardDriveDownload`, `hash`, `help`, `hold`, `home`, `hourglass`, `identify`, `info`, `key`, `layers`, `lightbulb`,
 `lock`, `lockOpen`, `log`, `logout`, `logs`, `maximize`, `merge`, `metronome`, `minimize`, `more`, `network`, `panelClose`,
 `panelOpen`, `pause`, `pin`, `plugin`, `polygon`, `range`, `redo`, `refresh`, `remove`, `restart`, `rotateCcw`, `route`, `save`, `scan`,
