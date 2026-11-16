@@ -107,6 +107,11 @@ public sealed class WizardTests
     public async Task A_refused_start_stays_open_with_the_reason()
     {
         var (page, server, _) = await PageAsync();
+        foreach (var camera in server.Cameras.Values)
+        {
+            camera.Parameters["wireguardconfig.ClientIP"] = ""; // the WireGuard app: only such cameras get an address
+        }
+
         var wizard = page.SetupWizard();
         wizard.Form!.SelectedVpn = wizard.Form.Vpns.Single(v => v.Kind == VpnKind.WireGuard);
         wizard.Form.UseHub = false;

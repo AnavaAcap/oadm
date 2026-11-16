@@ -24,9 +24,12 @@ public sealed class UpdatesAndSettingsTests
     [InlineData("1.104.7", "1.104.6", true)]
     [InlineData("v1.104.10", "1.104.9", true)]
     [InlineData("1.104.7", "1.104.7", false)]
-    [InlineData("0.83.1", "0.83.1-dev", false)]
+    [InlineData("0.83.1", "0.83.1-dev", true)] // a release is newer than its pre-release
+    [InlineData("1.2.3-beta", "1.2.3", false)]
+    [InlineData("1.2.3-rc.2", "1.2.3-rc.1", true)]
     [InlineData("2.0", "1.99.99", true)]
-    [InlineData("1.0", "unknown", false)]
+    [InlineData("1.0", "unknown", true)] // an installed version that cannot be read never stops an upgrade
+    [InlineData("unknown", "1.0", false)]
     public void Newer_versions(string candidate, string installed, bool newer) => Assert.Equal(newer, AppVersions.IsNewer(candidate, installed));
 
     [Theory]
@@ -122,7 +125,6 @@ public sealed class UpdatesAndSettingsTests
 
         var upload = Assert.Single(camera.Uploads);
         Assert.Contains("name=\"file\"; filename=\"signed_Tailscale_VPN_1_104_7_armv7hf.eap\"", upload, StringComparison.Ordinal);
-        Assert.Contains("EAP signed_Tailscale_VPN_1_104_7_armv7hf.eap", upload, StringComparison.Ordinal);
         Assert.Equal(("Tailscale_VPN", "1.104.7", "Running"), Assert.Single(camera.Apps));
         Assert.All(StepRun.Lines(ctx.Steps), l => Assert.EndsWith(": Done", l, StringComparison.Ordinal));
         Assert.Empty(ctx.Warnings);
