@@ -69,6 +69,11 @@ with models wins, then the one with a chip. The file never installs a package on
 shows **No package** with the reason. The package facts then say "Mapping from the package", and the table shows every
 group with its file and the row that chose it.
 
+A camera that no row matches gets the package that fits its processor type and AXIS OS. To keep such cameras out, add
+`"unmatched": "skip"` next to `"packages"`: they then show **No package**, "No row of the mapping file matches this
+device.". Keys that start with `$` or `x-` are notes and ignored; any other key OADM does not know refuses the ZIP. The
+file must be at the top level of the ZIP or next to the `.eap` files.
+
 ## License keys
 
 The **License** column shows the license of each application: **Not required** for applications that need none,

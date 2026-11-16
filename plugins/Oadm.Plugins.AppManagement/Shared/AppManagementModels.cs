@@ -268,6 +268,9 @@ public sealed record AppInstall
     /// <summary>The rows of the package's mapping file, each naming a file id of <see cref="Files"/>; null without.</summary>
     public IReadOnlyList<AcapPackageRule>? Rules { get; init; }
 
+    /// <summary>What the mapping file gives a device that no row matches; null is the automatic pick.</summary>
+    public AcapUnmatched? Unmatched { get; init; }
+
     public string? Version { get; init; }
 
     public bool AllowDowngrade { get; init; }

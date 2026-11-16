@@ -470,6 +470,7 @@ public sealed partial class AcapDialogViewModel : ObservableObject, IDisposable
         _packages = [];
         _names = [];
         _rules = [];
+        _unmatched = AcapUnmatched.Automatic;
         _chosen.Clear();
         Groups = [];
         UnchosenCount = 0;
@@ -514,9 +515,10 @@ public sealed partial class AcapDialogViewModel : ObservableObject, IDisposable
                 else
                 {
                     // The vendor's mapping file of a ZIP: its rows name the .eap files of the pick.
-                    var rules = _files.RulesJson is { } json ? AcapPackageRules.Parse(json, [.. read.Select(r => r.FileName)]) : [];
+                    var map = _files.RulesJson is { } json ? AcapPackageRules.Parse(json, [.. read.Select(r => r.FileName)]) : AcapPackageMap.None;
                     _names = [.. read.Select(r => r.FileName)];
-                    _rules = rules;
+                    _rules = map.Rows;
+                    _unmatched = map.Unmatched;
                     _packages = [.. read.Select(r => r.Package)];
                     Package = _packages[0];
                 }
@@ -737,7 +739,8 @@ public sealed partial class AcapDialogViewModel : ObservableObject, IDisposable
                 FileId = files[0].FileId,
                 Sha256 = files[0].Sha256,
                 Files = files.Count > 1 ? files : null,
-                Rules = files.Count > 1 ? rules : null,
+                Rules = rules,
+                Unmatched = _unmatched == AcapUnmatched.Skip ? AcapUnmatched.Skip : null,
                 Mapping = mapping,
                 Application = package.AppName,
                 Version = packages.Select(p => p.Version).Distinct(StringComparer.OrdinalIgnoreCase).Count() == 1 ? package.Version : null,
