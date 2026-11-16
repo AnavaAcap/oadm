@@ -12,6 +12,8 @@ namespace Oadm.Core.DeviceGroups;
 /// </summary>
 public sealed class DeviceGroupFilter
 {
+    private readonly DeviceGroupFilter? _parent;
+    private readonly IReadOnlyDictionary<Guid, string>? _pins;
     private readonly bool _everything;
     private readonly bool _thisServer;
     private readonly HashSet<Guid> _sites;
@@ -38,6 +40,16 @@ public sealed class DeviceGroupFilter
 
     /// <summary>No device (fail closed: no access, an unknown or deleted group).</summary>
     public static DeviceGroupFilter Nothing { get; } = new(false, null, 0, default, false, [], [], [], []);
+
+    private DeviceGroupFilter(DeviceGroupFilter parent, IReadOnlyDictionary<Guid, string> pins)
+        : this(false, parent.GroupId, parent.Revision, parent.Catalog, false, [], [], [], [])
+    {
+        _parent = parent;
+        _pins = pins;
+    }
+
+    /// <summary>Exact selected devices inside the current user view; grants no access to an arbitrary network route.</summary>
+    internal static DeviceGroupFilter Restrict(DeviceGroupFilter parent, IReadOnlyDictionary<Guid, string> pins) => new(parent, pins);
 
     /// <summary>True for <see cref="Everything"/>.</summary>
     public bool IsEverything => _everything;
@@ -97,6 +109,12 @@ public sealed class DeviceGroupFilter
     public bool Contains(IDeviceInfo device)
     {
         ArgumentNullException.ThrowIfNull(device);
+        if (_parent is not null)
+        {
+            return _pins!.TryGetValue(device.Id, out var serial) && string.Equals(serial, device.Serial, StringComparison.Ordinal)
+                && _parent.Contains(device);
+        }
+
         return Contains(device.Serial, device.SiteId, device.Tags, device.AddedByAllDevices, (device as Device)?.AddedByGroupId);
     }
 
@@ -104,6 +122,12 @@ public sealed class DeviceGroupFilter
     public bool Contains(DeviceScopeRow row)
     {
         ArgumentNullException.ThrowIfNull(row);
+        if (_parent is not null)
+        {
+            return _pins!.TryGetValue(row.Id, out var serial) && string.Equals(serial, row.Serial, StringComparison.Ordinal)
+                && _parent.Contains(row);
+        }
+
         return Contains(row.Serial, row.SiteId, row.Tags, row.AddedByAllDevices, row.AddedByGroupId);
     }
 
@@ -115,6 +139,11 @@ public sealed class DeviceGroupFilter
     /// <param name="addedByGroupId">The group of the user who added it.</param>
     public bool Contains(string serial, Guid? siteId, IReadOnlyList<string> tags, bool addedByAllDevices, Guid? addedByGroupId)
     {
+        if (_parent is not null)
+        {
+            return false; // a delegated grant requires both device id and serial, never a serial alone
+        }
+
         if (_everything)
         {
             return true;

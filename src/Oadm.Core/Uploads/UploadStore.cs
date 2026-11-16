@@ -549,6 +549,33 @@ public sealed partial class UploadStore : IUploadedFiles
         public Task<UploadedFile?> FindAsync(string fileId, CancellationToken ct) => store.FindAsync(fileId, owner, ct);
 
         public Task<Stream> OpenReadAsync(string fileId, CancellationToken ct) => store.OpenReadAsync(fileId, owner, ct);
+
+        public async Task<UploadedFile> ImportAsync(string name, Stream content, long size, string sha256, CancellationToken ct)
+        {
+            ArgumentNullException.ThrowIfNull(content);
+            if (sha256 is not { Length: 64 } || !sha256.All(char.IsAsciiHexDigit))
+            {
+                throw new UploadRejectedException("The expected SHA-256 is not valid.");
+            }
+
+            var expected = Convert.FromHexString(sha256);
+            await using var writer = await store.BeginAsync(name, size, owner, ct).ConfigureAwait(false);
+            using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+            var buffer = new byte[81_920];
+            int read;
+            while ((read = await content.ReadAsync(buffer, ct).ConfigureAwait(false)) > 0)
+            {
+                await writer.WriteAsync(buffer.AsMemory(0, read), ct).ConfigureAwait(false);
+                hash.AppendData(buffer, 0, read);
+            }
+
+            if (!CryptographicOperations.FixedTimeEquals(expected, hash.GetHashAndReset()))
+            {
+                throw new UploadRejectedException("The server-side package does not match its expected SHA-256.");
+            }
+
+            return await writer.CompleteAsync(ct).ConfigureAwait(false);
+        }
     }
 }
 

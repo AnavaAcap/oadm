@@ -11,7 +11,10 @@ namespace Oadm.Server.AddOns;
 /// <param name="Id">The plugin.json id; also the folder under <c>&lt;datafolder&gt;/addons/</c>.</param>
 /// <param name="DisplayName">The name on the Plugins page and in the audit log ("Text recognition").</param>
 /// <param name="Description">One line what it adds.</param>
-public sealed record AddOnEntry(string Id, string DisplayName, string Description);
+public sealed record AddOnEntry(string Id, string DisplayName, string Description)
+{
+    public VendorAddOn? Vendor { get; init; }
+}
 
 /// <summary>What the name of a release file says.</summary>
 /// <param name="Id">The add-on's id.</param>

@@ -81,6 +81,30 @@ computer. A client loads the client part its server hands it: the user must trus
 
 ## Release files
 
+### Vendor packages
+
+An administrator can approve a separately distributed vendor package with an entry in the protected server configuration
+under `Oadm:VendorAddOns`. Set `Id`, `DisplayName`, `Description`, `Version` (three numeric components),
+`ArchiveSha256` (lowercase hex), `PublisherPublicKey` (base64 DER P-256 SubjectPublicKeyInfo), and optionally an HTTPS
+`DownloadUrl`. Obtain the digest and publisher key through a trusted channel independent of the package being installed.
+Vendor IDs may not use the `oadm.` namespace. The existing Plugins card accepts the approved ZIP. It starts off.
+
+The ZIP has `plugin.json`, signed payload files, `oadm-vendor-manifest.json`, and `oadm-vendor-manifest.sig` at its
+root. The signature is ECDSA P-256/SHA-256 in DER form over the ASCII prefix `OADM vendor plugin manifest v1`, a zero
+byte, and the exact manifest JSON bytes. `VendorPluginManifest` defines the lower-camel-case schema that binds publisher
+fingerprint, plugin version, exact host version, server runtime ID and the file inventory. Every inventory entry declares
+its relative path, byte count, SHA-256, and whether to deliver it to clients.
+
+The host checks the approved archive digest before unpacking. It validates the signature and exact inventory before
+loading, including on following starts. Client exports include their signed manifest, signature, `plugin.json`, and the
+declared managed components. Server assemblies and symbols are excluded from client export. Clients authenticate the
+server's pinned TLS connection and verify the inventory and signature with the publisher key from the host's approval
+policy. Older clients cannot request vendor code through the optional plugin service.
+
+Approve a newer package in host configuration to offer it as an update. Updates are staged for restart and cannot start
+while device tasks are active. A package that fails loading is replaced by the previous verified version when compatible.
+Use a newer, compatible package for an operator rollback to a previous implementation so version checks remain meaningful.
+
 - Per add-on and platform of the server: `oadm-addon-<id>-<version>-<rid>.zip` (`win-x64`, `linux-x64`, `linux-arm64`,
   `osx-x64`, listed once in `packaging/addons/addon-rids.txt`; a test keeps it equal to `AddOnCatalog.RuntimeIds`): the
   plugin folder as the server loads it (`plugin.json`, server part, client part, native libraries of that platform,

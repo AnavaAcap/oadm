@@ -192,6 +192,14 @@ public sealed partial class TaskEngine : ITaskRunner, IAsyncDisposable
 
     public void ResumeStarts() => Volatile.Write(ref _heldReason, null);
 
+    public bool TryHoldStarts(string reason)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(reason);
+        return Interlocked.CompareExchange(ref _heldReason, reason, null) is null;
+    }
+
+    public void ResumeStarts(string reason) => Interlocked.CompareExchange(ref _heldReason, null, reason);
+
     private int _starting;
 
     /// <summary>
@@ -1052,9 +1060,17 @@ public sealed partial class TaskEngine : ITaskRunner, IAsyncDisposable
             // Leaving the queue: the owner's view as it is now (another group, fewer devices, a deleted user). A device that left
             // it fails like an unknown one, before any request and before anything about its state is said.
             DeviceGroups.DeviceView? ownerView = null;
+            TaskCaller? executionCaller = task.Caller;
             if (task.Caller is { } caller && task.Views is { } views)
             {
                 ownerView = await views.ForUserAsync(caller.UserId, ct).ConfigureAwait(false);
+                var currentRights = await views.PermissionsForUserAsync(caller.UserId, ct).ConfigureAwait(false);
+                var effectiveRights = caller.Permissions.IsAll ? currentRights
+                    : Auth.PermissionSet.Of(caller.Permissions.Keys.Where(currentRights.Has));
+                executionCaller = caller with { Permissions = effectiveRights };
+                var required = TaskRunPermissions.IsPageTask(plugin)
+                    ? TaskRunPermissions.PageRunKeys(_plugins, task.Registration, task.PayloadJson) ?? []
+                    : Auth.PermissionCatalog.RunKeys(plugin, task.PayloadJson);
                 if (device is null)
                 {
                     // Removed meanwhile: an owner with a device group gets the same answer as for any device outside it.
@@ -1067,6 +1083,12 @@ public sealed partial class TaskEngine : ITaskRunner, IAsyncDisposable
                 else if (!ownerView.HasAllDevices && !task.Registration.Origin.SupportsCallContext)
                 {
                     precondition = DeviceAccessRefusedException.PluginNeedsAllDevices;
+                }
+                else if (required.Any(key => !effectiveRights.Has(key)))
+                {
+                    // Check this operation's rights, not unrelated capabilities. Plugins also receive the current
+                    // intersection below, so a page-owned task can enforce its narrower operation approval.
+                    precondition = "Your permissions changed while this task was queued. Review the operation again.";
                 }
             }
 
@@ -1096,7 +1118,7 @@ public sealed partial class TaskEngine : ITaskRunner, IAsyncDisposable
                     License = _plugins.Licenses?.LicenseOf(task.Registration.Origin.PackageId),
                     Pro = _plugins.Pro,
                     Network = (_options.Networks ?? Sites.DeviceNetworks.Local).For(device!),
-                    Caller = ownerView is not null && task.Caller is { } owner
+                    Caller = ownerView is not null && executionCaller is { } owner
                         ? new TaskCallContext(owner, ownerView, _vapix, ForView(ownerView, owner))
                         : null,
                     AxisDownloads = axisDownloads,

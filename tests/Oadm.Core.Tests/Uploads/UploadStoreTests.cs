@@ -53,6 +53,42 @@ public sealed class UploadStoreTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task ServerSideIngestionVerifiesContentAndKeepsTheCallingSessionAsOwner()
+    {
+        var owner = new UploadOwner(Guid.NewGuid(), "connection-a");
+        var otherSession = owner with { SessionId = "connection-b" };
+        var bytes = RandomNumberGenerator.GetBytes(170_000);
+        using var input = new MemoryStream(bytes);
+        var uploaded = await _store.For(owner).ImportAsync("example.eap", input, bytes.Length,
+            Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant(), CancellationToken.None);
+
+        Assert.True(input.CanRead); // the plugin owns the input stream
+        Assert.Equal(uploaded, await _store.For(owner).FindAsync(uploaded.Id, CancellationToken.None));
+        Assert.Null(await _store.For(otherSession).FindAsync(uploaded.Id, CancellationToken.None));
+        Assert.Null(await _store.For(new UploadOwner(Guid.NewGuid(), owner.SessionId)).FindAsync(uploaded.Id, CancellationToken.None));
+        await using var read = await _store.For(owner).OpenReadAsync(uploaded.Id, CancellationToken.None);
+        using var copy = new MemoryStream();
+        await read.CopyToAsync(copy);
+        Assert.Equal(bytes, copy.ToArray());
+    }
+
+    [Theory]
+    [InlineData(3, false)]
+    [InlineData(5, false)]
+    [InlineData(4, true)]
+    public async Task RefusedServerSideIngestionPublishesNothing(int declaredSize, bool wrongHash)
+    {
+        byte[] bytes = [1, 2, 3, 4];
+        using var input = new MemoryStream(bytes);
+        var owner = new UploadOwner(Guid.NewGuid(), "connection-a");
+        var sha = wrongHash ? new string('0', 64) : Convert.ToHexString(SHA256.HashData(bytes));
+        await Assert.ThrowsAsync<UploadRejectedException>(() =>
+            _store.For(owner).ImportAsync("example.eap", input, declaredSize, sha, CancellationToken.None));
+        Assert.Empty(Directory.GetFiles(_store.Directory));
+        Assert.Empty(await _store.ListAsync(owner, CancellationToken.None));
+    }
+
+    [Fact]
     public async Task TheSizeLimitComesFromTheSetting()
     {
         Assert.Equal(2048L * 1024 * 1024, await _store.GetMaxBytesAsync(CancellationToken.None));

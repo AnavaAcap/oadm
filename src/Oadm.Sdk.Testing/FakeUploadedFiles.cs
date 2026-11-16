@@ -32,4 +32,19 @@ public sealed class FakeUploadedFiles : IUploadedFiles
         fileId is not null && _files.TryGetValue(fileId, out var entry)
             ? Task.FromResult<Stream>(new MemoryStream(entry.Content, writable: false))
             : throw new FileNotFoundException("No uploaded file has this id.");
+
+    /// <inheritdoc />
+    public async Task<UploadedFile> ImportAsync(string name, Stream content, long size, string sha256, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(content);
+        using var copy = new MemoryStream();
+        await content.CopyToAsync(copy, ct).ConfigureAwait(false);
+        var bytes = copy.ToArray();
+        if (bytes.LongLength != size || !string.Equals(Convert.ToHexString(SHA256.HashData(bytes)), sha256, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidDataException("The server-side package does not match its expected size or SHA-256.");
+        }
+
+        return Add(name, bytes);
+    }
 }

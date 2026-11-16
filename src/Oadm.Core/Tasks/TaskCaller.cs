@@ -19,11 +19,17 @@ namespace Oadm.Core.Tasks;
 /// <param name="Permissions">What the user's role allowed when the task was started.</param>
 public sealed record TaskCaller(Guid UserId, string UserName, string Owner, string SessionId, PermissionSet Permissions)
 {
+    /// <summary>The person behind a delegated connection; empty for independent keys and legacy callers.</summary>
+    public Guid PrincipalId { get; init; }
+
     /// <summary>The caller of a gRPC call.</summary>
     public static TaskCaller Of(AuthenticatedCaller caller)
     {
         ArgumentNullException.ThrowIfNull(caller);
-        return new(caller.UserId, caller.UserName, caller.Owner, caller.SessionId, caller.Permissions);
+        return new(caller.UserId, caller.UserName, caller.Owner, caller.SessionId, caller.Permissions)
+        {
+            PrincipalId = caller.Delegation?.OwnerId ?? caller.UserId,
+        };
     }
 }
 
@@ -63,6 +69,8 @@ public sealed class TaskCallContext : ICallContext
 
     public string UserName => _caller.UserName;
 
+    public Guid UserId => _caller.PrincipalId;
+
     public string SessionId => _caller.SessionId;
 
     public string DeviceScopeKey => _view.ScopeKey;
@@ -80,6 +88,10 @@ public sealed class TaskCallContext : ICallContext
     public IDeviceEventStreams? EventStreams { get; }
 
     public bool Has(string permission) => _caller.Permissions.Has(permission);
+
+    public Task RequireCurrentAsync(string permission, Guid deviceId, string serial, CancellationToken ct) =>
+        Has(permission) ? _view.RequireCurrentAsync(_caller.UserId, permission, deviceId, serial, ct)
+            : throw new UnauthorizedAccessException("This task did not authorize the requested operation.");
 
     public bool Contains(IDeviceInfo device)
     {

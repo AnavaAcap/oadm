@@ -7,6 +7,9 @@ namespace Oadm.Server.AddOns;
 /// </summary>
 public interface IAddOnInstaller
 {
+    /// <summary>Find a built-in or administrator-approved vendor entry.</summary>
+    AddOnEntry? FindEntry(string id) => AddOnCatalog.Find(id);
+
     /// <summary>Every add-on of <see cref="AddOnCatalog"/> with its state on this server.</summary>
     Task<IReadOnlyList<AddOnStatus>> ListAsync(CancellationToken ct);
 

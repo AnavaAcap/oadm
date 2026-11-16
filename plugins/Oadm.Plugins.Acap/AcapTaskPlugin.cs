@@ -14,7 +14,12 @@ namespace Oadm.Plugins.Acap;
 /// the selected devices. Follows the device safety rule: API check against the cached list in
 /// <see cref="CanRun"/>, fresh <c>Require</c> plus package/device validation before the first write.
 /// </summary>
+#if OADM_EMBEDDED_ACAP
+// A narrow bundled task can reuse this execution code without registering the general ACAP task in its package.
+internal sealed class AcapTaskPlugin : ITaskPlugin, ITaskPluginQuery
+#else
 public sealed class AcapTaskPlugin : ITaskPlugin, ITaskPluginQuery
+#endif
 {
     public static readonly TimeSpan DefaultVerifyInterval = TimeSpan.FromSeconds(5);
     public static readonly TimeSpan DefaultVerifyTimeout = TimeSpan.FromMinutes(5);
@@ -22,6 +27,7 @@ public sealed class AcapTaskPlugin : ITaskPlugin, ITaskPluginQuery
     private readonly TimeSpan _verifyInterval;
     private readonly TimeSpan _verifyTimeout;
     private readonly TimeProvider _time;
+    private readonly Func<IVapixClient, AcapAction, CancellationToken, Task>? _beforeWrite;
 
     public AcapTaskPlugin()
         : this(DefaultVerifyInterval, DefaultVerifyTimeout, TimeProvider.System)
@@ -31,6 +37,12 @@ public sealed class AcapTaskPlugin : ITaskPlugin, ITaskPluginQuery
     /// <param name="verifyInterval">Poll interval when the upload answer was lost and the install is verified via list.cgi.</param>
     /// <param name="verifyTimeout">How long to keep verifying.</param>
     public AcapTaskPlugin(TimeSpan verifyInterval, TimeSpan verifyTimeout, TimeProvider timeProvider)
+        : this(verifyInterval, verifyTimeout, timeProvider, null)
+    {
+    }
+
+    /// <summary>Execution-specific authorization recheck; never mutate a shared task instance between camera writes.</summary>
+    public AcapTaskPlugin(TimeSpan verifyInterval, TimeSpan verifyTimeout, TimeProvider timeProvider, Func<IVapixClient, AcapAction, CancellationToken, Task>? beforeWrite)
     {
         ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(verifyInterval, TimeSpan.Zero);
         ArgumentOutOfRangeException.ThrowIfLessThan(verifyTimeout, TimeSpan.Zero);
@@ -38,6 +50,7 @@ public sealed class AcapTaskPlugin : ITaskPlugin, ITaskPluginQuery
         _verifyInterval = verifyInterval;
         _verifyTimeout = verifyTimeout;
         _time = timeProvider;
+        _beforeWrite = beforeWrite;
     }
 
     public string Id => AcapPlugin.Id;
@@ -686,6 +699,7 @@ public sealed class AcapTaskPlugin : ITaskPlugin, ITaskPluginQuery
                 });
                 try
                 {
+                    if (_beforeWrite is not null) await _beforeWrite(ctx.Vapix, AcapAction.Install, ct).ConfigureAwait(false);
                     await client.UploadAsync(upload, fileName, progress, ct).ConfigureAwait(false);
                     step.Complete(ByteSize.Text(fileSize) + ", installed by the device");
                 }
@@ -764,6 +778,7 @@ public sealed class AcapTaskPlugin : ITaskPlugin, ITaskPluginQuery
 
         using (var step = ctx.BeginStep(Steps.Start))
         {
+            if (_beforeWrite is not null) await _beforeWrite(ctx.Vapix, AcapAction.Start, ct).ConfigureAwait(false);
             await ControlTolerantAsync(client, AcapControlAction.Start, package.AppName, ct).ConfigureAwait(false);
             step.Complete(app.DisplayName);
         }

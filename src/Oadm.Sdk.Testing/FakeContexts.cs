@@ -75,6 +75,9 @@ public sealed class FakeTaskContext : ITaskExecutionContext
     /// <inheritdoc />
     public ICorePlugin? Owner { get; init; }
 
+    /// <summary>The scoped user of an approved page-owned task; null for system tasks.</summary>
+    public ICallContext? Caller { get; init; }
+
     /// <inheritdoc />
     public IUploadedFiles Files => UploadedFiles ?? throw new NotSupportedException("Set UploadedFiles for a task that reads uploads.");
 

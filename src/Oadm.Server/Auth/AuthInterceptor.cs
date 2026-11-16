@@ -288,6 +288,7 @@ public sealed partial class AuthInterceptor(AuthTokenStore tokens, RoleStore rol
         {
             Devices = devices,
             AccessEpoch = epoch,
+            CanApprove = true,
         };
         if (!AccessPolicy.Allows(rule, caller))
         {

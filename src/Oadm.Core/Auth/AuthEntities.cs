@@ -136,6 +136,9 @@ public sealed class AuthTokenEntity
 /// </summary>
 public sealed class AccessKeyEntity
 {
+    /// <summary>Null for legacy independent keys. Otherwise the immutable user, device and capability grant.</summary>
+    public string? DelegationJson { get; set; }
+
     /// <summary>The key's identity: the user id of its calls (task owner, handles, limits); never secret.</summary>
     public Guid Id { get; set; }
 

@@ -34,8 +34,12 @@ public sealed class TaskViewTests : DeviceGroupTestBase
         return (user, caller, await Views.ForAsync(caller, Ct));
     }
 
-    private void Register(DelegateTaskPlugin plugin, string minSdk = SdkInfo.Version) =>
+    private void Register(DelegateTaskPlugin plugin, string minSdk = SdkInfo.Version)
+    {
         Assert.True(_registry.RegisterTaskPlugin(plugin, new PluginOrigin("test." + plugin.Id, "1.0.0", null) { MinSdkVersion = minSdk }));
+        // Match the host's registration path: queue execution reads the current role from the store.
+        Db.Get<RoleStore>().SyncCatalogAsync(PermissionCatalog.Build(_registry), Ct).GetAwaiter().GetResult();
+    }
 
     private async Task<AuthenticatedCaller> AllDevicesCallerAsync() =>
         CallerOf(await Users.AddAsync("boss", "pw", BuiltInRoles.OperatorId, DeviceScope.All, Ct));
@@ -331,6 +335,7 @@ public sealed class TaskViewTests : DeviceGroupTestBase
         var inside = await AddDeviceAsync("ACCC8E000001", tags: [Tag]);
         var (_, caller, view) = await GroupUserAsync();
         Assert.True(_registry.RegisterTaskPlugin(new PartsPlugin(), new PluginOrigin("test.apps", "1.0.0", null) { MinSdkVersion = SdkInfo.Version }));
+        await Db.Get<RoleStore>().SyncCatalogAsync(PermissionCatalog.Build(_registry), Ct);
         await using var engine = Engine();
         var installOnly = caller with { Permissions = PermissionSet.Of([PermissionKeys.Task(PartsPlugin.PluginId, "install")]) };
         var call = PluginCallRules.CreateCall(new PluginCaller(installOnly, view), _vapix, engine, null);

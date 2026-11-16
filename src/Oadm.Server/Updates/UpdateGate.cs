@@ -12,6 +12,7 @@ public sealed class UpdateGate
     private string? _closedFor;
     private string? _updatingTo;
     private int _addOnWork;
+    private bool _restartingAddOns;
 
     /// <summary>The version the server updates to while closed; null while open.</summary>
     public string? ClosedFor => Volatile.Read(ref _closedFor);
@@ -53,7 +54,7 @@ public sealed class UpdateGate
     {
         lock (_sync)
         {
-            if (_addOnWork > 0)
+            if (_addOnWork > 0 || _restartingAddOns)
             {
                 return false;
             }
@@ -68,7 +69,7 @@ public sealed class UpdateGate
     {
         lock (_sync)
         {
-            if (_updatingTo is not null)
+            if (_updatingTo is not null || _restartingAddOns)
             {
                 return false;
             }
@@ -84,6 +85,25 @@ public sealed class UpdateGate
         lock (_sync)
         {
             _addOnWork--;
+        }
+    }
+
+    /// <summary>Exclude package changes and updates once a package restart begins.</summary>
+    public bool TryBeginAddOnRestart()
+    {
+        lock (_sync)
+        {
+            if (_restartingAddOns || _updatingTo is not null || _addOnWork > 0) return false;
+            _restartingAddOns = true;
+            return true;
+        }
+    }
+
+    public void CancelAddOnRestart()
+    {
+        lock (_sync)
+        {
+            _restartingAddOns = false;
         }
     }
 

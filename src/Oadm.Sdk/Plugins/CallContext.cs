@@ -18,6 +18,18 @@ namespace Oadm.Sdk.Plugins;
 /// </remarks>
 public interface ICallContext
 {
+    /// <summary>
+    /// Stable identity of the person who authorized this call. Empty on older hosts, which cannot approve operations.
+    /// A delegated connection names its authorizing user here; SessionId still identifies that connection.
+    /// </summary>
+    Guid UserId => Guid.Empty;
+
+    /// <summary>
+    /// The host authenticated a direct client call, outside every assistant/tool channel. Only such a call may record
+    /// human approval. This is a host assertion, never a request argument. Default false on older hosts and task calls.
+    /// </summary>
+    bool CanApprove => false;
+
     /// <summary>The user's name, as logged in.</summary>
     string UserName { get; }
 
@@ -38,6 +50,13 @@ public interface ICallContext
 
     /// <summary>True when the user's role grants <paramref name="permission"/> ("&lt;plugin id&gt;:&lt;key&gt;" or a host key).</summary>
     bool Has(string permission);
+
+    /// <summary>
+    /// Rechecks the original access ceiling against the current user's rights, connection revocation, device scope and
+    /// serial immediately before a further write. This does not grant human approval. Older hosts fail closed.
+    /// </summary>
+    Task RequireCurrentAsync(string permission, Guid deviceId, string serial, CancellationToken ct) =>
+        throw new NotSupportedException("This host cannot recheck current write authorization. Upgrade OADM before changing devices.");
 
     /// <summary>The user may reach every device (administrators always). False for a user limited to a device group.</summary>
     bool HasAllDevices { get; }

@@ -23,10 +23,12 @@ public sealed class DeviceViewFactory
     private readonly ConcurrentDictionary<Guid, SiteCountsEntry> _siteCounts = new();
 
     private readonly AccessKeyStore? _keys;
+    private readonly RoleStore? _roles;
 
-    public DeviceViewFactory(DeviceGroupStore groups, DeviceScopeCatalog catalog, DeviceRepository devices, IDeviceChangeFeed feed, UserStore users, AccessKeyStore? keys = null)
+    public DeviceViewFactory(DeviceGroupStore groups, DeviceScopeCatalog catalog, DeviceRepository devices, IDeviceChangeFeed feed, UserStore users, AccessKeyStore? keys = null, RoleStore? roles = null)
     {
         _keys = keys;
+        _roles = roles;
         ArgumentNullException.ThrowIfNull(groups);
         ArgumentNullException.ThrowIfNull(catalog);
         ArgumentNullException.ThrowIfNull(devices);
@@ -66,7 +68,8 @@ public sealed class DeviceViewFactory
             throw new InvalidOperationException("A device view needs the caller of the call; background work uses DeviceViewFactory.System.");
         }
 
-        return await ForScopeAsync(caller.HasAllDevices ? DeviceScope.All : caller.Devices.Access, caller.UserName, ct, caller.UserId).ConfigureAwait(false);
+        var view = await ForScopeAsync(caller.HasAllDevices ? DeviceScope.All : caller.Devices.Access, caller.UserName, ct, caller.UserId).ConfigureAwait(false);
+        return caller.Delegation is { } grant ? new DeviceView(view, caller.UserId, grant.DevicePins()) : view;
     }
 
     /// <summary>
@@ -97,7 +100,8 @@ public sealed class DeviceViewFactory
         if (user is null && _keys is not null && await _keys.GetAsync(userId, ct).ConfigureAwait(false) is { } key)
         {
             // An AI agent's access key is an identity of its own: its devices as stored now (an ended or deleted key: none).
-            return await ForScopeAsync(BuiltInRoles.IsAdministrator(key.RoleId) ? DeviceScope.All : key.Devices, key.AgentName, ct, userId).ConfigureAwait(false);
+            var view = await ForScopeAsync(BuiltInRoles.IsAdministrator(key.RoleId) ? DeviceScope.All : key.Devices, key.AgentName, ct, userId).ConfigureAwait(false);
+            return key.Delegation is { } grant ? new DeviceView(view, key.Id, grant.DevicePins()) : view;
         }
 
         if (user is null || user.Disabled)
@@ -106,6 +110,29 @@ public sealed class DeviceViewFactory
         }
 
         return await ForScopeAsync(user.HasAllDevices ? DeviceScope.All : user.DeviceAccess, user.UserName, ct, userId).ConfigureAwait(false);
+    }
+
+    /// <summary>Current rights of a task's owner, including the immutable ceiling and current user of a delegated key.</summary>
+    internal async Task<PermissionSet> PermissionsForUserAsync(Guid userId, CancellationToken ct)
+    {
+        if (_roles is null)
+        {
+            return PermissionSet.None;
+        }
+
+        var user = await _users.GetAsync(userId, ct).ConfigureAwait(false);
+        if (user is not null)
+        {
+            return user.Disabled ? PermissionSet.None : await _roles.PermissionsOfAsync(user.RoleId, ct).ConfigureAwait(false);
+        }
+
+        if (_keys is not null && await _keys.GetAsync(userId, ct).ConfigureAwait(false) is { } key)
+        {
+            var rights = await _roles.PermissionsOfAsync(key.RoleId, ct).ConfigureAwait(false);
+            return key.Delegation is { } grant ? grant.Intersect(rights) : rights;
+        }
+
+        return PermissionSet.None;
     }
 
     /// <summary>The caller's devices for the auth interceptor: the stored access with the group's current revision.</summary>
@@ -173,6 +200,12 @@ public sealed class DeviceViewFactory
     /// </summary>
     internal async Task<IReadOnlySet<Guid>> AllowedIdsAsync(DeviceView view, CancellationToken ct)
     {
+        if (view.Pins is { } pins)
+        {
+            var devices = await Devices.GetManyAsync(pins.Keys.ToArray(), ct, withApis: false).ConfigureAwait(false);
+            return devices.Where(view.Contains).Select(d => d.Id).ToHashSet();
+        }
+
         if (view.Kind == ViewKind.None)
         {
             return EmptyIds;
@@ -211,6 +244,12 @@ public sealed class DeviceViewFactory
     /// </summary>
     internal async Task<IReadOnlyDictionary<Guid, int>> SiteCountsAsync(DeviceView view, CancellationToken ct)
     {
+        if (view.Pins is { } pins)
+        {
+            var devices = await Devices.GetManyAsync(pins.Keys.ToArray(), ct, withApis: false).ConfigureAwait(false);
+            return devices.Where(d => d.SiteId is not null && view.Contains(d)).GroupBy(d => d.SiteId!.Value).ToDictionary(g => g.Key, g => g.Count());
+        }
+
         if (view.Kind == ViewKind.None)
         {
             return EmptyCounts;
@@ -259,6 +298,11 @@ public sealed class DeviceViewFactory
     /// <summary>The cached allowed ids of a view when the cache entry is current and read, else null (never reads).</summary>
     internal IReadOnlySet<Guid>? CachedIds(DeviceView view)
     {
+        if (view.Pins is not null)
+        {
+            return null; // never reuse the owner's broader group cache for a delegated connection
+        }
+
         if (view.Kind == ViewKind.None)
         {
             return EmptyIds;

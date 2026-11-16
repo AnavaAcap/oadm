@@ -141,10 +141,16 @@ message AddOnInfo {
   string download_url = 11;
   bool update_available = 12;  // an older OADM version's add-on keeps running; Install takes the ZIP of this version
   bool update_waits = 13;      // the ZIP of this version is in place and starts at the next restart of the server
+  bytes vendor_publisher_key = 14; // approved SPKI from host policy, never from the package
+  string vendor_host_version = 15;
+  string vendor_runtime_id = 16;
 }
 message AddOnList { repeated AddOnInfo add_ons = 1; }
 message RestartForAddOnsRequest {}
-message AddOnIdRequest { string id = 1; }
+message AddOnIdRequest {
+  string id = 1;
+  bool verifies_vendor_signature = 2; // GetAddOnClientPart refuses vendor code for old clients
+}
 enum AddOnStep {
   ADD_ON_STEP_UPLOAD = 0;
   ADD_ON_STEP_CHECK = 1;

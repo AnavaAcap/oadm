@@ -235,6 +235,9 @@ internal sealed class ToolRegistry
     public async Task<ToolResult> CallAsync(ToolCaller caller, string name, JsonElement? arguments, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(caller);
+        // The built-in assistant shares its user's login, but a tool invocation is never a person's approval.
+        // Clear this before gates and service calls, regardless of what the transport supplied.
+        caller = caller with { User = caller.User with { CanApprove = false } };
         if (!TryGet(name, out var tool))
         {
             throw new ArgumentException("No tool has this name.", nameof(name));
@@ -293,6 +296,11 @@ internal sealed class ToolRegistry
     {
         ArgumentNullException.ThrowIfNull(tool);
         ArgumentNullException.ThrowIfNull(caller);
+        if (caller.User.Delegation is { } grant && !grant.Tools.Contains(tool.Name, StringComparer.Ordinal))
+        {
+            return "This connection does not have that capability. Review its access in OADM.";
+        }
+
         return tool.Methods.FirstOrDefault(m => !InProcessCalls.Allows(m, caller.User)) is { } method
             ? _calls.DeniedMessage(method, caller.User)
             : tool.Gate?.Invoke(caller);

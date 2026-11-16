@@ -170,6 +170,11 @@ public sealed partial class AddOnClientSync(
                 return 0; // an add-on without a client part
             }
 
+            if (!addOn.VendorPublisherKey.IsEmpty)
+            {
+                await Task.Run(() => VendorClientPart.Verify(folder, addOn), ct).ConfigureAwait(true);
+            }
+
             cache.SetCurrent(server, addOn.Id, addOn.Version);
             if (loadedHere)
             {

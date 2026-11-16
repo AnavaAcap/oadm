@@ -222,14 +222,41 @@ public sealed partial class PluginGrpcService
             throw GrpcGuard.FailedPrecondition(refused);
         }
 
-        await audit.WriteAsync(AuditActions.AddOnRestart, string.Join(", ", waiting.Select(s => s.Entry.DisplayName)), null, CancellationToken.None).ConfigureAwait(false);
-        restart.Request();
-        return await ToProtoAsync(list, CancellationToken.None).ConfigureAwait(false);
+        if (!updateGate.TryBeginAddOnRestart())
+            throw GrpcGuard.FailedPrecondition("Another installation or restart is in progress.");
+        const string hold = "OADM is restarting to apply plugin updates.";
+        if (!tasks.TryHoldStarts(hold))
+        {
+            updateGate.CancelAddOnRestart();
+            throw GrpcGuard.FailedPrecondition("A server operation is already holding task starts.");
+        }
+
+        try
+        {
+            await tasks.WaitForStartsAsync(TimeProvider.System, context.CancellationToken).ConfigureAwait(false);
+            if (tasks.ActiveCount is var inProgress and > 0)
+                throw GrpcGuard.FailedPrecondition(UpdateTexts.TasksRunning(inProgress) + ".");
+            var reply = await ToProtoAsync(list, context.CancellationToken).ConfigureAwait(false);
+            await audit.WriteAsync(AuditActions.AddOnRestart, string.Join(", ", waiting.Select(s => s.Entry.DisplayName)), null, CancellationToken.None).ConfigureAwait(false);
+            restart.Request();
+            return reply;
+        }
+        catch
+        {
+            tasks.ResumeStarts(hold);
+            updateGate.CancelAddOnRestart();
+            throw;
+        }
     }
 
     public override async Task<Proto.AddOnClientPart> GetAddOnClientPart(Proto.AddOnIdRequest request, ServerCallContext context)
     {
         var entry = AddOnOf(request.Id);
+        if (entry.Vendor is not null && !request.VerifiesVendorSignature)
+        {
+            throw GrpcGuard.FailedPrecondition("Update OADM to load signed vendor plugin components.");
+        }
+
         var caller = CallerContext.Current?.TokenHash ?? string.Empty;
         var part = await AddOnCallAsync(() => _addOns.GetClientPartAsync(entry.Id, caller, context.CancellationToken)).ConfigureAwait(false);
         var reply = new Proto.AddOnClientPart { Id = part.Id, Version = part.Version, Digest = AddOnDigest(part) };
@@ -251,14 +278,14 @@ public sealed partial class PluginGrpcService
     }
 
     /// <summary>The catalogue entry of <paramref name="id"/>; INVALID_ARGUMENT without one, NOT_FOUND for an unknown id.</summary>
-    private static AddOnEntry AddOnOf(string id)
+    private AddOnEntry AddOnOf(string id)
     {
         if (string.IsNullOrWhiteSpace(id))
         {
             throw GrpcGuard.InvalidArgument("id is required.");
         }
 
-        return AddOnCatalog.Find(id) ?? throw GrpcGuard.NotFound(AddOnTexts.Unknown(id));
+        return _addOns.FindEntry(id) ?? throw GrpcGuard.NotFound(AddOnTexts.Unknown(id));
     }
 
     /// <summary>Runs an installer call and maps its refusals to gRPC errors (an <see cref="AddOnException"/> passes on).</summary>
@@ -298,6 +325,13 @@ public sealed partial class PluginGrpcService
                 UpdateAvailable = s.UpdateAvailable,
                 UpdateWaits = s.UpdateWaits,
             };
+            if (s.Entry.Vendor is { } vendor)
+            {
+                info.VendorPublisherKey = ByteString.CopyFrom(vendor.PublisherKey());
+                info.VendorHostVersion = Mapping.Mappers.ServerVersion;
+                info.VendorRuntimeId = AddOnInstallerOptions.CurrentRuntimeId();
+            }
+
             if (s.State == AddOnState.Installed)
             {
                 try

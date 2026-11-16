@@ -24,11 +24,17 @@ public sealed record CallerDevices(DeviceScope Access, long GroupRevision)
 /// <param name="Permissions">What the caller's role allows, at the start of the call.</param>
 public sealed record AuthenticatedCaller(Guid UserId, string UserName, Guid RoleId, PermissionSet Permissions, string ClientAddress, string ClientMachine, string TokenHash)
 {
+    /// <summary>Set only by direct login-session authentication; the tool registry always removes it.</summary>
+    public bool CanApprove { get; init; }
+
+    /// <summary>Immutable capabilities and device pins of a delegated connection, intersected with current user rights.</summary>
+    public DelegationGrant? Delegation { get; init; }
+
     /// <summary>Task owner: "&lt;user&gt;@&lt;client machine&gt;" (the user is authenticated, the machine is what the client says).</summary>
     public string Owner => string.IsNullOrEmpty(ClientMachine) ? UserName : UserName + "@" + ClientMachine;
 
     /// <summary>The caller has the Administrator role (every permission, the Administrator-only areas).</summary>
-    public bool IsAdmin => BuiltInRoles.IsAdministrator(RoleId);
+    public bool IsAdmin => Delegation is null && BuiltInRoles.IsAdministrator(RoleId);
 
     /// <summary>
     /// The user of the audit entries this caller causes; null: <see cref="UserName"/>.
@@ -57,7 +63,7 @@ public sealed record AuthenticatedCaller(Guid UserId, string UserName, Guid Role
     public long AccessEpoch { get; init; }
 
     /// <summary>The caller may reach every device: the Administrator role, or a user with "All devices".</summary>
-    public bool HasAllDevices => IsAdmin || Devices.Access.AllDevices;
+    public bool HasAllDevices => Delegation is null && (IsAdmin || Devices.Access.AllDevices);
 
     /// <summary>The caller's device group, null for callers with all devices (and for a user without devices).</summary>
     public Guid? DeviceGroupId => HasAllDevices ? null : Devices.Access.GroupId;

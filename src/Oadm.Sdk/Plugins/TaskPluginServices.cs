@@ -73,6 +73,15 @@ public interface IUploadedFiles
 
     /// <summary>Opens the file for reading; the caller disposes the stream.</summary>
     Task<Stream> OpenReadAsync(string fileId, CancellationToken ct);
+
+    /// <summary>
+    /// Ingests a server-side stream into this caller's uploads without a client round trip.
+    /// The host verifies exact size and SHA-256 before publishing, applies its normal quota
+    /// and retention, and binds the file to the caller's user and session. No URL or path is
+    /// accepted. The caller retains ownership of <paramref name="content"/>. Older hosts refuse.
+    /// </summary>
+    Task<UploadedFile> ImportAsync(string name, Stream content, long size, string sha256, CancellationToken ct) =>
+        throw new NotSupportedException("This OADM server cannot ingest a server-side package.");
 }
 
 /// <summary>An uploaded file. <see cref="Sha256"/> is upper-case hex.</summary>

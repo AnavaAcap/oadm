@@ -292,6 +292,10 @@ var ids = await caller.Tasks.RunAsync(RolloutTask.PluginId, deviceIds, payloadJs
   task: a task can also be started with a payload your page never wrote.
 - **A file for the tasks.** `ICorePluginClientContext.UploadAsync(localPath, progress, ct)` (SDK 0.7.0) uploads a local
   file like a task dialog does. Put the returned id into the payload; the task reads it with `ctx.Files`.
+- **A package already on the server.** `caller.Uploads.ImportAsync(name, stream, size, sha256, ct)` ingests it without
+  sending it through the client. Pass a verified expected size and SHA-256. The host publishes only a complete matching
+  file, applies normal upload quotas and retention, and keeps it in this user's session. The plugin owns and disposes
+  the input stream. No path or URL crosses this API. Older hosts refuse with `NotSupportedException`.
 
 ## Downloads
 

@@ -15,6 +15,24 @@ namespace Oadm.Server.Tests.Tools;
 /// </summary>
 public sealed class ToolRegistryTests
 {
+    [Fact]
+    public async Task EveryToolLosesNativeApprovalAuthorityEvenWithTheSignedInUsersSession()
+    {
+        await using var host = await TestServerHost.StartAsync();
+        var caller = await SignedInCallerAsync(host, "native-session");
+        caller = caller with { User = caller.User with { CanApprove = true } };
+        var schema = System.Text.Json.Nodes.JsonNode.Parse("""{"type":"object","properties":{},"additionalProperties":false}""")!.AsObject();
+        var probe = new OadmTool("oadm_test_approval", "Test", "Test", schema, schema, [], call =>
+        {
+            Assert.False(call.Caller.User.CanApprove);
+            return Task.FromResult(new System.Text.Json.Nodes.JsonObject());
+        }) { Gate = toolCaller => toolCaller.User.CanApprove ? "Tool still has native approval authority" : null };
+        var registry = new ToolRegistry([probe], host.Get<Oadm.Server.Auth.InProcessCalls>());
+        var result = await registry.CallAsync(caller, probe.Name, null, CancellationToken.None);
+        Assert.False(result.IsError, result.Error);
+        Assert.True(caller.User.CanApprove); // the native session is unchanged outside tool execution
+    }
+
     /// <summary>The caller a channel without access keys makes, e.g. the logged-in user of the client.</summary>
     private static async Task<ToolCaller> SignedInCallerAsync(TestServerHost host, string bindingKey)
     {

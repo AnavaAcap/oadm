@@ -92,7 +92,7 @@ public sealed partial class PluginJobRegistry
     public void CancelOwner(Guid userId)
     {
         Epochs.UserChanged(userId); // first: a job registered meanwhile is either refused or seen by Forget
-        Forget(j => !j.Shared && j.UserId == userId);
+        Forget(j => (!j.Shared || j.Delegated) && (j.UserId == userId || j.Owner.UserId == userId));
     }
 
     /// <summary>
@@ -108,7 +108,7 @@ public sealed partial class PluginJobRegistry
         }
 
         var roles = roleIds as IReadOnlySet<Guid> ?? roleIds.ToHashSet();
-        var users = _byPlugin.Values.SelectMany(jobs => jobs.Values).Where(j => !j.Shared && roles.Contains(j.RoleId)).Select(j => j.UserId).ToHashSet();
+        var users = _byPlugin.Values.SelectMany(jobs => jobs.Values).Where(j => (!j.Shared || j.Delegated) && roles.Contains(j.RoleId)).Select(j => j.UserId).ToHashSet();
         foreach (var user in users)
         {
             CancelOwner(user);
@@ -122,7 +122,7 @@ public sealed partial class PluginJobRegistry
     {
         var key = groupId.ToString();
         Epochs.ScopeChanged(key);
-        Forget(j => string.Equals(j.Owner.DeviceScopeKey, key, StringComparison.OrdinalIgnoreCase));
+        Forget(j => j.GroupId == groupId || string.Equals(j.Owner.DeviceScopeKey, key, StringComparison.OrdinalIgnoreCase));
     }
 
     /// <summary>
@@ -140,7 +140,8 @@ public sealed partial class PluginJobRegistry
 
         foreach (var jobs in _byPlugin.Values)
         {
-            foreach (var job in jobs.Values.Where(j => string.Equals(j.Owner.DeviceScopeKey, scopeKey, StringComparison.OrdinalIgnoreCase)).ToList())
+            foreach (var job in jobs.Values.Where(j => string.Equals(j.Owner.DeviceScopeKey, scopeKey, StringComparison.OrdinalIgnoreCase)
+                || string.Equals(j.GroupId?.ToString(), scopeKey, StringComparison.OrdinalIgnoreCase)).ToList())
             {
                 job.MarkStale();
                 if (job.Completion.IsCompleted)
@@ -211,7 +212,9 @@ public sealed partial class PluginJobRegistry
 
             // Registered first, then checked: an access change either came before (refused here) or comes after and
             // finds the job (CancelOwner, CancelGroup, CancelSession record the change before they look).
-            if (Epochs.ChangedSince(call.Caller.Caller.AccessEpoch, call.UserId, call.SessionId, call.DeviceScopeKey))
+            if (Epochs.ChangedSince(call.Caller.Caller.AccessEpoch, call.UserId, call.SessionId, call.DeviceScopeKey)
+                || (call.Caller.Caller.Delegation is { } grant && Epochs.ChangedSince(call.Caller.Caller.AccessEpoch,
+                    grant.OwnerId, call.SessionId, call.Caller.View.GroupId?.ToString() ?? call.DeviceScopeKey)))
             {
                 jobs.TryRemove(job.Id, out _);
                 job.Dispose();
@@ -299,6 +302,10 @@ public sealed partial class PluginJobRegistry
         public ICallContext Owner => owner;
 
         public Guid UserId => owner.UserId;
+
+        public Guid? GroupId => owner.Caller.View.GroupId;
+
+        public bool Delegated => owner.Caller.Caller.Delegation is not null;
 
         /// <summary>The owner's role when the job started.</summary>
         public Guid RoleId => owner.Caller.Caller.RoleId;

@@ -20,6 +20,18 @@ public sealed class DeviceView
 
     private readonly string? _noDevicesKey;
 
+    private readonly DeviceView? _parent;
+
+    internal IReadOnlyDictionary<Guid, string>? Pins { get; }
+
+    internal DeviceView(DeviceView parent, Guid connectionId, IReadOnlyDictionary<Guid, string> pins)
+        : this(parent._factory, ViewKind.Delegated, parent.GroupId, parent.UserName, connectionId)
+    {
+        _parent = parent;
+        Pins = pins;
+        _noDevicesKey = "connection:" + connectionId.ToString("N", System.Globalization.CultureInfo.InvariantCulture);
+    }
+
     internal DeviceView(DeviceViewFactory factory, ViewKind kind, Guid? groupId, string? userName, Guid? userId = null)
     {
         _factory = factory;
@@ -39,6 +51,16 @@ public sealed class DeviceView
     /// <summary>The factory that made the view (the task engine reads the owner's current view through it).</summary>
     internal DeviceViewFactory Factory => _factory;
 
+    /// <summary>Both the original view and fresh identity must still grant this exact device and operation.</summary>
+    internal async Task RequireCurrentAsync(Guid userId, string permission, Guid deviceId, string serial, CancellationToken ct)
+    {
+        var currentRights = await _factory.PermissionsForUserAsync(userId, ct).ConfigureAwait(false);
+        if (!currentRights.Has(permission)) throw new UnauthorizedAccessException("Your permission or connection was revoked before this write.");
+        var currentView = await _factory.ForUserAsync(userId, ct).ConfigureAwait(false);
+        var current = await currentView.FindAsync(deviceId, ct).ConfigureAwait(false);
+        if (current is null || current.Serial != serial || !Contains(current)) throw new DevicesNotAvailableException();
+    }
+
     /// <summary>Every device: a user with all devices, an administrator, or <see cref="DeviceViewFactory.System"/>.</summary>
     public bool HasAllDevices => Kind is ViewKind.All or ViewKind.System;
 
@@ -57,13 +79,15 @@ public sealed class DeviceView
     /// user): never another user's key, so users without devices share no state kept per scope (saved views, dashboards,
     /// triggers, shared jobs), and no group or "all" state answers it.
     /// </summary>
-    public string ScopeKey => HasAllDevices ? Sdk.Plugins.ICallContext.AllDevicesScopeKey : GroupId?.ToString() ?? _noDevicesKey!;
+    public string ScopeKey => Kind == ViewKind.Delegated ? _noDevicesKey!
+        : HasAllDevices ? Sdk.Plugins.ICallContext.AllDevicesScopeKey : GroupId?.ToString() ?? _noDevicesKey!;
 
     /// <summary>The compiled rules as of now (<see cref="DeviceGroupFilter.Everything"/> / <see cref="DeviceGroupFilter.Nothing"/> included).</summary>
     public DeviceGroupFilter Filter => Kind switch
     {
         ViewKind.All or ViewKind.System => DeviceGroupFilter.Everything,
         ViewKind.Group => _factory.FilterOf(GroupId!.Value),
+        ViewKind.Delegated => DeviceGroupFilter.Restrict(_parent!.Filter, Pins!),
         _ => DeviceGroupFilter.Nothing,
     };
 
@@ -87,7 +111,9 @@ public sealed class DeviceView
             return [];
         }
 
-        var all = await _factory.Devices.ListDevicesAsync(ct).ConfigureAwait(false);
+        var all = Pins is { } pins
+            ? await _factory.Devices.GetManyAsync(pins.Keys.ToArray(), ct).ConfigureAwait(false)
+            : await _factory.Devices.ListDevicesAsync(ct).ConfigureAwait(false);
         if (HasAllDevices)
         {
             return all;
@@ -242,6 +268,7 @@ internal enum ViewKind
     All,
     Group,
     System,
+    Delegated,
 }
 
 /// <summary>

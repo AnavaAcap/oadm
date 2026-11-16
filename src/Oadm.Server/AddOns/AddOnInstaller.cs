@@ -17,6 +17,9 @@ namespace Oadm.Server.AddOns;
 /// <param name="RuntimeId">The server's platform ("win-x64", ...; <see cref="CurrentRuntimeId"/>).</param>
 public sealed record AddOnInstallerOptions(string DataDirectory, string ServerVersion, string RuntimeId)
 {
+    /// <summary>Third-party packages approved in the host configuration.</summary>
+    public IReadOnlyList<VendorAddOn> VendorAddOns { get; init; } = [];
+
     /// <summary>The largest ZIP a client may send.</summary>
     public long MaxZipBytes { get; init; } = AddOnFolders.MaxZipBytes;
 
@@ -65,6 +68,7 @@ public sealed partial class AddOnInstaller : IAddOnInstaller, IDisposable
 {
     private readonly AddOnInstallerOptions _options;
     private readonly IAddOnHashes _hashes;
+    private readonly IReadOnlyList<AddOnEntry> _entries;
     private readonly IAddOnListStore _list;
     private readonly IAddOnActivation _activation;
     private readonly PluginLoader _loader;
@@ -99,8 +103,14 @@ public sealed partial class AddOnInstaller : IAddOnInstaller, IDisposable
         _logger = logger;
         _time = time ?? TimeProvider.System;
         _disk = disk ?? new SystemDiskSpace();
+
         Root = AddOnFolders.Root(options.DataDirectory);
-        foreach (var entry in AddOnCatalog.Entries)
+        _entries = [.. AddOnCatalog.Entries, .. options.VendorAddOns.Select(vendor => vendor.Entry())];
+        if (_entries.Select(entry => entry.Id).Distinct(StringComparer.OrdinalIgnoreCase).Count() != _entries.Count)
+        {
+            throw new InvalidOperationException("Optional plugin identifiers must be unique.");
+        }
+        foreach (var entry in _entries)
         {
             _slots[entry.Id] = new Slot();
         }
@@ -143,13 +153,13 @@ public sealed partial class AddOnInstaller : IAddOnInstaller, IDisposable
         Directory.CreateDirectory(Root);
         AddOnFolders.CleanTemporary(Root, keep: loose.All ? null : WaitingPrefix);
         var list = (await _list.ReadAsync(ct).ConfigureAwait(false)).ToList();
-        var changed = list.RemoveAll(a => !AddOnCatalog.Contains(a.Id)) > 0;
+        var changed = list.RemoveAll(a => !_entries.Any(entry => Same(entry.Id, a.Id))) > 0;
 
         // Folders of ids this version does not offer (an add-on an older release had, a folder put in by mistake).
         foreach (var folder in Directory.GetDirectories(Root))
         {
             var name = Path.GetFileName(folder);
-            if (name.StartsWith('.') || AddOnCatalog.Contains(name))
+            if (name.StartsWith('.') || _entries.Any(entry => Same(entry.Id, name)))
             {
                 continue;
             }
@@ -168,7 +178,7 @@ public sealed partial class AddOnInstaller : IAddOnInstaller, IDisposable
         // none to keep; one that stayed because others could change it must never start).
         foreach (var removed in list.Where(a => a.Removed).ToList())
         {
-            var entry = AddOnCatalog.Find(removed.Id);
+            var entry = FindEntry(removed.Id);
             var folderGone = entry is null || AddOnFolders.TryDelete(FolderOf(entry));
             var updateGone = entry is null || AddOnFolders.TryDelete(WaitingFolderOf(entry));
             if (folderGone && updateGone)
@@ -191,7 +201,7 @@ public sealed partial class AddOnInstaller : IAddOnInstaller, IDisposable
             OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal);
         var updateNotTrusted = new HashSet<string>(StringComparer.OrdinalIgnoreCase); // ids whose waiting update is never used
         var wentLoose = new HashSet<string>(StringComparer.OrdinalIgnoreCase); // listed add-ons whose folder went
-        foreach (var entry in AddOnCatalog.Entries)
+        foreach (var entry in _entries)
         {
             var folderLoose = loose.All || looseNames.Contains(entry.Id);
             if (!folderLoose && !looseNames.Contains(WaitingPrefix + entry.Id))
@@ -247,7 +257,7 @@ public sealed partial class AddOnInstaller : IAddOnInstaller, IDisposable
         }
 
         // Put in by hand from the release ZIP: on the list with the version its file names, loaded only when that is this one.
-        foreach (var entry in AddOnCatalog.Entries)
+        foreach (var entry in _entries)
         {
             if (list.Exists(a => Same(a.Id, entry.Id)) || !File.Exists(Path.Combine(FolderOf(entry), PluginLoader.ManifestFileName)))
             {
@@ -260,7 +270,7 @@ public sealed partial class AddOnInstaller : IAddOnInstaller, IDisposable
             LogTakenUp(_logger, entry.Id, version);
         }
 
-        foreach (var entry in AddOnCatalog.Entries)
+        foreach (var entry in _entries)
         {
             var slot = SlotOf(entry);
             var installed = list.Find(a => Same(a.Id, entry.Id));
@@ -298,7 +308,7 @@ public sealed partial class AddOnInstaller : IAddOnInstaller, IDisposable
             }
 
             // A waiting update first: the old folder stays until the new one has loaded. Never one others could change.
-            var old = updateNotTrusted.Contains(entry.Id) ? null : ApplyWaitingUpdate(entry);
+            var old = updateNotTrusted.Contains(entry.Id) ? null : ApplyWaitingUpdate(entry, installed.Version);
             changed |= LoadByVersion(entry, slot, list, installed);
             if (old is not null)
             {
@@ -327,6 +337,11 @@ public sealed partial class AddOnInstaller : IAddOnInstaller, IDisposable
     /// </summary>
     private bool LoadByVersion(AddOnEntry entry, Slot slot, List<InstalledAddOn> list, InstalledAddOn installed)
     {
+        if (entry.Vendor is { } vendor)
+        {
+            return LoadVendorByVersion(entry, vendor, slot, list, installed);
+        }
+
         var folderVersion = File.Exists(Path.Combine(FolderOf(entry), PluginLoader.ManifestFileName)) ? AddOnFolders.ReadVersion(FolderOf(entry)) : null;
         if (AddOnFolders.MayKeepRunning(folderVersion, _options.ServerVersion, AddOnCatalog.OldestRunningVersion))
         {
@@ -376,6 +391,55 @@ public sealed partial class AddOnInstaller : IAddOnInstaller, IDisposable
         }
     }
 
+    private bool LoadVendorByVersion(AddOnEntry entry, VendorAddOn vendor, Slot slot,
+        List<InstalledAddOn> list, InstalledAddOn installed)
+    {
+        try
+        {
+            var verified = CheckVendorFolder(FolderOf(entry), entry, vendor, requireApprovedVersion: false);
+            LoadAtStart(entry, slot, verified.Version);
+            lock (_sync)
+            {
+                slot.Older = slot.Loaded && Version.Parse(verified.Version) < Version.Parse(vendor.Version);
+            }
+
+            if (!IsLoaded(slot) || installed.Version == verified.Version)
+            {
+                return false;
+            }
+
+            list[list.IndexOf(installed)] = installed with { Version = verified.Version };
+            return true;
+        }
+        catch (Exception ex) when (ex is AddOnException or IOException or UnauthorizedAccessException
+                                   or InvalidDataException or BadImageFormatException)
+        {
+            lock (_sync)
+            {
+                slot.Version = installed.Version;
+                slot.Failed = AddOnTexts.CouldNotLoad(entry.DisplayName);
+            }
+
+            LogUpdateNotApplied(_logger, entry.Id, ex.Message);
+            return false;
+        }
+    }
+
+    private VendorPluginManifest CheckVendorFolder(string folder, AddOnEntry entry, VendorAddOn vendor, bool requireApprovedVersion)
+    {
+        var plugin = AddOnFolders.CheckManifest(folder, entry);
+        var manifest = ReadVendorManifest(folder, vendor, requireApprovedVersion);
+        if (plugin.Version != manifest.Version)
+        {
+            throw new InvalidDataException("The plugin version does not match its signed manifest.");
+        }
+
+        return manifest;
+    }
+
+    private VendorPluginManifest ReadVendorManifest(string folder, VendorAddOn vendor, bool requireApprovedVersion = false) =>
+        VendorAddOnFiles.Verify(folder, vendor, _options.ServerVersion, _options.RuntimeId, requireApprovedVersion);
+
     /// <summary>The add-on's folder was built from the same source as this version's ZIP (never without both fingerprints).</summary>
     private bool HasThisContent(AddOnEntry entry) =>
         _hashes.FindContent(entry.Id) is { Length: > 0 } expected
@@ -386,7 +450,7 @@ public sealed partial class AddOnInstaller : IAddOnInstaller, IDisposable
     /// yet); returns the old folder, kept until the new one has loaded. Anything else leaves the add-on as it is: the leftover
     /// goes with the temporary folders.
     /// </summary>
-    private string? ApplyWaitingUpdate(AddOnEntry entry)
+    private string? ApplyWaitingUpdate(AddOnEntry entry, string installedVersion)
     {
         var waiting = WaitingFolderOf(entry);
         if (!Directory.Exists(waiting))
@@ -403,12 +467,23 @@ public sealed partial class AddOnInstaller : IAddOnInstaller, IDisposable
             }
 
             AddOnFolders.CheckManifest(waiting, entry);
-            AddOnFolders.CheckVersion(waiting, _options.ServerVersion);
+            if (entry.Vendor is { } vendor)
+            {
+                var pending = CheckVendorFolder(waiting, entry, vendor, requireApprovedVersion: true);
+                if (Version.TryParse(installedVersion, out var running) && Version.Parse(pending.Version) <= running)
+                {
+                    throw new InvalidDataException("A vendor plugin update must be newer than the current version.");
+                }
+            }
+            else
+            {
+                AddOnFolders.CheckVersion(waiting, _options.ServerVersion);
+            }
             var old = AddOnFolders.SwapIn(waiting, FolderOf(entry), Root);
             LogUpdateApplied(_logger, entry.Id, _options.ServerVersion);
             return old;
         }
-        catch (Exception ex) when (ex is AddOnException or IOException or UnauthorizedAccessException)
+        catch (Exception ex) when (ex is AddOnException or IOException or UnauthorizedAccessException or InvalidDataException)
         {
             LogUpdateNotApplied(_logger, entry.Id, ex.Message);
             return null;
@@ -445,7 +520,7 @@ public sealed partial class AddOnInstaller : IAddOnInstaller, IDisposable
         {
             lock (_sync)
             {
-                return [.. AddOnCatalog.Entries.Where(e => _slots[e.Id] is { Loaded: false, Failed: not null }).Select(e => e.DisplayName)];
+                return [.. _entries.Where(e => _slots[e.Id] is { Loaded: false, Failed: not null }).Select(e => e.DisplayName)];
             }
         }
     }
@@ -453,7 +528,7 @@ public sealed partial class AddOnInstaller : IAddOnInstaller, IDisposable
     // ----- IAddOnInstaller -----
 
     public Task<IReadOnlyList<AddOnStatus>> ListAsync(CancellationToken ct) =>
-        Task.FromResult<IReadOnlyList<AddOnStatus>>([.. AddOnCatalog.Entries.Select(StatusOf)]);
+        Task.FromResult<IReadOnlyList<AddOnStatus>>([.. _entries.Select(StatusOf)]);
 
     public bool IsRemoved(string packageId)
     {
@@ -521,8 +596,8 @@ public sealed partial class AddOnInstaller : IAddOnInstaller, IDisposable
                 waits = slot.Loaded; // the older add-on runs: the new one waits for the next start
             }
 
-            var expected = _hashes.Find(entry.Id) ?? throw new InvalidOperationException(AddOnTexts.NoHash);
-            var version = _options.ServerVersion;
+            var expected = entry.Vendor?.ArchiveSha256 ?? _hashes.Find(entry.Id) ?? throw new InvalidOperationException(AddOnTexts.NoHash);
+            var version = entry.Vendor?.Version ?? _options.ServerVersion;
             if (waits)
             {
                 try
@@ -718,7 +793,9 @@ public sealed partial class AddOnInstaller : IAddOnInstaller, IDisposable
                     }
                 }
 
-                var files = await AddOnFolders.ReadClientPartAsync(FolderOf(entry), ct).ConfigureAwait(false);
+                var files = entry.Vendor is { } vendor
+                    ? VendorAddOnFiles.ClientPart(FolderOf(entry), CheckVendorFolder(FolderOf(entry), entry, vendor, requireApprovedVersion: false), ct)
+                    : await AddOnFolders.ReadClientPartAsync(FolderOf(entry), ct).ConfigureAwait(false);
                 var part = new AddOnClientPart(entry.Id, version, files);
                 lock (_sync)
                 {
@@ -780,7 +857,14 @@ public sealed partial class AddOnInstaller : IAddOnInstaller, IDisposable
             // The upload is in and its hash holds: from here the install runs to its end, whoever has gone, and is audited.
             await AddOnFolders.UnpackAsync(zip, staged, _options.MaxUnpackedBytes, _options.MaxEntries, CancellationToken.None).ConfigureAwait(false);
             AddOnFolders.CheckManifest(staged, entry);
-            AddOnFolders.CheckVersion(staged, _options.ServerVersion);
+            if (entry.Vendor is { } vendor)
+            {
+                CheckVendorFolder(staged, entry, vendor, requireApprovedVersion: true);
+            }
+            else
+            {
+                AddOnFolders.CheckVersion(staged, _options.ServerVersion);
+            }
             Report(AddOnStep.Check, 100, 95);
 
             Report(AddOnStep.Install, 0, 95);
@@ -798,7 +882,7 @@ public sealed partial class AddOnInstaller : IAddOnInstaller, IDisposable
             LogInstallFailed(_logger, entry.Id, ex.Message, ex.InnerException?.Message ?? string.Empty);
             throw;
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException or BadImageFormatException)
         {
             LogInstallFailed(_logger, entry.Id, AddOnTexts.CouldNotInstall, ex.Message);
             throw new AddOnException(AddOnTexts.CouldNotInstall, ex);
@@ -993,8 +1077,10 @@ public sealed partial class AddOnInstaller : IAddOnInstaller, IDisposable
     private AddOnStatus StatusOf(AddOnEntry entry)
     {
         var updating = _update.UpdatingTo is not null;
-        var hash = _hashes.Find(entry.Id) is not null;
-        var url = hash ? AddOnCatalog.DownloadUrl(entry.Id, _options.ServerVersion, _options.RuntimeId) : null;
+        var hash = entry.Vendor is not null || _hashes.Find(entry.Id) is not null;
+        var url = entry.Vendor is { } vendor
+            ? vendor.DownloadUrl
+            : hash ? AddOnCatalog.DownloadUrl(entry.Id, _options.ServerVersion, _options.RuntimeId) : null;
         lock (_sync)
         {
             var slot = _slots[entry.Id];
@@ -1046,8 +1132,11 @@ public sealed partial class AddOnInstaller : IAddOnInstaller, IDisposable
             && !string.Equals(Path.GetFullPath(p.Directory), own, OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal));
     }
 
-    private static AddOnEntry EntryOf(string id) =>
-        AddOnCatalog.Find(id ?? string.Empty) ?? throw new KeyNotFoundException(AddOnTexts.Unknown(id ?? string.Empty));
+    public AddOnEntry? FindEntry(string id) => _entries.FirstOrDefault(entry => Same(entry.Id, id));
+
+    private AddOnEntry EntryOf(string id) =>
+        FindEntry(id ?? string.Empty)
+        ?? throw new KeyNotFoundException(AddOnTexts.Unknown(id ?? string.Empty));
 
     private Slot SlotOf(AddOnEntry entry)
     {

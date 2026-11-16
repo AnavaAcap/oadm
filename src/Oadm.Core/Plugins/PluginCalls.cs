@@ -95,6 +95,10 @@ internal sealed class HostCallContext : ICallContext
     /// <summary>The user's id: the owner of jobs.</summary>
     public Guid UserId => Caller.Caller.UserId;
 
+    Guid ICallContext.UserId => Caller.Caller.IsAccessKey ? Caller.Caller.Delegation?.OwnerId ?? Guid.Empty : UserId;
+
+    public bool CanApprove => Caller.Caller.CanApprove && !Caller.Caller.IsAccessKey;
+
     public string UserName => Caller.Caller.UserName;
 
     public string SessionId => Caller.Caller.SessionId;
@@ -115,6 +119,10 @@ internal sealed class HostCallContext : ICallContext
     public IUploadedFiles Uploads { get; init; } = Oadm.Core.Uploads.NoUploadedFiles.Instance;
 
     public bool Has(string permission) => Caller.Caller.Has(permission);
+
+    public Task RequireCurrentAsync(string permission, Guid deviceId, string serial, CancellationToken ct) =>
+        Has(permission) ? Caller.View.RequireCurrentAsync(UserId, permission, deviceId, serial, ct)
+            : throw new UnauthorizedAccessException("This call did not authorize the requested operation.");
 
     public bool CoversRoute(Guid? siteId) => Caller.View.CoversRoute(siteId);
 

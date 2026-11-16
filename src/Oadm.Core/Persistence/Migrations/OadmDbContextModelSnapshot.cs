@@ -33,6 +33,9 @@ namespace Oadm.Core.Persistence.Migrations
                     b.Property<DateTime>("CreatedUtc")
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("DelegationJson")
+                        .HasColumnType("TEXT");
+
                     b.Property<Guid?>("DeviceGroupId")
                         .HasColumnType("TEXT");
 

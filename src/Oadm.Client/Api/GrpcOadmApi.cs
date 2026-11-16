@@ -679,7 +679,7 @@ public sealed class GrpcOadmApi : IOadmApi, IDisposable
         await C.Plugins.RestartForAddOnsAsync(new RestartForAddOnsRequest(), cancellationToken: ct);
 
     public async Task<AddOnClientPart> GetAddOnClientPartAsync(string id, CancellationToken ct) =>
-        await C.Plugins.GetAddOnClientPartAsync(new AddOnIdRequest { Id = id }, cancellationToken: ct);
+        await C.Plugins.GetAddOnClientPartAsync(new AddOnIdRequest { Id = id, VerifiesVendorSignature = true }, cancellationToken: ct);
 
     public async Task<string?> InvokeCorePluginAsync(string pluginId, string method, string? payloadJson, CancellationToken ct)
     {

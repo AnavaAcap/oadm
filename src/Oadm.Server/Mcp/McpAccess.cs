@@ -93,12 +93,18 @@ public sealed class McpAccess(AccessKeyStore keys, RoleStore roles, DeviceViewFa
         }
 
         var permissions = await roles.PermissionsOfAsync(session.RoleId, ct).ConfigureAwait(false);
+        if (session.Delegation is { } grant)
+        {
+            permissions = grant.Intersect(permissions);
+        }
+
         var devices = await views.CallerDevicesAsync(session.Devices, ct).ConfigureAwait(false);
         var caller = new AuthenticatedCaller(session.Id, session.AgentName, session.RoleId, permissions, clientAddress, string.Empty, session.TokenHash)
         {
             Devices = devices,
             AccessEpoch = epoch,
             IsAccessKey = true,
+            Delegation = session.Delegation,
         };
         return new McpSignIn(new ToolCaller(caller, bindingKey)
         {

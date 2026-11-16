@@ -95,6 +95,12 @@ public sealed class FakeCallContext : ICallContext
     /// <inheritdoc />
     public string UserName { get; }
 
+    /// <summary>The authorizing person; tests opt in when an operation needs a stable identity.</summary>
+    public Guid UserId { get; set; }
+
+    /// <summary>Tests explicitly distinguish a native client from a tool. False unless opted in.</summary>
+    public bool CanApprove { get; set; }
+
     /// <summary>The context the call belongs to (null for a call over a test's own fakes).</summary>
     internal FakeCoreContext? Core => _core;
 
@@ -105,7 +111,7 @@ public sealed class FakeCallContext : ICallContext
     public string DeviceScopeKey { get; }
 
     /// <summary>The role's permissions; null (the default) = every permission.</summary>
-    public IReadOnlySet<string>? Permissions { get; init; }
+    public IReadOnlySet<string>? Permissions { get; set; }
 
     /// <inheritdoc />
     public bool HasAllDevices => _group is null;
@@ -139,6 +145,14 @@ public sealed class FakeCallContext : ICallContext
 
     /// <inheritdoc />
     public bool Has(string permission) => Permissions is null || Permissions.Contains(permission);
+
+    /// <inheritdoc />
+    public async Task RequireCurrentAsync(string permission, Guid deviceId, string serial, CancellationToken ct)
+    {
+        if (!Has(permission)) throw new UnauthorizedAccessException("The operation permission was revoked.");
+        var device = await Devices.FindAsync(deviceId, ct).ConfigureAwait(false);
+        if (device is null || device.Serial != serial || !Contains(device)) throw new DevicesNotAvailableException();
+    }
 
     /// <inheritdoc />
     public bool Contains(IDeviceInfo device)

@@ -488,7 +488,10 @@ public static partial class OadmServerHost
         services.TryAddSingleton(sp => new AddOns.AddOnInstallerOptions(
             sp.GetRequiredService<OadmPaths>().DataDirectory,
             Mapping.Mappers.ServerVersion,
-            AddOns.AddOnInstallerOptions.CurrentRuntimeId()));
+            AddOns.AddOnInstallerOptions.CurrentRuntimeId())
+        {
+            VendorAddOns = configuration.GetSection("Oadm:VendorAddOns").Get<AddOns.VendorAddOn[]>() ?? [],
+        });
         services.AddSingleton(sp => new AddOns.AddOnInstaller(
             sp.GetRequiredService<AddOns.AddOnInstallerOptions>(),
             sp.GetRequiredService<AddOns.IAddOnHashes>(),

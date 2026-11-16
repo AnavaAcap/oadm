@@ -21,6 +21,9 @@ public sealed record AccessKeyInfo(Guid Id, string Name, Guid RoleId, string Rol
 /// <param name="TokenHash">SHA-256 of the key: what cursors and handles are bound to.</param>
 public sealed record AccessKeySession(Guid Id, string TokenHash, string Name, Guid RoleId, DeviceScope Devices, DateTime ExpiresUtc)
 {
+    /// <summary>The immutable ceiling of a user-bound connection; null for an independent key.</summary>
+    public DelegationGrant? Delegation { get; init; }
+
     /// <summary>The name of the agent in the audit log and as task owner: "MCP Lobby-bot".</summary>
     public string AgentName => AccessKeyStore.AgentNameOf(Name);
 }
@@ -36,7 +39,7 @@ public sealed record EndedAccessKey(Guid Id, string TokenHash);
 /// cannot be deleted while it names them (<see cref="RoleStore.DeleteAsync"/>, <see cref="DeviceGroupStore.DeleteAsync"/>);
 /// a restore ends every key. Works only on the MCP server, never as a login session.
 /// </summary>
-public sealed class AccessKeyStore(IDbContextFactory<OadmDbContext> dbFactory, TimeProvider time) : IDisposable
+public sealed partial class AccessKeyStore(IDbContextFactory<OadmDbContext> dbFactory, TimeProvider time) : IDisposable
 {
     /// <summary>The start of every access key: an agent's configuration shows what the secret is.</summary>
     public const string Prefix = "oadm_";
@@ -97,7 +100,7 @@ public sealed class AccessKeyStore(IDbContextFactory<OadmDbContext> dbFactory, T
                 .ExecuteUpdateAsync(s => s.SetProperty(k => k.LastUsedUtc, now), ct).ConfigureAwait(false);
         }
 
-        return new AccessKeySession(row.Id, hash, row.Name, row.RoleId, row.DeviceAccess, row.ExpiresUtc);
+        return await SessionAsync(db, row, ct).ConfigureAwait(false);
     }
 
     /// <summary>The name of a key that did not validate but whose row is still there (it ended); null for a key OADM does not know.</summary>
@@ -123,7 +126,7 @@ public sealed class AccessKeyStore(IDbContextFactory<OadmDbContext> dbFactory, T
         var row = await db.AccessKeys.AsNoTracking().FirstOrDefaultAsync(k => k.Id == id, ct).ConfigureAwait(false);
         return row is null || row.ExpiresUtc <= time.GetUtcNow().UtcDateTime
             ? null
-            : new AccessKeySession(row.Id, row.TokenHash, row.Name, row.RoleId, row.DeviceAccess, row.ExpiresUtc);
+            : await SessionAsync(db, row, ct).ConfigureAwait(false);
     }
 
     /// <summary>
