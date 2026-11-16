@@ -28,7 +28,7 @@ have the fact, and say why.
 | Devices, status, models, AXIS OS | `oadm_devices_summary`, `oadm_devices_search` |
 | Clock and NTP | `oadm_devices_search` with field `clock_offset_ms`; `oadm_ntp_status` |
 | Certificates | `oadm_devices_search` with `certificate_expires`, `certificate_trust`; `oadm_pki_certificates` |
-| Vulnerabilities | `oadm_vulnerabilities_summary`, `oadm_vulnerabilities`; the device filter `vulnerabilities` |
+| Vulnerabilities | `oadm_vulnerabilities_summary`, `oadm_vulnerabilities`, `oadm_vulnerability`; the device filter `vulnerabilities` |
 | Compliance | `oadm_compliance_summary`, `oadm_compliance_checks`, `oadm_compliance_devices` (which devices fail a check) |
 | A device's users, network, applications, time now | `oadm_task_query` (asks the device) |
 | Waiting list of Add devices | `oadm_waiting_list` |
@@ -100,11 +100,12 @@ Setting a parameter, action rules or stream profiles on many devices is Configur
 preview then run too; read each device's answer with `oadm_tasks_get`. Prefer a task from the catalog when one does the
 job.
 
-No tool and no command fits: ask the user first whether you may look in the Axis docs, then read the request in
+No tool and no command fits: ask the user first whether you may look it up on axis.com, then read the request in
 developer.axis.com with your own web access and send it with `oadm_device_request_preview` (a change: one device first,
 check its answer, then more devices; never a password in a request).
 
-Vulnerabilities: `oadm_vulnerabilities_summary` first, then `oadm_vulnerabilities` for the devices and their CVEs.
+Vulnerabilities: `oadm_vulnerabilities_summary` first, then `oadm_vulnerabilities` for the devices and their CVEs;
+`oadm_vulnerability` says what one CVE is (description, advisory, models) from OADM's list, without going online.
 "Possible" CVEs are not counted: report them apart and point to the Axis advisory.
 
 More changes, each a preview and a run like the others:

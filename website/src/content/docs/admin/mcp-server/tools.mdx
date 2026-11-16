@@ -135,7 +135,7 @@ and runs after the user agreed.
 | Tool | Kind | What it does |
 | --- | --- | --- |
 | `oadm_vulnerabilities` | Read | Your devices with the Axis CVEs that affect them (id, level, score, the version that fixes it), the possible ones apart, a page at a time. Without a vulnerabilities filter: devices with any CVE. |
-| `oadm_vulnerabilities_summary` | Read | How many of your devices the published Axis CVEs affect, by the worst level, and the CVEs that affect the most devices. Possible ones are kept apart. Then oadm_vulnerabilities lists the devices. |
+| `oadm_vulnerabilities_summary` | Read | How many of your devices the published Axis CVEs affect, by the worst level, and the CVEs that affect the most devices. Possible ones are kept apart. Then oadm_vulnerabilities lists the devices; oadm_vulnerability says what one CVE is. |
 | `oadm_vulnerabilities_update_preview` | Preview | Shows the list of Axis vulnerabilities OADM holds and whether the server may fetch a newer one now; nothing is fetched. Then call oadm_vulnerabilities_update_run with the handle. |
 | `oadm_vulnerabilities_update_run` | Run (changes) | The server fetches the newest list of Axis vulnerabilities now (Check now of the Settings page). It sends no device data. |
 
@@ -570,6 +570,12 @@ and runs after the user agreed.
 | `oadm_users_password_run` | Run (changes) | Sets the password the user typed for the user of a preview; the user is logged out and logs in with it. |
 | `oadm_users_update_preview` | Preview | Shows a user's new role, devices or state and what it means; nothing is changed. Then call oadm_users_update_run with the handle. |
 | `oadm_users_update_run` | Run (changes) | Changes the role, devices or state of the user of a preview, as the Permissions page does. |
+
+## Vulnerability
+
+| Tool | Kind | What it does |
+| --- | --- | --- |
+| `oadm_vulnerability` | Read | What one Axis CVE is: its description, level, score, the Axis advisory and the models it names, and how many of your devices it affects. From OADM's CVE list, nothing goes online. Then oadm_vulnerabilities with the filter cve lists the devices and the version that fixes it. |
 
 ## Waiting
 

@@ -117,7 +117,7 @@ lists out, and a server whose clock is behind still takes a client's list. The c
   is "server"), `VulnerabilityUpdater` (the daily fetch by the server, `IVulnerabilitySource`); `VulnerabilityStore.Matcher`
   for the device filter and counts of `DeviceService.Search` (`Devices/DeviceFacts`).
 - Agents and the Assistant (`src/Oadm.Server/Tools/VulnerabilityTools`, docs/spec/mcp.md): `oadm_vulnerabilities_summary`
-  and `oadm_vulnerabilities`, the device filter `vulnerabilities` and the row field `vulnerabilities`; the same list,
+  and `oadm_vulnerabilities`, `oadm_vulnerability` (one CVE: the description, advisory and models the list keeps), the device filter `vulnerabilities` and the row field `vulnerabilities`; the same list,
   matcher and inputs as the column (model, AXIS OS, the chip; the raw chip and the column's short one compare the same),
   so an agent says what the column says; possible ones apart and never counted.
 - `src/Oadm.Client/Vulnerabilities`: `VulnerabilityCatalog` (the client's copy, the per-row match), `VulnerabilityUpdates`

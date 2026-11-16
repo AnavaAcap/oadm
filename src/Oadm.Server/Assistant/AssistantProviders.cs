@@ -15,7 +15,7 @@ namespace Oadm.Server.Assistant;
 
 /// <summary>
 /// What one call to a provider needs: the provider, its address, the model and the key (in memory for this call only);
-/// <paramref name="Online"/>: the one answer the user let look in the Axis docs (OpenAI then answers through its Responses API,
+/// <paramref name="Online"/>: the one answer the user let look it up on axis.com (OpenAI then answers through its Responses API,
 /// whose web search takes a domain filter).
 /// </summary>
 internal sealed record AssistantConnection(string Provider, string? Address, string Model, string? ApiKey, bool Online = false)

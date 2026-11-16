@@ -33,7 +33,7 @@ internal sealed class AssistantConversation(string sessionKey, Guid userId, stri
     public List<string> Notes { get; } = [];
 
     /// <summary>
-    /// The offers of the last answer to look in the Axis docs online (docs/spec/assistant.md "Looking in the Axis docs"): id to
+    /// The offers of the last answer to look it up on axis.com (docs/spec/assistant.md "Looking on axis.com"): id to
     /// its end. The next message takes one (Look up online) or drops them all.
     /// </summary>
     public Dictionary<string, AssistantDocsOffer> DocsOffers { get; } = new(StringComparer.Ordinal);
@@ -65,7 +65,7 @@ internal sealed class AssistantConversation(string sessionKey, Guid userId, stri
     }
 }
 
-/// <summary>An offer to look in the Axis docs online: what the model would look up and when the offer ends.</summary>
+/// <summary>An offer to look it up on axis.com: what the model would look up and when the offer ends.</summary>
 internal sealed record AssistantDocsOffer(string Topic, DateTimeOffset Ends);
 
 /// <summary>A preview the chat showed: its preview tool and input (again for the failed devices) and its run tool.</summary>

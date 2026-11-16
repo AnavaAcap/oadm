@@ -55,10 +55,10 @@ public static class AssistantTexts
     /// <summary>A file of an answer that ended or is another user's (AssistantService.Download).</summary>
     public const string FileEnded = "This file has ended. Ask again.";
 
-    // Looking in the Axis docs (docs/spec/assistant.md "Looking in the Axis docs").
+    // Looking in the Axis docs (docs/spec/assistant.md "Looking on axis.com").
 
     /// <summary>The question of the offer's card.</summary>
-    public const string DocsOfferQuestion = "OADM has no function for this. Should I look in the Axis VAPIX docs online?";
+    public const string DocsOfferQuestion = "OADM has no function for this. Should I look it up on axis.com?";
 
     /// <summary>The card's button that says yes.</summary>
     public const string LookUpOnline = "Look up online";
@@ -67,7 +67,7 @@ public static class AssistantTexts
     public const string NotNow = "Not now";
 
     /// <summary>The user's message the click sends with the offer's id.</summary>
-    public const string LookUpMessage = "Yes, look it up in the Axis docs online.";
+    public const string LookUpMessage = "Yes, look it up on axis.com.";
 
     /// <summary>The card after the click, and after Not now.</summary>
     public const string LookedUpOnline = "Looked up online.";
@@ -76,17 +76,17 @@ public static class AssistantTexts
     /// <summary>Chat with an offer that is unknown, used, ended or another chat's.</summary>
     public const string DocsOfferEnded = "This offer has ended. Ask again.";
 
-    /// <summary>The only sites a lookup may search and read.</summary>
-    public static IReadOnlyList<string> DocsDomains { get; } = ["developer.axis.com", "help.axis.com"];
+    /// <summary>The only site a lookup may search and read: axis.com with its subdomains (help, developer, www).</summary>
+    public static IReadOnlyList<string> DocsDomains { get; } = ["axis.com"];
 
     /// <summary>The one line of a provider that cannot look online (Google Gemini, Ollama, OpenAI-compatible).</summary>
-    public static string CannotLookOnline(string? provider) => $"{ProviderName(provider)} cannot look online, so the Axis docs cannot be read here.";
+    public static string CannotLookOnline(string? provider) => $"{ProviderName(provider)} cannot look online, so axis.com cannot be read here.";
 
     /// <summary>A tool line: the lookup could not reach the Axis docs (no internet, the provider's search failed).</summary>
-    public const string DocsNotReached = "The Axis docs could not be read. The server may have no internet.";
+    public const string DocsNotReached = "axis.com could not be read. The server may have no internet.";
 
     /// <summary>A tool line while the provider searches or reads the Axis docs.</summary>
-    public const string LookingInDocs = "Looking in the Axis docs";
+    public const string LookingInDocs = "Looking on axis.com";
 
     /// <summary>Secrets of one Run at most (AssistantRunRequest.secrets).</summary>
     public const int MaxRunSecrets = 8;

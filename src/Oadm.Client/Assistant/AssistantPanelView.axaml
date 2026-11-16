@@ -351,8 +351,8 @@
                              IsOk="{Binding IsSaved}" IsError="{Binding HasFailed}" MaxLines="2" />
             </c:ResultCard>
           </DataTemplate>
-          <!-- OADM has no function for the request: the model asks to look in the Axis docs online. Only Look up online sends
-               the lookup (docs/spec/assistant.md "Looking in the Axis docs"). -->
+          <!-- OADM has no function for the request: the model asks to look it up on axis.com. Only Look up online sends
+               the lookup (docs/spec/assistant.md "Looking on axis.com"). -->
           <DataTemplate x:DataType="a:AssistantDocsOfferItem">
             <c:ResultCard x:Name="DocsOfferCard" Icon="{StaticResource Icon.globe}" Title="{x:Static a:AssistantTexts.DocsOfferTitle}" Subtitle="{Binding Topic}">
               <StackPanel Spacing="8">
