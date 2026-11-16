@@ -19,7 +19,9 @@ Use it for "which applications run where?" and to change them.
    id). Never unpack it yourself.
 2. `oadm_task_preview` with task `oadm.acap`, `action` `install` and `zipFileId`. OADM reads the `.eap` builds in it and,
    when the vendor added one, its `oadm-packages.json`, and answers per group of devices which file it gets in `details`;
-   devices without a fitting build are in `skipped`.
+   devices without a fitting build are in `skipped`. With `"unmatched": "skip"` in that file, a camera no row lists is
+   skipped too ("No row of the mapping file matches this device."): the vendor does not support it; tell the user, never
+   work around it with `mapping`.
 3. When two builds fit a group equally the preview answers an error at `mapping` naming the group and the files. Ask the
    user which file, then preview again with `mapping`: `[{"axisOs": "12.11.77", "architecture": "aarch64", "model":
    "P3265-V", "file": "lpr_2.6_aarch64.eap"}]`. Never choose for the user.
