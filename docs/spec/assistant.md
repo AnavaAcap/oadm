@@ -227,11 +227,15 @@ online. Code: `Assistant/AssistantDocsLookup` (server), `AssistantDocsOfferItem`
   `docs_offer_id`. The server takes the offer once (unknown, used, ended or another chat's: FAILED_PRECONDITION "This offer
   has ended. Ask again."); any message ends the chat's other offers. That one answer, with all its rounds, gets the
   provider's web tools restricted to `axis.com` with its subdomains (decision 2026-11-16: VAPIX and ACAP docs, products and datasheets, AXIS OS release notes, security advisories; `AssistantTexts.DocsDomains`, at most 5
-  searches and 5 reads) and a note with the topic in its system prompt (never kept in the chat). The answers before and after
+  searches and 5 reads) and a note with the topic in its system prompt (never kept in the chat). The note carries a map of
+  where each kind of information lives (`AssistantDocsLookup.WhereToLook`, checked 2026-11-16: product page and its
+  support page, the manual, AXIS OS release notes, tracks, knowledge base, hardening guide, security advisories, VAPIX,
+  ACAP, find and compare, warranty), so the model goes straight to the page. The answers before and after
   it never have them. The provider's own search steps are not kept in the chat (`AssistantChats.WithoutWebTools`).
 - **Providers**: Anthropic: the server tools `web_search_20250305` and `web_fetch_20250910` with `allowed_domains`
   (`Anthropic` SDK: `new ToolUnion(new WebSearchTool20250305 { AllowedDomains })` and `WebFetchTool20250910`, passed as
-  `AsAITool()`). OpenAI: the Responses API's web search with its domain filter (`ResponseTool.CreateWebSearchTool(filters:
+  `AsAITool()`); a read adds at most 20,000 tokens of a page (`max_content_tokens`, `AssistantDocsLookup.MaxContentTokens`;
+  the release notes alone are about 80,000). OpenAI's web search has no such limit. OpenAI: the Responses API's web search with its domain filter (`ResponseTool.CreateWebSearchTool(filters:
   WebSearchToolFilters { AllowedDomains })`; the lookup answer uses `GetResponsesClient().AsIChatClient(model)`, every other
   answer the chat completions client, whose web search has no domain filter). Google Gemini, Ollama and OpenAI-compatible: no card; the
   panel shows one line "<provider> cannot look online, so axis.com cannot be read here." (`AssistantTexts.CannotLookOnline`).
@@ -343,7 +347,8 @@ context.
 - Looking on axis.com (`AssistantDocsLookupTests`, fake model, no network): the offer is in the assistant's tool
   list and not in the registry; its event reaches the client; no request has a web tool without the click; after the
   click exactly the rounds of the next answer carry `web_search` and `web_fetch` with the two domains (read from the
-  provider's own tool JSON) and the following answer does not; the same offer again, another user's session, a message in
+  provider's own tool JSON) and the note with the page map, and the following answer does not; every address of the map is
+  on axis.com; the fetch has the content limit; the same offer again, another user's session, a message in
   between and the end after 10 minutes (`FakeTimeProvider`) are refused; one card per answer; Google Gemini, Ollama and
   OpenAI-compatible show the fixed line and no card; a failed search is a failed step; OpenAI's tool has the domain filter.
   Client (`AssistantDocsOfferUiTests`, headless screenshots dark and light): the card waits with Look up online as the

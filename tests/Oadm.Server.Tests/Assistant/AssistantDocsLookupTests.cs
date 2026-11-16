@@ -1,4 +1,5 @@
 using System.Text.Json.Nodes;
+using System.Text.RegularExpressions;
 
 using Grpc.Core;
 
@@ -75,6 +76,7 @@ public sealed class AssistantDocsLookupTests
             Assert.All(web, t => Assert.Equal(AssistantTexts.DocsDomains, AssistantDocsLookup.DomainsOf(t)));
             Assert.DoesNotContain(AssistantDocsLookup.OfferName, request.Tools);
             Assert.Contains("turn the privacy mask on", request.Messages[0].Text, StringComparison.Ordinal);
+            Assert.Contains(AssistantDocsLookup.WhereToLook, request.Messages[0].Text, StringComparison.Ordinal);
         }
 
         Assert.True(server.Providers.Connections[^1].Online);
@@ -87,6 +89,7 @@ public sealed class AssistantDocsLookupTests
         Assert.DoesNotContain(after.Tools, WebTools.Contains);
         Assert.Contains(AssistantDocsLookup.OfferName, after.Tools);
         Assert.DoesNotContain("said yes", after.Messages[0].Text, StringComparison.Ordinal);
+        Assert.DoesNotContain(AssistantDocsLookup.WhereToLook, after.AllText(), StringComparison.Ordinal);
         Assert.DoesNotContain(after.Messages.SelectMany(m => m.Contents), c => c is WebSearchToolCallContent);
         Assert.Contains("privacymask.cgi", after.AllText(), StringComparison.Ordinal);
         Assert.False(server.Providers.Connections[^1].Online);
@@ -181,6 +184,30 @@ public sealed class AssistantDocsLookupTests
         var openAi = Assert.Single(AssistantDocsLookup.ToolsFor(AssistantTexts.OpenAi));
         Assert.Equal(AssistantTexts.DocsDomains, AssistantDocsLookup.DomainsOf(openAi));
         Assert.Equal(["axis.com"], AssistantTexts.DocsDomains); // its subdomains (help, developer, www) are part of it for both providers
+    }
+
+    [Fact]
+    public void EveryPageOfTheMapIsOnAxisComAndTheNoteNamesIt()
+    {
+        var addresses = Regex.Matches(AssistantDocsLookup.WhereToLook, @"[a-z0-9.-]+\.[a-z]{2,}/[^\s;,)]*")
+            .Select(m => m.Value).ToList();
+        Assert.True(addresses.Count >= 12, $"{addresses.Count} addresses in the map");
+        foreach (var address in addresses)
+        {
+            var host = new Uri("https://" + address).Host;
+            Assert.True(AssistantTexts.DocsDomains.Any(d => host == d || host.EndsWith("." + d, StringComparison.Ordinal)), $"{host} is not on axis.com");
+        }
+
+        Assert.Contains(AssistantDocsLookup.WhereToLook, AssistantDocsLookup.OnlineNote("reset button"), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void TheAnthropicFetchReadsAtMostTheContentLimitOfAPage()
+    {
+        var fetch = Assert.Single(AssistantDocsLookup.ToolsFor(AssistantTexts.Anthropic), t => t.Name == "web_fetch");
+        var json = fetch.GetService<Anthropic.Models.Messages.ToolUnion>()!.Json;
+        Assert.Equal(AssistantDocsLookup.MaxContentTokens, json.GetProperty("max_content_tokens").GetInt32());
+        Assert.Equal(20_000, AssistantDocsLookup.MaxContentTokens);
     }
 
     [Fact]
