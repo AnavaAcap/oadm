@@ -2,7 +2,8 @@
 // Landing page: one card per plugin with a picture of its page (from the headless tests), its name and one sentence.
 // A click opens a detail window with the large picture and a link to the plugin's docs page (without JavaScript the
 // card is that link). The first rows show, the rest behind "Show all" (Reveal). Order as in the navigation rail. `path` for a page outside tools/.
-// `pro`: the tool needs OADM PRO (a PRO badge next to the name).
+// `pro`: the tool needs OADM PRO (a PRO badge next to the name). `community`: a community plugin, its author (a
+// COMMUNITY badge next to the name).
 import { Image, getImage } from 'astro:assets';
 import Reveal from './Reveal.astro';
 import compliance from '../assets/screens/compliance-page.png';
@@ -15,6 +16,7 @@ import actionRules from '../assets/screens/action-rules-page.png';
 import hardening from '../assets/screens/hardening-scan-basic.png';
 import metadata from '../assets/screens/metadata-monitor-page.png';
 import imageHealth from '../assets/screens/image-health-dashboard.png';
+import vpnFleet from '../assets/screens/vpn-fleet.png';
 import io from '../assets/screens/io-monitor-page.png';
 import snapshot from '../assets/screens/snapshot-report-page.png';
 import webView from '../assets/screens/web-view-page.png';
@@ -40,6 +42,7 @@ const plugins = [
 	{ name: 'Device triggers', page: 'device-triggers', image: triggers, text: 'Any event of your devices in event rules.' },
 	{ name: 'Action Rule Editor', page: 'action-rule-editor', image: actionRules, text: 'The action rules of hundreds of cameras changed in one step, with undo.' },
 	{ name: 'Hardening scan', page: 'hardening-scan', image: hardening, text: 'Every device against the AXIS OS Hardening Guide.' },
+	{ name: 'VPN Fleet', page: 'vpn-fleet', image: vpnFleet, community: 'Mo3he', text: 'The VPN apps of your cameras: connected or not, set up, installed and upgraded from GitHub.' },
 	{ name: 'Metadata Monitor', page: 'metadata-monitor', image: metadata, text: 'The events a camera sends, live.' },
 	{ name: 'Image Health Dashboard', page: 'image-health-dashboard', image: imageHealth, text: 'Blur, blocked or redirected views of every camera.' },
 	{ name: 'I/O Monitor', page: 'io-monitor', image: io, text: 'The inputs and outputs of a device, live.' },
@@ -64,7 +67,7 @@ const large = await Promise.all(plugins.map(async (p) => (await getImage({ src: 
 				<Image src={p.image} alt={`${p.name} page of OADM`} width={720} />
 			</span>
 			<span class="plugin-body">
-				<span class="plugin-title"><strong>{p.name}</strong>{p.pro && <small class="plugin-pro">PRO</small>}</span>
+				<span class="plugin-title"><strong>{p.name}</strong>{p.pro && <small class="plugin-pro">PRO</small>}{p.community && <small class="plugin-community" title={`Community plugin by ${p.community}`}>COMMUNITY</small>}</span>
 				<span class="plugin-text">{p.text}</span>
 			</span>
 		</a>
@@ -169,6 +172,16 @@ const large = await Promise.all(plugins.map(async (p) => (await getImage({ src: 
 		border: 1px solid var(--sl-color-accent);
 		border-radius: 4px;
 		color: var(--sl-color-accent-high);
+		font-size: var(--sl-text-xs);
+		font-weight: 600;
+		letter-spacing: 0.04em;
+		line-height: 1.4;
+	}
+	.plugin-community {
+		padding: 0.05rem 0.4rem;
+		border: 1px solid var(--sl-color-gray-4);
+		border-radius: 4px;
+		color: var(--sl-color-gray-2);
 		font-size: var(--sl-text-xs);
 		font-weight: 600;
 		letter-spacing: 0.04em;

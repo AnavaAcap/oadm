@@ -70,6 +70,8 @@ plugins/               folders, build and tests of a bundled plugin: plugins/REA
   Oadm.Plugins.Pki(.Client)/    also holds the core plugins EST server (Est/) and 802.1X server (Radius/)
   Oadm.Plugins.Ocr(.Client)/    optional plugin (add-on, not in the installers): Text recognition (docs/spec/ocr.md)
   Oadm.Plugins.Vision(.Client)/ optional plugin (add-on, not in the installers): Vision Center (docs/spec/vision-center.md)
+  Oadm.Plugins.VpnFleet(.Client)/ community plugin VPN Fleet (docs/spec/vpn-fleet.md); GitHubHttp.cs is its only HTTP
+                                outside the host: the apps' releases on github.com
   Shared/                       source linked into several plugins (CachedApiCheck, ContextCall, DeviceSweep, SweepRows,
                                 ViewerScopes, ActionEngine: the devices' action rules over SOAP, DeviceEvents: a
                                 device's event list, DeviceClock: the clock check before a certificate, DeviceId: the
@@ -222,6 +224,9 @@ must never break.
 - **[Application management](docs/spec/app-management.md)** (core plugin `oadm.app-management`, free, off by default):
   the chosen devices and the applications of the selected ones; every change is a task of `oadm.acap` with its checks
   and permissions; reads only on demand, kept in server memory.
+- **[VPN Fleet](docs/spec/vpn-fleet.md)** (community core plugin `oadm.vpn-fleet`, free, off by default): the camera VPN
+  apps of github.com/Mo3he; secrets never reach the client or the database; changes only to parameters the device has,
+  checked first; installs from the apps' GitHub releases, checked against GitHub's SHA-256.
 - **[Audio](docs/spec/audio.md)** (spec, not built; core plugin `oadm.audio`, free, off by default): clips, sound,
   display, siren and light of many devices; every change a task, hazardous settings confirmed, tests ask first; no live
   audio, no multicast, presets via the Action Rule Editor.

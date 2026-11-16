@@ -43,6 +43,7 @@ public sealed partial class RoutingRulesTests
         "plugins/Oadm.Plugins.NtpServer/Serving/NtpUdpServer.cs",
         "plugins/Oadm.Plugins.NtpServer/Upstream/UpstreamClient.cs",
         "plugins/Oadm.Plugins.NtpServer/Upstream/UpstreamResolver.cs",
+        "plugins/Oadm.Plugins.VpnFleet/GitHubHttp.cs", // the public releases of the VPN apps on github.com, never a device
     ];
 
     [Fact]

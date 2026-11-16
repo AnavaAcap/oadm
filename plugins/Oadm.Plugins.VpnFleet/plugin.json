@@ -1,0 +1,9 @@
+{
+  "id": "oadm.vpn-fleet",
+  "version": "0.1.0",
+  "minSdkVersion": "0.13.0",
+  "displayName": "VPN Fleet",
+  "enabledByDefault": false,
+  "description": "Sets up, installs and upgrades the camera VPN apps Tailscale, NetBird, ZeroTier, WireGuard and OpenVPN.",
+  "siteSupport": "full"
+}

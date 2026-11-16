@@ -357,6 +357,20 @@ that has the app, with five count cards (Good, Detected, Pending, Detection off,
   are refused whole (NOT_FOUND).
 - Page actions as tools (decision 2026-11-15, [mcp.md](mcp.md) "Page actions"), with the page's rights: `oadm_image_health_check` (Check now, one tool).
 
+## VPN Fleet (core plugin)
+
+`plugins/Oadm.Plugins.VpnFleet` (+ `.Client`), id `oadm.vpn-fleet`, rail page **VPN Fleet** (group Security, icon
+`globeLock`), **off by default**, community plugin by Mo3he. The camera VPN apps of github.com/Mo3he (Tailscale,
+NetBird, ZeroTier, WireGuard, OpenVPN, WireGuard Server): status and versions of the chosen cameras, one camera's
+settings, set up many cameras with keys per camera, install and upgrade from the apps' GitHub releases. Not in fake
+mode. Spec: [vpn-fleet.md](vpn-fleet.md).
+
+- Rules that must hold: secrets never reach the client and are never stored; changes write only parameters the device
+  has, checked first; HTTPS to GitHub only (releases kept 30 minutes, packages checked against GitHub's SHA-256);
+  tasks `oadm.vpn-fleet.connect` and `oadm.vpn-fleet.install` (4 at a time), page only. Permissions `connect` and
+  `install`, both off for Operator.
+- Device groups: one table per device scope; chosen ids outside the group are refused whole (NOT_FOUND).
+
 ## Application management (core plugin)
 
 `plugins/Oadm.Plugins.AppManagement` (+ `.Client`), id `oadm.app-management`, rail page **Applications** (group

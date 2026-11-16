@@ -9,6 +9,7 @@ Each entry is one short line in plain words (what the user gets, not how); no ne
 
 ### Added
 
+- VPN Fleet, a community plugin by Mo3he: the Tailscale, NetBird, ZeroTier, WireGuard and OpenVPN apps of your cameras in one table, set up one or many cameras, install and upgrade them from GitHub or, without internet, from packages on your computer.
 - Assistant: ask what a CVE is and it answers from OADM's CVE list, also for agents.
 
 ### Changed
