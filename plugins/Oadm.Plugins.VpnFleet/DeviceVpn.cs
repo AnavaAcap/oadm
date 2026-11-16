@@ -213,14 +213,20 @@ public static class DeviceVpn
     /// </summary>
     public static async Task InstallPackageAsync(IVapixClient vapix, string path, CancellationToken ct)
     {
-        ArgumentNullException.ThrowIfNull(vapix);
         await using var stream = File.OpenRead(path);
+        await InstallPackageAsync(vapix, stream, Path.GetFileName(path), ct).ConfigureAwait(false);
+    }
+
+    /// <inheritdoc cref="InstallPackageAsync(IVapixClient, string, CancellationToken)" />
+    public static async Task InstallPackageAsync(IVapixClient vapix, Stream stream, string fileName, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(vapix);
         var file = new StreamContent(stream, 81920);
         file.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/octet-stream");
         file.Headers.ContentDisposition = new System.Net.Http.Headers.ContentDispositionHeaderValue("form-data")
         {
             Name = "\"file\"",
-            FileName = "\"" + Path.GetFileName(path) + "\"",
+            FileName = "\"" + new string([.. Path.GetFileName(fileName).Where(c => c is >= ' ' and < (char)127 and not '"' and not '\\')]) + "\"",
         };
         var boundary = "vpnfleet-" + Guid.NewGuid().ToString("N");
         using var content = new MultipartContent("form-data", boundary) { file };

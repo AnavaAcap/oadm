@@ -18,6 +18,8 @@
 
   <ItemGroup>
     <Using Include="Xunit" />
+    <!-- Small synthetic .eap packages, as the Applications (ACAP) tests build them. -->
+    <Compile Include="..\Oadm.Plugins.Acap.Tests\EapBuilder.cs" Link="EapBuilder.cs" />
   </ItemGroup>
 
   <ItemGroup>

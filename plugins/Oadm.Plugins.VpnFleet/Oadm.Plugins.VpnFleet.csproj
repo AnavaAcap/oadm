@@ -23,6 +23,11 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- The .eap reader and the build per device of Applications (ACAP): packages from the user's computer. -->
+    <Compile Include="..\Oadm.Plugins.Acap\Shared\*.cs" Link="Acap\%(Filename)%(Extension)" />
+  </ItemGroup>
+
+  <ItemGroup>
     <InternalsVisibleTo Include="Oadm.Plugins.VpnFleet.Tests" />
   </ItemGroup>
 

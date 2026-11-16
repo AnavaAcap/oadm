@@ -21,6 +21,7 @@ https://github.com/Mo3he.
 | `VpnFleetPlugin` | Page methods (`Fleet`: `getState`, `refresh`, `connect`, `getPeers`, `getReleases`, `install`, `getSettings`, `saveSettings`), the table per device scope, WireGuard key and address planning, the `wireguard` setting (public keys only) |
 | `ConnectTaskPlugin` (`oadm.vpn-fleet.connect`) | Steps: Check the device, Upload the VPN profile (OpenVPN), Save the VPN settings, Start the app, Wait for the VPN to connect (90 s, a warning when it does not). The hub run: Read the peers of the WireGuard server, Add the cameras as peers. Names: "Connect to Tailscale", "Add 3 cameras to the WireGuard server" |
 | `InstallTaskPlugin` (`oadm.vpn-fleet.install`) | Steps: Check the device, Download the package, Install the package, Start the app, Check the installed version; 4 devices at a time. Names: "Install Tailscale 1.104.7", "Upgrade Tailscale to 1.104.7" |
+| `LocalPackages` | Installs without internet: the uploaded `.eap` files of one release, read and checked with the shared Applications (ACAP) code (`..\Oadm.Plugins.Acap\Shared`, linked) |
 | `ReleaseCatalog`, `GitHubHttp` | The newest release of each app (`api.github.com`, 30 minutes), the package per device, downloads checked against GitHub's SHA-256; `GitHubHttp.cs` is the plugin's only banned-API user |
 | `DeviceVpn`, `VpnStatusParser` | Every device request (`IVapixClient`): app list, start, `param.cgi` update (values in the body), `upload.cgi` (field `file`, quoted names), the status per app |
 | `AppSettings`, `ConnectRules` | The settings of each app with labels and checks; the rules of a set up (also the page's) |
@@ -36,6 +37,8 @@ https://github.com/Mo3he.
   The client sends only the fields the user changed.
 - Install picks the signed build of the device's architecture; on armv7hf with AXIS OS before 10.12 the ACAP 3 build
   (the apps' READMEs: ACAP 3 for AXIS OS 9 and 10); never the `_root` builds (AXIS OS 12 removed root).
+- Without internet, Install or upgrade takes the `.eap` files of one release from the user's computer: uploaded at the
+  start, each device gets the build `AcapBuildChooser` picks (the same choice as Applications), GitHub is not asked.
 - Actions on many cameras are wizards with the cameras in a full table (the maintainer's review: a list in the side
   panel does not scale past a few dozen cameras). They tick only the cameras where the action makes sense (the app
   installed for a set up, an older version for an upgrade); the user ticks others on purpose, and the last step warns

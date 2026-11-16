@@ -3,6 +3,7 @@ using System.Text.Json;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 
+using Oadm.Plugins.Acap;
 using Oadm.Sdk.Client;
 using Oadm.Sdk.Client.Collections;
 using Oadm.Sdk.Client.Controls;
@@ -181,7 +182,7 @@ public sealed partial class VpnFleetViewModel : ObservableObject, IDisposable
     public RolloutWizardViewModel InstallWizard()
     {
         var install = new InstallViewModel(_ctx, _stop.Token) { OpenUrl = OpenUrl };
-        return new RolloutWizardViewModel(WizardMode.Install, install, null, (kind, _, latest) => InstallChecklist(kind, latest), StartInstallAsync);
+        return new RolloutWizardViewModel(WizardMode.Install, install, null, (kind, _, latest) => InstallChecklist(kind, latest, install.FromFiles ? install.Builds : null), StartInstallAsync);
     }
 
     /// <summary>The set up wizard: the VPN and its settings, the cameras, what happens. A new form each time: no key stays.</summary>
@@ -256,15 +257,23 @@ public sealed partial class VpnFleetViewModel : ObservableObject, IDisposable
         return list;
     }
 
-    /// <summary>The chosen devices with what the install does to each: outdated ones are ticked, the others not.</summary>
-    public IReadOnlyList<CameraCheck> InstallChecklist(VpnKind kind, string? latest)
+    /// <summary>
+    /// The chosen devices with what the install does to each: outdated ones are ticked, the others not. With packages from
+    /// this computer (<paramref name="builds"/>), a camera that none of them fits is not ticked.
+    /// </summary>
+    public IReadOnlyList<CameraCheck> InstallChecklist(VpnKind kind, string? latest, IReadOnlyList<AcapBuild>? builds = null)
     {
         var app = VpnApps.Of(kind);
         var list = new List<CameraCheck>();
         foreach (var device in Devices.Resolve())
         {
             CameraCheck Check(string installed, string note, CheckKind what, bool on) => new(device.Id, device.Address, device.Model ?? "", installed, note, what, on);
-            if (!_rowsByDevice.TryGetValue(device.Id, out var rows))
+            var installed = _rowsByDevice.TryGetValue(device.Id, out var known) ? known.FirstOrDefault(r => r.Vpn == kind)?.AppVersion ?? "" : "";
+            if (builds is not null && NoPackageFits(builds, device) is { } why)
+            {
+                list.Add(Check(installed, why, CheckKind.NoPackage, false));
+            }
+            else if (!_rowsByDevice.TryGetValue(device.Id, out var rows))
             {
                 list.Add(Check("", "Not read yet", CheckKind.NotRead, false));
             }
@@ -287,8 +296,53 @@ public sealed partial class VpnFleetViewModel : ObservableObject, IDisposable
         return list;
     }
 
-    private Task<(string? Info, string? Error)> StartInstallAsync(RolloutWizardViewModel wizard) =>
-        InstallAsync(wizard.Install!.SelectedApp.Kind, wizard.Cameras.CheckedIds, wizard.Cameras.All.Where(c => c.IsChecked).All(c => c.HasApp));
+    /// <summary>Why none of the packages fits the device ("No package for armv7hf"), or null; unknown devices are checked by the task.</summary>
+    private static string? NoPackageFits(IReadOnlyList<AcapBuild> builds, Oadm.Sdk.Devices.IDeviceInfo device)
+    {
+        var group = AcapDeviceGroup.Of(device);
+        if (!group.IsKnown)
+        {
+            return null;
+        }
+
+        var choice = AcapBuildChooser.Choose(builds, group);
+        if (choice.Pick != AcapPick.Chosen || choice.Index < 0)
+        {
+            return "No package fits: " + (choice.Reason ?? $"none for {group.Architecture}");
+        }
+
+        return AcapBuildChooser.Misfit(builds[choice.Index].Package, group) is { } why ? $"No package fits: {builds[choice.Index].Name}, {why}" : null;
+    }
+
+    private async Task<(string? Info, string? Error)> StartInstallAsync(RolloutWizardViewModel wizard)
+    {
+        var install = wizard.Install!;
+        IReadOnlyList<PackageFile>? files = null;
+        if (install.FromFiles)
+        {
+            var sent = new List<PackageFile>();
+            foreach (var package in install.Packages.ToList())
+            {
+                var name = package.Name;
+                var progress = new Progress<double>(f => wizard.StartingText = $"Uploading {name}, {f:P0}");
+                wizard.StartingText = $"Uploading {name}";
+                string? problem = null;
+                UploadedFile? uploaded = null;
+                problem = await GuardedRun.RunAsync(async () => uploaded = await _ctx.UploadAsync(package.Path, progress, _stop.Token), GuardedCancel.Ignore);
+                if (problem is not null || uploaded is null)
+                {
+                    return (null, $"{name} was not uploaded: {problem ?? "the upload stopped."}");
+                }
+
+                sent.Add(new PackageFile(uploaded.Id, name));
+            }
+
+            files = sent;
+            wizard.StartingText = "Starting the tasks";
+        }
+
+        return await InstallAsync(install.SelectedApp.Kind, wizard.Cameras.CheckedIds, wizard.Cameras.All.Where(c => c.IsChecked).All(c => c.HasApp), files);
+    }
 
     private async Task<string?> InstallOneAsync(VpnKind kind, IReadOnlyList<Guid> deviceIds, bool upgrade)
     {
@@ -298,7 +352,7 @@ public sealed partial class VpnFleetViewModel : ObservableObject, IDisposable
     }
 
     /// <summary>Starts install or upgrade tasks: the text for the page, or the problem.</summary>
-    private async Task<(string? Info, string? Error)> InstallAsync(VpnKind kind, IReadOnlyList<Guid> deviceIds, bool upgrade)
+    private async Task<(string? Info, string? Error)> InstallAsync(VpnKind kind, IReadOnlyList<Guid> deviceIds, bool upgrade, IReadOnlyList<PackageFile>? files = null)
     {
         if (!MayInstall)
         {
@@ -307,7 +361,7 @@ public sealed partial class VpnFleetViewModel : ObservableObject, IDisposable
 
         string? reply = null;
         var error = await GuardedRun.RunAsync(
-            async () => reply = await _ctx.InvokeAsync(Fleet.Install, JsonSerializer.Serialize(new InstallRequest(kind, deviceIds, upgrade), Fleet.Json), _stop.Token),
+            async () => reply = await _ctx.InvokeAsync(Fleet.Install, JsonSerializer.Serialize(new InstallRequest(kind, deviceIds, upgrade) { Files = files }, Fleet.Json), _stop.Token),
             GuardedCancel.Ignore);
         if (error is not null || reply is null || JsonSerializer.Deserialize<InstallReply>(reply, Fleet.Json) is not { } result)
         {

@@ -20,11 +20,17 @@
     <Border Grid.Row="2" Classes="card" Margin="16,0" IsVisible="{Binding IsInstallAppStep}">
       <StackPanel Classes="form" Spacing="8" DataContext="{Binding Install}" x:DataType="vm:InstallViewModel"
                   MaxWidth="560" HorizontalAlignment="Left">
-        <ui:CardHeader Title="App" Description="OADM downloads the newest release from GitHub, the right package for each camera. Upgrades keep the app's settings." />
+        <ui:CardHeader Title="App" Description="Each camera gets the package that fits it. Upgrades keep the app's settings." />
         <ui:FormField Label="App">
           <ComboBox ItemsSource="{Binding Apps}" SelectedItem="{Binding SelectedApp}" HorizontalAlignment="Stretch" />
         </ui:FormField>
-        <ui:FormField Label="Version">
+        <ui:FormField Label="Packages">
+          <StackPanel Spacing="4">
+            <RadioButton GroupName="source" Content="Newest release on GitHub" IsChecked="{Binding IsGitHub, Mode=OneWay}" Command="{Binding UseGitHubCommand}" />
+            <RadioButton GroupName="source" Content="Packages on this computer (no internet needed)" IsChecked="{Binding FromFiles}" />
+          </StackPanel>
+        </ui:FormField>
+        <ui:FormField Label="Version" IsVisible="{Binding IsGitHub}">
           <Grid ColumnDefinitions="*,Auto,Auto">
             <TextBlock VerticalAlignment="Center" TextWrapping="Wrap" Text="{Binding ReleaseText}" />
             <Button Grid.Column="1" Classes="toolbar" Content="What's new" Command="{Binding OpenReleaseCommand}" />
@@ -33,6 +39,28 @@
         </ui:FormField>
         <ui:ProgressRow Text="Checking GitHub" IsActive="{Binding IsChecking}" IsVisible="{Binding IsChecking}" />
         <ui:StatusChip IsError="True" Text="{Binding ErrorText}" MaxLines="3" IsVisible="{Binding ErrorText, Converter={x:Static ObjectConverters.IsNotNull}}" />
+
+        <!-- Packages on this computer: the .eap files of one release, one per architecture. -->
+        <ui:FormField Label="Files" Error="{Binding PackagesError}" IsVisible="{Binding FromFiles}"
+                      Hint="The .eap files of one release, from the app's GitHub releases page. Choose one per architecture; each camera gets the one that fits.">
+          <StackPanel Spacing="4">
+            <ItemsControl ItemsSource="{Binding Packages}">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="vm:LocalPackageItem">
+                  <Grid ColumnDefinitions="*,Auto" Margin="0,2">
+                    <StackPanel VerticalAlignment="Center">
+                      <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" />
+                      <TextBlock Classes="muted" Text="{Binding Text}" />
+                    </StackPanel>
+                    <Button Grid.Column="1" Classes="toolbar" Content="Remove" VerticalAlignment="Center"
+                            Command="{Binding $parent[ItemsControl].((vm:InstallViewModel)DataContext).RemovePackageCommand}" CommandParameter="{Binding}" />
+                  </Grid>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+            <Button Classes="toolbar" Content="Choose packages…" HorizontalAlignment="Left" Command="{Binding ChoosePackagesCommand}" />
+          </StackPanel>
+        </ui:FormField>
       </StackPanel>
     </Border>
 
@@ -156,7 +184,7 @@
           </ItemsControl.ItemTemplate>
         </ItemsControl>
         <ui:StatusChip IsWarning="True" Text="{Binding PlanWarning}" MaxLines="3" IsVisible="{Binding PlanWarning, Converter={x:Static ObjectConverters.IsNotNull}}" />
-        <ui:ProgressRow Text="Starting the tasks" IsActive="{Binding IsStarting}" IsVisible="{Binding IsStarting}" />
+        <ui:ProgressRow Text="{Binding StartingText}" IsActive="{Binding IsStarting}" IsVisible="{Binding IsStarting}" />
         <ui:StatusChip IsError="True" Text="{Binding ErrorText}" MaxLines="4" IsVisible="{Binding ErrorText, Converter={x:Static ObjectConverters.IsNotNull}}" />
       </StackPanel>
     </Border>

@@ -61,8 +61,9 @@ Click a row. The panel shows every setting of that camera's app, with **Save** f
 
 <Steps>
 
-1. **App**: choose the app. The newest version on GitHub shows; **Check now** asks GitHub again, **What's new** opens
-   the release.
+1. **App**: choose the app and where its packages come from. With **Newest release on GitHub** the newest version
+   shows; **Check now** asks GitHub again, **What's new** opens the release. Without internet on the OADM server, see
+   [Install without internet](#install-without-internet).
 2. **Cameras**: every chosen camera is in a table with its installed version and what happens to it, for example
    **Upgrade 1.104.6 to 1.104.7** or **Install Tailscale 1.104.7**. Cameras with an older version are ticked. Search by
    address, model or what happens, and tick with **All shown**, **None**, **Older version** or **Without the app**.
@@ -105,6 +106,23 @@ For WireGuard each camera gets its own key pair and tunnel address:
 - **Another WireGuard server**: enter its address, public key and tunnel address. Copy the cameras' peers from
   **WireGuard peers** into the server's configuration.
 
+## Install without internet
+
+When the OADM server cannot reach GitHub, install from packages you downloaded yourself.
+
+<Steps>
+
+1. On a computer with internet, open the app's GitHub releases page (for example
+   [Tailscale](https://github.com/Mo3he/Axis_Cam_Tailscale/releases)) and download the `.eap` files of one release: one
+   per architecture your cameras have (`aarch64`, `armv7hf`), and the `acap3` file for cameras with AXIS OS before 10.12.
+2. In **Install or upgrade**, choose the app and **Packages on this computer**, then **Choose packages…** and pick the
+   files. OADM reads each file and says when one is for another app or the versions differ.
+3. In **Cameras**, a camera that none of the files fits says why and is not ticked.
+4. **Install or upgrade** uploads the files to the OADM server and starts the tasks. Each camera gets the file that fits
+   it, as Applications does. GitHub is not asked.
+
+</Steps>
+
 ## Good to know
 
 - Keys and passwords never leave the OADM server, and OADM never stores them. It keeps only each WireGuard camera's
@@ -113,6 +131,8 @@ For WireGuard each camera gets its own key pair and tunnel address:
   HTTPS access to `api.github.com`, `github.com` and `*.githubusercontent.com`. Each package is checked against the
   checksum GitHub publishes before it goes onto a camera.
 - OADM reads 16 cameras at a time and installs on 4 at a time.
+- Without internet on the OADM server, install from packages on your computer:
+  [Install without internet](#install-without-internet).
 - Devices that need a login, have no password yet, have a changed certificate or do not answer show the reason.
 
 <Aside>

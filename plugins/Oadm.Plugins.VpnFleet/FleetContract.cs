@@ -113,8 +113,14 @@ public sealed record ReleaseInfo(VpnKind Kind, string? Version, string? PageUrl,
 
 public sealed record ReleasesRequest(bool CheckNow);
 
-/// <summary>Install the newest release of an app on devices, or upgrade it. One task per device.</summary>
-public sealed record InstallRequest(VpnKind Kind, IReadOnlyList<Guid> DeviceIds, bool Upgrade);
+/// <summary>
+/// Install the newest release of an app on devices, or upgrade it, one task per device: from GitHub, or from the packages
+/// the user uploaded (<see cref="Files"/>; no internet needed).
+/// </summary>
+public sealed record InstallRequest(VpnKind Kind, IReadOnlyList<Guid> DeviceIds, bool Upgrade)
+{
+    public IReadOnlyList<PackageFile>? Files { get; init; }
+}
 
 public sealed record InstallReply(int Devices, string Version, IReadOnlyList<Guid> TaskIds);
 

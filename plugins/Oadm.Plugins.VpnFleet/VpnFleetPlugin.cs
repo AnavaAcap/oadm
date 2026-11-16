@@ -392,12 +392,16 @@ public sealed class VpnFleetPlugin : ICorePlugin, IDisposable
 
     private async Task<InstallReply> InstallAsync(ICallContext caller, InstallRequest request, CancellationToken ct)
     {
-        var (devices, version) = await PlanInstallAsync(caller, request.Kind, request.DeviceIds, ct).ConfigureAwait(false);
-        return await RunInstallAsync(caller, request.Kind, devices, version, request.Upgrade, ct).ConfigureAwait(false);
+        var (devices, version) = await PlanInstallAsync(caller, request.Kind, request.DeviceIds, request.Files, ct).ConfigureAwait(false);
+        return await RunInstallAsync(caller, request.Kind, devices, version, request.Upgrade, request.Files, ct).ConfigureAwait(false);
     }
 
-    /// <summary>The devices (in the caller's view) and the version an install would take; nothing is changed.</summary>
-    internal async Task<(IReadOnlyList<IDeviceInfo> Devices, string Version)> PlanInstallAsync(ICallContext caller, VpnKind kind, IReadOnlyList<Guid>? deviceIds, CancellationToken ct)
+    /// <summary>
+    /// The devices (in the caller's view) and the version an install would take; nothing is changed. With
+    /// <paramref name="files"/> the packages are the caller's own uploads and GitHub is never asked.
+    /// </summary>
+    internal async Task<(IReadOnlyList<IDeviceInfo> Devices, string Version)> PlanInstallAsync(
+        ICallContext caller, VpnKind kind, IReadOnlyList<Guid>? deviceIds, IReadOnlyList<PackageFile>? files, CancellationToken ct)
     {
         if (!Enum.IsDefined(kind))
         {
@@ -410,15 +414,22 @@ public sealed class VpnFleetPlugin : ICorePlugin, IDisposable
         }
 
         var devices = await FindAsync(caller, deviceIds, ct).ConfigureAwait(false);
+        if (files is { Count: > 0 })
+        {
+            var builds = await LocalPackages.ReadAsync(caller.Uploads, VpnApps.Of(kind), files, ct).ConfigureAwait(false);
+            return (devices, builds[0].Package.Version);
+        }
+
         var (release, error) = await _catalog.GetAsync(kind, checkNow: false, ct).ConfigureAwait(false);
         return release is null
             ? throw new InvalidOperationException(error ?? "The newest version could not be read.")
             : (devices, release.Version);
     }
 
-    internal static async Task<InstallReply> RunInstallAsync(ICallContext caller, VpnKind kind, IReadOnlyList<IDeviceInfo> devices, string version, bool upgrade, CancellationToken ct)
+    internal static async Task<InstallReply> RunInstallAsync(
+        ICallContext caller, VpnKind kind, IReadOnlyList<IDeviceInfo> devices, string version, bool upgrade, IReadOnlyList<PackageFile>? files, CancellationToken ct)
     {
-        var payload = new InstallPayload(kind, version, upgrade);
+        var payload = new InstallPayload(kind, version, upgrade) { Files = files };
         var ids = await caller.Tasks.RunAsync(InstallTaskPlugin.PluginId, [.. devices.Select(d => d.Id)],
             JsonSerializer.Serialize(payload, Fleet.Json), caller.UserName, ct).ConfigureAwait(false);
         return new InstallReply(devices.Count, version, ids);

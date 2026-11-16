@@ -31,6 +31,9 @@ public enum CheckKind
 
     /// <summary>The WireGuard hub: never set up as a camera.</summary>
     Hub,
+
+    /// <summary>Install from this computer: none of the packages fits the camera.</summary>
+    NoPackage,
 }
 
 /// <summary>One camera of a list: what the action does to it, and whether it is in.</summary>
@@ -63,7 +66,7 @@ public sealed partial class CameraCheck : ObservableObject
 
     public string Label => Model.Length == 0 ? Address : $"{Address} ({Model})";
 
-    public bool IsWarning => Kind is CheckKind.NoApp or CheckKind.Failed;
+    public bool IsWarning => Kind is CheckKind.NoApp or CheckKind.Failed or CheckKind.NoPackage;
 
     public bool IsEnabled => Kind != CheckKind.Hub;
 

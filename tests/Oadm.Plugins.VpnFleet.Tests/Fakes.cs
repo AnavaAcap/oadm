@@ -18,8 +18,22 @@ internal sealed class FakePageContext(VpnFleetPlugin plugin, FakeCoreContext ser
 
     public HashSet<string> Denied { get; } = [];
 
-    public Task<string?> InvokeAsync(string method, string? payloadJson, CancellationToken ct) =>
-        server.InvokeAsync(plugin, server.CallAsAllDevices(), method, payloadJson, ct);
+    /// <summary>The page's uploads, as the server sees them (the caller's session).</summary>
+    public FakeUploadedFiles Uploaded { get; } = new();
+
+    public Task<string?> InvokeAsync(string method, string? payloadJson, CancellationToken ct)
+    {
+        var call = server.CallAsAllDevices();
+        call.Uploads = Uploaded;
+        return server.InvokeAsync(plugin, call, method, payloadJson, ct);
+    }
+
+    public async Task<UploadedFile> UploadAsync(string localPath, IProgress<double>? progress, CancellationToken ct)
+    {
+        var file = Uploaded.Add(Path.GetFileName(localPath), await File.ReadAllBytesAsync(localPath, ct));
+        progress?.Report(1.0);
+        return file;
+    }
 
     public bool Has(string permission) => !Denied.Contains(permission);
 

@@ -24,7 +24,7 @@ public sealed partial class RolloutWizardViewModel : ObservableObject
 
     private readonly Func<VpnKind, Guid?, string?, IReadOnlyList<CameraCheck>> _build;
     private readonly Func<RolloutWizardViewModel, Task<(string? Info, string? Error)>> _start;
-    private (VpnKind Kind, Guid? Hub, string? Version)? _built;
+    private (VpnKind Kind, Guid? Hub, string? Version, string? Source)? _built;
 
     public RolloutWizardViewModel(
         WizardMode mode,
@@ -98,6 +98,10 @@ public sealed partial class RolloutWizardViewModel : ObservableObject
     [ObservableProperty]
     public partial string? ErrorText { get; private set; }
 
+    /// <summary>What the start does now ("Uploading signed_Tailscale_VPN_1_104_7_aarch64.eap, 40 %").</summary>
+    [ObservableProperty]
+    public partial string StartingText { get; set; } = "Starting the tasks";
+
     /// <summary>The lines of the last step: what happens to how many cameras.</summary>
     [ObservableProperty]
     public partial IReadOnlyList<string> Plan { get; private set; } = [];
@@ -126,7 +130,7 @@ public sealed partial class RolloutWizardViewModel : ObservableObject
     public string? NextBlockedReason => IsStarting ? "Starting the tasks."
         : Step switch
         {
-            AppStep when IsInstall => Install!.LatestVersion is null ? (Install.IsChecking ? "Checking GitHub." : "The newest version is not known.") : null,
+            AppStep when IsInstall => Install!.BlockedReason,
             AppStep => Form!.FormError,
             _ => Cameras.CheckedCount == 0 ? "Tick the cameras first." : null,
         };
@@ -197,7 +201,7 @@ public sealed partial class RolloutWizardViewModel : ObservableObject
     private void BuildCameras()
     {
         var hub = IsSetup && Form!.IsWireGuardHub ? Form.HubDeviceId : null;
-        var key = (Kind, hub, IsInstall ? Install!.LatestVersion : null);
+        var key = (Kind, hub, IsInstall ? Install!.LatestVersion : null, IsInstall ? Install!.SourceKey : null);
         if (_built != key)
         {
             Cameras.Search = "";
@@ -217,6 +221,13 @@ public sealed partial class RolloutWizardViewModel : ObservableObject
         if (IsInstall)
         {
             var version = Install!.LatestVersion;
+            if (Install.FromFiles)
+            {
+                lines.Add(Install.Packages.Count == 1
+                    ? $"From your computer: {Install.Packages[0].Name}, uploaded to the OADM server when you start. GitHub is not asked."
+                    : $"From your computer: {Install.Packages.Count} packages, uploaded to the OADM server when you start. Each camera gets the one that fits. GitHub is not asked.");
+            }
+
             if (Count(CheckKind.Upgrade) > 0)
             {
                 lines.Add($"Upgrade {AppName} to {version} on {CountText(Count(CheckKind.Upgrade))}. Their settings stay.");
@@ -235,6 +246,11 @@ public sealed partial class RolloutWizardViewModel : ObservableObject
             if (Count(CheckKind.NotRead) + Count(CheckKind.Failed) > 0)
             {
                 lines.Add($"Checked first: {CountText(Count(CheckKind.NotRead) + Count(CheckKind.Failed))} not read yet. Each gets the package that fits it.");
+            }
+
+            if (Count(CheckKind.NoPackage) > 0)
+            {
+                warning = $"Ticked without a package that fits: {CountText(Count(CheckKind.NoPackage))}. These tasks fail and change nothing.";
             }
         }
         else
@@ -267,6 +283,7 @@ public sealed partial class RolloutWizardViewModel : ObservableObject
     private async Task StartAsync()
     {
         IsStarting = true;
+        StartingText = "Starting the tasks";
         ErrorText = null;
         Notify();
         try

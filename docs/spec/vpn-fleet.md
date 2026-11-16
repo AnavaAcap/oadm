@@ -23,13 +23,21 @@ every device, and a WireGuard camera needs its own key pair and tunnel address.
   only, the version and **Upgrade to x.y.z**, **What's new** (the GitHub release page, nothing else is opened). A camera
   without a VPN app offers to install one.
 - **Install or upgrade** and **Set up many cameras** open a wizard (`ui:WizardSteps`, like Configure devices): 1 the app
-  and its newest version, or the VPN and its settings; 2 the chosen cameras in a table with a tick each, the installed
+  and its newest version on GitHub or packages on this computer (below), or the VPN and its settings; 2 the chosen cameras in a table with a tick each, the installed
   version and what the action does to the camera ("Upgrade 1.104.6 to 1.104.7", "App not installed"), a search, and
   ticks for all shown, none, older version / without the app / with the app; only cameras where it makes sense start
   ticked, the WireGuard hub can never be ticked, ticks stay when the user goes back unless the app, hub or version
   changed; 3 what happens to how many cameras, a warning for ticked cameras whose tasks would fail, and Start, which
   names the count. The wizard closes once the tasks started; a refused start stays open with the reason. The set up
   form is new in every wizard and its keys are cleared once sent. One camera's Upgrade and Install stay in its panel.
+- **Packages on this computer** (the maintainer's review: OADM without internet): the user picks the `.eap` files of one
+  release (at most 8, `LocalPackages`). The page reads them with the `.eap` reader of Applications (ACAP) and refuses
+  another app or several versions before anything is uploaded; the cameras step marks cameras no file fits (the same
+  choice as below, on the cached architecture and AXIS OS) and does not tick them. Start uploads the files
+  (`UploadAsync`, the caller's session) and sends their ids; the server reads them again from the caller's uploads and
+  refuses the same problems and a gone upload before a task starts. The task reads the uploads (`ctx.Files`), skips
+  Download ("Uploaded from your computer") and installs the build `AcapBuildChooser` picks for the device. GitHub is not
+  asked. The tools stay GitHub only.
 - **WireGuard peers**: the `[Peer]` sections of the cameras set up for another WireGuard server.
 
 ## Rules that must hold
@@ -42,7 +50,9 @@ every device, and a WireGuard camera needs its own key pair and tunnel address.
   values of on/off and choices, ports, keys, the ZeroTier network ID, addresses); one `param.cgi` update per save. Set up
   refuses a device without the app ("Nothing was changed"). Install chooses the package per device (architecture and
   AXIS OS from `basicdeviceinfo`): the signed build, on armv7hf with AXIS OS before 10.12 the ACAP 3 build, never a
-  `_root` build; a device that has the release's version is not changed; upgrades keep the app's settings.
+  `_root` build; uploaded packages: the build `AcapBuildChooser` (Applications' rules: architecture, AXIS OS of the
+  package's schema) picks and that fits the device, else "Nothing was changed"; a device that has the release's
+  version is not changed; upgrades keep the app's settings.
 - **GitHub** (the only HTTP of the plugin outside `IVapixClient`, `GitHubHttp.cs`, listed in
   `RoutingRulesTests.AllowedBannedApiUsers`): HTTPS to `api.github.com` for `repos/Mo3he/<repository>/releases/latest`
   (kept 30 minutes, a failure 5 minutes, so the 60 requests per hour without a login are never used up) and to

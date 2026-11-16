@@ -21,6 +21,11 @@ public partial class RolloutWizardWindow : Window
             form.PickProfile = () => ProfileFiles.PickAsync(this);
         }
 
+        if (viewModel.Install is { } install)
+        {
+            install.PickPackages = () => PackageFiles.PickAsync(this);
+        }
+
         viewModel.CloseRequested += (_, _) => Close();
     }
 }
@@ -49,5 +54,20 @@ internal static class ProfileFiles
 
         using var reader = new StreamReader(stream);
         return (files[0].Name, await reader.ReadToEndAsync());
+    }
+}
+
+/// <summary>The file dialog of .eap packages: their local paths (none when cancelled or not on a local disk).</summary>
+internal static class PackageFiles
+{
+    public static async Task<IReadOnlyList<string>> PickAsync(TopLevel top)
+    {
+        var files = await top.StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
+        {
+            Title = "Choose the packages",
+            AllowMultiple = true,
+            FileTypeFilter = [new FilePickerFileType("ACAP package") { Patterns = ["*.eap"] }],
+        });
+        return [.. files.Select(f => f.TryGetLocalPath()).OfType<string>()];
     }
 }

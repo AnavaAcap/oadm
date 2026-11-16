@@ -101,14 +101,14 @@ internal static class VpnFleetTools
     private static async Task<InstallPlan> CheckInstallAsync(VpnFleetPlugin plugin, ICallContext caller, PluginToolInput<InstallArgs> input, CancellationToken ct)
     {
         var devices = await DevicesAsync(caller, input.Args.AllDevices, input.Devices, ct).ConfigureAwait(false);
-        var (chosen, version) = await plugin.PlanInstallAsync(caller, input.Args.App, [.. devices.Select(d => d.Id)], ct).ConfigureAwait(false);
+        var (chosen, version) = await plugin.PlanInstallAsync(caller, input.Args.App, [.. devices.Select(d => d.Id)], files: null, ct).ConfigureAwait(false);
         return new InstallPlan(chosen.Count, "device", VpnApps.NameOf(input.Args.App), version);
     }
 
     private static async Task<InstallResult> RunInstallAsync(VpnFleetPlugin plugin, ICallContext caller, PluginToolInput<InstallArgs> input, InstallPlan plan, CancellationToken ct)
     {
         var devices = await DevicesAsync(caller, input.Args.AllDevices, input.Devices, ct).ConfigureAwait(false);
-        var reply = await VpnFleetPlugin.RunInstallAsync(caller, input.Args.App, devices, plan.Version, upgrade: false, ct).ConfigureAwait(false);
+        var reply = await VpnFleetPlugin.RunInstallAsync(caller, input.Args.App, devices, plan.Version, upgrade: false, files: null, ct).ConfigureAwait(false);
         return new InstallResult(reply.Devices, reply.Version, [.. reply.TaskIds.Select(t => t.ToString())]);
     }
 
