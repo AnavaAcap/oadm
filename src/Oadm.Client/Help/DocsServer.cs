@@ -117,8 +117,10 @@ public sealed partial class DocsServer : IDisposable
                 await _slots.WaitAsync(ct).ConfigureAwait(false);
                 client = await _listener.AcceptTcpClientAsync(ct).ConfigureAwait(false);
             }
-            catch (Exception ex) when (ex is OperationCanceledException or ObjectDisposedException or SocketException)
+            catch (Exception ex) when (ex is OperationCanceledException or ObjectDisposedException or SocketException
+                || (ex is InvalidOperationException && ct.IsCancellationRequested))
             {
+                // Stopping: the listener can stop between the check above and this accept ("Not listening").
                 return;
             }
 
