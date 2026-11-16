@@ -316,13 +316,25 @@ public sealed class UpdatesAndSettingsTests
     public void The_checklist_counts_the_ticked_cameras()
     {
         var list = new CameraChecklist();
-        list.Set([new CameraCheck(Guid.NewGuid(), "a", "", true), new CameraCheck(Guid.NewGuid(), "b", "", false), new CameraCheck(Guid.NewGuid(), "hub", "", true, isEnabled: false)]);
-        Assert.Equal("1 of 3 cameras will be changed.", list.Summary);
+        list.Set([
+            new CameraCheck(Guid.NewGuid(), "10.0.0.1", "P3265-V", "1.104.6", "Upgrade", CheckKind.Upgrade, true),
+            new CameraCheck(Guid.NewGuid(), "10.0.0.2", "M3086-V", "", "Install", CheckKind.Install, false),
+            new CameraCheck(Guid.NewGuid(), "10.0.0.3", "Q6135-LE", "", "Hub camera", CheckKind.Hub, true),
+        ]);
+        Assert.Equal("1 of 3 cameras ticked.", list.Summary);
 
         list.CheckAllCommand.Execute(null);
         Assert.Equal(2, list.CheckedCount); // never the disabled one
         list.Items[0].IsChecked = false;
         Assert.Single(list.CheckedIds);
+
+        list.Search = "m3086";
+        Assert.Equal("1 of 3 cameras ticked, 1 shown.", list.Summary);
+        list.CheckNoneCommand.Execute(null); // only the shown ones
+        Assert.Empty(list.CheckedIds);
+        list.Search = "";
+        list.CheckOnly(CheckKind.Upgrade);
+        Assert.Equal([CheckKind.Upgrade], list.All.Where(i => i.IsChecked).Select(i => i.Kind));
     }
 
     // ---- Helpers ----

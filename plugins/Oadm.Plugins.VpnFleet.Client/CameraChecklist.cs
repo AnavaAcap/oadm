@@ -5,82 +5,167 @@ using Oadm.Sdk.Client.Collections;
 
 namespace Oadm.Plugins.VpnFleet.Client;
 
-/// <summary>A camera of a checklist: what the action would do to it, and whether it is in.</summary>
-public sealed partial class CameraCheck(Guid id, string label, string note, bool isChecked, bool isWarning = false, bool isEnabled = true) : ObservableObject
+/// <summary>What an action on many cameras does to one camera.</summary>
+public enum CheckKind
 {
-    public Guid Id { get; } = id;
+    /// <summary>Set up: the camera has the app.</summary>
+    Ready,
 
-    public string Label { get; } = label;
+    /// <summary>Install: an older version is installed.</summary>
+    Upgrade,
 
-    /// <summary>"App installed", "1.104.6 to 1.104.7", "App not installed".</summary>
-    public string Note { get; } = note;
+    /// <summary>Install: the app is not installed.</summary>
+    Install,
 
-    public bool IsWarning { get; } = isWarning;
+    /// <summary>Install: the newest version is installed.</summary>
+    UpToDate,
 
-    public bool IsEnabled { get; } = isEnabled;
+    /// <summary>Set up: the app is not installed (the task would refuse the camera).</summary>
+    NoApp,
+
+    /// <summary>The camera was not read yet.</summary>
+    NotRead,
+
+    /// <summary>The camera could not be read.</summary>
+    Failed,
+
+    /// <summary>The WireGuard hub: never set up as a camera.</summary>
+    Hub,
+}
+
+/// <summary>One camera of a list: what the action does to it, and whether it is in.</summary>
+public sealed partial class CameraCheck : ObservableObject
+{
+    public CameraCheck(Guid id, string address, string model, string installed, string note, CheckKind kind, bool isChecked)
+    {
+        Id = id;
+        Address = address;
+        Model = model;
+        Installed = installed;
+        Note = note;
+        Kind = kind;
+        IsChecked = isChecked && IsEnabled;
+    }
+
+    public Guid Id { get; }
+
+    public string Address { get; }
+
+    public string Model { get; }
+
+    /// <summary>The installed version, or empty.</summary>
+    public string Installed { get; }
+
+    /// <summary>"Upgrade 1.104.6 to 1.104.7", "Tailscale installed", "App not installed. Install it first."</summary>
+    public string Note { get; }
+
+    public CheckKind Kind { get; }
+
+    public string Label => Model.Length == 0 ? Address : $"{Address} ({Model})";
+
+    public bool IsWarning => Kind is CheckKind.NoApp or CheckKind.Failed;
+
+    public bool IsEnabled => Kind != CheckKind.Hub;
 
     /// <summary>The camera has the app of the action installed.</summary>
-    public bool HasApp { get; init; }
+    public bool HasApp => Kind is CheckKind.Ready or CheckKind.Upgrade or CheckKind.UpToDate;
 
     [ObservableProperty]
-    public partial bool IsChecked { get; set; } = isChecked && isEnabled;
+    public partial bool IsChecked { get; set; }
 
     /// <summary>Raised when <see cref="IsChecked"/> changes.</summary>
     public event EventHandler? CheckedChanged;
 
     partial void OnIsCheckedChanged(bool value) => CheckedChanged?.Invoke(this, EventArgs.Empty);
+
+    /// <summary>True when the address, model or note contains <paramref name="text"/>.</summary>
+    public bool Matches(string text) =>
+        Address.Contains(text, StringComparison.OrdinalIgnoreCase)
+        || Model.Contains(text, StringComparison.OrdinalIgnoreCase)
+        || Note.Contains(text, StringComparison.OrdinalIgnoreCase);
 }
 
 /// <summary>
-/// The cameras an action on many cameras changes, one checkbox each, so the user sees and chooses exactly which ones.
+/// The cameras an action on many cameras changes: a table with a tick per camera, a search, quick ticks by what happens
+/// to the cameras, and the counts the last step of the wizard shows. Built for thousands of cameras: one reset per change
+/// of the shown rows, counts kept as they change.
 /// </summary>
 public sealed partial class CameraChecklist : ObservableObject
 {
+    private List<CameraCheck> _all = [];
+
+    /// <summary>The rows the table shows (all, or those of the search).</summary>
     public RangeObservableCollection<CameraCheck> Items { get; } = [];
 
-    /// <summary>"3 of 12 cameras will be changed".</summary>
+    /// <summary>Every camera, also those the search hides.</summary>
+    public IReadOnlyList<CameraCheck> All => _all;
+
+    [ObservableProperty]
+    public partial string Search { get; set; } = "";
+
+    /// <summary>"12 of 340 cameras ticked".</summary>
     [ObservableProperty]
     public partial string Summary { get; private set; } = "";
 
     [ObservableProperty]
     public partial int CheckedCount { get; private set; }
 
-    public IReadOnlyList<Guid> CheckedIds => [.. Items.Where(i => i.IsChecked).Select(i => i.Id)];
+    public IReadOnlyList<Guid> CheckedIds => [.. _all.Where(i => i.IsChecked).Select(i => i.Id)];
 
     public event EventHandler? Changed;
 
+    /// <summary>The ticked cameras by what happens to them.</summary>
+    public IReadOnlyDictionary<CheckKind, int> CheckedByKind() =>
+        _all.Where(i => i.IsChecked).GroupBy(i => i.Kind).ToDictionary(g => g.Key, g => g.Count());
+
+    /// <summary>How many cameras of a kind there are, ticked or not.</summary>
+    public int CountOf(CheckKind kind) => _all.Count(i => i.Kind == kind);
+
     public void Set(IEnumerable<CameraCheck> items)
     {
-        foreach (var old in Items)
+        foreach (var old in _all)
         {
             old.CheckedChanged -= OnItemChanged;
         }
 
-        var list = items.ToList();
-        foreach (var item in list)
+        _all = [.. items];
+        foreach (var item in _all)
         {
             item.CheckedChanged += OnItemChanged;
         }
 
-        Items.ReplaceAll(list);
-        Update();
+        Filter();
     }
 
-    [RelayCommand]
-    private void CheckAll() => SetAll(true);
+    partial void OnSearchChanged(string value) => Filter();
 
+    /// <summary>Ticks every shown camera.</summary>
     [RelayCommand]
-    private void CheckNone() => SetAll(false);
+    private void CheckAll() => SetShown(_ => true);
 
-    private void SetAll(bool value)
+    /// <summary>Unticks every shown camera.</summary>
+    [RelayCommand]
+    private void CheckNone() => SetShown(_ => false);
+
+    /// <summary>Ticks exactly the shown cameras of <paramref name="kind"/>.</summary>
+    public void CheckOnly(CheckKind kind) => SetShown(i => i.Kind == kind);
+
+    private void SetShown(Func<CameraCheck, bool> value)
     {
         foreach (var item in Items.Where(i => i.IsEnabled))
         {
             item.CheckedChanged -= OnItemChanged;
-            item.IsChecked = value;
+            item.IsChecked = value(item);
             item.CheckedChanged += OnItemChanged;
         }
 
+        Update();
+    }
+
+    private void Filter()
+    {
+        var text = Search.Trim();
+        Items.ReplaceAll(text.Length == 0 ? _all : _all.Where(i => i.Matches(text)));
         Update();
     }
 
@@ -88,10 +173,11 @@ public sealed partial class CameraChecklist : ObservableObject
 
     private void Update()
     {
-        CheckedCount = Items.Count(i => i.IsChecked);
-        Summary = Items.Count == 0
+        CheckedCount = _all.Count(i => i.IsChecked);
+        Summary = _all.Count == 0
             ? "Choose devices on the page first."
-            : CheckedCount == 1 ? $"1 of {Items.Count:N0} cameras will be changed." : $"{CheckedCount:N0} of {Items.Count:N0} cameras will be changed.";
+            : $"{CheckedCount:N0} of {_all.Count:N0} cameras ticked" + (Items.Count == _all.Count ? "." : $", {Items.Count:N0} shown.");
+        OnPropertyChanged(nameof(CheckedIds));
         Changed?.Invoke(this, EventArgs.Empty);
     }
 }

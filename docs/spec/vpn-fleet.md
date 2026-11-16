@@ -22,9 +22,14 @@ every device, and a WireGuard camera needs its own key pair and tunnel address.
 - A row opens the camera's panel: the app's parameters (param.cgi of the app's group) with labels, Save for this camera
   only, the version and **Upgrade to x.y.z**, **What's new** (the GitHub release page, nothing else is opened). A camera
   without a VPN app offers to install one.
-- **Install or upgrade** and **Set up many cameras** list every chosen camera with a check box and what the action does
-  to it ("Upgrade 1.104.6 to 1.104.7", "App not installed"); only cameras where it makes sense are ticked; the hub of
-  WireGuard is never in the list. The button names the count.
+- **Install or upgrade** and **Set up many cameras** open a wizard (`ui:WizardSteps`, like Configure devices): 1 the app
+  and its newest version, or the VPN and its settings; 2 the chosen cameras in a table with a tick each, the installed
+  version and what the action does to the camera ("Upgrade 1.104.6 to 1.104.7", "App not installed"), a search, and
+  ticks for all shown, none, older version / without the app / with the app; only cameras where it makes sense start
+  ticked, the WireGuard hub can never be ticked, ticks stay when the user goes back unless the app, hub or version
+  changed; 3 what happens to how many cameras, a warning for ticked cameras whose tasks would fail, and Start, which
+  names the count. The wizard closes once the tasks started; a refused start stays open with the reason. The set up
+  form is new in every wizard and its keys are cleared once sent. One camera's Upgrade and Install stay in its panel.
 - **WireGuard peers**: the `[Peer]` sections of the cameras set up for another WireGuard server.
 
 ## Rules that must hold

@@ -1,9 +1,6 @@
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Markup.Xaml;
-using Avalonia.Platform.Storage;
-
-using Oadm.Sdk.Client.Controls;
 
 namespace Oadm.Plugins.VpnFleet.Client;
 
@@ -11,7 +8,7 @@ public sealed partial class VpnFleetView : UserControl
 {
     public VpnFleetView() => AvaloniaXamlLoader.Load(this);
 
-    // The pickers need the window: the view hands the view models a way to open them.
+    // The pickers and the wizards need the window: the view hands the view model a way to open them.
     protected override void OnDataContextChanged(EventArgs e)
     {
         base.OnDataContextChanged(e);
@@ -21,12 +18,26 @@ public sealed partial class VpnFleetView : UserControl
         }
 
         vm.PickDevices = async () => TopLevel.GetTopLevel(this) is Window owner && await vm.Devices.PickAsync(owner, "Choose devices");
-        vm.Form.PickHub = async selected => TopLevel.GetTopLevel(this) is Window owner
-            ? await DevicePickerWindow.ShowOneAsync(owner, vm.Devices.Candidates(), selected, heading: "Choose the hub camera")
-            : null;
-        vm.Form.PickProfile = PickProfileAsync;
-        vm.PickProfile = PickProfileAsync;
+        vm.PickProfile = () => TopLevel.GetTopLevel(this) is { } top ? ProfileFiles.PickAsync(top) : Task.FromResult<(string, string)?>(null);
         vm.OpenUrl = OpenUrl;
+        vm.ShowWizard = ShowWizardAsync;
+    }
+
+    private async Task ShowWizardAsync(RolloutWizardViewModel wizard)
+    {
+        if (TopLevel.GetTopLevel(this) is not Window owner)
+        {
+            return;
+        }
+
+        if (wizard.Install is { } install)
+        {
+            install.OpenUrl = OpenUrl;
+        }
+
+        var window = new RolloutWizardWindow();
+        window.Attach(wizard);
+        await window.ShowDialog(owner);
     }
 
     /// <summary>Opens a release page of the apps in the browser; nothing but GitHub.</summary>
@@ -36,34 +47,6 @@ public sealed partial class VpnFleetView : UserControl
         {
             _ = top.Launcher.LaunchUriAsync(uri);
         }
-    }
-
-    private async Task<(string Name, string Text)?> PickProfileAsync()
-    {
-        if (TopLevel.GetTopLevel(this) is not { } top)
-        {
-            return null;
-        }
-
-        var files = await top.StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
-        {
-            Title = "Choose the VPN profile",
-            AllowMultiple = false,
-            FileTypeFilter = [new FilePickerFileType("OpenVPN profile") { Patterns = ["*.ovpn", "*.conf"] }],
-        });
-        if (files.Count == 0)
-        {
-            return null;
-        }
-
-        await using var stream = await files[0].OpenReadAsync();
-        if (stream.CanSeek && stream.Length > ConnectRules.MaxProfileLength)
-        {
-            return (files[0].Name, new string('#', ConnectRules.MaxProfileLength + 1)); // the rule then shows "larger than 256 KB"
-        }
-
-        using var reader = new StreamReader(stream);
-        return (files[0].Name, await reader.ReadToEndAsync());
     }
 
     // The host disposes the view model when the page or its window closes; that ends the watch.

@@ -26,7 +26,7 @@ https://github.com/Mo3he.
 | `AppSettings`, `ConnectRules` | The settings of each app with labels and checks; the rules of a set up (also the page's) |
 | `WireGuardKeys`, `WireGuardAddressing` | X25519 (RFC 7748 test vectors in the tests), tunnel addresses, the hub's peer list |
 | `Tools/VpnFleetTools` | The page as tools (`PluginPageTools`): `results`, `read`, `releases`, `settings`, `install`, `settings_save` |
-| `.Client` | `VpnFleetViewModel` (table, panels), `CameraSettingsViewModel` (one camera), `InstallViewModel`, `ConnectFormViewModel`, `CameraChecklist` |
+| `.Client` | `VpnFleetViewModel` (table, camera and peers panels), `CameraSettingsViewModel` (one camera), `RolloutWizardViewModel` + `RolloutWizardWindow` (the wizards of Install or upgrade and Set up many cameras), `InstallViewModel` and `ConnectFormViewModel` (their first steps), `CameraChecklist` (the cameras step: search, ticks, counts) |
 
 ## Decisions
 
@@ -36,8 +36,10 @@ https://github.com/Mo3he.
   The client sends only the fields the user changed.
 - Install picks the signed build of the device's architecture; on armv7hf with AXIS OS before 10.12 the ACAP 3 build
   (the apps' READMEs: ACAP 3 for AXIS OS 9 and 10); never the `_root` builds (AXIS OS 12 removed root).
-- The page's checklists tick only the cameras where the action makes sense (the app installed for a set up, an older
-  version for an upgrade); the user ticks others on purpose.
+- Actions on many cameras are wizards with the cameras in a full table (the maintainer's review: a list in the side
+  panel does not scale past a few dozen cameras). They tick only the cameras where the action makes sense (the app
+  installed for a set up, an older version for an upgrade); the user ticks others on purpose, and the last step warns
+  about ticked cameras whose tasks would fail.
 - A camera behind a hub that gets a new private key on its panel: the plugin updates its record and starts the hub's
   peer task with the new public key.
 - Not in fake mode.
@@ -55,4 +57,4 @@ on a range of real cameras: report a camera where it fails with its model and AX
 `tests/Oadm.Plugins.VpnFleet.Tests` on the fakes of `Oadm.Sdk.Testing` with a fake GitHub (`FakeGitHub`): status parsers
 of every app, settings and their checks, X25519 against RFC 7748, address planning, the tasks step by step, install
 (package choice, digest, redirects that leave GitHub), the tools (previews never write, secrets refused), the
-`PluginCanary` for every method and tool, the page rendered headless (`OADM_SCREENSHOT_DIR`) and 100,000 devices.
+`PluginCanary` for every method and tool, the wizards step by step, the page and both wizards rendered headless (`OADM_SCREENSHOT_DIR`) and 100,000 devices.

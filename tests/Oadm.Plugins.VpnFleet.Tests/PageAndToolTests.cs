@@ -176,20 +176,38 @@ public sealed class PageTests
             Assert.Equal(["AuthKey", "CustomServer", "AcceptDNS", "AcceptRoutes", "HttpProxyPort"], vm.Camera.Fields.Select(f => f.Name));
             Headless.Capture(window, "vpn-fleet-camera.png");
 
-            vm.OpenInstallCommand.Execute(null);
-            await vm.Install.LoadReleasesAsync(checkNow: false);
+            var install = vm.InstallWizard();
+            await install.Install!.LoadReleasesAsync(checkNow: false);
+            var installWindow = new RolloutWizardWindow();
+            installWindow.Attach(install);
+            installWindow.Show();
+            await install.NextCommand.ExecuteAsync(null);
             Headless.Pump();
-            Assert.Equal("Upgrade 1.104.6 to 1.104.7", vm.Install.Cameras.Items[0].Note);
-            Headless.Capture(window, "vpn-fleet-install.png");
+            Assert.True(install.IsCamerasStep);
+            Assert.Equal("Upgrade 1.104.6 to 1.104.7", install.Cameras.Items[0].Note);
+            Headless.Capture(installWindow, "vpn-fleet-install.png");
+            await install.NextCommand.ExecuteAsync(null);
+            Headless.Pump();
+            Assert.Equal(["Upgrade Tailscale to 1.104.7 on 1 camera. Their settings stay."], install.Plan);
+            Headless.Capture(installWindow, "vpn-fleet-install-check.png");
+            installWindow.Close();
 
-            vm.OpenConnectCommand.Execute(null);
+            var setup = vm.SetupWizard();
+            setup.Form!.AuthKey = "tskey-auth-example";
+            var setupWindow = new RolloutWizardWindow();
+            setupWindow.Attach(setup);
+            setupWindow.Show();
             Headless.Pump();
-            Assert.Equal("1 of 4 cameras will be changed.", vm.ConnectCameras.Summary);
-            Headless.Capture(window, "vpn-fleet-setup.png");
+            Headless.Capture(setupWindow, "vpn-fleet-setup-vpn.png");
+            await setup.NextCommand.ExecuteAsync(null);
+            Headless.Pump();
+            Assert.Equal("1 of 4 cameras ticked.", setup.Cameras.Summary);
+            Headless.Capture(setupWindow, "vpn-fleet-setup.png");
+            setupWindow.Close();
             window.Close();
-            return 4;
+            return 6;
         }, CancellationToken.None);
-        Assert.Equal(4, shots);
+        Assert.Equal(6, shots);
     }
 
     [Fact]

@@ -1,0 +1,170 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:ui="using:Oadm.Sdk.Client.Controls"
+        xmlns:vm="using:Oadm.Plugins.VpnFleet.Client"
+        x:Class="Oadm.Plugins.VpnFleet.Client.RolloutWizardWindow"
+        x:DataType="vm:RolloutWizardViewModel"
+        Title="{Binding Title}"
+        Width="1100" Height="760"
+        WindowStartupLocation="CenterOwner"
+        ShowInTaskbar="False"
+        CanResize="False"
+        WindowDecorations="BorderOnly">
+  <!-- Title bar, wizard steps (App or VPN, Cameras, Check and start), one card per step, footer. Shared controls and theme
+       classes only. -->
+  <Grid RowDefinitions="Auto,Auto,*,Auto">
+    <ui:DialogTitleBar Grid.Row="0" Text="{Binding Title}" />
+    <ui:WizardSteps Grid.Row="1" ItemsSource="{Binding Steps}" Margin="12,0,16,12" />
+
+    <!-- 1 App: install -->
+    <Border Grid.Row="2" Classes="card" Margin="16,0" IsVisible="{Binding IsInstallAppStep}">
+      <StackPanel Classes="form" Spacing="8" DataContext="{Binding Install}" x:DataType="vm:InstallViewModel"
+                  MaxWidth="560" HorizontalAlignment="Left">
+        <ui:CardHeader Title="App" Description="OADM downloads the newest release from GitHub, the right package for each camera. Upgrades keep the app's settings." />
+        <ui:FormField Label="App">
+          <ComboBox ItemsSource="{Binding Apps}" SelectedItem="{Binding SelectedApp}" HorizontalAlignment="Stretch" />
+        </ui:FormField>
+        <ui:FormField Label="Version">
+          <Grid ColumnDefinitions="*,Auto,Auto">
+            <TextBlock VerticalAlignment="Center" TextWrapping="Wrap" Text="{Binding ReleaseText}" />
+            <Button Grid.Column="1" Classes="toolbar" Content="What's new" Command="{Binding OpenReleaseCommand}" />
+            <Button Grid.Column="2" Classes="toolbar" Content="Check now" Command="{Binding CheckNowCommand}" />
+          </Grid>
+        </ui:FormField>
+        <ui:ProgressRow Text="Checking GitHub" IsActive="{Binding IsChecking}" IsVisible="{Binding IsChecking}" />
+        <ui:StatusChip IsError="True" Text="{Binding ErrorText}" MaxLines="3" IsVisible="{Binding ErrorText, Converter={x:Static ObjectConverters.IsNotNull}}" />
+      </StackPanel>
+    </Border>
+
+    <!-- 1 VPN: set up -->
+    <Border Grid.Row="2" Classes="card" Margin="16,0" IsVisible="{Binding IsSetupAppStep}">
+      <ScrollViewer>
+        <StackPanel Classes="form" Spacing="4" DataContext="{Binding Form}" x:DataType="vm:ConnectFormViewModel" MaxWidth="560" HorizontalAlignment="Left">
+          <ui:CardHeader Title="VPN" Description="The same settings for every camera you tick in the next step. WireGuard gives each camera its own key and address." />
+          <ui:FormField Label="VPN">
+            <ComboBox ItemsSource="{Binding Vpns}" SelectedItem="{Binding SelectedVpn}" HorizontalAlignment="Stretch" />
+          </ui:FormField>
+
+          <!-- Tailscale -->
+          <ui:FormField Label="Auth key" Hint="A reusable key from the Tailscale admin console." IsVisible="{Binding IsTailscale}">
+            <ui:PasswordBox Text="{Binding AuthKey}" PlaceholderText="tskey-auth-…" />
+          </ui:FormField>
+          <ui:FormField Label="Login server" Hint="Optional. Only for Headscale." IsVisible="{Binding IsTailscale}">
+            <TextBox Text="{Binding LoginServer}" PlaceholderText="https://headscale.example.com" />
+          </ui:FormField>
+
+          <!-- NetBird -->
+          <ui:FormField Label="Setup key" Hint="A reusable key from the NetBird dashboard." IsVisible="{Binding IsNetBird}">
+            <ui:PasswordBox Text="{Binding SetupKey}" />
+          </ui:FormField>
+          <ui:FormField Label="Management server" Hint="Optional. Only for a self-hosted NetBird." IsVisible="{Binding IsNetBird}">
+            <TextBox Text="{Binding ManagementUrl}" PlaceholderText="https://netbird.example.com" />
+          </ui:FormField>
+
+          <!-- ZeroTier -->
+          <ui:FormField Label="Network ID" Hint="Approve the cameras in the network's controller afterwards." IsVisible="{Binding IsZeroTier}">
+            <TextBox Text="{Binding NetworkId}" PlaceholderText="16 characters" MaxLength="16" />
+          </ui:FormField>
+
+          <!-- OpenVPN -->
+          <ui:FormField Label="VPN profile" Error="{Binding ProfileError}" IsVisible="{Binding IsOpenVpn}">
+            <ui:FileRow FileName="{Binding ProfileName}" Details="{Binding ProfileDetails}" Command="{Binding ChooseProfileCommand}" />
+          </ui:FormField>
+          <ui:FormField Label="User name" Hint="Optional. Only when the server asks for one." IsVisible="{Binding IsOpenVpn}">
+            <TextBox Text="{Binding UserName}" />
+          </ui:FormField>
+          <ui:FormField Label="Password" IsVisible="{Binding IsOpenVpn}">
+            <ui:PasswordBox Text="{Binding Password}" />
+          </ui:FormField>
+
+          <!-- WireGuard -->
+          <ui:FormField Label="Server" IsVisible="{Binding IsWireGuard}">
+            <StackPanel Spacing="4">
+              <RadioButton GroupName="wgServer" Content="A camera with WireGuard Server" IsChecked="{Binding UseHub}" />
+              <RadioButton GroupName="wgServer" Content="Another WireGuard server" IsChecked="{Binding !UseHub}" />
+            </StackPanel>
+          </ui:FormField>
+          <ui:FormField Label="Hub camera" Hint="Gets every ticked camera as a peer." Error="{Binding HubError}" IsVisible="{Binding IsWireGuardHub}">
+            <ui:FileRow FileName="{Binding HubName}" ButtonText="Choose" Command="{Binding ChooseHubCommand}" />
+          </ui:FormField>
+          <ui:FormField Label="Server address" IsVisible="{Binding IsWireGuardOther}">
+            <TextBox Text="{Binding Endpoint}" PlaceholderText="vpn.example.com:51820" />
+          </ui:FormField>
+          <ui:FormField Label="Server public key" IsVisible="{Binding IsWireGuardOther}">
+            <TextBox Text="{Binding ServerPublicKey}" />
+          </ui:FormField>
+          <ui:FormField Label="Tunnel network" Hint="The server's tunnel address. The cameras get the next free ones." IsVisible="{Binding IsWireGuardOther}">
+            <TextBox Text="{Binding AddressPool}" PlaceholderText="10.66.0.1/24" />
+          </ui:FormField>
+          <ui:FormField Label="Networks through the tunnel" Hint="Optional. Empty: only the tunnel network." IsVisible="{Binding IsWireGuard}">
+            <TextBox Text="{Binding AllowedIps}" PlaceholderText="10.66.0.0/24, 192.168.1.0/24" />
+          </ui:FormField>
+        </StackPanel>
+      </ScrollViewer>
+    </Border>
+
+    <!-- 2 Cameras -->
+    <Border Grid.Row="2" Classes="card" Margin="16,0" IsVisible="{Binding IsCamerasStep}">
+      <Grid RowDefinitions="Auto,Auto,*" RowSpacing="10">
+        <ui:CardHeader Title="Cameras" Description="{Binding Cameras.Summary}" />
+        <Grid Grid.Row="1" ColumnDefinitions="280,*">
+          <ui:SearchBox Text="{Binding Cameras.Search}" Placeholder="Search address, model or what happens" />
+          <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="4" HorizontalAlignment="Right">
+            <TextBlock Classes="secondary" VerticalAlignment="Center" Text="Tick:" Margin="0,0,4,0" />
+            <Button Classes="toolbar" Content="All shown" Command="{Binding Cameras.CheckAllCommand}" />
+            <Button Classes="toolbar" Content="None" Command="{Binding Cameras.CheckNoneCommand}" />
+            <Button Classes="toolbar" Content="Older version" Command="{Binding TickOutdatedCommand}" IsVisible="{Binding IsInstall}" />
+            <Button Classes="toolbar" Content="Without the app" Command="{Binding TickWithoutAppCommand}" IsVisible="{Binding IsInstall}" />
+            <Button Classes="toolbar" Content="With the app" Command="{Binding TickWithAppCommand}" IsVisible="{Binding IsSetup}" />
+          </StackPanel>
+        </Grid>
+        <DataGrid Grid.Row="2" ItemsSource="{Binding Cameras.Items}" IsReadOnly="True" CanUserSortColumns="True" CanUserReorderColumns="False"
+                  HeadersVisibility="Column">
+          <DataGrid.Columns>
+            <DataGridTemplateColumn Header="" Width="40" CanUserSort="False">
+              <DataGridTemplateColumn.CellTemplate>
+                <DataTemplate x:DataType="vm:CameraCheck">
+                  <CheckBox IsChecked="{Binding IsChecked}" IsEnabled="{Binding IsEnabled}" HorizontalAlignment="Center" />
+                </DataTemplate>
+              </DataGridTemplateColumn.CellTemplate>
+            </DataGridTemplateColumn>
+            <DataGridTextColumn Header="Address" Width="150" Binding="{Binding Address}" x:DataType="vm:CameraCheck" />
+            <DataGridTextColumn Header="Model" Width="150" Binding="{Binding Model}" x:DataType="vm:CameraCheck" />
+            <DataGridTextColumn Header="Installed" Width="110" Binding="{Binding Installed}" x:DataType="vm:CameraCheck" />
+            <DataGridTemplateColumn Header="What happens" Width="*" SortMemberPath="Note">
+              <DataGridTemplateColumn.CellTemplate>
+                <DataTemplate x:DataType="vm:CameraCheck">
+                  <TextBlock Margin="10,0" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" Text="{Binding Note}"
+                             Classes.warning="{Binding IsWarning}" ToolTip.Tip="{Binding Note}" />
+                </DataTemplate>
+              </DataGridTemplateColumn.CellTemplate>
+            </DataGridTemplateColumn>
+          </DataGrid.Columns>
+        </DataGrid>
+      </Grid>
+    </Border>
+
+    <!-- 3 Check and start -->
+    <Border Grid.Row="2" Classes="card" Margin="16,0" IsVisible="{Binding IsCheckStep}">
+      <StackPanel Spacing="10" MaxWidth="720" HorizontalAlignment="Left">
+        <ui:CardHeader Title="Check and start" Description="Each camera gets its own task. Follow them in the task list." />
+        <ItemsControl ItemsSource="{Binding Plan}">
+          <ItemsControl.ItemTemplate>
+            <DataTemplate x:DataType="x:String">
+              <ui:StatusChip IsInfo="True" Text="{Binding}" MaxLines="3" Margin="0,0,0,6" />
+            </DataTemplate>
+          </ItemsControl.ItemTemplate>
+        </ItemsControl>
+        <ui:StatusChip IsWarning="True" Text="{Binding PlanWarning}" MaxLines="3" IsVisible="{Binding PlanWarning, Converter={x:Static ObjectConverters.IsNotNull}}" />
+        <ui:ProgressRow Text="Starting the tasks" IsActive="{Binding IsStarting}" IsVisible="{Binding IsStarting}" />
+        <ui:StatusChip IsError="True" Text="{Binding ErrorText}" MaxLines="4" IsVisible="{Binding ErrorText, Converter={x:Static ObjectConverters.IsNotNull}}" />
+      </StackPanel>
+    </Border>
+
+    <ui:DialogFooter Grid.Row="3" CancelCommand="{Binding CancelCommand}">
+      <Button Classes="secondary" Content="Back" Command="{Binding BackCommand}" IsVisible="{Binding CanBack}" />
+      <Button Classes="primary" Content="{Binding NextText}" Command="{Binding NextCommand}" IsEnabled="{Binding CanNext}"
+              ToolTip.Tip="{Binding NextBlockedReason}" ToolTip.ShowOnDisabled="True" />
+    </ui:DialogFooter>
+  </Grid>
+</Window>

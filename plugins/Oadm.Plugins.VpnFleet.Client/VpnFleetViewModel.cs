@@ -1,4 +1,3 @@
-using System.ComponentModel;
 using System.Text.Json;
 
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -17,15 +16,13 @@ public enum FleetPanel
 {
     None,
     Camera,
-    Connect,
-    Install,
     Peers,
 }
 
 /// <summary>
-/// The page: the VPN apps of the chosen devices, their tunnels and versions. A row opens its camera's settings; the
-/// toolbar sets up or installs on many cameras, each one ticked in a list. Reads the state from the server part, then
-/// follows its events. Nothing is read before a device choice.
+/// The page: the VPN apps of the chosen devices, their tunnels and versions. A row opens its camera's settings; Install
+/// or upgrade and Set up many cameras open a wizard with the cameras in a table. Reads the state from the server part,
+/// then follows its events. Nothing is read before a device choice.
 /// </summary>
 public sealed partial class VpnFleetViewModel : ObservableObject, IDisposable
 {
@@ -34,47 +31,26 @@ public sealed partial class VpnFleetViewModel : ObservableObject, IDisposable
     private Task? _run;
     private int _version = -1;
     private Dictionary<Guid, List<FleetRow>> _rowsByDevice = [];
-    private VpnKind? _connectKind;
 
     public VpnFleetViewModel(ICorePluginClientContext ctx)
     {
         _ctx = ctx;
         Devices = new PageDeviceChoice(ctx);
-        Devices.PropertyChanged += (_, _) => NotifyCommands();
+        Devices.PropertyChanged += (_, _) => RefreshCommand.NotifyCanExecuteChanged();
         MayConnect = ctx.Has(PermissionKeys.Of(Fleet.PluginId, Fleet.ConnectPermission));
         MayInstall = ctx.Has(PermissionKeys.Of(Fleet.PluginId, Fleet.InstallPermission));
-        Form = new ConnectFormViewModel { NameOf = id => _ctx.Devices.FirstOrDefault(d => d.Id == id) is { } d ? DeviceLabel(d) : null };
-        Form.PropertyChanged += OnFormChanged;
-        ConnectCameras.Changed += (_, _) => NotifyCommands();
-        Install = new InstallViewModel(ctx, _stop.Token)
-        {
-            BuildChecklist = InstallChecklist,
-            StartInstall = StartInstallAsync,
-        };
     }
 
     public PageDeviceChoice Devices { get; }
 
-    public ConnectFormViewModel Form { get; }
-
-    /// <summary>The cameras "Set up many cameras" changes.</summary>
-    public CameraChecklist ConnectCameras { get; } = new();
-
-    public InstallViewModel Install { get; }
-
     /// <summary>Opens the device picker; set by the view, which knows the window.</summary>
     public Func<Task<bool>>? PickDevices { get; set; }
 
+    /// <summary>Shows a wizard over the page's window until it closes; set by the view.</summary>
+    public Func<RolloutWizardViewModel, Task>? ShowWizard { get; set; }
+
     /// <summary>Opens a web page; set by the view.</summary>
-    public Action<string>? OpenUrl
-    {
-        get;
-        set
-        {
-            field = value;
-            Install.OpenUrl = value;
-        }
-    }
+    public Action<string>? OpenUrl { get; set; }
 
     /// <summary>Opens a file dialog for an OpenVPN profile; set by the view.</summary>
     public Func<Task<(string Name, string Text)?>>? PickProfile { get; set; }
@@ -90,18 +66,10 @@ public sealed partial class VpnFleetViewModel : ObservableObject, IDisposable
     public partial bool IsReading { get; private set; }
 
     [ObservableProperty]
-    [NotifyCanExecuteChangedFor(nameof(ConnectCommand))]
-    public partial bool IsConnecting { get; private set; }
-
-    [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(IsCameraOpen), nameof(IsConnectOpen), nameof(IsInstallOpen), nameof(IsPeersOpen))]
+    [NotifyPropertyChangedFor(nameof(IsCameraOpen), nameof(IsPeersOpen))]
     public partial FleetPanel Panel { get; set; }
 
     public bool IsCameraOpen => Panel == FleetPanel.Camera;
-
-    public bool IsConnectOpen => Panel == FleetPanel.Connect;
-
-    public bool IsInstallOpen => Panel == FleetPanel.Install;
 
     public bool IsPeersOpen => Panel == FleetPanel.Peers;
 
@@ -118,6 +86,7 @@ public sealed partial class VpnFleetViewModel : ObservableObject, IDisposable
     [ObservableProperty]
     public partial string? ErrorText { get; private set; }
 
+    /// <summary>What the last wizard started.</summary>
     [ObservableProperty]
     public partial string? InfoText { get; private set; }
 
@@ -128,10 +97,6 @@ public sealed partial class VpnFleetViewModel : ObservableObject, IDisposable
     /// <summary>Why the newest versions are not known; null when they are.</summary>
     [ObservableProperty]
     public partial string? ReleaseNote { get; private set; }
-
-    public string? ConnectBlockedReason => Form.FormError ?? (ConnectCameras.CheckedCount == 0 ? "Tick the cameras first." : null);
-
-    public string ConnectText => ConnectCameras.CheckedCount == 1 ? "Set up 1 camera" : $"Set up {ConnectCameras.CheckedCount:N0} cameras";
 
     public void Start() => _run ??= RunAsync();
 
@@ -182,7 +147,7 @@ public sealed partial class VpnFleetViewModel : ObservableObject, IDisposable
         {
             OpenUrl = OpenUrl,
             PickProfile = PickProfile,
-            StartInstall = StartInstallAsync,
+            StartInstall = InstallOneAsync,
         };
         Panel = FleetPanel.Camera;
         _ = Camera.LoadAsync();
@@ -190,26 +155,6 @@ public sealed partial class VpnFleetViewModel : ObservableObject, IDisposable
 
     [RelayCommand]
     private void ClosePanel() => Panel = FleetPanel.None;
-
-    [RelayCommand]
-    private void OpenConnect()
-    {
-        Panel = Panel == FleetPanel.Connect ? FleetPanel.None : FleetPanel.Connect;
-        if (Panel == FleetPanel.Connect)
-        {
-            RebuildConnectCameras(keepTicks: false);
-        }
-    }
-
-    [RelayCommand]
-    private async Task OpenInstallAsync()
-    {
-        Panel = Panel == FleetPanel.Install ? FleetPanel.None : FleetPanel.Install;
-        if (Panel == FleetPanel.Install)
-        {
-            await Install.LoadReleasesAsync(checkNow: false);
-        }
-    }
 
     [RelayCommand]
     private async Task ShowPeersAsync()
@@ -230,10 +175,53 @@ public sealed partial class VpnFleetViewModel : ObservableObject, IDisposable
         }
     }
 
-    // ---- Set up many cameras ----
+    // ---- Wizards ----
+
+    /// <summary>The install wizard: the app and its version, the cameras, what happens.</summary>
+    public RolloutWizardViewModel InstallWizard()
+    {
+        var install = new InstallViewModel(_ctx, _stop.Token) { OpenUrl = OpenUrl };
+        return new RolloutWizardViewModel(WizardMode.Install, install, null, (kind, _, latest) => InstallChecklist(kind, latest), StartInstallAsync);
+    }
+
+    /// <summary>The set up wizard: the VPN and its settings, the cameras, what happens. A new form each time: no key stays.</summary>
+    public RolloutWizardViewModel SetupWizard()
+    {
+        var form = new ConnectFormViewModel { NameOf = id => _ctx.Devices.FirstOrDefault(d => d.Id == id) is { } d ? DeviceLabel(d) : null };
+        return new RolloutWizardViewModel(WizardMode.Setup, null, form, (kind, hub, _) => ConnectChecklist(kind, hub), StartSetupAsync)
+        {
+            HubCandidates = Devices.Candidates,
+        };
+    }
+
+    [RelayCommand(CanExecute = nameof(MayInstall))]
+    private async Task OpenInstallAsync()
+    {
+        var wizard = InstallWizard();
+        _ = wizard.Install!.LoadReleasesAsync(checkNow: false);
+        await RunWizardAsync(wizard);
+    }
+
+    [RelayCommand(CanExecute = nameof(MayConnect))]
+    private Task OpenSetupAsync() => RunWizardAsync(SetupWizard());
+
+    private async Task RunWizardAsync(RolloutWizardViewModel wizard)
+    {
+        if (ShowWizard is not { } show)
+        {
+            return;
+        }
+
+        InfoText = null;
+        await show(wizard);
+        if (wizard.Result is { } result)
+        {
+            InfoText = result;
+        }
+    }
 
     /// <summary>
-    /// The chosen devices with what "Set up" does to each: the ones with the app are ticked, the ones without it are not
+    /// The chosen devices with what a set up does to each: the ones with the app are ticked, the ones without it are not
     /// (the task would refuse them), the hub is never in.
     /// </summary>
     public IReadOnlyList<CameraCheck> ConnectChecklist(VpnKind kind, Guid? hubId)
@@ -242,76 +230,31 @@ public sealed partial class VpnFleetViewModel : ObservableObject, IDisposable
         var list = new List<CameraCheck>();
         foreach (var device in Devices.Resolve())
         {
-            var label = DeviceLabel(device);
+            CameraCheck Check(string installed, string note, CheckKind what, bool on) => new(device.Id, device.Address, device.Model ?? "", installed, note, what, on);
             if (device.Id == hubId)
             {
-                list.Add(new CameraCheck(device.Id, label, "Hub camera: gets the others as peers.", false, isEnabled: false));
+                list.Add(Check("", "Hub camera: gets the others as peers.", CheckKind.Hub, false));
             }
             else if (!_rowsByDevice.TryGetValue(device.Id, out var rows))
             {
-                list.Add(new CameraCheck(device.Id, label, "Not read yet. Refresh to check it has the app.", true));
+                list.Add(Check("", "Not read yet. Refresh to check it has the app.", CheckKind.NotRead, true));
             }
-            else if (rows.Any(r => r.Vpn == kind))
+            else if (rows.FirstOrDefault(r => r.Vpn == kind) is { } row)
             {
-                list.Add(new CameraCheck(device.Id, label, $"{app.DisplayName} installed", true) { HasApp = true });
+                list.Add(Check(row.AppVersion ?? "", $"{app.DisplayName} installed", CheckKind.Ready, true));
             }
             else if (rows.FirstOrDefault(r => r.Error is not null) is { } failed)
             {
-                list.Add(new CameraCheck(device.Id, label, "Not read: " + failed.Error, false, isWarning: true));
+                list.Add(Check("", "Not read: " + failed.Error, CheckKind.Failed, false));
             }
             else
             {
-                list.Add(new CameraCheck(device.Id, label, $"{app.DisplayName} not installed. Install it first.", false, isWarning: true));
+                list.Add(Check("", $"{app.DisplayName} not installed. Install it first.", CheckKind.NoApp, false));
             }
         }
 
         return list;
     }
-
-    private void RebuildConnectCameras(bool keepTicks)
-    {
-        var before = keepTicks ? ConnectCameras.Items.ToDictionary(i => i.Id, i => i.IsChecked) : [];
-        var hub = Form.IsWireGuardHub ? Form.HubDeviceId : null;
-        var items = ConnectChecklist(Form.Kind, hub)
-            .Select(i => before.TryGetValue(i.Id, out var was) && i.IsEnabled ? new CameraCheck(i.Id, i.Label, i.Note, was, i.IsWarning, i.IsEnabled) { HasApp = i.HasApp } : i);
-        ConnectCameras.Set(items);
-        _connectKind = Form.Kind;
-    }
-
-    [RelayCommand(CanExecute = nameof(CanConnect))]
-    private async Task ConnectAsync()
-    {
-        Form.ShowAllErrors();
-        if (!Form.IsValid)
-        {
-            return;
-        }
-
-        ErrorText = null;
-        InfoText = null;
-        IsConnecting = true;
-        try
-        {
-            string? reply = null;
-            ErrorText = await GuardedRun.RunAsync(
-                async () => reply = await _ctx.InvokeAsync(Fleet.Connect, JsonSerializer.Serialize(Form.ToRequest(false, ConnectCameras.CheckedIds), Fleet.Json), _stop.Token),
-                GuardedCancel.Ignore);
-            if (ErrorText is null && reply is not null && JsonSerializer.Deserialize<ConnectReply>(reply, Fleet.Json) is { } result)
-            {
-                Form.ClearSecrets();
-                InfoText = (result.Devices == 1 ? "Setting up 1 camera" : $"Setting up {result.Devices:N0} cameras")
-                    + $" with {VpnApps.NameOf(Form.Kind)}. Follow the tasks in the task list, then refresh this page.";
-            }
-        }
-        finally
-        {
-            IsConnecting = false;
-        }
-    }
-
-    private bool CanConnect() => MayConnect && !IsConnecting && Form.IsFormValid && ConnectCameras.CheckedCount > 0;
-
-    // ---- Install and upgrade ----
 
     /// <summary>The chosen devices with what the install does to each: outdated ones are ticked, the others not.</summary>
     public IReadOnlyList<CameraCheck> InstallChecklist(VpnKind kind, string? latest)
@@ -320,52 +263,77 @@ public sealed partial class VpnFleetViewModel : ObservableObject, IDisposable
         var list = new List<CameraCheck>();
         foreach (var device in Devices.Resolve())
         {
-            var label = DeviceLabel(device);
+            CameraCheck Check(string installed, string note, CheckKind what, bool on) => new(device.Id, device.Address, device.Model ?? "", installed, note, what, on);
             if (!_rowsByDevice.TryGetValue(device.Id, out var rows))
             {
-                list.Add(new CameraCheck(device.Id, label, "Not read yet", false));
-                continue;
+                list.Add(Check("", "Not read yet", CheckKind.NotRead, false));
             }
-
-            var row = rows.FirstOrDefault(r => r.Vpn == kind);
-            if (row?.AppVersion is { } have)
+            else if (rows.FirstOrDefault(r => r.Vpn == kind)?.AppVersion is { } have)
             {
-                var newer = latest is not null && AppVersions.IsNewer(latest, have);
-                list.Add(new CameraCheck(device.Id, label, newer ? $"Upgrade {have} to {latest}" : $"{have}, the newest", newer) { HasApp = true });
+                list.Add(latest is not null && AppVersions.IsNewer(latest, have)
+                    ? Check(have, $"Upgrade {have} to {latest}", CheckKind.Upgrade, true)
+                    : Check(have, $"{have}, the newest", CheckKind.UpToDate, false));
             }
             else if (rows.FirstOrDefault(r => r.Error is not null) is { } failed)
             {
-                list.Add(new CameraCheck(device.Id, label, "Not read: " + failed.Error, false, isWarning: true));
+                list.Add(Check("", "Not read: " + failed.Error, CheckKind.Failed, false));
             }
             else
             {
-                list.Add(new CameraCheck(device.Id, label, latest is null ? "Install" : $"Install {app.DisplayName} {latest}", false));
+                list.Add(Check("", latest is null ? "Install" : $"Install {app.DisplayName} {latest}", CheckKind.Install, false));
             }
         }
 
         return list;
     }
 
-    /// <summary>Starts install or upgrade tasks; the text for the panel, or null with the problem in the page's error.</summary>
-    private async Task<string?> StartInstallAsync(VpnKind kind, IReadOnlyList<Guid> deviceIds, bool upgrade)
+    private Task<(string? Info, string? Error)> StartInstallAsync(RolloutWizardViewModel wizard) =>
+        InstallAsync(wizard.Install!.SelectedApp.Kind, wizard.Cameras.CheckedIds, wizard.Cameras.All.Where(c => c.IsChecked).All(c => c.HasApp));
+
+    private async Task<string?> InstallOneAsync(VpnKind kind, IReadOnlyList<Guid> deviceIds, bool upgrade)
+    {
+        var (info, error) = await InstallAsync(kind, deviceIds, upgrade);
+        ErrorText = error;
+        return info;
+    }
+
+    /// <summary>Starts install or upgrade tasks: the text for the page, or the problem.</summary>
+    private async Task<(string? Info, string? Error)> InstallAsync(VpnKind kind, IReadOnlyList<Guid> deviceIds, bool upgrade)
     {
         if (!MayInstall)
         {
-            ErrorText = "Your role cannot install or upgrade VPN apps.";
-            return null;
+            return (null, "Your role cannot install or upgrade VPN apps.");
         }
 
         string? reply = null;
-        ErrorText = await GuardedRun.RunAsync(
+        var error = await GuardedRun.RunAsync(
             async () => reply = await _ctx.InvokeAsync(Fleet.Install, JsonSerializer.Serialize(new InstallRequest(kind, deviceIds, upgrade), Fleet.Json), _stop.Token),
             GuardedCancel.Ignore);
-        if (reply is null || JsonSerializer.Deserialize<InstallReply>(reply, Fleet.Json) is not { } result)
+        if (error is not null || reply is null || JsonSerializer.Deserialize<InstallReply>(reply, Fleet.Json) is not { } result)
         {
-            return null;
+            return (null, error ?? "The tasks did not start.");
         }
 
         var what = upgrade ? $"Upgrading {VpnApps.NameOf(kind)} to {result.Version}" : $"Installing {VpnApps.NameOf(kind)} {result.Version}";
-        return $"{what} on {(result.Devices == 1 ? "1 camera" : $"{result.Devices:N0} cameras")}. Follow the tasks in the task list, then refresh this page.";
+        return ($"{what} on {(result.Devices == 1 ? "1 camera" : $"{result.Devices:N0} cameras")}. Follow the tasks in the task list, then refresh this page.", null);
+    }
+
+    /// <summary>Starts the set up tasks; the keys are cleared from the form once they were sent.</summary>
+    private async Task<(string? Info, string? Error)> StartSetupAsync(RolloutWizardViewModel wizard)
+    {
+        var form = wizard.Form!;
+        string? reply = null;
+        var error = await GuardedRun.RunAsync(
+            async () => reply = await _ctx.InvokeAsync(Fleet.Connect, JsonSerializer.Serialize(form.ToRequest(false, wizard.Cameras.CheckedIds), Fleet.Json), _stop.Token),
+            GuardedCancel.Ignore);
+        if (error is not null || reply is null || JsonSerializer.Deserialize<ConnectReply>(reply, Fleet.Json) is not { } result)
+        {
+            return (null, error ?? "The tasks did not start.");
+        }
+
+        form.ClearSecrets();
+        return ((result.Devices == 1 ? "Setting up 1 camera" : $"Setting up {result.Devices:N0} cameras")
+            + $" with {VpnApps.NameOf(form.Kind)}. Follow the tasks in the task list, then refresh this page.", null);
     }
 
     // ---- State ----
@@ -384,14 +352,6 @@ public sealed partial class VpnFleetViewModel : ObservableObject, IDisposable
         Rows.ReplaceAll(state.Rows.Select(r => new FleetRowView(r)));
         Summary = SummaryOf(state.Rows, Devices.IsEmpty);
         ReleaseNote = state.ReleaseError is null ? null : "Newest versions unknown: " + state.ReleaseError;
-        if (Panel == FleetPanel.Connect)
-        {
-            RebuildConnectCameras(keepTicks: true);
-        }
-        else if (Panel == FleetPanel.Install)
-        {
-            Install.Rebuild();
-        }
     }
 
     public static string SummaryOf(IReadOnlyList<FleetRow> rows, bool nothingChosen)
@@ -422,27 +382,6 @@ public sealed partial class VpnFleetViewModel : ObservableObject, IDisposable
     }
 
     private static string DeviceLabel(IDeviceInfo device) => string.IsNullOrEmpty(device.Model) ? device.Address : $"{device.Address} ({device.Model})";
-
-    private void OnFormChanged(object? sender, PropertyChangedEventArgs e)
-    {
-        if (e.PropertyName is nameof(ConnectFormViewModel.IsFormValid) or nameof(ConnectFormViewModel.FormError))
-        {
-            NotifyCommands();
-        }
-
-        if (Panel == FleetPanel.Connect && e.PropertyName is nameof(ConnectFormViewModel.SelectedVpn) or nameof(ConnectFormViewModel.HubDeviceId) or nameof(ConnectFormViewModel.UseHub))
-        {
-            RebuildConnectCameras(keepTicks: _connectKind == Form.Kind);
-        }
-    }
-
-    private void NotifyCommands()
-    {
-        RefreshCommand.NotifyCanExecuteChanged();
-        ConnectCommand.NotifyCanExecuteChanged();
-        OnPropertyChanged(nameof(ConnectBlockedReason));
-        OnPropertyChanged(nameof(ConnectText));
-    }
 
     public void Dispose()
     {

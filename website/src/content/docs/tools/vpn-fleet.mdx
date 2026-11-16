@@ -8,6 +8,8 @@ import { Image } from 'astro:assets';
 import shot from '../../../assets/screens/vpn-fleet.png';
 import cameraShot from '../../../assets/screens/vpn-fleet-camera.png';
 import installShot from '../../../assets/screens/vpn-fleet-install.png';
+import installCheckShot from '../../../assets/screens/vpn-fleet-install-check.png';
+import setupVpnShot from '../../../assets/screens/vpn-fleet-setup-vpn.png';
 import setupShot from '../../../assets/screens/vpn-fleet-setup.png';
 
 <Badge text="Community plugin" variant="note" /> Made by [Mo3he](https://github.com/Mo3he), who also makes the VPN apps.
@@ -55,39 +57,51 @@ Click a row. The panel shows every setting of that camera's app, with **Save** f
 
 ## Install or upgrade
 
+**Install or upgrade** opens a wizard in three steps.
+
 <Steps>
 
-1. Click **Install or upgrade** and choose the app. The newest version on GitHub shows; **Check now** asks GitHub again.
-2. Check the list. Every chosen camera is there with what happens to it, for example **Upgrade 1.104.6 to 1.104.7** or
-   **Install Tailscale 1.104.7**. Cameras with an older version are ticked; tick or untick others.
-3. Click **Install or upgrade**. Each camera gets a task in the task list.
+1. **App**: choose the app. The newest version on GitHub shows; **Check now** asks GitHub again, **What's new** opens
+   the release.
+2. **Cameras**: every chosen camera is in a table with its installed version and what happens to it, for example
+   **Upgrade 1.104.6 to 1.104.7** or **Install Tailscale 1.104.7**. Cameras with an older version are ticked. Search by
+   address, model or what happens, and tick with **All shown**, **None**, **Older version** or **Without the app**.
+3. **Check and start**: what happens to how many cameras. Click **Install or upgrade** (the button counts the cameras).
+   Each camera gets a task in the task list.
 
 </Steps>
 
-<Image src={installShot} alt="Install or upgrade with a list of cameras to tick" class="screen" />
+<Image src={installShot} alt="The cameras step of Install or upgrade: a table of cameras to tick" class="screen" />
+
+<Image src={installCheckShot} alt="The last step of Install or upgrade: what happens to how many cameras" class="screen" />
 
 Each camera gets the package for its type: the signed package for AXIS OS 10.12 and later, the ACAP 3 package for
 armv7hf cameras with older AXIS OS. Upgrades keep the app's settings. A camera that has the version already is not
-changed.
+changed. To upgrade one camera, click its row and **Upgrade to**.
 
 ## Set up many cameras
 
+**Set up many cameras** opens a wizard in three steps.
+
 <Steps>
 
-1. Click **Set up many cameras** and choose the VPN.
-2. Enter what it needs: the auth key (Tailscale), the setup key (NetBird), the network ID (ZeroTier), the profile
-   (OpenVPN), or the server (WireGuard).
-3. Check the list of cameras. Cameras with the app are ticked; cameras without it are not, install it there first.
-4. Click **Set up** (the button counts the ticked cameras). Each camera saves the settings, starts the app and waits up to 90 seconds for the tunnel.
+1. **VPN**: choose the VPN and enter what it needs: the auth key (Tailscale), the setup key (NetBird), the network ID
+   (ZeroTier), the profile (OpenVPN), or the server (WireGuard).
+2. **Cameras**: cameras with the app are ticked; cameras without it are not, install it there first. Search and tick
+   like in Install or upgrade.
+3. **Check and start**: click **Set up** (the button counts the cameras). Each camera saves the settings, starts the app
+   and waits up to 90 seconds for the tunnel. OADM forgets the key once the tasks have it.
 
 </Steps>
 
-<Image src={setupShot} alt="Set up many cameras with the list of cameras that will be changed" class="screen" />
+<Image src={setupVpnShot} alt="The first step of Set up many cameras: the VPN and its key" class="screen" />
+
+<Image src={setupShot} alt="The cameras step of Set up many cameras" class="screen" />
 
 For WireGuard each camera gets its own key pair and tunnel address:
 
 - **A camera with WireGuard Server**: choose that camera as hub. OADM adds every camera to the hub's peers and keeps
-  the hub's other peers.
+  the hub's other peers. The hub is never set up as a camera.
 - **Another WireGuard server**: enter its address, public key and tunnel address. Copy the cameras' peers from
   **WireGuard peers** into the server's configuration.
 

@@ -246,7 +246,8 @@ public sealed class ConnectTests
         using var page = new VpnFleetViewModel(ctx);
 
         Assert.False(page.MayConnect);
-        Assert.False(page.ConnectCommand.CanExecute(null));
+        Assert.False(page.OpenSetupCommand.CanExecute(null));
+        Assert.True(page.OpenInstallCommand.CanExecute(null));
     }
 
     [Fact]
