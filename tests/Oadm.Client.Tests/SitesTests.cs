@@ -427,7 +427,7 @@ public sealed class SitesTests(ITestOutputHelper output) : IDisposable
 
         await page.OpenDownloadPageCommand.ExecuteAsync(null);
 
-        await urls.Received(1).OpenAsync(new Uri("https://oadm.app/start/install/"));
+        await urls.Received(1).OpenAsync(new Uri("https://oadm.app/"));
     }
 
     [Fact]

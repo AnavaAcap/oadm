@@ -3,7 +3,7 @@ namespace Oadm.Contracts.Updates;
 /// <summary>The texts of self update (docs/spec/self-update.md), one phrase per concept, shared by server, client and helpers.</summary>
 public static class UpdateTexts
 {
-    public const string DownloadPage = "https://oadm.app/start/install/";
+    public const string DownloadPage = "https://oadm.app/";
 
     // Steps (the dialog's list).
     public const string StepDownload = "Download the update";

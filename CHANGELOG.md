@@ -17,6 +17,8 @@ Each entry is one short line in plain words (what the user gets, not how); no ne
 
 - Assistant: Look up online reads all of axis.com, also product pages, datasheets and security advisories.
 - Assistant: the answer shows above its table or plan.
+- Add devices: the title names the way you add, the counts show in colour and the Address column fits the addresses.
+- New version: the download button opens oadm.app.
 
 ### Fixed
 
