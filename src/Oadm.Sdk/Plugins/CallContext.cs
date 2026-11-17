@@ -39,6 +39,14 @@ public interface ICallContext
     /// <summary>True when the user's role grants <paramref name="permission"/> ("&lt;plugin id&gt;:&lt;key&gt;" or a host key).</summary>
     bool Has(string permission);
 
+    /// <summary>
+    /// Revalidates the interactive session, permission and target immediately before a device write.
+    /// Call after preparing the write, without further preparation after this check. Refuses on hosts or callers
+    /// that cannot provide current authorization. A completed dispatch may still need reconciliation.
+    /// </summary>
+    Task RequireCurrentDeviceAccessAsync(string permission, Guid deviceId, CancellationToken ct) =>
+        throw new UnauthorizedAccessException("Current device authorization is unavailable.");
+
     /// <summary>The user may reach every device (administrators always). False for a user limited to a device group.</summary>
     bool HasAllDevices { get; }
 
