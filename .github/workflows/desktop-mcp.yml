@@ -5,6 +5,7 @@ on:
     paths:
       - '.github/workflows/desktop-mcp.yml'
       - 'src/Oadm.McpBridge/**'
+      - 'src/Oadm.Contracts/**'
       - 'src/Oadm.Client/Oadm.Client.csproj'
       - 'packaging/desktop-extension/**'
       - 'tests/DesktopMcp/**'
@@ -32,8 +33,21 @@ jobs:
           $root = Join-Path $env:RUNNER_TEMP 'oadm-desktop-mcp'
           New-Item -ItemType Directory $root | Out-Null
           $serverZip = Join-Path $root 'server.zip'
-          Invoke-WebRequest -Uri 'https://github.com/Cacsjep/oadm/releases/download/v5.2.0-rc.2/OADM-Server-5.2.0-rc.2-win-x64.zip' -OutFile $serverZip
-          if ((Get-FileHash $serverZip -Algorithm SHA256).Hash -ne '35ab51efc87848fdc3fe0668ea75ad9ff400711b05d07ce48079634fee4a3161') {
+          # The bridge is built from this PR. The host only needs the existing MCP and access-key APIs.
+          $release = Invoke-RestMethod -Uri 'https://api.github.com/repos/Cacsjep/oadm/releases/latest'
+          if ($release.draft -or $release.prerelease -or $release.tag_name -notmatch '^v[0-9]+\.[0-9]+\.[0-9]+$') {
+            throw 'Expected a stable OADM release.'
+          }
+          $version = $release.tag_name.Substring(1)
+          $name = "OADM-Server-$version-win-x64.zip"
+          $asset = @($release.assets | Where-Object name -eq $name)
+          if ($asset.Count -ne 1 -or $asset[0].digest -notmatch '^sha256:[0-9a-f]{64}$') {
+            throw "Expected one $name asset with a SHA-256 digest."
+          }
+          $sha256 = $asset[0].digest.Substring(7)
+          Write-Host "Testing against released OADM $version ($sha256)"
+          Invoke-WebRequest -Uri "https://github.com/Cacsjep/oadm/releases/download/v$version/$name" -OutFile $serverZip
+          if ((Get-FileHash $serverZip -Algorithm SHA256).Hash -ne $sha256) {
             throw 'Unexpected OADM Server release bytes.'
           }
           Expand-Archive -LiteralPath $serverZip -DestinationPath "$root/server"
@@ -46,9 +60,4 @@ jobs:
           if (!$manifest.user_config.access_key.sensitive -or !$manifest.user_config.access_key.required) {
             throw 'The packaged access key field must use secure storage.'
           }
-          python -m venv "$root/python"
-          $python = "$root/python/Scripts/python.exe"
-          & $python -m pip install grpcio==1.78.0 grpcio-tools==1.78.0 protobuf==6.33.5
-          $include = & $python -c "import grpc_tools, pathlib; print(pathlib.Path(grpc_tools.__file__).parent / '_proto')"
-          & $python -m grpc_tools.protoc --include_imports "--descriptor_set_out=$root/contracts.pb" -I src/Oadm.Contracts "-I$include" Protos/auth.proto Protos/mcp.proto Protos/devices.proto
-          & $python tests/DesktopMcp/verify_bridge.py $server[0].FullName "$root/extension/Oadm.McpBridge.exe" "$root/contracts.pb"
+          dotnet run --project tests/DesktopMcp -c Release -- $server[0].FullName "$root/extension/Oadm.McpBridge.exe"
