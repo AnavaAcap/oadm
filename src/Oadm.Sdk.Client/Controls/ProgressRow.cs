@@ -23,6 +23,11 @@ public sealed class ProgressRow : Grid
     public static readonly StyledProperty<bool> ShowBarProperty =
         AvaloniaProperty.Register<ProgressRow, bool>(nameof(ShowBar), true);
 
+    /// <summary>Shown in place of <see cref="Text"/> when set: a status line with coloured parts (the add page's counts).</summary>
+    public static readonly StyledProperty<object?> DetailProperty =
+        AvaloniaProperty.Register<ProgressRow, object?>(nameof(Detail));
+
+    private readonly ContentControl _detail = new() { Margin = new Thickness(12, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center, IsVisible = false };
     private readonly ProgressBar _bar = new() { Minimum = 0, Maximum = 100, VerticalAlignment = VerticalAlignment.Center };
     private readonly TextBlock _text = new() { Margin = new Thickness(12, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center };
 
@@ -32,8 +37,10 @@ public sealed class ProgressRow : Grid
         _text.Classes.Add("secondary");
         _bar.Classes.Add("stream");
         SetColumn(_text, 1);
+        SetColumn(_detail, 1);
         Children.Add(_bar);
         Children.Add(_text);
+        Children.Add(_detail);
     }
 
     /// <summary>Progress in percent (0 to 100).</summary>
@@ -48,6 +55,13 @@ public sealed class ProgressRow : Grid
     {
         get => GetValue(TextProperty);
         set => SetValue(TextProperty, value);
+    }
+
+    /// <summary>A control shown in place of the text (null: the text).</summary>
+    public object? Detail
+    {
+        get => GetValue(DetailProperty);
+        set => SetValue(DetailProperty, value);
     }
 
     /// <summary>True while work is running: shows the flowing stream in the unfilled part.</summary>
@@ -75,6 +89,12 @@ public sealed class ProgressRow : Grid
         {
             _text.Text = Text;
         }
+        else if (change.Property == DetailProperty)
+        {
+            _detail.Content = Detail;
+            _detail.IsVisible = Detail is not null;
+            _text.IsVisible = Detail is null;
+        }
         else if (change.Property == IsActiveProperty)
         {
             _bar.Classes.Set("stream", IsActive);
@@ -83,7 +103,8 @@ public sealed class ProgressRow : Grid
         {
             _bar.IsVisible = ShowBar;
             SetColumn(_text, ShowBar ? 1 : 0);
-            _text.Margin = new Thickness(ShowBar ? 12 : 0, 0, 0, 0);
+            SetColumn(_detail, ShowBar ? 1 : 0);
+            _text.Margin = _detail.Margin = new Thickness(ShowBar ? 12 : 0, 0, 0, 0);
         }
     }
 }

@@ -422,6 +422,9 @@
   <Style Selector="TextBlock.warning">
     <Setter Property="Foreground" Value="{StaticResource Oadm.StatusWarningBrush}" />
   </Style>
+  <Style Selector="TextBlock.ok">
+    <Setter Property="Foreground" Value="{StaticResource Oadm.StatusOkBrush}" />
+  </Style>
 
   <!-- Cards -->
   <Style Selector="Border.card">

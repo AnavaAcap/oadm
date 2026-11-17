@@ -126,7 +126,7 @@ tests render light with `OADM_TEST_APPEARANCE=Light` (client tests).
   `OADM_LAYOUT_SURVEY=1`, `OADM_LAYOUT_SURVEY_SIZE=1280x672`, screenshots and a list of controls that leave the window).
 - Dialogs (every dialog window incl. `ui:MessageWindow` and the device picker): no system title bar
   (`WindowDecorations="BorderOnly"`); the first row is `ui:DialogTitleBar`, the title as a
-  heading and an X top right that closes the window, aligned with the content. Modal, not movable and fixed size
+  heading (optional `Subtitle`: a small grey line right of it on its baseline, like a page title) and an X top right that closes the window, aligned with the content. Modal, not movable and fixed size
   (`CanResize="False"`: a resizable border-only window shows a white resize strip on top on Windows), like a dialog on a
   web page. The main window and plugin windows keep the custom title bar. While a dialog is open, the window behind it
   is dimmed (`Oadm.DialogDimBrush`: black at 45 % dark, 30 % light; title bar included; `Oadm.Theme.Shell.DialogDim`,

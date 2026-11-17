@@ -61,7 +61,13 @@ public sealed class AddDevicesPageTests : IDisposable
         Assert.DoesNotContain(page.FilteredRows, r => r.IsAlreadyManaged);
         Assert.Equal(8, page.FilteredRows.Count);
         // The devices that logged in are checked by themselves: Add works without another click.
-        Assert.Equal("8 found · 3 ready to add · 2 need a login · 2 need a password · 3 selected", page.SummaryText);
+        Assert.Equal("8 found · 3 already added · 3 ready to add · 2 need a login · 2 need a password · 3 selected", page.SummaryText);
+        // Each count in the colour of its login status, so the line is easy to spot.
+        Assert.Equal(
+            [StatusTone.Neutral, StatusTone.Neutral, StatusTone.Ok, StatusTone.Error, StatusTone.Warning, StatusTone.Neutral],
+            page.SummaryParts.Select(p => p.Tone));
+        // While the search runs the line is only what runs and how many were found, without colours.
+        Assert.Equal($"{page.ScanStatusText} · 8 found", page.StatusLine);
         Assert.True(page.AddCommand.CanExecute(null));
     });
 
@@ -74,13 +80,18 @@ public sealed class AddDevicesPageTests : IDisposable
         await TestSupport.WaitUntilAsync(() => page.Rows.Count == 11 && page.Rows.All(r => r.AuthState != AuthState.Pending));
         Assert.True(page.ShowDnsNameChoice);
         Assert.False(page.UseDnsNames);
+        Assert.False(page.ShowsHostNames); // the Address column fits an IP address
         DiscoveredRowViewModel row = Row(page, "10.0.0.92");
         string dnsName = row.DnsName;
         Assert.EndsWith(".site.example", dnsName);
         Assert.Equal("", row.AddressTip);
 
+        var changed = new List<string?>();
+        page.PropertyChanged += (_, e) => changed.Add(e.PropertyName);
         page.UseDnsNames = true;
 
+        Assert.True(page.ShowsHostNames); // the Address column gets room for the names
+        Assert.Contains(nameof(AddDevicesViewModel.ShowsHostNames), changed);
         Assert.True(settings.Current.AddByDnsName);
         Assert.Equal(dnsName, row.Address);
         Assert.Equal("IP address 10.0.0.92", row.AddressTip);
@@ -98,6 +109,7 @@ public sealed class AddDevicesPageTests : IDisposable
         Assert.True(again.UseDnsNames);
         await using var manual = new AddDevicesViewModel(_api, _ui, NullLogger<AddDevicesViewModel>.Instance, AddDevicesMode.Manual, settings);
         Assert.False(manual.ShowDnsNameChoice); // typed addresses are kept as typed
+        Assert.True(manual.ShowsHostNames); // a typed host name has room
     });
 
     [Fact]
@@ -180,7 +192,7 @@ public sealed class AddDevicesPageTests : IDisposable
 
         // The server tries the working login on the other device whose login failed; the open scan stream reports it.
         await TestSupport.WaitUntilAsync(() => Row(page, "10.0.0.97").ChipText == "Authenticated (admin)");
-        Assert.Equal("8 found · 5 ready to add · 2 need a password · 5 selected", page.SummaryText);
+        Assert.Equal("8 found · 3 already added · 5 ready to add · 2 need a password · 5 selected", page.SummaryText);
     });
 
     [Fact]
@@ -255,7 +267,8 @@ public sealed class AddDevicesPageTests : IDisposable
         await TestSupport.WaitUntilAsync(() => !page.IsScanning && page.Rows.All(r => r.AuthState != AuthState.Pending) && page.Rows.Count == 7);
 
         Assert.Equal(100, page.ScanProgress);
-        Assert.Equal("Scan finished, 7 devices found", page.ScanStatusText);
+        Assert.Equal("", page.ScanStatusText);
+        Assert.StartsWith("7 found · ", page.StatusLine, StringComparison.Ordinal);
         Assert.True(page.ShowScanAgain);
         Assert.False(page.ShowStop);
         Assert.All(page.Rows, r => Assert.StartsWith("10.0.1.", r.Address, StringComparison.Ordinal));
@@ -303,7 +316,8 @@ public sealed class AddDevicesPageTests : IDisposable
         await using AddDevicesViewModel page = await OpenScanAsync();
 
         await TestSupport.WaitUntilAsync(() => !page.IsScanning);
-        Assert.Equal("Scan finished, 8 devices found, 3 already added", page.ScanStatusText);
+        Assert.Equal("", page.ScanStatusText);
+        Assert.StartsWith("8 found · 3 already added · ", page.StatusLine, StringComparison.Ordinal);
         Assert.Equal(100, page.ScanProgress);
         Assert.False(page.ShowStop);
         Assert.True(page.ShowScanAgain);
@@ -318,7 +332,8 @@ public sealed class AddDevicesPageTests : IDisposable
         Assert.Equal("Searching the network...", page.ScanStatusText);
         Assert.Equal(11, page.Rows.Count);
         await TestSupport.WaitUntilAsync(() => !page.IsScanning);
-        Assert.Equal("Scan finished, 8 devices found, 3 already added", page.ScanStatusText);
+        Assert.Equal("", page.ScanStatusText);
+        Assert.StartsWith("8 found · 3 already added · ", page.StatusLine, StringComparison.Ordinal);
         Assert.Equal(11, page.Rows.Count);
         Assert.True(Row(page, "10.0.0.92").IsSelected); // the new search did not reset the known login or the selection
         Assert.Equal("Authenticated (root)", Row(page, "10.0.0.92").ChipText);
@@ -335,7 +350,7 @@ public sealed class AddDevicesPageTests : IDisposable
         await page.StopScanCommand.ExecuteAsync(null);
 
         await TestSupport.WaitUntilAsync(() => !page.IsScanning);
-        Assert.Equal("Scan stopped, 8 devices found, 3 already added", page.ScanStatusText);
+        Assert.StartsWith("Stopped · 8 found · 3 already added · ", page.StatusLine, StringComparison.Ordinal);
         Assert.Equal(11, page.Rows.Count);
         Assert.True(page.ShowScanAgain);
         Assert.False(page.ShowStop);
@@ -355,13 +370,14 @@ public sealed class AddDevicesPageTests : IDisposable
         await page.StopScanCommand.ExecuteAsync(null);
 
         await TestSupport.WaitUntilAsync(() => !page.IsScanning);
-        Assert.StartsWith("Scan stopped, ", page.ScanStatusText, StringComparison.Ordinal);
+        Assert.Equal("Stopped", page.ScanStatusText);
         Assert.True(page.ShowScanAgain);
 
         // Scan again repeats the range.
         await page.ScanAgainCommand.ExecuteAsync(null);
         await TestSupport.WaitUntilAsync(() => !page.IsScanning && page.Rows.Count == 7);
-        Assert.Equal("Scan finished, 7 devices found", page.ScanStatusText);
+        Assert.Equal("", page.ScanStatusText);
+        Assert.StartsWith("7 found · ", page.StatusLine, StringComparison.Ordinal);
     });
 
     [Fact]
@@ -451,7 +467,7 @@ public sealed class AddDevicesPageTests : IDisposable
         Assert.Equal(("Already waiting", "An earlier import keeps it waiting. OADM adds it once it answers."), (waiting.ChipText, waiting.StatusDetail));
         Assert.False(waiting.CanWait);
         Assert.Equal(0, again.WaitingCount);
-        Assert.EndsWith(", 2 already waiting", again.ScanStatusText, StringComparison.Ordinal);
+        Assert.Contains(" · 2 already waiting · ", again.StatusLine, StringComparison.Ordinal);
     });
 
     [Fact]
@@ -518,8 +534,9 @@ public sealed class AddDevicesPageTests : IDisposable
         Assert.True(page.Rows[6].IsAlreadyManaged);
         Assert.DoesNotContain(page.Rows[6], page.FilteredRows); // already added devices are not listed
         Assert.Equal(["10.0.0.93", "10.0.0.97", "camera7.example.com:8443", "10.0.0.199", "not an address", "10.0.0.97"], page.FilteredRows.Select(r => r.Address));
-        Assert.Equal("3 found · 2 ready to add · 1 need a login · 3 not added · 2 selected", page.SummaryText);
-        Assert.Equal("Import finished, 3 devices found, 1 already added", page.ScanStatusText);
+        Assert.Equal("3 found · 1 already added · 2 ready to add · 1 need a login · 3 not added · 2 selected", page.SummaryText);
+        Assert.Equal("", page.ScanStatusText);
+        Assert.StartsWith("3 found · 1 already added · ", page.StatusLine, StringComparison.Ordinal);
         Assert.False(page.ShowScanAgain);
 
         // Rows with a problem cannot be selected; the found ones are added as usual, with the file's credentials.
@@ -544,7 +561,8 @@ public sealed class AddDevicesPageTests : IDisposable
 
         Assert.InRange(api.MaxOpenProbeWatches, 2, AddDevicesViewModel.MaxImportProbes);
         Assert.Equal(80, page.Rows.Count(r => r.ChipText == "Authenticated (root)"));
-        Assert.Equal("Import finished, 80 devices found", page.ScanStatusText);
+        Assert.Equal("", page.ScanStatusText);
+        Assert.StartsWith("80 found · ", page.StatusLine, StringComparison.Ordinal);
         Assert.Equal(100, page.ScanProgress);
     });
 
@@ -595,7 +613,7 @@ public sealed class AddDevicesPageTests : IDisposable
         await page.ImportCompletion!;
         await TestSupport.WaitUntilAsync(() => !page.IsScanning);
 
-        Assert.StartsWith("Import stopped, ", page.ScanStatusText, StringComparison.Ordinal);
+        Assert.Equal("Stopped", page.ScanStatusText);
         DiscoveredRowViewModel unchecked_ = page.Rows[^1];
         Assert.Equal(("Not checked", "Stopped before this address was checked."), (unchecked_.ChipText, unchecked_.StatusDetail));
         Assert.False(unchecked_.IsStatusError);

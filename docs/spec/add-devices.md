@@ -6,22 +6,25 @@ Goal: maximum technician satisfaction. Adding devices is one page, no steps; the
 logs in to every device it finds with the credentials the technician already has.
 
 Toolbar (toolbar plugins, see [plugins.md](plugins.md#toolbar-plugins)): the **Add** menu entries Discovery, Network
-range, Add manually, Import from file and Import from ADM open the same dialog window (header = the entry name)
+range, Add manually, Import from file and Import from ADM open the same dialog window (title = the entry name, its one line grey beside it; the card has no heading)
 (`Discovery/AddDevicesWindow`, shared dialog controls: title bar, one card, footer) in its modes. How OADM finds devices:
 [discovery.md](discovery.md).
 - **Discovery**: zero-conf discovery starts immediately; devices appear live. The scan ends after
   `Discovery.ZeroConfSeconds` (Settings page "Discovery duration (s)", default 30, 5..300).
 - **Network range**: From / To inputs on top; Enter or the Scan button starts (several ranges add to
   the same list).
-- One info line above the list (`ui:ProgressRow`, indeterminate for zero-conf, percent for ranges): the scan status and the
-  counts in one text (`AddDevicesViewModel.StatusLine`: "Import finished, 5 devices found · 4 ready to add · 1 need a login
-  · 4 selected"; while a scan runs "Searching the network... · 8 found · ..."), then a
+- One info line above the list (`ui:ProgressRow`, indeterminate for zero-conf, percent for ranges; its `Detail` shows the
+  parts): what runs, then the counts (`AddDevicesViewModel.StatusParts` / `StatusLine`: "8 found · 3
+  already added · 3 ready to add · 2 need a login · 2 need a password · 3 selected"). Each count above 0 has the
+  colour of its login status (ready to add green, need a login red, need a password and not added amber, the rest grey).
+  While work runs the line is only what runs and how many were found ("Searching the network... · 8 found", no colours:
+  it stays clear of the moving bar); once it ended only the counts remain (never "Scan finished"), after Stop led by
+  "Stopped". "M already added":
+  devices OADM already manages answered; they are not listed. Then a
   **Stop** button (icon stop) while a zero-conf or range scan runs (`StopScan` for every running
   session; the devices found stay) and **Scan again** (icon refresh) after it finished or was stopped
   (zero-conf: a new session; range: the same range again; found devices stay, deduplicated by serial; a
-  "Checking" of the new search never hides the result or selection of an earlier one). The text then
-  says "Scan finished, N devices found" or "Scan stopped, N devices found" ("1 device found"), plus ", M already added" when
-  devices OADM already manages answered: those are not listed at all and not in the summary.
+  "Checking" of the new search never hides the result or selection of an earlier one).
   Add manually has neither button.
 - **Add manually**: Address input (IP or host name, optional port and scheme,
   `https://camera.example.com:8443`); Enter or Find probes that address (`ProbeAddress`); every
@@ -122,7 +125,9 @@ from the device). Tests `AdmDeviceExportTests`, `AddDevicesPageTests`, `FastAddT
 row; remembered per client, `ClientSettings.AddByDnsName`). The server looks up the DNS name of every found IP
 (`Oadm.Core.Discovery.IDnsNameLookup`, `SystemDnsNameLookup`: reverse lookup, a full name with a domain, not ".local" or
 ".arpa", that resolves back to the same IP; 3 s, 16 at a time, once per device and address, never for typed addresses;
-`DiscoveredDevice.DnsName`, dropped when the address changes). Checked, the Address column shows the DNS name (tooltip
+`DiscoveredDevice.DnsName`, dropped when the address changes). The Address column is as wide as the longest IP address in the list (at least its header); it is 220 px while host
+names can show (this box checked, Add manually,
+imports: `AddDevicesViewModel.ShowsHostNames`). The MAC address is slightly dimmed. Checked, the Address column shows the DNS name (tooltip
 "IP address x"; the search also finds the IP) and `Commit(use_host_name)` adds those devices by it
 (`DeviceAdder.ChooseAddress`); a device without a DNS name is added by IP. The address a device is added with stays its
 address (no switching later, the grid shows it). Add manually and Import from file keep the typed address. Tests:

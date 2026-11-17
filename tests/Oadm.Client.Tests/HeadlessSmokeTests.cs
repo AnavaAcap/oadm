@@ -221,6 +221,13 @@ public sealed class HeadlessSmokeTests
             await PumpUntilAsync(() => scanVm.Rows.Count == 11 && scanVm.Rows.All(r => r.AuthState != AuthState.Pending));
             await PumpUntilAsync(() => true);
             Capture(scanWindow, outDir, "client-add-scan.png");
+            scanVm.UseDnsNames = true; // the Address column gets room for the DNS names (at the dialog's real width)
+            scanWindow.Width = 1120;
+            await PumpUntilAsync(() => true);
+            Capture(scanWindow, outDir, "client-add-scan-dns.png");
+            scanVm.UseDnsNames = false;
+            scanWindow.Width = 1040;
+            await PumpUntilAsync(() => true);
 
             Button stop = scanWindow.GetVisualDescendants().OfType<Button>().Single(b => b.Name == "StopScanButton");
             Assert.True(stop.IsEffectivelyVisible);
@@ -250,10 +257,10 @@ public sealed class HeadlessSmokeTests
             Capture(scanWindow, outDir, "client-add-login-revealed.png");
             scanVm.CancelEditorCommand.Execute(null);
 
-            // Stop, then a scan that ends on its own (short fake time limit): "Scan finished" with Scan again.
+            // Stop, then a scan that ends on its own (short fake time limit): only the counts, with Scan again.
             await scanVm.StopScanCommand.ExecuteAsync(null);
             await PumpUntilAsync(() => !scanVm.IsScanning);
-            Assert.Equal("Scan stopped, 8 devices found, 3 already added", scanVm.ScanStatusText);
+            Assert.StartsWith("Stopped · 8 found · 3 already added · ", scanVm.StatusLine, StringComparison.Ordinal);
             Capture(scanWindow, outDir, "client-add-scan-stopped.png");
             if (app.Services!.GetRequiredService<IOadmApi>() is FakeOadmApi fakeApi)
             {
@@ -261,7 +268,8 @@ public sealed class HeadlessSmokeTests
                 await scanVm.ScanAgainCommand.ExecuteAsync(null);
                 await PumpUntilAsync(() => !scanVm.IsScanning);
                 fakeApi.ZeroConfDuration = null;
-                Assert.Equal("Scan finished, 8 devices found, 3 already added", scanVm.ScanStatusText);
+                Assert.Equal("", scanVm.ScanStatusText);
+                Assert.StartsWith("8 found · 3 already added · ", scanVm.StatusLine, StringComparison.Ordinal);
                 Button again = scanWindow.GetVisualDescendants().OfType<Button>().Single(b => b.Name == "ScanAgainButton");
                 Assert.True(again.IsEffectivelyVisible);
                 Assert.False(stop.IsEffectivelyVisible);
@@ -324,7 +332,8 @@ public sealed class HeadlessSmokeTests
             await PumpUntilAsync(() => importVm.ImportCompletion is { IsCompleted: true } && !importVm.IsScanning && importVm.Rows.All(r => r.IsImportPlaceholder || r.AuthState != AuthState.Pending));
             await PumpUntilAsync(() => true);
             Capture(importWindow, outDir, "client-add-import.png");
-            Assert.Equal("Import finished, 4 devices found", importVm.ScanStatusText);
+            Assert.Equal("", importVm.ScanStatusText);
+            Assert.StartsWith("4 found · ", importVm.StatusLine, StringComparison.Ordinal);
             await importVm.DisposeAsync();
             importWindow.Close();
 

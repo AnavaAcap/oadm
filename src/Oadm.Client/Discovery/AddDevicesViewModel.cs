@@ -157,6 +157,12 @@ public sealed partial class AddDevicesViewModel : ValidatingViewModel, IAsyncDis
     /// <summary>Discovery and Network range offer DNS names; Add manually and imports keep the address as typed.</summary>
     public bool ShowDnsNameChoice => IsScanMode || IsRangeMode;
 
+    /// <summary>
+    /// The list can show host names (DNS names on, Add manually, imports): the Address column is wide; otherwise it fits
+    /// an IP address.
+    /// </summary>
+    public bool ShowsHostNames => !ShowDnsNameChoice || UseDnsNames;
+
     private bool _useDnsNames;
 
     /// <summary>
@@ -172,6 +178,8 @@ public sealed partial class AddDevicesViewModel : ValidatingViewModel, IAsyncDis
             {
                 return;
             }
+
+            OnPropertyChanged(nameof(ShowsHostNames));
 
             foreach (var row in Rows)
             {
@@ -199,7 +207,7 @@ public sealed partial class AddDevicesViewModel : ValidatingViewModel, IAsyncDis
     public string HeaderDescription => Mode switch
     {
         AddDevicesMode.IpRange => "Enter the first and last address, then press Enter.",
-        AddDevicesMode.Manual => string.Empty,
+        AddDevicesMode.Manual => "Find a device by its address.",
         AddDevicesMode.Import => ImportFromAdm
             ? $"Devices from {ImportFileName}{(ImportAdmServers.Count == 1 ? $" (ADM server {ImportAdmServers[0]})" : "")}. Logins in the export are tried first."
             : $"Addresses from {ImportFileName}. Logins in the file are tried first.",
@@ -267,32 +275,50 @@ public sealed partial class AddDevicesViewModel : ValidatingViewModel, IAsyncDis
 
     [ObservableProperty] public partial bool IsProgressIndeterminate { get; private set; }
     [ObservableProperty] public partial int ScanProgress { get; private set; }
+    /// <summary>What runs ("Searching the network...", "Checking addresses: 120 of 5,000"), "Stopped" after Stop, empty once done.</summary>
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(StatusLine))]
+    [NotifyPropertyChangedFor(nameof(StatusParts))]
     public partial string ScanStatusText { get; private set; } = "";
 
+    /// <summary>The counts ("8 found · 3 already added · 3 ready to add · 2 need a login · 3 selected").</summary>
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(StatusLine))]
+    [NotifyPropertyChangedFor(nameof(StatusParts))]
     public partial string SummaryText { get; private set; } = "";
 
+    private IReadOnlyList<StatusPart> _summaryParts = [];
+
+    /// <summary>The counts, each above 0 in the colour of its login status (ready green, need a login red, need a password
+    /// and not added amber).</summary>
+    public IReadOnlyList<StatusPart> SummaryParts => _summaryParts;
+
     /// <summary>
-    /// The one info line above the list: the scan status, then the counts ("Import finished, 5 devices found · 4 ready to
-    /// add · 1 need a login · 4 selected"). Once a scan ended its status already names what was found.
+    /// The one info line above the list. While work runs: what runs and how many were found, no colours (the line stays
+    /// short next to the moving bar); once it ended (or after "Stopped") every count in its colour.
     /// </summary>
-    public string StatusLine
+    public IReadOnlyList<StatusPart> StatusParts
     {
         get
         {
             if (ScanStatusText.Length == 0)
             {
-                return SummaryText;
+                return _summaryParts;
             }
 
-            return ScanStatusText + " · " + (IsScanning ? SummaryText : _summaryWithoutFound);
+            var lead = new StatusPart(ScanStatusText, StatusTone.Neutral, IsFirst: true);
+            return IsScanning
+                ? [lead, .. _summaryParts.Take(1).Select(p => p with { IsFirst = false })]
+                : [lead, .. _summaryParts.Select(p => p with { IsFirst = false })];
         }
     }
 
-    private string _summaryWithoutFound = "";
+    /// <summary>The info line as text ("Searching the network... · 5 found · 4 ready to add · 1 need a login · 4 selected").</summary>
+    public string StatusLine
+    {
+        get => string.Join(" · ", StatusParts.Select(p => p.Text));
+    }
+
 
     /// <summary>
     /// The check box in the list header: true when every device that can be added is checked, false when none is, null
@@ -441,6 +467,7 @@ public sealed partial class AddDevicesViewModel : ValidatingViewModel, IAsyncDis
         ImportFileName = file.FileName;
         ImportFromAdm = file.FromAdm;
         ImportAdmServers = file.AdmServers;
+        OnPropertyChanged(nameof(HeaderTitle));
         OnPropertyChanged(nameof(HeaderDescription));
         Rows.CollectionChanged -= OnRowsChanged;
         foreach (ImportLine line in file.Lines)
@@ -888,7 +915,11 @@ public sealed partial class AddDevicesViewModel : ValidatingViewModel, IAsyncDis
 
     private bool CanAddWithWaiting() => !IsBusy && IsImportMode && WaitingCount > 0;
 
-    partial void OnIsScanningChanged(bool value) => OnPropertyChanged(nameof(StatusLine));
+    partial void OnIsScanningChanged(bool value)
+    {
+        OnPropertyChanged(nameof(StatusLine));
+        OnPropertyChanged(nameof(StatusParts));
+    }
 
     /// <summary>The lines whose device did not answer go to the server's waiting list, in batches.</summary>
     private async Task KeepWaitingAsync(List<DiscoveredRowViewModel> rows)
@@ -1381,7 +1412,7 @@ public sealed partial class AddDevicesViewModel : ValidatingViewModel, IAsyncDis
     /// <summary>
     /// A session's scan ended (scan_finished, stream error, or start failed with <paramref name="sessionId"/> null).
     /// A replayed scan_finished of an earlier session is ignored. When the last scan ended the progress
-    /// row says "Scan finished, N devices found" (or "Scan stopped, ..." after Stop).
+    /// row shows only the counts (with "Stopped" first after Stop).
     /// </summary>
     private void ScanFinished(string? sessionId)
     {
@@ -1400,19 +1431,7 @@ public sealed partial class AddDevicesViewModel : ValidatingViewModel, IAsyncDis
             // Text first, then IsScanning: whoever reacts to IsScanning sees the final text.
             ScanProgress = 100;
             IsProgressIndeterminate = false;
-            int listed = Rows.Count - _hidden - _noDevice;
-            string found = listed == 1 ? "1 device found" : string.Create(CultureInfo.CurrentCulture, $"{listed} devices found");
-            if (_hidden > 0)
-            {
-                found += string.Create(CultureInfo.CurrentCulture, $", {_hidden} already added");
-            }
-
-            if (_alreadyWaiting > 0)
-            {
-                found += string.Create(CultureInfo.CurrentCulture, $", {_alreadyWaiting} already waiting");
-            }
-            string what = IsImportMode ? "Import" : "Scan";
-            ScanStatusText = what + (_anyStopped ? " stopped, " : " finished, ") + found;
+            ScanStatusText = _anyStopped ? "Stopped" : "";
         }
 
         UpdateScanning();
@@ -1542,26 +1561,25 @@ public sealed partial class AddDevicesViewModel : ValidatingViewModel, IAsyncDis
         int factory = _factory;
         SelectedCount = _selected;
         WaitingCount = IsImportMode ? _waiting : 0;
-        var parts = new List<string> { string.Create(CultureInfo.CurrentCulture, $"{Rows.Count - _hidden - _noDevice} found"), string.Create(CultureInfo.CurrentCulture, $"{ready} ready to add") };
-        if (failed > 0)
+        var parts = new List<StatusPart>();
+        void Add(int count, string what, StatusTone tone, bool always = false)
         {
-            parts.Add(string.Create(CultureInfo.CurrentCulture, $"{failed} need a login"));
+            if (count > 0 || always)
+            {
+                parts.Add(new StatusPart(string.Create(CultureInfo.CurrentCulture, $"{count} {what}"), count > 0 ? tone : StatusTone.Neutral, parts.Count == 0));
+            }
         }
 
-        if (factory > 0)
-        {
-            parts.Add(string.Create(CultureInfo.CurrentCulture, $"{factory} need a password"));
-        }
-
-        if (_problems > 0)
-        {
-            parts.Add(string.Create(CultureInfo.CurrentCulture, $"{_problems} not added"));
-        }
-
-        parts.Add(string.Create(CultureInfo.CurrentCulture, $"{SelectedCount} selected"));
-        _summaryWithoutFound = string.Join(" · ", parts.Skip(1));
-        SummaryText = string.Join(" · ", parts);
-        OnPropertyChanged(nameof(StatusLine));
+        Add(Rows.Count - _hidden - _noDevice, "found", StatusTone.Neutral, always: true);
+        Add(_hidden, "already added", StatusTone.Neutral);
+        Add(_alreadyWaiting, "already waiting", StatusTone.Neutral);
+        Add(ready, "ready to add", StatusTone.Ok, always: true);
+        Add(failed, "need a login", StatusTone.Error);
+        Add(factory, "need a password", StatusTone.Warning);
+        Add(_problems, "not added", StatusTone.Warning);
+        Add(SelectedCount, "selected", StatusTone.Neutral, always: true);
+        _summaryParts = parts;
+        SummaryText = string.Join(" · ", parts.Select(p => p.Text)); // same text, same tones: nothing to raise
         OnPropertyChanged(nameof(AllSelected));
         OnPropertyChanged(nameof(CanSelectAll));
         AddButtonText = SelectedCount switch

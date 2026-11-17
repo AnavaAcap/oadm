@@ -13,12 +13,12 @@
         WindowDecorations="BorderOnly">
   <!-- One page, no steps: input (range / address), live list with login results, inline editor, Add. Shared controls only. -->
   <Grid RowDefinitions="Auto,*,Auto">
-    <ui:DialogTitleBar Grid.Row="0" Text="{x:Static disc:AddDevicesViewModel.Title}" />
+    <ui:DialogTitleBar Grid.Row="0" Text="{Binding HeaderTitle}" Subtitle="{Binding HeaderDescription}" />
 
     <Border Grid.Row="1" Classes="card" Margin="16,0">
       <Grid RowDefinitions="Auto,Auto,Auto,Auto,*,Auto,Auto">
-        <!-- Rows: header, input, summary, progress, list, page error (directly below the list), inline editor -->
-        <ui:CardHeader Grid.Row="0" Title="{Binding HeaderTitle}" Description="{Binding HeaderDescription}" />
+        <!-- Rows: (the mode is the dialog title), input, summary, progress, list, page error (directly below the list),
+             inline editor -->
 
         <!-- IP range: Enter or Scan starts -->
         <StackPanel Grid.Row="1" Classes="inputRow" IsVisible="{Binding IsRangeMode}">
@@ -60,8 +60,28 @@
         <!-- One info line: the scan status and the counts, Stop while a scan or import runs, Scan again once a scan
              finished or was stopped, the search -->
         <Grid Grid.Row="2" ColumnDefinitions="*,Auto,Auto" Margin="0,0,0,10">
-          <ui:ProgressRow Value="{Binding ScanProgress}" Text="{Binding StatusLine}" IsActive="{Binding IsScanning}" ShowBar="{Binding IsScanning}"
-                          VerticalAlignment="Center" />
+          <ui:ProgressRow Value="{Binding ScanProgress}" IsActive="{Binding IsScanning}" ShowBar="{Binding IsScanning}"
+                          VerticalAlignment="Center" ClipToBounds="True">
+            <ui:ProgressRow.Detail>
+              <!-- The counts in the colours of their login status (a handful of parts, not a device list) -->
+              <ItemsControl x:Name="StatusParts" ItemsSource="{Binding StatusParts}">
+                <ItemsControl.ItemsPanel>
+                  <ItemsPanelTemplate>
+                    <StackPanel Orientation="Horizontal" />
+                  </ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="disc:StatusPart">
+                    <StackPanel Orientation="Horizontal">
+                      <TextBlock Classes="secondary" Text=" · " IsVisible="{Binding !IsFirst}" />
+                      <TextBlock Classes="secondary" Classes.ok="{Binding IsOk}" Classes.warning="{Binding IsWarning}" Classes.error="{Binding IsError}"
+                                 Text="{Binding Text}" />
+                    </StackPanel>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+            </ui:ProgressRow.Detail>
+          </ui:ProgressRow>
           <ui:ToolbarButton x:Name="StopScanButton" Grid.Column="1" Margin="12,0,0,0" Text="Stop" IconKey="stop" Command="{Binding StopScanCommand}"
                             IsVisible="{Binding ShowStop}" ToolTip.Tip="Found devices stay in the list" />
           <ui:ToolbarButton x:Name="ScanAgainButton" Grid.Column="1" Margin="12,0,0,0" Text="Scan again" IconKey="refresh" Command="{Binding ScanAgainCommand}"
@@ -113,7 +133,7 @@
                 </DataTemplate>
               </DataGridTemplateColumn.CellTemplate>
             </DataGridTemplateColumn>
-            <DataGridTemplateColumn Header="Address" Width="200" SortMemberPath="Address">
+            <DataGridTemplateColumn Header="Address" Width="120" SortMemberPath="Address">
               <DataGridTemplateColumn.CellTemplate>
                 <DataTemplate x:DataType="disc:DiscoveredRowViewModel">
                   <TextBlock Classes="cellText" Text="{Binding Address}" ToolTip.Tip="{Binding AddressTip}" />
@@ -127,7 +147,14 @@
                 </DataTemplate>
               </DataGridTemplateColumn.CellTemplate>
             </DataGridTemplateColumn>
-            <DataGridTextColumn Header="MAC address" Width="150" Binding="{Binding Serial}" x:DataType="disc:DiscoveredRowViewModel" />
+            <!-- The MAC address slightly dimmed: the address and the model are what a technician reads first -->
+            <DataGridTemplateColumn Header="MAC address" Width="150" SortMemberPath="Serial">
+              <DataGridTemplateColumn.CellTemplate>
+                <DataTemplate x:DataType="disc:DiscoveredRowViewModel">
+                  <TextBlock Classes="cellText secondary" Text="{Binding Serial}" />
+                </DataTemplate>
+              </DataGridTemplateColumn.CellTemplate>
+            </DataGridTemplateColumn>
             <DataGridTextColumn Header="Model" Width="160" Binding="{Binding Model}" x:DataType="disc:DiscoveredRowViewModel" />
             <DataGridTemplateColumn Header="Login" Width="*" SortMemberPath="ChipText">
               <DataGridTemplateColumn.CellTemplate>
