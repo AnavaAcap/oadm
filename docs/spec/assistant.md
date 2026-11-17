@@ -313,7 +313,7 @@ counts each message's estimate at its start and settles it at its end; a Stop se
 OADM's own failure in a tool is a failed tool line ("The call failed. Try again."), never told as the provider's; at most **Steps per answer**
 tool calls per message (default 20, then the model must answer without calling one); tool answers at most 32 KB (the tools' own
 limit); the model's context is cut from the oldest messages when it grows too long (older turns are dropped, and
-within one message the older tool answers are shortened to 1,500 characters while the newest stays whole); a provider timeout of **Answer time** (default 120 s) per
+within one message the older tool answers are shortened to 1,500 characters while the newest stays whole; the model's thinking is kept only within its own answer, never sent with a later one: Anthropic binds it to the exact request before it and refuses it once that changed); a provider timeout of **Answer time** (default 120 s) per
 answer with all its rounds ("The provider did not answer. Try again."), 30 s for Test; a message at most 8,000
 characters with at most 10 files; at most 5 pictures per message to the model, and a picture never stays in the later
 context.

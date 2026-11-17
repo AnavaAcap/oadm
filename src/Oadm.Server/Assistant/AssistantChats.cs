@@ -586,16 +586,26 @@ public sealed partial class AssistantChats
             .Where(m => m.Contents.Count > 0),
     ];
 
+    /// <summary>A turn as later answers see it: without the model's thinking (<see cref="Commit"/>).</summary>
+    internal static List<ChatMessage> WithoutThinking(IEnumerable<ChatMessage> turn) =>
+    [
+        .. turn
+            .Select(m => m.Contents.Any(c => c is TextReasoningContent) ? new ChatMessage(m.Role, [.. m.Contents.Where(c => c is not TextReasoningContent)]) : m)
+            .Where(m => m.Contents.Count > 0),
+    ];
+
     private static bool IsProviderTool(AIContent content) =>
         content is (ToolCallContent or ToolResultContent) and not (FunctionCallContent or FunctionResultContent);
 
     /// <summary>
     /// Keeps the turn (its older tool answers shortened when it is long); a picture stays out of the later context (it was seen
-    /// once). Turns beyond the context budget are dropped, the oldest first: they would never be sent again.
+    /// once). Turns beyond the context budget are dropped, the oldest first: they would never be sent again. The model's
+    /// thinking stays out too: Anthropic binds a thinking block to the exact request before it, and a later answer changes that
+    /// request (the lookup's system note and web tools, shortened answers, dropped turns), which it refuses with a 400.
     /// </summary>
     private static void Commit(AssistantConversation conversation, List<ChatMessage> turn)
     {
-        var kept = Shorten(turn).Select(m => m.Contents.Any(c => c is DataContent)
+        var kept = WithoutThinking(Shorten(turn)).Select(m => m.Contents.Any(c => c is DataContent)
             ? new ChatMessage(m.Role, [.. m.Contents.Select(c => c is DataContent ? new TextContent("(a camera picture was here)") : c)])
             : m).ToList();
         lock (conversation.Gate)

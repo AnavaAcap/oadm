@@ -34,6 +34,25 @@ public sealed class AssistantChatTests
     private static Proto.AssistantEvent.KindOneofCase Kind(Proto.AssistantEvent e) => e.KindCase;
 
     [Fact]
+    public async Task TheModelsThinkingStaysInItsOwnAnswerAndIsNeverSentAgain()
+    {
+        await using var server = await AssistantTestServer.StartAsync();
+        server.Model
+            .Stream(new TextReasoningContent("weighing it") { ProtectedData = "signature-1" }, new FunctionCallContent("call-1", "oadm_server_info", new Dictionary<string, object?>()))
+            .Say("The server runs.")
+            .Say("Still runs.");
+
+        await server.ChatAsync("How is the server?");
+        await server.ChatAsync("And now?");
+
+        // Within its answer the thinking goes back with the tool call (Anthropic needs it there); the next answer never has it.
+        Assert.Contains(server.Model.Requests[1].Messages.SelectMany(m => m.Contents), c => c is TextReasoningContent);
+        var later = server.Model.Requests[2].Messages.SelectMany(m => m.Contents).ToList();
+        Assert.DoesNotContain(later, c => c is TextReasoningContent);
+        Assert.Contains(later, c => c is FunctionCallContent { CallId: "call-1" });
+    }
+
+    [Fact]
     public async Task TheModelGetsReadsAndPreviewsButNeverARunOrAChangeAndTheAnswerStreams()
     {
         await using var server = await AssistantTestServer.StartAsync();
