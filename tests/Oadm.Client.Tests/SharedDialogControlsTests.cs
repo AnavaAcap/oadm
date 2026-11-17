@@ -38,8 +38,15 @@ public sealed class SharedDialogControlsTests
             Dispatcher.UIThread.RunJobs();
 
             // Dialog header: the title as a heading and an X that closes the window (no system title bar, does not move).
+            // The title and its optional grey side line sit in one row; without a Subtitle the line is hidden.
             var titleGrid = Assert.IsType<Grid>(title.Child);
-            Assert.Contains("cardTitle", titleGrid.Children.OfType<TextBlock>().Single().Classes);
+            TextBlock[] titleTexts = [.. titleGrid.Children.OfType<StackPanel>().Single().Children.OfType<TextBlock>()];
+            Assert.Contains("cardTitle", titleTexts[0].Classes);
+            Assert.Contains("pageSubtitle", titleTexts[1].Classes);
+            Assert.False(titleTexts[1].IsVisible);
+            title.Subtitle = "Axis devices found on the local network.";
+            Assert.True(titleTexts[1].IsVisible);
+            Assert.Equal("Axis devices found on the local network.", titleTexts[1].Text);
             Assert.False(header.Children.OfType<TextBlock>().Single(t => t.Classes.Contains("secondary")).IsVisible);
 
             // Status = colored icon + plain text, no chip border.
