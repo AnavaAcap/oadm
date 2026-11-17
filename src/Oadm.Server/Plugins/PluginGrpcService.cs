@@ -2,7 +2,6 @@ using Grpc.Core;
 
 using Oadm.Core.Auth;
 using Oadm.Core.DeviceGroups;
-using Oadm.Core.Devices;
 using Oadm.Core.Plugins;
 using Oadm.Sdk.Devices;
 using Oadm.Sdk.Plugins;
@@ -24,7 +23,7 @@ namespace Oadm.Server.Plugins;
 /// built for the call context, never the methods a plugin keeps for users with all devices, and receives only the events
 /// whose audience covers the user. The add-on methods (docs/spec/add-ons.md) are in src/Oadm.Server/AddOns.
 /// </summary>
-public sealed partial class PluginGrpcService(PluginRegistry registry, CorePluginHost host, AuditLog audit, PluginActivation activation, RoleStore roles, PluginLicenses licenses, DeviceViewFactory views, AddOns.IAddOnInstaller addOns, Backup.IServerRestart restart, Core.Tasks.TaskEngine tasks, Updates.UpdateGate updateGate, Core.Uploads.UploadStore uploads, AuthTokenStore tokens, AccessEpochs epochs, DeviceChangeFeed deviceChanges) : Proto.PluginService.PluginServiceBase
+public sealed partial class PluginGrpcService(PluginRegistry registry, CorePluginHost host, AuditLog audit, PluginActivation activation, RoleStore roles, PluginLicenses licenses, DeviceViewFactory views, AddOns.IAddOnInstaller addOns, Backup.IServerRestart restart, Core.Tasks.TaskEngine tasks, Updates.UpdateGate updateGate, Core.Uploads.UploadStore uploads, AuthTokenStore tokens, AccessEpochs epochs) : Proto.PluginService.PluginServiceBase
 {
     /// <summary>The add-on installer (the add-on methods: src/Oadm.Server/AddOns/PluginGrpcService.AddOns.cs).</summary>
     private readonly AddOns.IAddOnInstaller _addOns = addOns;
@@ -408,13 +407,17 @@ public sealed partial class PluginGrpcService(PluginRegistry registry, CorePlugi
             throw new UnauthorizedAccessException("Device access changed. Start a new request.");
         }
 
-        var membershipVersion = deviceChanges.MembershipVersion;
+        var membershipVersion = views.MembershipVersion;
+        if (membershipVersion is null)
+        {
+            throw new UnauthorizedAccessException("Current device membership is unavailable.");
+        }
         if (await admitted.View.FindAsync(deviceId, ct).ConfigureAwait(false) is null)
         {
             throw new DevicesNotAvailableException();
         }
         ct.ThrowIfCancellationRequested();
-        if (deviceChanges.MembershipVersion != membershipVersion
+        if (views.MembershipVersion != membershipVersion
             || epochs.ChangedSince(original.AccessEpoch, original.UserId, original.SessionId, admitted.View.ScopeKey)
             || epochs.RolePermissionsChangedSince(original.AccessEpoch, original.RoleId))
         {
