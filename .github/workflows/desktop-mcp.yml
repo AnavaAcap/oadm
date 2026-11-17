@@ -8,6 +8,7 @@ on:
       - 'src/Oadm.Client/Oadm.Client.csproj'
       - 'packaging/desktop-extension/**'
       - 'tests/DesktopMcp/**'
+      - 'tests/Oadm.Core.Tests/Sites/RoutingRulesTests.cs'
 
 permissions:
   contents: read
