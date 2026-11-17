@@ -446,7 +446,8 @@ public sealed class DiscoveryService : IAsyncDisposable
         var progressLock = new Lock();
         void Report(int part, int percent)
         {
-            int overall;
+            // Sent inside the lock: the parts report from different threads, and an event sent after the lock could
+            // overtake a later, higher one (the bar would step back). Broadcast only writes to the watchers' queues.
             lock (progressLock)
             {
                 if (percent <= parts[part])
@@ -455,18 +456,17 @@ public sealed class DiscoveryService : IAsyncDisposable
                 }
 
                 parts[part] = percent;
-                overall = (int)parts.Average();
+                int overall = (int)parts.Average();
                 if (overall <= session.Progress)
                 {
                     return;
                 }
 
                 session.Progress = overall;
-            }
-
-            if (overall < 100)
-            {
-                session.Broadcast(new DiscoveryEvent(null, overall, false));
+                if (overall < 100)
+                {
+                    session.Broadcast(new DiscoveryEvent(null, overall, false));
+                }
             }
         }
 
