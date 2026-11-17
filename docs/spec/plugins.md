@@ -466,6 +466,11 @@ and plugin dialogs) and the theme resources (styles, colors, `Icon.*` geometries
 talk to devices from the client; payloads go to the server. gRPC errors reach the dialog as `RpcException` (Status.Detail
 is the message).
 
+A plugin can use `IVapixClient.UsesConfiguredCertificatePin` when a request requires the configured device trust
+policy. The built-in HTTPS client reports it only when constructed with a configured pin. Host-approved, device-bound
+certificate renewal still applies. First-use trust, HTTP, older hosts and custom handlers default to false.
+The capability describes the client's trust policy. The request still needs its own authorization and target checks.
+
 `VapixRequestOptions.Timeout` (`HttpRequestOptionsKey<TimeSpan>` "Oadm.RequestTimeout") on a request passed to
 `IVapixClient.SendAsync` overrides the default 15 s timeout for that request (AXIS OS and ACAP uploads use minutes;
 plugins use the SDK constant, never their own key); request bodies are streamed, never buffered.

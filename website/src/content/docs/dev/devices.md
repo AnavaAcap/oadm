@@ -169,6 +169,20 @@ var json = await response.Content.ReadAsStringAsync(ct); // JSON APIs answer err
 - **Errors.** Axis devices often answer errors with HTTP 200 and the error in the body (`# Error`, `"error"`,
   `<GeneralError>`). Check the body.
 
+### Checking configured device trust
+
+Use `UsesConfiguredCertificatePin` when a request requires OADM to apply the configured pin for the device.
+OADM's device-bound certificate renewal policy also applies. The flag is false on HTTP, before first-use trust
+is saved, and on hosts without this capability.
+
+```csharp
+var camera = await caller.Vapix.CreateAsync(deviceId, ct);
+if (!camera.UsesConfiguredCertificatePin)
+{
+    throw new InvalidOperationException("Connect to the device with a configured certificate pin first.");
+}
+```
+
 ### API checks
 
 `Apis` lists the VAPIX APIs a device offers, with versions. The rule: a different major version is a different API,

@@ -7,6 +7,13 @@ public interface IVapixClient
     Uri BaseAddress { get; }
 
     /// <summary>
+    /// True when this HTTPS client applies a configured certificate pin to its connection.
+    /// The host may also accept a certificate renewal through its device-bound trust policy.
+    /// False for first-use trust, HTTP, and hosts without this capability.
+    /// </summary>
+    bool UsesConfiguredCertificatePin => false;
+
+    /// <summary>
     /// True when OADM may send Basic login over plain HTTP to this device (the server setting "Allow Basic login over HTTP"
     /// in Settings > Security); Digest stays preferred. A plugin that switches a device to HTTP uses it to know whether
     /// OADM can still log in to a device that accepts only Basic. False for hosts without it.

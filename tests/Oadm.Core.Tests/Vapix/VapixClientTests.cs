@@ -17,6 +17,31 @@ public class VapixClientTests
         return new VapixClient(baseAddress ?? HttpsBase, handler, pinning);
     }
 
+    [Theory]
+    [InlineData("https", true, true)]
+    [InlineData("https", false, false)]
+    [InlineData("http", true, false)]
+    public void ReportsConfiguredPinOnlyForTheHttpsHandler(string scheme, bool configured, bool expected)
+    {
+        using var client = VapixClient.Create(new VapixConnectionOptions
+        {
+            Scheme = scheme,
+            Address = "192.0.2.10",
+            PinnedCertificateFingerprint = configured ? new string('A', 64) : null,
+        });
+
+        Assert.Equal(expected, client.UsesConfiguredCertificatePin);
+    }
+
+    [Fact]
+    public void CustomHandlerDoesNotReportThatItAppliesThePin()
+    {
+        var handler = new FakeHttpMessageHandler((_, _) => new HttpResponseMessage(HttpStatusCode.OK));
+        using var client = Client(handler, pinning: new CertificatePinning(new string('A', 64)));
+
+        Assert.False(client.UsesConfiguredCertificatePin);
+    }
+
     [Fact]
     public async Task GetBasicDeviceInfoPostsGetAllProperties()
     {
