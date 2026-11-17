@@ -212,6 +212,14 @@ public sealed class AssistantDocsLookupTests
     }
 
     [Fact]
+    public void AnthropicGetsTheWebToolsOfTheCurrentModels()
+    {
+        var types = AssistantDocsLookup.ToolsFor(AssistantTexts.Anthropic)
+            .Select(t => t.GetService<Anthropic.Models.Messages.ToolUnion>()!.Json.GetProperty("type").GetString()).ToList();
+        Assert.Equal(["web_search_20260209", "web_fetch_20260209"], types);
+    }
+
+    [Fact]
     public void TheChatKeepsTheTextAndOadmsCallsOfALookupNeverTheProvidersSteps()
     {
         List<ChatMessage> turn =

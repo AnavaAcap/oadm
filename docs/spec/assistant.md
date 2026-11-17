@@ -239,8 +239,8 @@ online. Code: `Assistant/AssistantDocsLookup` (server), `AssistantDocsOfferItem`
   support page, the manual, AXIS OS release notes, tracks, knowledge base, hardening guide, security advisories, VAPIX,
   ACAP, find and compare, warranty), so the model goes straight to the page. The answers before and after
   it never have them. The provider's own search steps are not kept in the chat (`AssistantChats.WithoutWebTools`).
-- **Providers**: Anthropic: the server tools `web_search_20250305` and `web_fetch_20250910` with `allowed_domains`
-  (`Anthropic` SDK: `new ToolUnion(new WebSearchTool20250305 { AllowedDomains })` and `WebFetchTool20250910`, passed as
+- **Providers**: Anthropic: the server tools `web_search_20260209` and `web_fetch_20260209` (with dynamic filtering; Claude Opus 4.6, Sonnet 4.6 and newer models) with `allowed_domains`
+  (`Anthropic` SDK: `new ToolUnion(new WebSearchTool20260209 { AllowedDomains })` and `WebFetchTool20260209`, passed as
   `AsAITool()`); a read adds at most 20,000 tokens of a page (`max_content_tokens`, `AssistantDocsLookup.MaxContentTokens`;
   the release notes alone are about 80,000). OpenAI's web search has no such limit. OpenAI: the Responses API's web search with its domain filter (`ResponseTool.CreateWebSearchTool(filters:
   WebSearchToolFilters { AllowedDomains })`; the lookup answer uses `GetResponsesClient().AsIChatClient(model)`, every other

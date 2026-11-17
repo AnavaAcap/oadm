@@ -74,8 +74,8 @@ internal static class AssistantDocsLookup
         {
             AssistantTexts.Anthropic =>
             [
-                new ToolUnion(new WebSearchTool20250305 { AllowedDomains = domains, MaxUses = MaxUses }).AsAITool(),
-                new ToolUnion(new WebFetchTool20250910 { AllowedDomains = domains, MaxUses = MaxUses, MaxContentTokens = MaxContentTokens }).AsAITool(),
+                new ToolUnion(new WebSearchTool20260209 { AllowedDomains = domains, MaxUses = MaxUses }).AsAITool(),
+                new ToolUnion(new WebFetchTool20260209 { AllowedDomains = domains, MaxUses = MaxUses, MaxContentTokens = MaxContentTokens }).AsAITool(),
             ],
             AssistantTexts.OpenAi => [OpenAiSearch(domains)],
             _ => [],
