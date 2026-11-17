@@ -129,6 +129,9 @@ public sealed partial class VapixClient : IVapixClient, IDisposable
 
     public Uri BaseAddress { get; }
 
+    /// <inheritdoc />
+    public bool UsesConfiguredCertificatePin { get; private init; }
+
     /// <summary>Basic login may go over plain HTTP (<see cref="VapixConnectionOptions.AllowBasicOverHttp"/>).</summary>
     public bool AllowsBasicOverHttp { get; init; }
 
@@ -174,6 +177,7 @@ public sealed partial class VapixClient : IVapixClient, IDisposable
             Route = options.Route,
             Router = router,
             AllowsBasicOverHttp = options.AllowBasicOverHttp,
+            UsesConfiguredCertificatePin = baseAddress.Scheme == Uri.UriSchemeHttps && pinning.PinnedFingerprint is not null,
         };
         if (!options.Route.IsLocal)
         {
