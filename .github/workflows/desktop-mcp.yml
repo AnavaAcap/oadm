@@ -1,0 +1,53 @@
+name: desktop MCP
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/desktop-mcp.yml'
+      - 'src/Oadm.McpBridge/**'
+      - 'src/Oadm.Client/Oadm.Client.csproj'
+      - 'packaging/desktop-extension/**'
+      - 'tests/DesktopMcp/**'
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          global-json-file: global.json
+      - name: Exercise the packaged bridge on Windows
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
+          $root = Join-Path $env:RUNNER_TEMP 'oadm-desktop-mcp'
+          New-Item -ItemType Directory $root | Out-Null
+          $serverZip = Join-Path $root 'server.zip'
+          Invoke-WebRequest -Uri 'https://github.com/Cacsjep/oadm/releases/download/v5.2.0-rc.2/OADM-Server-5.2.0-rc.2-win-x64.zip' -OutFile $serverZip
+          if ((Get-FileHash $serverZip -Algorithm SHA256).Hash -ne '35ab51efc87848fdc3fe0668ea75ad9ff400711b05d07ce48079634fee4a3161') {
+            throw 'Unexpected OADM Server release bytes.'
+          }
+          Expand-Archive -LiteralPath $serverZip -DestinationPath "$root/server"
+          $server = @(Get-ChildItem "$root/server" -Recurse -Filter Oadm.Server.exe)
+          if ($server.Count -ne 1) { throw 'Expected exactly one OADM server executable.' }
+          dotnet publish src/Oadm.Client -c Release -r win-x64 --self-contained -p:PublishSingleFile=true -o "$root/client"
+          Copy-Item "$root/client/OADM.mcpb" "$root/extension.zip"
+          Expand-Archive -LiteralPath "$root/extension.zip" -DestinationPath "$root/extension"
+          $manifest = Get-Content "$root/extension/manifest.json" -Raw | ConvertFrom-Json
+          if (!$manifest.user_config.access_key.sensitive -or !$manifest.user_config.access_key.required) {
+            throw 'The packaged access key field must use secure storage.'
+          }
+          python -m venv "$root/python"
+          $python = "$root/python/Scripts/python.exe"
+          & $python -m pip install grpcio==1.78.0 grpcio-tools==1.78.0 protobuf==6.33.5
+          $include = & $python -c "import grpc_tools, pathlib; print(pathlib.Path(grpc_tools.__file__).parent / '_proto')"
+          & $python -m grpc_tools.protoc --include_imports "--descriptor_set_out=$root/contracts.pb" -I src/Oadm.Contracts "-I$include" Protos/auth.proto Protos/mcp.proto Protos/devices.proto
+          & $python tests/DesktopMcp/verify_bridge.py $server[0].FullName "$root/extension/Oadm.McpBridge.exe" "$root/contracts.pb"
