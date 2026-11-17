@@ -554,7 +554,7 @@ public sealed partial class AssistantChats
 
     /// <summary>
     /// The provider's web tools of a lookup answer as tool lines: "Looking on axis.com" at the first search or read, the
-    /// chip "axis.com", and a failed line when the provider could not reach the docs (no internet, the search failed).
+    /// chip "axis.com", and a plain line when the provider reports a search or read as failed (the answer goes on).
     /// </summary>
     private static async Task WebLinesAsync(ChatResponseUpdate update, RoundState round, Func<Proto.AssistantEvent, Task> emit)
     {
@@ -570,7 +570,7 @@ public sealed partial class AssistantChats
                 && result.Outputs is { Count: > 0 } outputs && outputs.All(o => o is ErrorContent))
             {
                 round.WebFailedShown = true;
-                await emit(Line(AssistantTexts.DocsNotReached, failed: true)).ConfigureAwait(false);
+                await emit(Line(AssistantTexts.DocsPageNotRead, failed: false)).ConfigureAwait(false);
             }
         }
     }

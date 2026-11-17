@@ -82,8 +82,14 @@ public static class AssistantTexts
     /// <summary>The one line of a provider that cannot look online (Google Gemini, Ollama, OpenAI-compatible).</summary>
     public static string CannotLookOnline(string? provider) => $"{ProviderName(provider)} cannot look online, so axis.com cannot be read here.";
 
-    /// <summary>A tool line: the lookup could not reach the Axis docs (no internet, the provider's search failed).</summary>
+    /// <summary>The end of a lookup answer whose provider cannot be reached at all (the server has no way out).</summary>
     public const string DocsNotReached = "axis.com could not be read. The server may have no internet.";
+
+    /// <summary>
+    /// A plain tool line: the provider reports one search or read on axis.com as failed (its own servers read the pages, so
+    /// this never means the server has no internet; the answer says what it could not read).
+    /// </summary>
+    public const string DocsPageNotRead = "A page on axis.com could not be read.";
 
     /// <summary>A tool line while the provider searches or reads the Axis docs.</summary>
     public const string LookingInDocs = "Looking on axis.com";

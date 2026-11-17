@@ -21,6 +21,7 @@ Each entry is one short line in plain words (what the user gets, not how); no ne
 ### Fixed
 
 - Assistant: Look up online can be clicked, and Anthropic no longer answers with an error after the offer, during the lookup or after many steps.
+- Assistant: a page Look up online cannot read no longer says the server may have no internet.
 
 ## [5.1.0] - 2026-11-16
 

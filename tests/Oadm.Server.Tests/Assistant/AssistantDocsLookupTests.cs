@@ -165,7 +165,7 @@ public sealed class AssistantDocsLookupTests
     }
 
     [Fact]
-    public async Task ADocsReadThatFailsIsAFailedLine()
+    public async Task ADocsReadThatFailsIsAPlainLineNeverNoInternet()
     {
         await using var server = await AssistantTestServer.StartAsync();
         server.Model.Call((AssistantDocsLookup.OfferName, Topic())).Say("Shall I?");
@@ -173,7 +173,8 @@ public sealed class AssistantDocsLookupTests
         var failed = new WebSearchToolResultContent("srv-1") { Outputs = [new ErrorContent(null) { ErrorCode = "unavailable" }] };
         server.Model.Stream(new WebSearchToolCallContent("srv-1"), failed, new TextContent("The Axis docs could not be read."));
         var events = await server.ChatAsync(AssistantTexts.LookUpMessage, docsOffer: offer.OfferId);
-        Assert.Contains(events, e => e.KindCase == Proto.AssistantEvent.KindOneofCase.Tool && e.Tool.Failed && e.Tool.Text == AssistantTexts.DocsNotReached);
+        Assert.Contains(events, e => e.KindCase == Proto.AssistantEvent.KindOneofCase.Tool && !e.Tool.Failed && e.Tool.Text == AssistantTexts.DocsPageNotRead);
+        Assert.DoesNotContain(events, e => e.KindCase == Proto.AssistantEvent.KindOneofCase.Tool && e.Tool.Failed);
     }
 
     [Fact]
