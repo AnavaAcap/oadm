@@ -41,8 +41,9 @@ public interface ICallContext
 
     /// <summary>
     /// Revalidates the interactive session, permission and target immediately before a device write.
-    /// Call after preparing the write, without further preparation after this check. Refuses on hosts or callers
-    /// that cannot provide current authorization. A completed dispatch may still need reconciliation.
+    /// Complete all preparation before calling this method, then initiate the write without another asynchronous step.
+    /// The check admits a write based on current access. It does not hold an authorization lock or cancel a dispatched request.
+    /// Hosts or callers that cannot provide current authorization refuse the check.
     /// </summary>
     Task RequireCurrentDeviceAccessAsync(string permission, Guid deviceId, CancellationToken ct) =>
         throw new UnauthorizedAccessException("Current device authorization is unavailable.");
