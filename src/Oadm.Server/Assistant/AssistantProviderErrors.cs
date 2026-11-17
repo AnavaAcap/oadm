@@ -1,5 +1,6 @@
 using System.Net;
 using System.Reflection;
+using System.Text.Json;
 
 namespace Oadm.Server.Assistant;
 
@@ -38,7 +39,7 @@ internal static class AssistantProviderErrors
             return Unreachable;
         }
 
-        var text = exception.Message.Split('\n', 2)[0].Trim();
+        var text = DetailOf(exception) ?? exception.Message.Split('\n', 2)[0].Trim();
         if (!string.IsNullOrEmpty(apiKey))
         {
             text = text.Replace(apiKey, "***", StringComparison.Ordinal);
@@ -89,6 +90,38 @@ internal static class AssistantProviderErrors
                     case HttpStatusCode http:
                         return (int)http;
                 }
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// The provider's own reason of a refused request: the Anthropic SDK keeps it in <c>ResponseBody</c>
+    /// (<c>{"error":{"message":"..."}}</c>) and its message says only "Status Code: BadRequest".
+    /// </summary>
+    private static string? DetailOf(Exception exception)
+    {
+        foreach (var e in Chain(exception))
+        {
+            if (e.GetType().GetProperty("ResponseBody", BindingFlags.Public | BindingFlags.Instance)?.GetValue(e) is not string { Length: > 0 } body)
+            {
+                continue;
+            }
+
+            try
+            {
+                using var json = JsonDocument.Parse(body);
+                if (json.RootElement.ValueKind == JsonValueKind.Object
+                    && json.RootElement.TryGetProperty("error", out var error) && error.ValueKind == JsonValueKind.Object
+                    && error.TryGetProperty("message", out var message) && message.GetString() is { Length: > 0 } text)
+                {
+                    return text.Split('\n', 2)[0].Trim();
+                }
+            }
+            catch (JsonException)
+            {
+                // not the provider's JSON: the exception's own message
             }
         }
 
