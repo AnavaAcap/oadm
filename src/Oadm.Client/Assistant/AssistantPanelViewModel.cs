@@ -266,7 +266,7 @@ public sealed partial class AssistantPanelViewModel : ObservableObject
 
     /// <summary>An answer streams: Stop instead of Send.</summary>
     [ObservableProperty]
-    [NotifyCanExecuteChangedFor(nameof(SendCommand), nameof(StopCommand), nameof(SendSuggestionCommand))]
+    [NotifyCanExecuteChangedFor(nameof(SendCommand), nameof(StopCommand), nameof(SendSuggestionCommand), nameof(LookUpCommand))]
     [NotifyPropertyChangedFor(nameof(SendTip))]
     [NotifyCanExecuteChangedFor(nameof(RetryCommand), nameof(EditCommand))]
     public partial bool IsStreaming { get; private set; }
@@ -274,7 +274,7 @@ public sealed partial class AssistantPanelViewModel : ObservableObject
     partial void OnIsStreamingChanged(bool value) => UpdateLastActions();
 
     [ObservableProperty]
-    [NotifyCanExecuteChangedFor(nameof(SendCommand), nameof(AttachFileCommand), nameof(SendSuggestionCommand), nameof(RetryCommand))]
+    [NotifyCanExecuteChangedFor(nameof(SendCommand), nameof(AttachFileCommand), nameof(SendSuggestionCommand), nameof(LookUpCommand), nameof(RetryCommand))]
     [NotifyPropertyChangedFor(nameof(SendTip))]
     public partial bool IsUploading { get; private set; }
 
@@ -301,13 +301,13 @@ public sealed partial class AssistantPanelViewModel : ObservableObject
     /// <summary>ListModels runs: a ring in place of the picker.</summary>
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(SendTip))]
-    [NotifyCanExecuteChangedFor(nameof(SendCommand), nameof(SendSuggestionCommand), nameof(RetryCommand))]
+    [NotifyCanExecuteChangedFor(nameof(SendCommand), nameof(SendSuggestionCommand), nameof(LookUpCommand), nameof(RetryCommand))]
     public partial bool IsLoadingModels { get; private set; }
 
     /// <summary>The model every message carries; kept per user on this client. Changing it keeps the conversation.</summary>
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(SendTip))]
-    [NotifyCanExecuteChangedFor(nameof(SendCommand), nameof(SendSuggestionCommand), nameof(RetryCommand))]
+    [NotifyCanExecuteChangedFor(nameof(SendCommand), nameof(SendSuggestionCommand), nameof(LookUpCommand), nameof(RetryCommand))]
     public partial string Model { get; set; } = string.Empty;
 
     /// <summary>A problem of the model, directly below the picker ("Choose a model.", the server's refusal, the list's error).</summary>

@@ -18,6 +18,10 @@ Each entry is one short line in plain words (what the user gets, not how); no ne
 - Assistant: Look up online reads all of axis.com, also product pages, datasheets and security advisories.
 - Assistant: the answer shows above its table or plan.
 
+### Fixed
+
+- Assistant: Look up online can be clicked, and Anthropic no longer answers with an error after the offer or after many steps.
+
 ## [5.1.0] - 2026-11-16
 
 ### Added

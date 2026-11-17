@@ -367,7 +367,7 @@ public sealed class AssistantChatTests
         var results = server.Model.Requests[2].Results().Values.ToList();
         Assert.Equal(5, results.Count(r => r["error"]?.GetValue<string>() == AssistantTexts.ToolLimit));
         Assert.Equal(ChatToolMode.None, server.Model.Requests[2].Options!.ToolMode);
-        Assert.Empty(server.Model.Requests[2].Tools);
+        Assert.Equal(server.Model.Requests[0].Tools, server.Model.Requests[2].Tools); // declared, never dropped
         Assert.Equal("Enough.", AssistantTestServer.TextOf(events));
     }
 

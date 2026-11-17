@@ -59,7 +59,8 @@ public sealed class AssistantDocsLookupTests
         Assert.Equal(2, first.Count);
         Assert.All(first, r => Assert.DoesNotContain(r.Tools, WebTools.Contains));
         Assert.Contains("Stop here", Assert.Single(first[1].Results()).Value["note"]!.GetValue<string>(), StringComparison.Ordinal);
-        Assert.Empty(first[1].Tools);
+        Assert.Equal(ChatToolMode.None, first[1].Options!.ToolMode);
+        Assert.Equal(first[0].Tools, first[1].Tools); // declared, never dropped: Anthropic refuses tool calls without tools
         Assert.All(server.Providers.Connections, c => Assert.False(c.Online));
 
         // Look up online: this answer, with all its rounds, carries the web tools of the two domains.

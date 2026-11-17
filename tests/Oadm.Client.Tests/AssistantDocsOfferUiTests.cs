@@ -40,8 +40,12 @@ public sealed class AssistantDocsOfferUiTests
 
             api.AssistantScript = (_, ct) => Script([Offer("offer-1"), new AssistantEvent { Text = "OADM has no function for this." }], ct);
             panel.Draft = "Turn the privacy mask on";
+            var asked = 0;
+            panel.LookUpCommand.CanExecuteChanged += (_, _) => asked++;
             await panel.SendCommand.ExecuteAsync(null);
             Pump();
+            // The card arrives while the answer streams: its button must ask again once the answer ends, or it stays dimmed.
+            Assert.True(asked >= 2);
 
             var offer = panel.Items.OfType<AssistantDocsOfferItem>().Single();
             Assert.True(offer.IsReady);

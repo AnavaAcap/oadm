@@ -367,7 +367,8 @@ public sealed partial class AssistantChats
                 var options = new ChatOptions
                 {
                     MaxOutputTokens = AssistantProviders.MaxOutputTokens,
-                    Tools = round.ToolsOff ? null : [.. declarations],
+                    // The tools stay declared once off: Anthropic refuses a history with tool calls and no tools (400).
+                    Tools = [.. declarations],
                     ToolMode = round.ToolsOff ? ChatToolMode.None : ChatToolMode.Auto,
                 };
                 var updates = new List<ChatResponseUpdate>();

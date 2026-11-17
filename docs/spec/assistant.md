@@ -225,7 +225,7 @@ online. Code: `Assistant/AssistantDocsLookup` (server), `AssistantDocsOfferItem`
   tool registry, so MCP agents never get it (their skill says: ask the user, then read axis.com with their own
   web access). It is offered in every answer except the lookup answer itself. A call adds an offer to the chat
   (`AssistantConversation.DocsOffers`: id, topic, 10 minutes), sends `AssistantEvent.docs_offer` and tells the model to
-  stop and wait; the rest of that answer has no tools; a second call in the same answer shows no second card.
+  stop and wait; the rest of that answer may call no tool (the tools stay declared with the tool choice none: Anthropic refuses tool calls in the history without tools); a second call in the same answer shows no second card.
 - **The card** (`c:ResultCard`, globe icon, title "axis.com", the topic as subtitle): "OADM has no function for this.
   Should I look it up on axis.com?", **Not now** (secondary) and **Look up online** (the panel's one accent
   button while it waits, like Run; the send arrow is quiet). Afterwards a neutral status "Looked up online." or "Not looked
@@ -311,7 +311,7 @@ access key ("The assistant did this too often. Wait a minute."), camera pictures
 channel ("Too many pictures. Wait a minute."); a Run is the user's click and counts against neither; the daily limit
 counts each message's estimate at its start and settles it at its end; a Stop sent just before an answer began stops it;
 OADM's own failure in a tool is a failed tool line ("The call failed. Try again."), never told as the provider's; at most **Steps per answer**
-tool calls per message (default 20, then the model must answer without tools); tool answers at most 32 KB (the tools' own
+tool calls per message (default 20, then the model must answer without calling one); tool answers at most 32 KB (the tools' own
 limit); the model's context is cut from the oldest messages when it grows too long (older turns are dropped, and
 within one message the older tool answers are shortened to 1,500 characters while the newest stays whole); a provider timeout of **Answer time** (default 120 s) per
 answer with all its rounds ("The provider did not answer. Try again."), 30 s for Test; a message at most 8,000
